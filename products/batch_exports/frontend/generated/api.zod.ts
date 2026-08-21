@@ -22,6 +22,11 @@ export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsCreateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -320,6 +325,97 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault)
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -624,6 +720,11 @@ export const batchExportsUpdateBodyDestinationOneFiveConfigFileFormatDefault = `
 export const batchExportsUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsUpdateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsUpdateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsUpdateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsUpdateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -922,6 +1023,97 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault)
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -979,6 +1171,11 @@ export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefa
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -1279,6 +1476,99 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -1341,6 +1631,11 @@ export const batchExportsPauseCreateBodyDestinationOneConfigOneFiveFileFormatDef
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsPauseCreateBodyOffsetDayMin = 0
 export const batchExportsPauseCreateBodyOffsetDayMax = 6
 
@@ -1601,20 +1896,102 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsPauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1681,6 +2058,11 @@ export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFiveFileFor
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsRunTestStepCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepCreateBodyOffsetDayMax = 6
 
@@ -1957,20 +2339,104 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightTableNameDefault
+                                    )
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2040,6 +2506,11 @@ export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFiveFileFormatD
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsUnpauseCreateBodyOffsetDayMin = 0
 export const batchExportsUnpauseCreateBodyOffsetDayMax = 6
 
@@ -2304,20 +2775,102 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2384,6 +2937,11 @@ export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFiveFile
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMax = 6
 
@@ -2664,20 +3222,110 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightSchemaDefault
+                                    )
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightTableNameDefault
+                                    )
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPortDefault
+                                    )
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightModeDefault
+                                    )
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod

@@ -689,6 +689,8 @@ SPECTACULAR_SETTINGS = {
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "PropertyGroupOperator": ["AND", "OR"],
+        # `mode` is a generic field name; name the Redshift batch-export mode set explicitly.
+        "RedshiftExportModeEnum": ["INSERT", "COPY"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
