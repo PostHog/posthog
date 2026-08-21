@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.sour
     GITEA_WEBHOOK_RESOURCE_MAP,
     GiteaSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source"
 
@@ -24,9 +23,6 @@ class TestGiteaSource:
         self.config = GiteaSourceConfig(
             base_url="https://gitea.example.com", access_token="tok", repository="owner/repo"
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITEA
 
     def test_get_source_config(self):
         config = self.source.get_source_config

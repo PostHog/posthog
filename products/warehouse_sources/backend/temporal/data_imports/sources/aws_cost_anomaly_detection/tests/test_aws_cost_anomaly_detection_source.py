@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostanomalydetection import (
     AwsCostAnomalyDetectionSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -54,9 +53,6 @@ class TestAwsCostAnomalyDetectionSource:
             aws_secret_access_key="secret",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSCOSTANOMALYDETECTION
 
     def test_the_form_asks_only_for_iam_credentials(self) -> None:
         # Cost Anomaly Detection is global and always signed for us-east-1, so a region field

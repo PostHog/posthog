@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
     BraintreeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBraintreeSource:
@@ -19,9 +18,6 @@ class TestBraintreeSource:
         self.source = BraintreeSource()
         self.team_id = 123
         self.config = BraintreeSourceConfig(environment="production", public_key="pub", private_key="priv")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BRAINTREE
 
     @pytest.mark.parametrize(
         "observed_error",

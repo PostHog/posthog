@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.source import NewYorkTimesSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "KEY", article_search_query: str | None = None) -> NewYorkTimesSourceConfig:
@@ -20,9 +19,6 @@ class TestNewYorkTimesSource:
     def setup_method(self) -> None:
         self.source = NewYorkTimesSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NEWYORKTIMES
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static catalog with no I/O, so the public docs table list is safe.

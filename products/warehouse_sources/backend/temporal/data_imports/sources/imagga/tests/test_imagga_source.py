@@ -11,7 +11,6 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestImaggaSource:
@@ -19,9 +18,6 @@ class TestImaggaSource:
         self.source = ImaggaSource()
         self.team_id = 123
         self.config = ImaggaSourceConfig(api_key="acc_test", api_secret="secret_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.IMAGGA
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

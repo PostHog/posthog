@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.avalara import (
     AvalaraSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _FANOUT_ENDPOINTS = {"Transactions", "Nexus", "Customers", "ExemptionCertificates"}
 
@@ -18,9 +17,6 @@ class TestAvalaraSource:
         self.source = AvalaraSource()
         self.team_id = 123
         self.config = AvalaraSourceConfig(account_id="12345", license_key="key", environment="production")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AVALARA
 
     @parameterized.expand(
         [

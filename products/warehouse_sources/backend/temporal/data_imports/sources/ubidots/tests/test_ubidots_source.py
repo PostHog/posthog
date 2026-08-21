@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import ENDPOINTS, VALUES_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUbidotsSource:
@@ -16,9 +15,6 @@ class TestUbidotsSource:
         self.source = UbidotsSource()
         self.team_id = 123
         self.config = UbidotsSourceConfig(api_token="BBUS-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UBIDOTS
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True

@@ -6,12 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DingConnectSource().source_type == ExternalDataSourceType.DINGCONNECT
 
 
 class TestGetSchemas:

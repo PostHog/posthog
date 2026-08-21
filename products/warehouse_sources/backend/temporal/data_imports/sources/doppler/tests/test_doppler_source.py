@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doppler import (
     DopplerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The activity log is the only endpoint with a usable incremental cursor (append-only,
 # newest-first); everything else is full refresh.
@@ -18,9 +17,6 @@ class TestDopplerSource:
         self.source = DopplerSource()
         self.team_id = 123
         self.config = DopplerSourceConfig(api_token="dp.pt.token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DOPPLER
 
     @pytest.mark.parametrize(
         "observed_error",

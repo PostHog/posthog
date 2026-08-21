@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstoreconnect import (
     AppStoreConnectSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source"
 
@@ -60,9 +59,6 @@ def _input_fields(source: AppStoreConnectSource) -> dict[str, SourceFieldInputCo
 
 
 class TestAppStoreConnectSource:
-    def test_source_type(self) -> None:
-        assert AppStoreConnectSource().source_type == ExternalDataSourceType.APPSTORECONNECT
-
     def test_source_is_visible_and_labelled_beta(self) -> None:
         config = AppStoreConnectSource().get_source_config
 

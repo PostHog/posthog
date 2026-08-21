@@ -9,13 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.source import VantageSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestVantageSourceConfig:
-    def test_source_type(self) -> None:
-        assert VantageSource().source_type == ExternalDataSourceType.VANTAGE
-
     def test_config_has_single_secret_api_key_field(self) -> None:
         # The token is a credential; a non-secret/non-password field would leak it in the UI and API.
         config = VantageSource().get_source_config

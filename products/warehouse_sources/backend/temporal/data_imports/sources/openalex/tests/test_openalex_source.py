@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source import OpenalexSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source"
 
@@ -39,9 +38,6 @@ class TestOpenalexSource:
     def setup_method(self) -> None:
         self.source = OpenalexSource()
         self.config = OpenalexSourceConfig(api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPENALEX
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_only_works_advertises_incremental_sync(self, endpoint: str) -> None:

@@ -5,15 +5,11 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
 
 
 class TestDagsterCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert DagsterCloudSource().source_type == ExternalDataSourceType.DAGSTERCLOUD
-
     def test_config_is_released_alpha_not_hidden(self) -> None:
         config = DagsterCloudSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA

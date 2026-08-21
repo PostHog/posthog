@@ -18,17 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
     GoogleAnalyticsSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
     return GoogleAnalyticsSourceConfig(
         property_id=property_id, google_analytics_integration_id=1, custom_reports=custom_reports
     )
-
-
-def test_source_type():
-    assert GoogleAnalyticsSource().source_type == ExternalDataSourceType.GOOGLEANALYTICS
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():

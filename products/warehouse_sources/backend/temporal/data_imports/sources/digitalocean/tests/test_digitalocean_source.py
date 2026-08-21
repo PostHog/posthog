@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (
     DigitalOceanSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> DigitalOceanSourceConfig:
@@ -16,9 +15,6 @@ def _config() -> DigitalOceanSourceConfig:
 
 
 class TestDigitalOceanSourceConfig:
-    def test_source_type(self) -> None:
-        assert DigitalOceanSource().source_type == ExternalDataSourceType.DIGITALOCEAN
-
     def test_stays_gated_in_alpha(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha until it's validated
         # against a live account; a regression that flips either would expose it prematurely.

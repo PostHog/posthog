@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applovin import (
     AppLovinSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.applovin.source"
 
@@ -26,9 +25,6 @@ class TestAppLovinSource:
         self.source = AppLovinSource()
         self.team_id = 123
         self.config = AppLovinSourceConfig(api_key="report-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPLOVIN
 
     def test_lists_tables_without_credentials(self) -> None:
         # `get_schemas` is a static catalog, so the public docs can render the table list.

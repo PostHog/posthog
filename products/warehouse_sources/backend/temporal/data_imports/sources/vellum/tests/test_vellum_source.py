@@ -7,13 +7,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.source import VellumSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestVellumSourceConfig:
-    def test_source_type(self) -> None:
-        assert VellumSource().source_type == ExternalDataSourceType.VELLUM
-
     def test_single_password_api_key_field(self) -> None:
         # The only credential is an environment-scoped API key; it must be a masked secret so the
         # serializer classifies it as sensitive and never echoes it back.

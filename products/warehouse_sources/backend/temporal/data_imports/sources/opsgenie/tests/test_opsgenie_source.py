@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.source import OpsgenieSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 OPSGENIE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie"
 
@@ -12,9 +12,6 @@ class TestOpsgenieSource:
     def setup_method(self) -> None:
         self.source = OpsgenieSource()
         self.config = MagicMock(api_key="key_123", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPSGENIE
 
     def test_get_schemas_lists_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

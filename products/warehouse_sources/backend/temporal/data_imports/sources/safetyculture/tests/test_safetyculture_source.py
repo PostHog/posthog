@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SafetyCultureSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source import SafetyCultureSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSafetyCultureSource:
@@ -17,9 +16,6 @@ class TestSafetyCultureSource:
         self.source = SafetyCultureSource()
         self.team_id = 123
         self.config = SafetyCultureSourceConfig(api_token="sc-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SAFETYCULTURE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -5,16 +5,10 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mixmax import MixMaxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.source import MixMaxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MixMaxSourceConfig:
     return MixMaxSourceConfig(api_key="tok")
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MixMaxSource().source_type == ExternalDataSourceType.MIXMAX
 
 
 class TestGetSchemas:

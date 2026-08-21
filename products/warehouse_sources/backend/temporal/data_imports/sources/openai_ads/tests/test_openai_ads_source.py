@@ -13,16 +13,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]
 
 
 class TestOpenAIAdsSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAIAdsSource().source_type == ExternalDataSourceType.OPENAIADS
-
     def test_config_is_released_with_single_secret_api_key_field(self) -> None:
         config = OpenAIAdsSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.OPEN_AI_ADS

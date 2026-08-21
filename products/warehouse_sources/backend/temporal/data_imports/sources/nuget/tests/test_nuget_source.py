@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuget import NugetSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.source import NugetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNugetSource:
@@ -12,9 +11,6 @@ class TestNugetSource:
         self.source = NugetSource()
         self.team_id = 123
         self.config = NugetSourceConfig(package_ids="Newtonsoft.Json, Serilog")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.NUGET
 
     def test_get_schemas_sync_modes(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

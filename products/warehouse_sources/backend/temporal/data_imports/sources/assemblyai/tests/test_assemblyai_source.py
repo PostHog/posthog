@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.assemblyai import (
     AssemblyAISourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAssemblyAISource:
@@ -17,9 +16,6 @@ class TestAssemblyAISource:
         self.source = AssemblyAISource()
         self.team_id = 123
         self.config = AssemblyAISourceConfig(api_key="key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ASSEMBLYAI
 
     def test_connection_host_fields_includes_region(self):
         # `region` selects the host the stored API key is sent to, so editing it must re-require the secret.

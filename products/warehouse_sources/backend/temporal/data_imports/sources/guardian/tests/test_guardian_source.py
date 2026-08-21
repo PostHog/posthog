@@ -6,16 +6,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.source import GuardianSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGuardianSource:
     def setup_method(self):
         self.source = GuardianSource()
         self.config = GuardianSourceConfig(api_key="test-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GUARDIAN
 
     def test_only_content_supports_incremental(self):
         # /search is the sole endpoint with a server-side from-date cursor; the reference

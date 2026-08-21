@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tvmaze.source import TVMazeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTVMazeSource:
@@ -14,9 +13,6 @@ class TestTVMazeSource:
         self.source = TVMazeSource()
         self.team_id = 123
         self.config = TVMazeSourceConfig()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TVMAZE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

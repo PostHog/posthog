@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
     AgileCRMSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AgileCRMSourceConfig:
@@ -17,9 +16,6 @@ def _config() -> AgileCRMSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert AgileCRMSource().source_type == ExternalDataSourceType.AGILECRM
-
     def test_domain_is_a_connection_host_field(self) -> None:
         # Retargeting the domain (where the API key is sent) must re-require secrets.
         assert AgileCRMSource().connection_host_fields == ["domain"]

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canny.sour
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canny import CannySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -35,9 +34,6 @@ class TestCannySource:
         self.source = CannySource()
         self.team_id = 123
         self.config = CannySourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CANNY
 
     @pytest.mark.parametrize(
         "expected_key",

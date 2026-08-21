@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SimplesatSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplesat.source import SimplesatSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSimplesatSource:
@@ -15,9 +14,6 @@ class TestSimplesatSource:
         self.source = SimplesatSource()
         self.team_id = 123
         self.config = SimplesatSourceConfig(api_key="ss-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SIMPLESAT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

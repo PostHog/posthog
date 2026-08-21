@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitrise import (
     BitriseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBitriseSource:
@@ -17,9 +16,6 @@ class TestBitriseSource:
         self.source = BitriseSource()
         self.team_id = 123
         self.config = BitriseSourceConfig(api_token="bitrise-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BITRISE
 
     @pytest.mark.parametrize(
         "observed_error",

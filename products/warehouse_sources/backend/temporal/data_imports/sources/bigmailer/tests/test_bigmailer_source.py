@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigmailer import (
     BigMailerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key") -> BigMailerSourceConfig:
@@ -33,11 +32,6 @@ def _inputs(schema_name: str) -> SourceInputs:
         logger=MagicMock(),
         reset_pipeline=False,
     )
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert BigMailerSource().source_type == ExternalDataSourceType.BIGMAILER
 
 
 class TestGetSchemas:

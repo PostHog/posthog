@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoy
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.source import (
     LessAnnoyingCRMSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.source"
 
@@ -21,9 +20,6 @@ class TestLessAnnoyingCRMSource:
         self.source = LessAnnoyingCRMSource()
         self.team_id = 123
         self.config = LessAnnoyingCRMSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LESSANNOYINGCRM
 
     def test_get_schemas_matches_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

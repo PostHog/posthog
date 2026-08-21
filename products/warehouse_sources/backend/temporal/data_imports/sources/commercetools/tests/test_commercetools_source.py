@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.commerceto
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.commercetools import (
     CommercetoolsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCommercetoolsSource:
@@ -19,9 +18,6 @@ class TestCommercetoolsSource:
             client_id="client-id",
             client_secret="client-secret",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.COMMERCETOOLS
 
     def test_connection_host_fields_cover_region_and_project(self):
         assert self.source.connection_host_fields == ["region", "project_key"]

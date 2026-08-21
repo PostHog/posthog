@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_data.source import TwelveDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> TwelveDataSourceConfig:
@@ -46,9 +45,6 @@ def _inputs(
 class TestTwelveDataSource:
     def setup_method(self) -> None:
         self.source = TwelveDataSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TWELVEDATA
 
     def test_source_is_released_as_alpha(self) -> None:
         # unreleasedSource hides the connector from every user — a finished source must not carry it.

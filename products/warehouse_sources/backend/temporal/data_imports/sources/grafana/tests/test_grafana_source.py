@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(selection: Literal["token", "basic"] = "token", **auth_kwargs) -> GrafanaSourceConfig:
@@ -30,9 +29,6 @@ class TestGrafanaSource:
         self.source = GrafanaSource()
         self.team_id = 123
         self.config = _config(token="glsa_secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GRAFANA
 
     @pytest.mark.parametrize("status_code", [429, 503])
     def test_retryable_status_error_matches_retryable_pattern(self, status_code):

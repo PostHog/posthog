@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSavvyCalSource:
@@ -16,9 +15,6 @@ class TestSavvyCalSource:
         self.source = SavvyCalSource()
         self.team_id = 123
         self.config = SavvyCalSourceConfig(api_key="pt_secret_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SAVVYCAL
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret token; the base URL is hardcoded, so there is no non-secret

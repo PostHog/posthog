@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cl
     RUN_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source import PrefectCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Prefect filter model exposes a server-side `after_` time filter with an
 # ascending sort; everything else is full refresh only.
@@ -26,9 +25,6 @@ class TestPrefectCloudSource:
         self.source = PrefectCloudSource()
         self.team_id = 123
         self.config = PrefectCloudSourceConfig(account_id=_ACCOUNT_ID, workspace_id=_WORKSPACE_ID, api_key="pnu_key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PREFECTCLOUD
 
     def test_connection_host_fields_force_secret_reentry_on_workspace_change(self):
         # Both IDs retarget the stored API key, so changing either must require re-entering it.

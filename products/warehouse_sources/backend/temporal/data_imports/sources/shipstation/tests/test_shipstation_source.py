@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipstatio
     V2_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.source import ShipStationSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShipStationSource:
@@ -23,9 +22,6 @@ class TestShipStationSource:
         self.source = ShipStationSource()
         self.team_id = 123
         self.config = ShipStationSourceConfig(api_key="api-key", api_secret="api-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SHIPSTATION
 
     @pytest.mark.parametrize(
         "field_name, required",

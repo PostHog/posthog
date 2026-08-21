@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
     CodecovSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"commits", "coverage_trend"}
 _FULL_REFRESH_ENDPOINTS = {"repos", "branches", "pulls", "flags", "components"}
@@ -17,9 +16,6 @@ class TestCodecovSource:
         self.source = CodecovSource()
         self.team_id = 123
         self.config = CodecovSourceConfig(owner_username="acme", api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CODECOV
 
     def test_connection_host_fields_force_secret_reentry_on_scope_change(self):
         # Retargeting the git provider, owner, or repository allow-list reuses the stored token

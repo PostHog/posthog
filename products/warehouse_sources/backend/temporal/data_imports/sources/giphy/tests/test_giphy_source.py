@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.giphy import GiphySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.source import GiphySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints that need a user-supplied search query (hidden until one is set).
 SEARCH_ENDPOINTS = {"gifs_search", "stickers_search"}
@@ -16,9 +15,6 @@ class TestGiphySource:
         self.team_id = 123
         self.config = GiphySourceConfig(api_key="key", search_query=None)
         self.config_with_query = GiphySourceConfig(api_key="key", search_query="cats")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GIPHY
 
     @pytest.mark.parametrize(
         "observed_error",

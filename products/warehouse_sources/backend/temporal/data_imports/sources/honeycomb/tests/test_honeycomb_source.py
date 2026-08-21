@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.
     HoneycombScope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.source import HoneycombSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str = "datasets") -> SourceInputs:
@@ -38,9 +37,6 @@ class TestHoneycombSource:
     def setup_method(self) -> None:
         self.source = HoneycombSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HONEYCOMB
 
     def test_generated_config_parses_fields(self) -> None:
         # Guards the generated_configs.py wiring: the form fields must map to `api_key` and

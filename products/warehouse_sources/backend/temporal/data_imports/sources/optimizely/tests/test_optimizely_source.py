@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source import OptimizelySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOptimizelySource:
@@ -14,9 +13,6 @@ class TestOptimizelySource:
         self.source = OptimizelySource()
         self.team_id = 123
         self.config = OptimizelySourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPTIMIZELY
 
     def test_non_retryable_errors_match_auth_failures(self):
         non_retryable_errors = self.source.get_non_retryable_errors()

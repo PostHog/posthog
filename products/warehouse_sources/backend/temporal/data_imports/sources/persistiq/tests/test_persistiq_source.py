@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.persistiq.source import PersistIqSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPersistIqSource:
@@ -18,9 +17,6 @@ class TestPersistIqSource:
         self.source = PersistIqSource()
         self.team_id = 123
         self.config = PersistIqSourceConfig(api_key="pq-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PERSISTIQ
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

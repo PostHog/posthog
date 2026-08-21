@@ -7,7 +7,6 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str | None = "key") -> Any:
@@ -17,9 +16,6 @@ def _config(api_key: str | None = "key") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenFDASource().source_type == ExternalDataSourceType.OPENFDA
-
     def test_config_metadata(self) -> None:
         config = OpenFDASource().get_source_config
         assert config.label == "openFDA"

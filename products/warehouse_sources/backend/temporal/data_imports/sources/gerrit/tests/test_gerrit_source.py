@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gerrit import GerritSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.source import GerritSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGerritSource:
@@ -9,9 +8,6 @@ class TestGerritSource:
         self.source = GerritSource()
         self.team_id = 123
         self.config = GerritSourceConfig(host="https://gerrit.example.com", username="bot", http_password="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GERRIT
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog, so the public docs render the table list.

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customerly
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerly import (
     CustomerlySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCustomerlySource:
@@ -17,9 +16,6 @@ class TestCustomerlySource:
         self.source = CustomerlySource()
         self.team_id = 123
         self.config = CustomerlySourceConfig(access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CUSTOMERLY
 
     @pytest.mark.parametrize(
         "observed_error",

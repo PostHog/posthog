@@ -4,16 +4,12 @@ from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.source import OrcaSecuritySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOrcaSecuritySource:
     def setup_method(self):
         self.source = OrcaSecuritySource()
         self.team_id = 42
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ORCASECURITY
 
     def test_source_is_released(self):
         # A finished source must be visible: no unreleasedSource flag, soft ALPHA label.

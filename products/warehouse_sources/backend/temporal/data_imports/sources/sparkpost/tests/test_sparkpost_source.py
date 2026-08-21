@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source import SparkPostSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"events"}
 
@@ -45,9 +44,6 @@ class TestSparkPostSource:
         self.source = SparkPostSource()
         self.team_id = 123
         self.config = SparkPostSourceConfig(api_key="sp-key", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SPARKPOST
 
     def test_region_is_a_connection_host_field(self) -> None:
         # Changing the region must force the API key to be re-entered so it's never sent to a

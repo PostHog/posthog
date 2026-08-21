@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.source import SumoLogicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSumoLogicSource:
@@ -13,9 +12,6 @@ class TestSumoLogicSource:
         self.config = SumoLogicSourceConfig(
             access_id="suAbc", access_key="sk-secret", deployment="eu", search_query="_sourceCategory=prod"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SUMOLOGIC
 
     def test_deployment_is_a_connection_host_field(self) -> None:
         # Changing the deployment must force the secrets to be re-entered so they're never

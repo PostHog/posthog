@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.uservoice.source import UservoiceSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {
     "suggestions",
@@ -28,9 +27,6 @@ class TestUservoiceSource:
         self.source = UservoiceSource()
         self.team_id = 123
         self.config = UservoiceSourceConfig(subdomain="acme", api_key="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USERVOICE
 
     def test_get_source_config(self):
         config = self.source.get_source_config

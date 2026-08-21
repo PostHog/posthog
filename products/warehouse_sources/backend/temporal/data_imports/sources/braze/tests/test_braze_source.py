@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.source import BrazeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braze import BrazeSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 BASE_URL = "https://rest.iad-01.braze.com"
 
@@ -14,9 +13,6 @@ class TestBrazeSource:
         self.source = BrazeSource()
         self.team_id = 123
         self.config = BrazeSourceConfig(api_key="key", url=BASE_URL)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BRAZE
 
     def test_url_is_a_connection_host_field(self):
         # The API key is sent to the host in `url`, so retargeting it must re-require the secret.

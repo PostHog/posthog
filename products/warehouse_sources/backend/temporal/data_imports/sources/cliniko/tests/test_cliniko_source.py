@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cliniko.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cliniko import (
     ClinikoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClinikoSource:
@@ -16,9 +15,6 @@ class TestClinikoSource:
         self.source = ClinikoSource()
         self.team_id = 123
         self.config = ClinikoSourceConfig(api_key="test-key-au1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLINIKO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

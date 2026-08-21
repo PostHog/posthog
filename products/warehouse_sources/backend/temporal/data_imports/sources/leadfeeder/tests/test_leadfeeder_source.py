@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     LEADFEEDER_API_LEGACY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLeadfeederSource:
@@ -20,9 +19,6 @@ class TestLeadfeederSource:
         self.source = LeadfeederSource()
         self.team_id = 123
         self.config = LeadfeederSourceConfig(api_token="token", start_date="2024-01-01")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LEADFEEDER
 
     def test_version_metadata_defaults_to_unified_and_deprecates_legacy(self) -> None:
         # New sources land on the unified Dealfront API; the legacy Token API is advisory-deprecated

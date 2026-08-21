@@ -6,12 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PersonaSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.source import PersonaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestPersonaSourceConfig:
-    def test_source_type(self) -> None:
-        assert PersonaSource().source_type == ExternalDataSourceType.PERSONA
 
 
 class TestPersonaGetSchemas:

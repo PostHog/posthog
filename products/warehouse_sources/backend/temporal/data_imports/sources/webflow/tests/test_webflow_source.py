@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source import WebflowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.source"
 
@@ -37,9 +36,6 @@ def _inputs(schema_name: str = "pages") -> SourceInputs:
 
 
 class TestWebflowSource:
-    def test_source_type(self) -> None:
-        assert WebflowSource().source_type == ExternalDataSourceType.WEBFLOW
-
     def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
         # Webflow returns 409 on /products when the site has no ecommerce; the raised
         # HTTPError message embeds a volatile site id and URL, so we must match on a

@@ -8,7 +8,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sagehr import SageHRSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source import SageHRSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSageHRSource:
@@ -16,9 +15,6 @@ class TestSageHRSource:
         self.source = SageHRSource()
         self.team_id = 123
         self.config = SageHRSourceConfig(subdomain="acme", api_key="sage-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SAGEHR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

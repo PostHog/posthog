@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
     BuildkiteSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BuildkiteSourceConfig:
@@ -24,9 +23,6 @@ class TestBuildkiteSource:
     def setup_method(self) -> None:
         self.source = BuildkiteSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUILDKITE
 
     def test_connection_host_fields_includes_organization(self) -> None:
         # The token is sent to api.buildkite.com against <organization>, so retargeting the

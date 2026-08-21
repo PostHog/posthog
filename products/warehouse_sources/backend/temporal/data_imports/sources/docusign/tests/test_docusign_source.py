@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DocusignAuthTypeConfig,
     DocusignSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.source.validate_docusign_credentials"
@@ -60,9 +59,6 @@ class TestDocusignSource:
     def setup_method(self) -> None:
         self.source = DocusignSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DOCUSIGN
 
     def test_api_version_metadata_pins_what_the_transport_calls(self) -> None:
         assert self.source.supported_versions == ("v2.1",)

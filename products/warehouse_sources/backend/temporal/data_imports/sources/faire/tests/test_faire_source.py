@@ -5,7 +5,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.faire.source import FaireSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.faire import FaireSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Orders", "Products"}
 _FULL_REFRESH_ENDPOINTS = {"Brand"}
@@ -16,9 +15,6 @@ class TestFaireSource:
         self.source = FaireSource()
         self.team_id = 123
         self.config = FaireSourceConfig(api_key="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FAIRE
 
     def test_api_version(self):
         assert self.source.default_version == "v2"

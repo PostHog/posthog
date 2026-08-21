@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AdobeCommerceAuthMethodConfig,
     AdobeCommerceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.source"
 
@@ -55,9 +54,6 @@ class TestAdobeCommerceSource:
         self.source = AdobeCommerceSource()
         self.team_id = 123
         self.config = _token_config()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ADOBECOMMERCE
 
     def test_store_url_is_a_connection_host_field(self) -> None:
         # The token/password is sent to `store_url`, so retargeting it must force a re-entry.

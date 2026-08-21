@@ -5,16 +5,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finage imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.source import FinageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFinageSource:
     def setup_method(self):
         self.source = FinageSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FINAGE
 
     def test_get_schemas_full_refresh_only(self):
         schemas = self.source.get_schemas(self._config(), self.team_id)

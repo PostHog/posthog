@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.s
     TESTRAIL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source import TestrailSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"cases", "runs", "plans", "results"}
 
@@ -21,9 +20,6 @@ class TestTestrailSource:
         self.source = TestrailSource()
         self.team_id = 123
         self.config = TestrailSourceConfig(subdomain="acme", username="qa@acme.com", api_key="testrail-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TESTRAIL
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored API key is sent to `<subdomain>.testrail.io`; without this, an editor could

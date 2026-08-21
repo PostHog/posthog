@@ -2,7 +2,6 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ramp import RampSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.source import RampSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRampSource:
@@ -10,9 +9,6 @@ class TestRampSource:
         self.source = RampSource()
         self.team_id = 123
         self.config = RampSourceConfig(environment="production", client_id="cid", client_secret="sec")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RAMP
 
     def test_environment_is_a_connection_host_field(self):
         # Changing environment retargets where the stored client secret is sent, so it must force

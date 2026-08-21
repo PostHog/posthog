@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.sett
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.source import AdyenSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adyen import AdyenSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adyen.source"
 
@@ -29,9 +28,6 @@ class TestAdyenSource:
             start_date="2026-01-01",
             settlement_report_start_batch=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ADYEN
 
     def test_get_schemas_returns_the_whole_catalog(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

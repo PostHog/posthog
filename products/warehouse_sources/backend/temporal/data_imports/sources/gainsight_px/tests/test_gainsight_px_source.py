@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
     GainsightPxSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGainsightPxSource:
@@ -14,9 +13,6 @@ class TestGainsightPxSource:
         self.source = GainsightPxSource()
         self.team_id = 123
         self.config = GainsightPxSourceConfig(api_key="key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GAINSIGHTPX
 
     @pytest.mark.parametrize(
         "expected_key",

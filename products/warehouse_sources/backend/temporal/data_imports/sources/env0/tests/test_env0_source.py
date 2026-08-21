@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.source import Env0Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEnv0Source:
@@ -12,9 +11,6 @@ class TestEnv0Source:
         self.source = Env0Source()
         self.team_id = 123
         self.config = Env0SourceConfig(api_key_id="key-id", api_key_secret="key-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ENV0
 
     @pytest.mark.parametrize(
         "observed_error",

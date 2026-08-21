@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.source import PipedriveSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPipedriveSource:
@@ -19,9 +18,6 @@ class TestPipedriveSource:
         self.source = PipedriveSource()
         self.team_id = 123
         self.config = PipedriveSourceConfig(company_domain="acme", api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PIPEDRIVE
 
     def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
         # New sources start on v2; v1 stays supported but carries the vendor's sunset date so the

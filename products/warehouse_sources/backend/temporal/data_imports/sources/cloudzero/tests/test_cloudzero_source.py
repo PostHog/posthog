@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.
     CloudzeroSource,
     _parse_group_by,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -41,9 +40,6 @@ class TestParseGroupBy:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert CloudzeroSource().source_type == ExternalDataSourceType.CLOUDZERO
-
     def test_api_version_metadata(self) -> None:
         assert CloudzeroSource.supported_versions == ("v2",)
         assert CloudzeroSource.default_version == "v2"

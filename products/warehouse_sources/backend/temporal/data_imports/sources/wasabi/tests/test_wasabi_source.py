@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.set
     UTILIZATION_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.source import WasabiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWasabiSource:
@@ -15,9 +14,6 @@ class TestWasabiSource:
         self.source = WasabiSource()
         self.team_id = 123
         self.config = WasabiSourceConfig(api_key="wasabi-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WASABI
 
     def test_get_schemas_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

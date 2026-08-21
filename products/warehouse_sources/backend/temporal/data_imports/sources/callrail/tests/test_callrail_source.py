@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.callrail import (
     CallRailSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCallRailSource:
@@ -13,9 +12,6 @@ class TestCallRailSource:
         self.source = CallRailSource()
         self.team_id = 123
         self.config = CallRailSourceConfig(api_key="key", account_id=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CALLRAIL
 
     def test_connection_host_fields_includes_account_id(self) -> None:
         # Changing account_id retargets the stored API key, so editing it must require re-entering secrets.

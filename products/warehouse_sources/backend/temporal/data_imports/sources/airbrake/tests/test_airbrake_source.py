@@ -7,13 +7,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAirbrakeSource:
-    def test_source_type(self) -> None:
-        assert AirbrakeSource().source_type == ExternalDataSourceType.AIRBRAKE
-
     def test_source_is_visible_with_secret_api_key_field(self) -> None:
         config = AirbrakeSource().get_source_config
         # Re-adding unreleasedSource would silently hide the connector from every user.

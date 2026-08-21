@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.se
     GUMROAD_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.source import GumroadSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"sales", "payouts"}
 
@@ -21,9 +20,6 @@ class TestGumroadSource:
         self.source = GumroadSource()
         self.team_id = 123
         self.config = GumroadSourceConfig(access_token="gumroad-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GUMROAD
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

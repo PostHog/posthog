@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
@@ -22,9 +21,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactPartnerSourceClass:
-    def test_source_type(self) -> None:
-        assert ImpactPartnerSource().source_type == ExternalDataSourceType.IMPACTPARTNER
-
     def test_no_unreleased_flag(self) -> None:
         # A finished source ships visible; unreleasedSource must not be set.
         assert ImpactPartnerSource().get_source_config.unreleasedSource is not True

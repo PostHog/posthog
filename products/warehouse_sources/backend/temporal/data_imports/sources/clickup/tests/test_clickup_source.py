@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickup import (
     ClickUpSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClickUpSource:
@@ -13,9 +12,6 @@ class TestClickUpSource:
         self.source = ClickUpSource()
         self.team_id = 123
         self.config = ClickUpSourceConfig(api_key="pk_token", workspace_id="9008123456")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLICKUP
 
     def test_workspace_id_is_a_connection_host_field(self) -> None:
         # Changing the workspace the token targets must re-require the token.

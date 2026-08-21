@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRocketlaneSource:
@@ -18,9 +17,6 @@ class TestRocketlaneSource:
         self.source = RocketlaneSource()
         self.team_id = 123
         self.config = RocketlaneSourceConfig(api_key="rl-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ROCKETLANE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.source import TinyemailSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTinyemailSource:
@@ -15,9 +14,6 @@ class TestTinyemailSource:
         self.source = TinyemailSource()
         self.team_id = 123
         self.config = TinyemailSourceConfig(api_key="tinyemail-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TINYEMAIL
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

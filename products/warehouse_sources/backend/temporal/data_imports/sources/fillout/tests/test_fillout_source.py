@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
     FilloutSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFilloutSource:
@@ -16,9 +15,6 @@ class TestFilloutSource:
         self.source = FilloutSource()
         self.team_id = 123
         self.config = FilloutSourceConfig(api_key="fillout-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FILLOUT
 
     def test_get_schemas_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

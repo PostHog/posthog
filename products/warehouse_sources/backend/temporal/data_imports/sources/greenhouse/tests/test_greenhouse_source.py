@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GreenhouseSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {
     "candidates",
@@ -27,9 +26,6 @@ class TestGreenhouseSource:
         self.source = GreenhouseSource()
         self.team_id = 123
         self.config = GreenhouseSourceConfig(api_key="test_api_key", client_id="cid", client_secret="csecret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GREENHOUSE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

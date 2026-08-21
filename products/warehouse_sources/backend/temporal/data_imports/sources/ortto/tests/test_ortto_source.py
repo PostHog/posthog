@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ortto import OrttoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.source import OrttoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOrttoSource:
@@ -12,9 +11,6 @@ class TestOrttoSource:
         self.source = OrttoSource()
         self.team_id = 123
         self.config = OrttoSourceConfig(api_key="key", region="eu")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ORTTO
 
     @pytest.mark.parametrize(
         "observed_error",

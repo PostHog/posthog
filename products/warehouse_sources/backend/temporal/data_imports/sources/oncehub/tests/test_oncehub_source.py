@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOncehubSource:
@@ -16,9 +15,6 @@ class TestOncehubSource:
         self.source = OncehubSource()
         self.team_id = 123
         self.config = OncehubSourceConfig(api_key="oncehub-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONCEHUB
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

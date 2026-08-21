@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.companycam
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.companycam import (
     CompanycamSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Projects", "Photos", "Videos"}
 _FULL_REFRESH_ENDPOINTS = {"Users", "Tags", "Groups", "Checklists", "ChecklistTemplates"}
@@ -16,9 +15,6 @@ class TestCompanycamSource:
         self.source = CompanycamSource()
         self.team_id = 123
         self.config = CompanycamSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COMPANYCAM
 
     @pytest.mark.parametrize(
         "observed_error",

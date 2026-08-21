@@ -10,16 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerSendSourceConfig:
     return MailerSendSourceConfig.from_dict({"api_token": "mlsn.token"})
-
-
-class TestMailerSendSourceConfig:
-    def test_source_type(self) -> None:
-        assert MailerSendSource().source_type == ExternalDataSourceType.MAILERSEND
 
 
 class TestGetSchemas:

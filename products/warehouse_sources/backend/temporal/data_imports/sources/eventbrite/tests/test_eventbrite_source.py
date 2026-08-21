@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
     EventbriteSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEventbriteSource:
@@ -18,9 +17,6 @@ class TestEventbriteSource:
         self.source = EventbriteSource()
         self.team_id = 123
         self.config = EventbriteSourceConfig(api_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.EVENTBRITE
 
     @pytest.mark.parametrize(
         "expected_key",

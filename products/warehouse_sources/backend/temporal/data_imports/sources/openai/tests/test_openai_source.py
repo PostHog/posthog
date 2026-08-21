@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.source import OpenAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _USAGE_ENDPOINTS = [
     "usage_completions",
@@ -28,11 +27,6 @@ _ENTITY_ENDPOINTS = [
     "project_api_keys",
     "project_rate_limits",
 ]
-
-
-class TestOpenAISourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAISource().source_type == ExternalDataSourceType.OPENAI
 
 
 class TestOpenAISchemas:

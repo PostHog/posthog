@@ -3,13 +3,9 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.platform_sh import AUTH_FAILED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.platform_sh.source import PlatformShSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlatformShSourceConfig:
-    def test_source_type(self) -> None:
-        assert PlatformShSource().source_type == ExternalDataSourceType.PLATFORMSH
-
     def test_platform_is_a_connection_host_field(self) -> None:
         # `platform` retargets which vendor host the stored token is sent to, so changing it must
         # force the editor to re-enter the secret.

@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepgram.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepgram import (
     DeepgramSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(**overrides: Any) -> SourceInputs:
@@ -35,9 +34,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 class TestDeepgramSourceClass:
     def setup_method(self) -> None:
         self.source = DeepgramSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DEEPGRAM
 
     @parameterized.expand(
         [

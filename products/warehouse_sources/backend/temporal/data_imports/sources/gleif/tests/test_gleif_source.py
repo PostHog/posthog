@@ -5,7 +5,6 @@ from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source.validate_gleif_credentials"
@@ -18,9 +17,6 @@ class TestGleifSource:
         self.source = GleifSource()
         self.team_id = 123
         self.config = GleifSourceConfig()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GLEIF
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

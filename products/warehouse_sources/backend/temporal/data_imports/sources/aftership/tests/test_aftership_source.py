@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
     AftershipSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source.check_access"
 AFTERSHIP_SOURCE_PATH = (
@@ -23,9 +22,6 @@ class TestAftershipSource:
         self.source = AftershipSource()
         self.team_id = 123
         self.config = AftershipSourceConfig(api_key="as-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AFTERSHIP
 
     def test_version_pin_matches_the_path_the_code_calls(self) -> None:
         assert self.source.supported_versions == ("2026-07",)

@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.settings import DBT_API_VERSION_V3, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.source import DbtSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dbt import DbtSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDbtSource:
@@ -12,9 +11,6 @@ class TestDbtSource:
         self.source = DbtSource()
         self.team_id = 123
         self.config = DbtSourceConfig(account_id="12345", api_token="dbtc_token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DBT
 
     def test_connection_host_fields_cover_host_determining_fields(self):
         # These fields retarget where the stored token is sent (host and account path); missing one

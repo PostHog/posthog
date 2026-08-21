@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.source import LinearbSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLinearbSource:
@@ -16,9 +15,6 @@ class TestLinearbSource:
         self.source = LinearbSource()
         self.team_id = 123
         self.config = LinearbSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LINEARB
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

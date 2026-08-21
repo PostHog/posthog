@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.set
     LIMITED_RETENTION_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.source import SigNozSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"logs", "traces"}
 
@@ -16,9 +15,6 @@ class TestSigNozSource:
         self.source = SigNozSource()
         self.team_id = 123
         self.config = SigNozSourceConfig(host="example.signoz.io", api_key="signoz-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SIGNOZ
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

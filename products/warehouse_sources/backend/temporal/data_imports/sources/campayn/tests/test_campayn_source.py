@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campayn.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campayn import (
     CampaynSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCampaynSource:
@@ -16,9 +15,6 @@ class TestCampaynSource:
         self.source = CampaynSource()
         self.team_id = 123
         self.config = CampaynSourceConfig(subdomain="acme", api_key="campayn-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CAMPAYN
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

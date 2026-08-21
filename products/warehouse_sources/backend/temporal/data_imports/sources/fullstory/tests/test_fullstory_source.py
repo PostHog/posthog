@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
     FullStorySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFullStorySource:
@@ -13,9 +12,6 @@ class TestFullStorySource:
         self.source = FullStorySource()
         self.team_id = 123
         self.config = FullStorySourceConfig(api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FULLSTORY
 
     @pytest.mark.parametrize(
         "observed_error",

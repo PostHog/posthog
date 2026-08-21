@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     API_VERSION_20240404,
     API_VERSION_20240904,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTeamtailorSource:
@@ -21,9 +20,6 @@ class TestTeamtailorSource:
         self.source = TeamtailorSource()
         self.team_id = 123
         self.config = TeamtailorSourceConfig(api_key="tt-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TEAMTAILOR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

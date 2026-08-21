@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluence
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluence import (
     ConfluenceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestConfluenceSource:
@@ -12,9 +11,6 @@ class TestConfluenceSource:
         self.source = ConfluenceSource()
         self.team_id = 123
         self.config = ConfluenceSourceConfig(subdomain="acme", email="you@example.com", api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CONFLUENCE
 
     def test_connection_host_fields_includes_subdomain(self) -> None:
         # Changing the subdomain retargets where the API token is sent.

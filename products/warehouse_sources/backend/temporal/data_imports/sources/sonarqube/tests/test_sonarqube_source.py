@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source import SonarqubeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"issues"}
 _FULL_REFRESH_ENDPOINTS = {"projects", "metrics", "rules", "users"}
@@ -19,9 +18,6 @@ class TestSonarqubeSource:
         self.source = SonarqubeSource()
         self.team_id = 123
         self.config = SonarqubeSourceConfig(host="https://sonar.example.com", token="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SONARQUBE
 
     def test_get_source_config_is_released_alpha(self):
         # A finished source must be visible (no unreleasedSource) and soft-labeled ALPHA.

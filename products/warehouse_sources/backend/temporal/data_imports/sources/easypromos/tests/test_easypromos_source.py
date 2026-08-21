@@ -10,13 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easypromos import (
     EasypromosSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EasypromosSource().source_type == ExternalDataSourceType.EASYPROMOS
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert EasypromosSource.lists_tables_without_credentials is True

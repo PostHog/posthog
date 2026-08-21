@@ -7,7 +7,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.g2.source.validate_g2_credentials"
 
@@ -17,9 +16,6 @@ class TestG2Source:
         self.source = G2Source()
         self.team_id = 123
         self.config = G2SourceConfig(access_token="token-1", product_id="prod-1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.G2
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

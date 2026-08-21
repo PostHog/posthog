@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import ResendIntegrationAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _api_key_config(api_key: str = "re_test_key") -> ResendSourceConfig:
@@ -28,9 +27,6 @@ class TestResendSource:
         self.source = ResendSource()
         self.team_id = 123
         self.config = _api_key_config()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RESEND
 
     def test_audiences_bad_request_is_non_retryable(self):
         errors = self.source.get_non_retryable_errors()

@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.source import RazorpaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -41,9 +40,6 @@ class TestRazorpaySource:
     def setup_method(self) -> None:
         self.source = RazorpaySource()
         self.config = RazorpaySourceConfig(key_id="rzp_test_key", key_secret="secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RAZORPAY
 
     @pytest.mark.parametrize(
         ("is_valid", "expected_ok"),

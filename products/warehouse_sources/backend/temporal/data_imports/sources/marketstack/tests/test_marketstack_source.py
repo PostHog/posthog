@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TIME_SERIES = {"eod", "intraday", "splits", "dividends"}
 _REFERENCE = {"tickers", "exchanges", "currencies", "timezones"}
@@ -27,9 +26,6 @@ def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Any:
 
 
 class TestMarketstackSource:
-    def test_source_type(self) -> None:
-        assert MarketstackSource().source_type == ExternalDataSourceType.MARKETSTACK
-
     def test_source_config_fields(self) -> None:
         config = MarketstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key", "symbols"]

@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.source import HoorayHRSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHoorayHRSource:
@@ -19,9 +18,6 @@ class TestHoorayHRSource:
         self.source = HoorayHRSource()
         self.team_id = 123
         self.config = HoorayHRSourceConfig(api_key="pk_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HOORAYHR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

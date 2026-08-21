@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source import BluetallySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", tenant_id: str | None = None) -> Any:
@@ -22,9 +21,6 @@ def _config(api_key: str = "key", tenant_id: str | None = None) -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert BluetallySource().source_type == ExternalDataSourceType.BLUETALLY
-
     def test_fields(self) -> None:
         fields = {
             f.name: f for f in BluetallySource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)

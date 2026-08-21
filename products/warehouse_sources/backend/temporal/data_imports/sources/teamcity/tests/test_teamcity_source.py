@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source import TeamcitySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"builds", "changes", "test_occurrences", "problem_occurrences"}
 _FULL_REFRESH_ENDPOINTS = {"projects", "build_types", "agents", "vcs_roots"}
@@ -20,9 +19,6 @@ class TestTeamcitySource:
         self.source = TeamcitySource()
         self.team_id = 123
         self.config = TeamcitySourceConfig(host="https://teamcity.example.com", access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TEAMCITY
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airtable import (
     AirtableSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAirtableSource:
@@ -14,9 +13,6 @@ class TestAirtableSource:
         self.source = AirtableSource()
         self.team_id = 123
         self.config = AirtableSourceConfig(personal_access_token="pat-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AIRTABLE
 
     @pytest.mark.parametrize(
         "observed_error",

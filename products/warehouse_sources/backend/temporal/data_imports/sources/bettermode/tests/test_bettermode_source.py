@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
     BettermodeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBettermodeSource:
@@ -17,9 +16,6 @@ class TestBettermodeSource:
         self.source = BettermodeSource()
         self.team_id = 123
         self.config = BettermodeSourceConfig(region="us", client_id="client", client_secret="secret", network_id="net")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BETTERMODE
 
     def test_connection_host_fields_gate_credential_retargeting(self):
         # Removing either field lets an editor retarget the preserved client secret at a

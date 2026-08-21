@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sigma_comp
     REGION_OPTIONS,
     SigmaComputingSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSigmaComputingSource:
@@ -18,9 +17,6 @@ class TestSigmaComputingSource:
         self.source = SigmaComputingSource()
         self.team_id = 123
         self.config = SigmaComputingSourceConfig(client_id="client-id", client_secret="client-secret", region="gcp_us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SIGMACOMPUTING
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

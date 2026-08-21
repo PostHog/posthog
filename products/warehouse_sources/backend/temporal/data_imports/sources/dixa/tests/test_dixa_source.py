@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.source import DixaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dixa import DixaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDixaSource:
@@ -11,9 +10,6 @@ class TestDixaSource:
         self.source = DixaSource()
         self.team_id = 123
         self.config = DixaSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DIXA
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> JenkinsSourceConfig:
@@ -23,9 +22,6 @@ class TestJenkinsSource:
     def setup_method(self) -> None:
         self.source = JenkinsSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JENKINS
 
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible (no unreleasedSource) and labelled ALPHA.

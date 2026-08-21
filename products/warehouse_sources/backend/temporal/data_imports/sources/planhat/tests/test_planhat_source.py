@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PlanhatSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.planhat.source import PlanhatSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlanhatSource:
@@ -17,9 +16,6 @@ class TestPlanhatSource:
         self.source = PlanhatSource()
         self.team_id = 123
         self.config = PlanhatSourceConfig(api_key="ph-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PLANHAT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

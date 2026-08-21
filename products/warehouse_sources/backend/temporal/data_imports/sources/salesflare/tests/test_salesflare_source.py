@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SalesflareSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.source import SalesflareSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSalesflareSource:
@@ -17,9 +16,6 @@ class TestSalesflareSource:
         self.source = SalesflareSource()
         self.team_id = 123
         self.config = SalesflareSourceConfig(api_key="sf-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SALESFLARE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

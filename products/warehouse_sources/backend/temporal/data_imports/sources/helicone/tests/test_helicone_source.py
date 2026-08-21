@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.s
     USERS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FULL_REFRESH_ENDPOINTS = [SESSIONS_ENDPOINT, USERS_ENDPOINT, PROMPTS_ENDPOINT]
 
@@ -27,9 +26,6 @@ class TestHeliconeSource:
         self.source = HeliconeSource()
         self.team_id = 123
         self.config = HeliconeSourceConfig(api_key="sk-helicone-key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HELICONE
 
     def test_region_is_a_connection_host_field(self):
         # Changing the regional host must force re-entry of the API key (credential retargeting guard).

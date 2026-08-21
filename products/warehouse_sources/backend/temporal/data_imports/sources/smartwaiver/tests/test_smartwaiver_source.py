@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source import SmartwaiverSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints exposing Smartwaiver's server-side `fromDts` timestamp filter.
 _INCREMENTAL_ENDPOINTS = {"waivers": "createdOn", "checkins": "date"}
@@ -20,9 +19,6 @@ class TestSmartwaiverSource:
         self.source = SmartwaiverSource()
         self.team_id = 123
         self.config = SmartwaiverSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SMARTWAIVER
 
     @parameterized.expand(
         [

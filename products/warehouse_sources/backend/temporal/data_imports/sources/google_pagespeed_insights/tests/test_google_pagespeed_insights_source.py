@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pag
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.source import (
     GooglePageSpeedInsightsSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGooglePageSpeedInsightsSource:
@@ -17,9 +16,6 @@ class TestGooglePageSpeedInsightsSource:
         self.source = GooglePageSpeedInsightsSource()
         self.team_id = 123
         self.config = GooglePageSpeedInsightsSourceConfig(api_key="test-key", urls="https://posthog.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GOOGLEPAGESPEEDINSIGHTS
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — must opt in so public docs render the table list.

@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source"
 
@@ -47,9 +46,6 @@ class TestSimilarwebSource:
         self.source = SimilarwebSource()
         self.team_id = 123
         self.config = SimilarwebSourceConfig(api_key="key-123", domains="posthog.com")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SIMILARWEB
 
     def test_get_schemas_covers_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

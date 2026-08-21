@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash import source as upstash_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -39,9 +38,6 @@ class TestUpstashSource:
     def setup_method(self) -> None:
         self.source = UpstashSource()
         self.config = UpstashSourceConfig(email="me@example.com", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UPSTASH
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}

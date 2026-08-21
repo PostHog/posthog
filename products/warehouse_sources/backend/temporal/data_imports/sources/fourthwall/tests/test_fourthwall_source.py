@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fourthwall import (
     FourthwallSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.source.api_client"
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
@@ -32,9 +31,6 @@ class TestFourthwallSource:
         self.source = FourthwallSource()
         self.team_id = 123
         self.config = FourthwallSourceConfig(username="api-user", password="api-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FOURTHWALL
 
     @pytest.mark.parametrize(
         "field_name, expected_type, expected_secret",

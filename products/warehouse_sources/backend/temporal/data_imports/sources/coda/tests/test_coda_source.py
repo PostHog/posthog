@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.source import CodaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coda import CodaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCodaSource:
@@ -11,9 +10,6 @@ class TestCodaSource:
         self.source = CodaSource()
         self.team_id = 123
         self.config = CodaSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CODA
 
     @pytest.mark.parametrize(
         "observed_error",

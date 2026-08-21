@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -37,9 +37,6 @@ class TestVercelSource:
     def setup_method(self) -> None:
         self.source = VercelSource()
         self.config = VercelSourceConfig(access_token="token", team_id=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VERCEL
 
     def test_connection_host_fields_includes_team_id(self) -> None:
         # team_id retargets the stored token at a different Vercel team, so editing it must force

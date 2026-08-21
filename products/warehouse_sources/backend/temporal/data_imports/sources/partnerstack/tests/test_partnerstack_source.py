@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source import PartnerStackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPartnerStackSource:
@@ -18,9 +17,6 @@ class TestPartnerStackSource:
         self.source = PartnerStackSource()
         self.team_id = 123
         self.config = PartnerStackSourceConfig(public_key="pub", private_key="priv")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PARTNERSTACK
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

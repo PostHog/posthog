@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dovetail.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dovetail import (
     DovetailSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDovetailSource:
@@ -14,9 +13,6 @@ class TestDovetailSource:
         self.source = DovetailSource()
         self.team_id = 123
         self.config = DovetailSourceConfig(api_key="dovetail-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DOVETAIL
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

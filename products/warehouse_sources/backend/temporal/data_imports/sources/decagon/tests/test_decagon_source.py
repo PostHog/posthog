@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
     DecagonSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDecagonSource:
@@ -16,9 +15,6 @@ class TestDecagonSource:
         self.source = DecagonSource()
         self.team_id = 123
         self.config = DecagonSourceConfig(api_key="decagon-test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DECAGON
 
     def test_get_schemas_advertises_incremental_but_not_append(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

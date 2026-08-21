@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source import MarketoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.source.validate_marketo_credentials"
@@ -24,9 +23,6 @@ class TestMarketoSource:
             client_secret="client-secret",
             start_date="2024-01-01",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MARKETO
 
     def test_api_docs_url_and_public_table_listing(self) -> None:
         assert self.source.api_docs_url is not None

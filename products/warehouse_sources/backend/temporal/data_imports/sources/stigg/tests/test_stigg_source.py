@@ -5,7 +5,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stigg import StiggSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.source import StiggSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStiggSource:
@@ -13,9 +12,6 @@ class TestStiggSource:
         self.source = StiggSource()
         self.team_id = 123
         self.config = StiggSourceConfig(api_key="stigg-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.STIGG
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

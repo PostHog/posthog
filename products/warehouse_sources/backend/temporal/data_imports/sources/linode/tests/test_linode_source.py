@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config() -> Any:
@@ -18,9 +17,6 @@ class TestLinodeSourceClass:
     def setup_method(self) -> None:
         self.source = LinodeSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LINODE
 
     @parameterized.expand(
         [

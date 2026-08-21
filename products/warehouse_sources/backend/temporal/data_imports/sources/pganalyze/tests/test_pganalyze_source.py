@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.source import PgAnalyzeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPgAnalyzeSource:
@@ -15,9 +14,6 @@ class TestPgAnalyzeSource:
             organization_slug="acme",
             api_url=None,
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PGANALYZE
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

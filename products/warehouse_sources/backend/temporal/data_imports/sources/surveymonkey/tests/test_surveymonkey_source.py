@@ -13,18 +13,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonk
     SurveyMonkeySource,
     _base_url_for,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.source"
 
 
 def _config(access_token: str = "token", data_center: Literal["us", "eu", "ca"] = "us") -> SurveyMonkeySourceConfig:
     return SurveyMonkeySourceConfig(access_token=access_token, data_center=data_center)
-
-
-class TestSurveyMonkeySourceType:
-    def test_source_type(self) -> None:
-        assert SurveyMonkeySource().source_type == ExternalDataSourceType.SURVEYMONKEY
 
 
 class TestBaseUrlFor:

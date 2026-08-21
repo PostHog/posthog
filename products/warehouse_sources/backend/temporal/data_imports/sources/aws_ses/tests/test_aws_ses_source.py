@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses im
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -47,9 +46,6 @@ class TestAwsSesSource:
             aws_region="us-east-1",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSSES
 
     def test_changing_the_region_requires_reentering_the_secrets(self) -> None:
         # The region picks the host the signed request is sent to, so retargeting it must not

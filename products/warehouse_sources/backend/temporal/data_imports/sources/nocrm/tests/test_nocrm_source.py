@@ -5,7 +5,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNoCRMSource:
@@ -13,9 +12,6 @@ class TestNoCRMSource:
         self.source = NoCRMSource()
         self.config = NoCRMSourceConfig(subdomain="acme", api_key="key")
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NOCRM
 
     def test_connection_host_fields_includes_subdomain(self) -> None:
         # Changing the subdomain retargets where the API key is sent, so it must force key re-entry.

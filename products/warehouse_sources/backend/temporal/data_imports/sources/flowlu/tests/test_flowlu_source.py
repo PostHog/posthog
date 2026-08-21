@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source import FlowluSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFlowluSource:
@@ -14,9 +13,6 @@ class TestFlowluSource:
         self.source = FlowluSource()
         self.team_id = 123
         self.config = FlowluSourceConfig(api_key="fl-key", subdomain="acme")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FLOWLU
 
     def test_connection_host_fields_include_subdomain(self) -> None:
         # The API key is sent to the customer-controlled `{subdomain}.flowlu.com` host, so editing

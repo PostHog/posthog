@@ -5,7 +5,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source import LangfuseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLangfuseSource:
@@ -16,9 +15,6 @@ class TestLangfuseSource:
         self.config.host = "https://cloud.langfuse.com"
         self.config.public_key = "pk-lf-key"
         self.config.secret_key = "sk-lf-key"
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LANGFUSE
 
     def test_v1_is_deprecated_advisory_and_default_is_v2(self):
         # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the

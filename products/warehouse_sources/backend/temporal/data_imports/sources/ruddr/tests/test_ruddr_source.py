@@ -7,7 +7,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source import RuddrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRuddrSource:
@@ -15,9 +14,6 @@ class TestRuddrSource:
         self.source = RuddrSource()
         self.team_id = 123
         self.config = RuddrSourceConfig(api_key="ruddr-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RUDDR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

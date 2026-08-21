@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import ENDPOINTS, SQUARE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"payments", "refunds"}
 
@@ -14,9 +13,6 @@ class TestSquareSource:
         self.source = SquareSource()
         self.team_id = 123
         self.config = SquareSourceConfig(access_token="EAAA-test", environment="production")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SQUARE
 
     def test_get_schemas_matches_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

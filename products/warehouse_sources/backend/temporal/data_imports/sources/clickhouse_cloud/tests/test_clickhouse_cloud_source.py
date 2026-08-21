@@ -8,12 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.source import (
     ClickhouseCloudSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestClickhouseCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert ClickhouseCloudSource().source_type == ExternalDataSourceType.CLICKHOUSECLOUD
 
 
 class TestClickhouseCloudSchemas:

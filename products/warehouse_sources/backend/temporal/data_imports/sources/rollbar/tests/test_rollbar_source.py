@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.source import RollbarSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRollbarSource:
@@ -14,9 +13,6 @@ class TestRollbarSource:
         self.source = RollbarSource()
         self.team_id = 123
         self.config = RollbarSourceConfig(access_token="access-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ROLLBAR
 
     @pytest.mark.parametrize(
         "observed_error",

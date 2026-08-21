@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"reviews", "autoqa_reviews", "autoqa_ratings", "csat", "calibration_sessions"}
 FULL_REFRESH_ENDPOINTS = {"users", "workspaces", "quizzes", "scorecards", "disputes"}
@@ -12,9 +11,6 @@ class TestKlausSource:
         self.source = KlausSource()
         self.team_id = 123
         self.config = KlausSourceConfig(subdomain="acme", api_token="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KLAUS
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # Changing the subdomain retargets where the stored token is sent, so it must

@@ -5,7 +5,6 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fly_io.source import FlyIoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flyio import FlyIoSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FlyIoSourceConfig:
@@ -13,9 +12,6 @@ def _config() -> FlyIoSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert FlyIoSource().source_type == ExternalDataSourceType.FLYIO
-
     def test_org_slug_requires_credential_reentry(self) -> None:
         # Changing which org the token points at must re-require the token, so a preserved token
         # can't be retargeted at another org it happens to reach.

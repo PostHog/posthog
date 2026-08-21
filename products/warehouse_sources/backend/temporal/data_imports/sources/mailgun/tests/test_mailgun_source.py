@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.se
     WEBHOOK_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
 
@@ -40,9 +39,6 @@ class TestMailgunSource:
         self.source = MailgunSource()
         self.team_id = 123
         self.config = MailgunSourceConfig(api_key="key-123", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MAILGUN
 
     @pytest.mark.parametrize(
         "observed_error",

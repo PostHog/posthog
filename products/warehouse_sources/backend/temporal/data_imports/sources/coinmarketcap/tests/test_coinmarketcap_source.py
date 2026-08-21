@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
     CoinMarketCapSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinMarketCapSource:
@@ -11,9 +10,6 @@ class TestCoinMarketCapSource:
         self.source = CoinMarketCapSource()
         self.team_id = 123
         self.config = CoinMarketCapSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINMARKETCAP
 
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

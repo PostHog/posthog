@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.source import PrintifySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPrintifySource:
@@ -16,9 +15,6 @@ class TestPrintifySource:
         self.source = PrintifySource()
         self.team_id = 123
         self.config = PrintifySourceConfig(api_key="printify-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PRINTIFY
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no

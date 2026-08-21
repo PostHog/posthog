@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS, MUX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MuxSourceConfig:
@@ -18,9 +17,6 @@ def _config() -> MuxSourceConfig:
 
 
 class TestMuxSourceConfig:
-    def test_source_type(self) -> None:
-        assert MuxSource().source_type == ExternalDataSourceType.MUX
-
     def test_secret_key_is_marked_secret(self) -> None:
         fields = {f.name: f for f in MuxSource().get_source_config.fields}
         secret_field, token_field = fields["secret_key"], fields["access_token_id"]

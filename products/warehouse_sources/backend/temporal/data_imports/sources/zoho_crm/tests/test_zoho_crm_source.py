@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     REFRESH_TOKEN_REJECTED_MESSAGE,
     ZohoCRMResumeConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source"
 
@@ -46,9 +45,6 @@ class TestZohoCRMSource:
         self.source = ZohoCRMSource()
         self.team_id = 123
         self.config = ZohoCRMSourceConfig(region="eu", client_id="cid", client_secret="secret", refresh_token="refresh")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZOHOCRM
 
     def test_api_version_is_pinned_to_what_the_transport_calls(self) -> None:
         assert self.source.supported_versions == ("v8",)

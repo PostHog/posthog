@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMondaySource:
@@ -12,9 +11,6 @@ class TestMondaySource:
         self.source = MondaySource()
         self.team_id = 123
         self.config = MondaySourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MONDAY
 
     @pytest.mark.parametrize(
         "observed_error",

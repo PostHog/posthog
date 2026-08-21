@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fusionauth import (
     FusionAuthSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFusionAuthSource:
@@ -13,9 +12,6 @@ class TestFusionAuthSource:
         self.source = FusionAuthSource()
         self.team_id = 123
         self.config = FusionAuthSourceConfig(base_url="https://auth.example.com", api_key="00token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FUSIONAUTH
 
     def test_connection_host_fields(self):
         assert self.source.connection_host_fields == ["base_url"]

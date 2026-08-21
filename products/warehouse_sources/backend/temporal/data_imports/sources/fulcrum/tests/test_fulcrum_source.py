@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fulcrum import (
     FulcrumSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFulcrumSourceClass:
@@ -19,9 +18,6 @@ class TestFulcrumSourceClass:
         self.source = FulcrumSource()
         self.config = FulcrumSourceConfig(api_token="token")
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FULCRUM
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # lists_tables_without_credentials must expose the static catalog for public docs, with the

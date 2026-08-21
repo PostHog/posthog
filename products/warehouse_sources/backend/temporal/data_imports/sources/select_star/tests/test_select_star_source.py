@@ -1,16 +1,12 @@
 from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.select_star.source import SelectStarSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSelectStarSource:
     def setup_method(self):
         self.source = SelectStarSource()
         self.team_id = 42
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SELECTSTAR
 
     def test_source_is_released(self):
         # A finished source must be visible: no unreleasedSource flag, soft ALPHA label.

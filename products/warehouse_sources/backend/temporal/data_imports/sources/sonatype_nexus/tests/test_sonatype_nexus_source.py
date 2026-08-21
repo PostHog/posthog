@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSonatypeNexusSource:
@@ -14,9 +13,6 @@ class TestSonatypeNexusSource:
         self.source = SonatypeNexusSource()
         self.team_id = 123
         self.config = SonatypeNexusSourceConfig(host="https://nexus.example.com", username="user", password="pass")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SONATYPENEXUS
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored credentials get sent.

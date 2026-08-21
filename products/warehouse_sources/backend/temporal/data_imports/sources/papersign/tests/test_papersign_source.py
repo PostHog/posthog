@@ -10,16 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.papersign.source import PapersignSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "tok") -> PapersignSourceConfig:
     return PapersignSourceConfig(api_token=api_token)
-
-
-class TestPapersignSourceConfig:
-    def test_source_type(self) -> None:
-        assert PapersignSource().source_type == ExternalDataSourceType.PAPERSIGN
 
 
 class TestPapersignSchemas:

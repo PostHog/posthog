@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     MEMORIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source import Mem0Source
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source"
 
@@ -20,9 +19,6 @@ def _config(api_key: str = "m0-test", org_id: str | None = None, project_id: str
 
 
 class TestMem0SourceConfig:
-    def test_source_type(self):
-        assert Mem0Source().source_type == ExternalDataSourceType.MEM0
-
     def test_docs_url_matches_the_doc_slug(self):
         # The website derives the doc slug from docsUrl; a mismatch 404s the docs link.
         assert Mem0Source().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/mem0"

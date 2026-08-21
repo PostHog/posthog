@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shippo.source import ShippoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShippoSource:
@@ -17,9 +16,6 @@ class TestShippoSource:
         self.source = ShippoSource()
         self.team_id = 123
         self.config = ShippoSourceConfig(api_key="shippo_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHIPPO
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no

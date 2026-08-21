@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gong import GongSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gong.source import GongSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGongSource:
@@ -11,9 +10,6 @@ class TestGongSource:
         self.source = GongSource()
         self.team_id = 123
         self.config = GongSourceConfig(access_key="key", access_key_secret="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GONG
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

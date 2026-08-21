@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank
     MAX_INDICATOR_CODES,
     world_bank_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "countries") -> SourceInputs:
@@ -50,9 +49,6 @@ class TestWorldBankSource:
     def setup_method(self) -> None:
         self.source = WorldBankSource()
         self.config = WorldBankSourceConfig(indicator_codes="SP.POP.TOTL\nNY.GDP.PCAP.CD")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WORLDBANK
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.se
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.taboola.source import TaboolaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTaboolaSource:
@@ -17,9 +16,6 @@ class TestTaboolaSource:
         self.source = TaboolaSource()
         self.team_id = 123
         self.config = TaboolaSourceConfig(client_id="cid", client_secret="sec", account_id="acct")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TABOOLA
 
     def test_connection_host_fields_includes_account_id(self):
         assert self.source.connection_host_fields == ["account_id"]

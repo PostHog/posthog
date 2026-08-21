@@ -4,7 +4,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.source import CensusSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.census import CensusSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCensusSource:
@@ -12,9 +11,6 @@ class TestCensusSource:
         self.source = CensusSource()
         self.team_id = 123
         self.config = CensusSourceConfig(api_key="census-key", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CENSUS
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PostscriptSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source import PostscriptSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPostscriptSource:
@@ -16,9 +15,6 @@ class TestPostscriptSource:
         self.source = PostscriptSource()
         self.team_id = 123
         self.config = PostscriptSourceConfig(api_key="sk_postscript")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.POSTSCRIPT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

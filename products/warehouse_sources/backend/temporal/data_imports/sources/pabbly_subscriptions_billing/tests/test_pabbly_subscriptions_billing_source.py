@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_sub
 from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.source import (
     PabblySubscriptionsBillingSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPabblySubscriptionsBillingSource:
@@ -20,9 +19,6 @@ class TestPabblySubscriptionsBillingSource:
         self.source = PabblySubscriptionsBillingSource()
         self.team_id = 123
         self.config = PabblySubscriptionsBillingSourceConfig(api_key="pabbly-key", secret_key="pabbly-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PABBLYSUBSCRIPTIONSBILLING
 
     def test_no_connection_host_fields(self) -> None:
         # Both fields are secrets and the base URL is hardcoded, so there is no non-secret field

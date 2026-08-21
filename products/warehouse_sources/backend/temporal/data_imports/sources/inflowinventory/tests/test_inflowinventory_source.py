@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source import (
     InflowinventorySource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInflowinventorySource:
@@ -20,9 +19,6 @@ class TestInflowinventorySource:
         self.source = InflowinventorySource()
         self.team_id = 123
         self.config = InflowinventorySourceConfig(company_id="co-123", api_key="inflow-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INFLOWINVENTORY
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

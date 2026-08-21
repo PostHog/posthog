@@ -2,7 +2,6 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zoom import ZoomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.source import ZoomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zoom.source"
 
@@ -12,9 +11,6 @@ def _config() -> ZoomSourceConfig:
 
 
 class TestZoomSource:
-    def test_source_type(self) -> None:
-        assert ZoomSource().source_type == ExternalDataSourceType.ZOOM
-
     def test_get_schemas_lists_all_endpoints_as_full_refresh(self) -> None:
         schemas = ZoomSource().get_schemas(_config(), team_id=1)
         names = {s.name for s in schemas}

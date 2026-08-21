@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> SonarCloudSourceConfig:
@@ -18,9 +17,6 @@ def _config() -> SonarCloudSourceConfig:
 
 
 class TestSonarCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert SonarCloudSource().source_type == ExternalDataSourceType.SONARCLOUD
-
     def test_is_visible_not_unreleased(self) -> None:
         # A finished source must be visible: unreleasedSource hides it from every user.
         assert SonarCloudSource().get_source_config.unreleasedSource in (None, False)

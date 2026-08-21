@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ALL_VERSIONED_ENDPOINTS = [
     (version, endpoint) for version in (API_VERSION_2_5, API_VERSION_3_0) for endpoint in endpoints_for_version(version)
@@ -43,9 +42,6 @@ class TestOpenWeatherSource:
         self.source = OpenWeatherSource()
         self.team_id = 123
         self.config = OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12,London")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPENWEATHER
 
     def test_default_version_is_3_0(self):
         # New sources are stamped with `default_version`; the 3.0 One Call product is now the default.

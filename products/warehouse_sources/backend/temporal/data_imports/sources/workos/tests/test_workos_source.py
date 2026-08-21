@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workos import WorkOSSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.source import WorkOSSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWorkOSSource:
@@ -11,9 +10,6 @@ class TestWorkOSSource:
         self.source = WorkOSSource()
         self.team_id = 123
         self.config = WorkOSSourceConfig(api_key="sk_test_123")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WORKOS
 
     @pytest.mark.parametrize(
         "expected_key",

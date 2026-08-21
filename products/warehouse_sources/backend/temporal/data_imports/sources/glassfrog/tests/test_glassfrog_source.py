@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> GlassfrogSourceConfig:
@@ -26,9 +25,6 @@ def _config() -> GlassfrogSourceConfig:
 
 
 class TestGlassfrogSourceConfig:
-    def test_source_type(self) -> None:
-        assert GlassfrogSource().source_type == ExternalDataSourceType.GLASSFROG
-
     def test_source_config_basics(self) -> None:
         config = GlassfrogSource().get_source_config
 

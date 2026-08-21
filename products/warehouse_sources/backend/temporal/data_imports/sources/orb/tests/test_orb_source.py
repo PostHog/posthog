@@ -5,18 +5,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.orb import OrbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.source import OrbSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> OrbSourceConfig:
     return OrbSourceConfig(api_key="orb-key")
 
-
-class TestOrbSourceConfig:
-    def test_source_type(self) -> None:
-        assert OrbSource().source_type == ExternalDataSourceType.ORB
-
-        # Shipped behind the unreleased flag while in alpha.
+    # Shipped behind the unreleased flag while in alpha.
 
 
 class TestGetSchemas:

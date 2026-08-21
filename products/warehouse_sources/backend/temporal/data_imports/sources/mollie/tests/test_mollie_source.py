@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.source import MollieSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMollieSource:
@@ -12,9 +11,6 @@ class TestMollieSource:
         self.source = MollieSource()
         self.team_id = 123
         self.config = MollieSourceConfig(api_key="live_key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MOLLIE
 
     @pytest.mark.parametrize(
         "observed_error",

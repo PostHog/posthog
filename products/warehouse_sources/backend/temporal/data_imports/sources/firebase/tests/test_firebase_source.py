@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     FirebaseKeyFileConfig,
     FirebaseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GET_TABLES = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_tables"
 _VALIDATE = (
@@ -56,9 +55,6 @@ def source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
 class TestFirebaseSource:
     def setup_method(self) -> None:
         self.source = FirebaseSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FIREBASE
 
     def test_connection_target_fields_require_credential_re_entry_when_changed(self) -> None:
         # The Realtime Database host, the Firestore database selector and the Realtime Database

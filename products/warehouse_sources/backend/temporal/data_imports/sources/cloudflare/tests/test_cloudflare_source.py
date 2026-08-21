@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
     CloudflareSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCloudflareSource:
@@ -20,9 +19,6 @@ class TestCloudflareSource:
         self.source = CloudflareSource()
         self.team_id = 123
         self.config = CloudflareSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLOUDFLARE
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loops import LoopsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.loops.source import LoopsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLoopsSource:
@@ -11,9 +10,6 @@ class TestLoopsSource:
         self.source = LoopsSource()
         self.team_id = 123
         self.config = LoopsSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LOOPS
 
     @pytest.mark.parametrize(
         "raised_message",

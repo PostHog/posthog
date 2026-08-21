@@ -13,7 +13,6 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
 
@@ -40,9 +39,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 class TestFeaturebaseSource:
     def setup_method(self) -> None:
         self.source = FeaturebaseSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FEATUREBASE
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config

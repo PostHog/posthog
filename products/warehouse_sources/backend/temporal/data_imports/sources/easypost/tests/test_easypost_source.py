@@ -6,18 +6,12 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
     config = MagicMock()
     config.api_key = "EZAK_test"
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EasypostSource().source_type == ExternalDataSourceType.EASYPOST
 
 
 class TestGetSchemas:

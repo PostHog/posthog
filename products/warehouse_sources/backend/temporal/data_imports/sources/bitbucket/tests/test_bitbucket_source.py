@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -40,10 +39,6 @@ def _source_inputs(
     inputs.db_incremental_field_last_value = db_incremental_field_last_value
     inputs.incremental_field = incremental_field
     return inputs
-
-
-def test_source_type():
-    assert BitbucketSource().source_type == ExternalDataSourceType.BITBUCKET
 
 
 def test_connection_host_fields_force_secret_reentry_on_workspace_change():

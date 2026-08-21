@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     TicketTailorSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.source import TicketTailorSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTicketTailorSource:
@@ -15,9 +14,6 @@ class TestTicketTailorSource:
         self.source = TicketTailorSource()
         self.team_id = 123
         self.config = TicketTailorSourceConfig(api_key="tt-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TICKETTAILOR
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

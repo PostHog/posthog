@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.source import XmattersSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 XMATTERS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.xmatters"
 
@@ -12,9 +11,6 @@ class TestXmattersSource:
     def setup_method(self) -> None:
         self.source = XmattersSource()
         self.config = MagicMock(subdomain="acme", username="svc", password="secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.XMATTERS
 
     def test_source_config_is_visible_and_alpha(self) -> None:
         # A finished source must not carry `unreleasedSource` (which hides it) and marks

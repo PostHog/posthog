@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ip2whois.source import IP2WhoisSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestIP2WhoisSource:
@@ -15,9 +14,6 @@ class TestIP2WhoisSource:
         self.source = IP2WhoisSource()
         self.team_id = 123
         self.config = IP2WhoisSourceConfig(api_key="test-key", domains="example.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.IP2WHOIS
 
     def test_get_source_config_fields(self):
         fields = self.source.get_source_config.fields

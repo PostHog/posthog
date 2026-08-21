@@ -6,12 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly import source as rootly_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.source import RootlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestRootlySourceConfig:
-    def test_source_type(self) -> None:
-        assert RootlySource().source_type == ExternalDataSourceType.ROOTLY
 
 
 class TestRootlyGetSchemas:

@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.source import ClariSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clari import ClariSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClariSource:
@@ -11,9 +10,6 @@ class TestClariSource:
         self.source = ClariSource()
         self.team_id = 123
         self.config = ClariSourceConfig(api_key="key", forecast_id="fc-1")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLARI
 
     @pytest.mark.parametrize(
         "observed_error",

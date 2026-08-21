@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.source import OwnerrezSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Bookings", "Quotes", "Reviews"}
 _FULL_REFRESH_ENDPOINTS = {"Payments", "Guests", "Properties", "Deposits", "Fees", "Refunds"}
@@ -17,9 +16,6 @@ class TestOwnerrezSource:
         self.source = OwnerrezSource()
         self.team_id = 123
         self.config = OwnerrezSourceConfig(email="host@example.com", api_key="pt_key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OWNERREZ
 
     @pytest.mark.parametrize(
         "observed_error",

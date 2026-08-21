@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.se
     GORGIAS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.source import GorgiasSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gorgias.source"
 
@@ -37,9 +36,6 @@ def _inputs(schema_name: str = "tickets") -> SourceInputs:
 
 
 class TestGorgiasSource:
-    def test_source_type(self) -> None:
-        assert GorgiasSource().source_type == ExternalDataSourceType.GORGIAS
-
     def test_get_schemas_marks_incremental_per_endpoint(self) -> None:
         schemas = {s.name: s for s in GorgiasSource().get_schemas(_config(), team_id=1)}
         assert set(schemas) == set(ENDPOINTS)

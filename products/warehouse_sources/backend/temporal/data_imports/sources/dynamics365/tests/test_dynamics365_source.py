@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics36
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365 import (
     Dynamics365SourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.probe_credentials"
 SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics365.source.dynamics365_source"
@@ -35,9 +34,6 @@ class TestDynamics365Source:
             client_id="cid",
             client_secret="sec",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNAMICS365
 
     def test_retargeting_the_environment_or_tenant_requires_new_secrets(self) -> None:
         # Both fields decide where the client secret and the minted token are sent.

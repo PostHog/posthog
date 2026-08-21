@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.source import RenderSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(
@@ -39,9 +38,6 @@ class TestRenderSource:
     def setup_method(self) -> None:
         self.source = RenderSource()
         self.config = RenderSourceConfig(api_key="rnd_test", owner_id="tea-123")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RENDER
 
     def test_get_schemas_covers_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

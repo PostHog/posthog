@@ -8,7 +8,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tavus import TavusSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tavus.source import TavusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTavusSource:
@@ -16,9 +15,6 @@ class TestTavusSource:
         self.source = TavusSource()
         self.team_id = 123
         self.config = TavusSourceConfig(api_key="tavus-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TAVUS
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

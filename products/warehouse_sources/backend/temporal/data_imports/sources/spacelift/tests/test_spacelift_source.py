@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source import SpaceliftSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.source"
 
@@ -18,9 +17,6 @@ class TestSpaceliftSource:
         self.source = SpaceliftSource()
         self.team_id = 123
         self.config = SpaceliftSourceConfig(account_name="my-company", api_key_id="key-id", api_key_secret="key-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SPACELIFT
 
     def test_account_name_is_a_connection_host_field(self):
         # Retargeting the account subdomain must force re-entering the API secret,

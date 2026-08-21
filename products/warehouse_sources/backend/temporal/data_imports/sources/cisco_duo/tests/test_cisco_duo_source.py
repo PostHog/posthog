@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ciscoduo import (
     CiscoDuoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCiscoDuoSource:
@@ -17,9 +16,6 @@ class TestCiscoDuoSource:
             integration_key="DIWJ8X6AEYOR5OMC6TQ1",
             secret_key="secret",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CISCODUO
 
     def test_connection_host_fields_covers_api_hostname(self):
         # Retargeting api_hostname must re-require the secret key, or a member could point

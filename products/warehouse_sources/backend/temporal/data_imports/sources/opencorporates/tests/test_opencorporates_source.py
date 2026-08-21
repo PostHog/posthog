@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.source import OpencorporatesSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOpencorporatesSource:
@@ -13,9 +12,6 @@ class TestOpencorporatesSource:
         self.source = OpencorporatesSource()
         self.team_id = 123
         self.config = OpencorporatesSourceConfig(api_token="token", query="acme", jurisdiction_code=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPENCORPORATES
 
     @parameterized.expand(
         [

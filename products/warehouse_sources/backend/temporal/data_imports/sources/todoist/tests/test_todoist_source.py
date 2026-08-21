@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.source import TodoistSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTodoistSource:
@@ -18,9 +17,6 @@ class TestTodoistSource:
         self.source = TodoistSource()
         self.team_id = 123
         self.config = TodoistSourceConfig(api_token="tok-test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TODOIST
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

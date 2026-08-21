@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.automox.source import AutomoxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
@@ -26,9 +25,6 @@ def _config(api_key: str = "key", organization_id: str | None = None) -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert AutomoxSource().source_type == ExternalDataSourceType.AUTOMOX
-
     def test_fields(self) -> None:
         fields = {f.name: f for f in AutomoxSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "organization_id"}

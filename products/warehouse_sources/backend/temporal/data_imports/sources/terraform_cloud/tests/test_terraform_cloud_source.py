@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     TerraformCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source import TerraformCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "test-token", organization: str = "acme") -> TerraformCloudSourceConfig:
@@ -36,9 +35,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False) -> Sou
 
 
 class TestTerraformCloudSource:
-    def test_source_type(self) -> None:
-        assert TerraformCloudSource().source_type == ExternalDataSourceType.TERRAFORMCLOUD
-
     def test_source_config_shape(self) -> None:
         config = TerraformCloudSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING

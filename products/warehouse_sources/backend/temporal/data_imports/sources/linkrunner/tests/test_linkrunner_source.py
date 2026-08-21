@@ -4,12 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert LinkrunnerSource().source_type == ExternalDataSourceType.LINKRUNNER
 
 
 class TestGetSchemas:
@@ -70,11 +64,3 @@ class TestNonRetryableErrors:
     def test_only_credential_errors_are_non_retryable(self, _name: str, observed: str, expected: bool) -> None:
         non_retryable = LinkrunnerSource().get_non_retryable_errors()
         assert any(key in observed for key in non_retryable) is expected
-
-
-def test_registered_in_source_registry() -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-
-    sources = SourceRegistry.get_all_sources()
-    assert ExternalDataSourceType.LINKRUNNER in sources
-    assert sources[ExternalDataSourceType.LINKRUNNER].source_type == ExternalDataSourceType.LINKRUNNER

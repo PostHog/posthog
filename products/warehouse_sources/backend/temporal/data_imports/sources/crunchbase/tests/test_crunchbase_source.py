@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
     CrunchbaseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCrunchbaseSource:
@@ -14,9 +13,6 @@ class TestCrunchbaseSource:
         self.source = CrunchbaseSource()
         self.team_id = 123
         self.config = CrunchbaseSourceConfig(api_key="user-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CRUNCHBASE
 
     @pytest.mark.parametrize(
         "observed_error",

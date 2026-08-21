@@ -12,16 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (
     FleetioSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFleetioSource:
     def setup_method(self) -> None:
         self.source = FleetioSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FLEETIO
 
     def test_config_fields(self) -> None:
         config = self.source.get_source_config

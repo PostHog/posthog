@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
     DropboxSignSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "templates") -> SourceInputs:
@@ -34,9 +33,6 @@ def _inputs(schema_name: str = "templates") -> SourceInputs:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DropboxSignSource().source_type == ExternalDataSourceType.DROPBOXSIGN
-
     def test_config_metadata(self) -> None:
         config = DropboxSignSource().get_source_config
         assert config.label == "Dropbox Sign"

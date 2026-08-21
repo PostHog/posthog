@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.set
     PARDOT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.source import PardotSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = sorted(INCREMENTAL_FIELDS)
 FULL_REFRESH_ENDPOINTS = sorted(set(ENDPOINTS) - set(INCREMENTAL_FIELDS))
@@ -60,9 +59,6 @@ class TestPardotSource:
             pardot_integration_id=7,
             environment="production",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PARDOT
 
     def test_source_config_authorizes_through_posthogs_salesforce_app(self) -> None:
         # The user connects an account instead of pasting a connected app's own credentials,

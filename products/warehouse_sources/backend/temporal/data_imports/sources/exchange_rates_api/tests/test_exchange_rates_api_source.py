@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
     ExchangeRatesApiSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestExchangeRatesApiSource:
@@ -16,9 +15,6 @@ class TestExchangeRatesApiSource:
         self.source = ExchangeRatesApiSource()
         self.team_id = 123
         self.config = ExchangeRatesApiSourceConfig(access_key="era-test", base_currency="EUR", start_date=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EXCHANGERATESAPI
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — safe to surface in public docs.

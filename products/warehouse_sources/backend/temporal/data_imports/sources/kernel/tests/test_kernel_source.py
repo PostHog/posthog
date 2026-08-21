@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source"
 
@@ -14,9 +13,6 @@ class TestKernelSource:
         self.source = KernelSource()
         self.team_id = 123
         self.config = KernelSourceConfig(api_key="sk_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KERNEL
 
     def test_generated_config_parses_api_key(self) -> None:
         # Guards the hand-checked generated_configs.py edit: the form field must map to `api_key`.

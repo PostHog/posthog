@@ -5,7 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nuntly import NuntlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuntly.source import NuntlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNuntlySource:
@@ -13,9 +12,6 @@ class TestNuntlySource:
         self.source = NuntlySource()
         self.team_id = 123
         self.config = NuntlySourceConfig(api_key="apk_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NUNTLY
 
     @parameterized.expand(
         [

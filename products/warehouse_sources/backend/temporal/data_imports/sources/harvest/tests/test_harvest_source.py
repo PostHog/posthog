@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.se
     HARVEST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source import HarvestSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.harvest.source.validate_harvest_credentials"
@@ -28,9 +27,6 @@ def _config() -> HarvestSourceConfig:
 
 
 class TestHarvestSource:
-    def test_source_type(self) -> None:
-        assert HarvestSource().source_type == ExternalDataSourceType.HARVEST
-
     @parameterized.expand([("account_id", False), ("access_token", True)])
     def test_only_the_token_field_is_secret(self, field_name: str, expected_secret: bool) -> None:
         # A non-secret token field would be echoed back to the frontend in plain text.

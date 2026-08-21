@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.source import WhopSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.whop.source.api_client"
 
@@ -25,9 +24,6 @@ class TestWhopSource:
         self.source = WhopSource()
         self.team_id = 123
         self.config = WhopSourceConfig(api_key="test-api-key", company_id="biz_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WHOP
 
     def test_get_source_config(self):
         config = self.source.get_source_config

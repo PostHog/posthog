@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import HatchetConnection
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.source import HatchetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHatchetSource:
@@ -16,9 +15,6 @@ class TestHatchetSource:
         self.source = HatchetSource()
         self.team_id = 123
         self.config = HatchetSourceConfig(api_token="tok", host=None, tenant_id=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HATCHET
 
     def test_config_fields(self):
         field_names = {f.name for f in self.source.get_source_config.fields}

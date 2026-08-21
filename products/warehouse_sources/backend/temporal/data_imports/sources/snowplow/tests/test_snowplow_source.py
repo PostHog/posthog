@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.source import SnowplowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -38,9 +37,6 @@ def _source_inputs(
 class TestSnowplowSource:
     def setup_method(self) -> None:
         self.source = SnowplowSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SNOWPLOW
 
     def test_source_config_fields(self) -> None:
         config = self.source.get_source_config

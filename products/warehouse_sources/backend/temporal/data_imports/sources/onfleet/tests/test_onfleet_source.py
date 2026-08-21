@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OnfleetSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TRANSPORT_STATUS = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source.get_credentials_status"
@@ -17,9 +16,6 @@ class TestOnfleetSource:
         self.source = OnfleetSource()
         self.team_id = 123
         self.config = OnfleetSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ONFLEET
 
     @pytest.mark.parametrize(
         "observed_error",

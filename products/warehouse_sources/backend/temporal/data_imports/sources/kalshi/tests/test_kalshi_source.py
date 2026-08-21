@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source"
 
@@ -31,9 +30,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestKalshiSource:
-    def test_source_type(self) -> None:
-        assert KalshiSource().source_type == ExternalDataSourceType.KALSHI
-
     @parameterized.expand(
         [
             ("trades_is_incremental", "trades", True),

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.s
     GOLDCAST_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.source import GoldcastSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(access_key: str = "tok") -> Any:
@@ -24,9 +23,6 @@ def _config(access_key: str = "tok") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert GoldcastSource().source_type == ExternalDataSourceType.GOLDCAST
-
     def test_single_secret_token_field(self) -> None:
         fields = {f.name: f for f in GoldcastSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"access_key"}

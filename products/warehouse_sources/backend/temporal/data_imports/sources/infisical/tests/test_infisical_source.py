@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.source import InfisicalSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInfisicalSource:
@@ -18,9 +17,6 @@ class TestInfisicalSource:
             client_id="cid",
             client_secret="csecret",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INFISICAL
 
     def test_connection_host_fields_require_credential_reentry(self):
         # Both the host and the org selector gate the stored credential: changing either must

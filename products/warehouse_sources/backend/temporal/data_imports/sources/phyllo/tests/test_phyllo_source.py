@@ -5,7 +5,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source import PhylloSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPhylloSource:
@@ -13,9 +12,6 @@ class TestPhylloSource:
         self.source = PhylloSource()
         self.team_id = 123
         self.config = PhylloSourceConfig(client_id="cid", client_secret="cs-secret", environment="production")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PHYLLO
 
     def test_no_connection_host_fields(self) -> None:
         # The environment select only chooses between two Phyllo-controlled hosts, so an editor

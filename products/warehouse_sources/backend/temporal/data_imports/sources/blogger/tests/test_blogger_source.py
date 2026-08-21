@@ -8,7 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -28,11 +27,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestBloggerSourceConfig:
-    def test_source_type(self) -> None:
-        assert BloggerSource().source_type == ExternalDataSourceType.BLOGGER
 
 
 class TestBloggerSchemas:

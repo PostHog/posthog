@@ -9,18 +9,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
     return SegmentSourceConfig(api_token=api_token, region=cast(Literal["api", "eu1"], region))
 
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert SegmentSource().source_type == ExternalDataSourceType.SEGMENT
-
-        # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
+    # Intentionally unreleased: the source is shipped behind the flag while it stabilizes.
 
 
 class TestGetSchemas:

@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amplitude import (
     AmplitudeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FULL_REFRESH_ENDPOINTS = [COHORTS_ENDPOINT, ANNOTATIONS_ENDPOINT]
 
@@ -26,9 +25,6 @@ class TestAmplitudeSource:
         self.source = AmplitudeSource()
         self.team_id = 123
         self.config = AmplitudeSourceConfig(api_key="key", secret_key="secret", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AMPLITUDE
 
     @pytest.mark.parametrize(
         "expected_key",

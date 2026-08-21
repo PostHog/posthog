@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.source import RailwaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRailwaySource:
@@ -13,9 +12,6 @@ class TestRailwaySource:
         self.source = RailwaySource()
         self.team_id = 123
         self.config = RailwaySourceConfig(api_token="railway-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RAILWAY
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

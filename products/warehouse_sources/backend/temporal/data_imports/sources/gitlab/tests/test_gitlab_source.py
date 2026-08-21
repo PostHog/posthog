@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.source import GitLabSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGitLabSource:
@@ -14,9 +13,6 @@ class TestGitLabSource:
         self.config.gitlab_host = "https://gitlab.com"
         self.config.personal_access_token = "glpat-token"
         self.config.project = "group/project"
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITLAB
 
     def test_connection_host_fields(self):
         assert self.source.connection_host_fields == ["gitlab_host"]

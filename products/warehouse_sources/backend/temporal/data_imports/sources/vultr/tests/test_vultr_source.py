@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.cano
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source import VultrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source"
 
@@ -46,9 +45,6 @@ class TestVultrSource:
         self.source = VultrSource()
         self.team_id = 123
         self.config = VultrSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VULTR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

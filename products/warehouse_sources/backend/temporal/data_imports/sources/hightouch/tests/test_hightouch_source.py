@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.
     SYNC_RUNS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.source import HightouchSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHightouchSource:
@@ -18,9 +17,6 @@ class TestHightouchSource:
         self.source = HightouchSource()
         self.team_id = 123
         self.config = HightouchSourceConfig(api_key="hightouch-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HIGHTOUCH
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

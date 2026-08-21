@@ -9,16 +9,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.roark.cano
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.source import RoarkSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRoarkSource:
     def setup_method(self) -> None:
         self.source = RoarkSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ROARK
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so public docs may render the table list.

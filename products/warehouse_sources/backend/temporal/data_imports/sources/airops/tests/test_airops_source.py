@@ -8,7 +8,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.source import AirOpsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airops import AirOpsSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "test-key") -> AirOpsSourceConfig:
@@ -16,9 +15,6 @@ def _config(api_key: str = "test-key") -> AirOpsSourceConfig:
 
 
 class TestAirOpsSource:
-    def test_source_type(self) -> None:
-        assert AirOpsSource().source_type == ExternalDataSourceType.AIROPS
-
     def test_source_config_shape(self) -> None:
         config = AirOpsSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING

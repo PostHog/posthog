@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TWILIO_MAIN_KEY_REQUIRED_REASON,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
 TWILIO_SESSION_PATCH = (
@@ -37,9 +36,6 @@ class TestTwilioSource:
         self.source = TwilioSource()
         self.team_id = 123
         self.config = _api_key_config()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TWILIO
 
     @pytest.mark.parametrize(
         "observed_error",

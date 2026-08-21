@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsbudgets import (
     AwsBudgetsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -62,9 +61,6 @@ class TestAwsBudgetsSource:
             aws_secret_access_key="secret",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSBUDGETS
 
     def test_the_credential_form_asks_only_for_an_iam_key(self) -> None:
         # Budgets is global, so there is no region to route on and none to ask for.

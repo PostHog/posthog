@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.waydev import WaydevSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.waydev.source import WaydevSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWaydevSource:
@@ -12,9 +11,6 @@ class TestWaydevSource:
         self.source = WaydevSource()
         self.team_id = 123
         self.config = WaydevSourceConfig(api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WAYDEV
 
     def test_api_version(self) -> None:
         assert self.source.supported_versions == ("v2",)

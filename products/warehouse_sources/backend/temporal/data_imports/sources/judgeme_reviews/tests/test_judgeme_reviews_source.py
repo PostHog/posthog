@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.source import JudgeMeReviewsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJudgeMeReviewsSource:
@@ -17,9 +16,6 @@ class TestJudgeMeReviewsSource:
         self.source = JudgeMeReviewsSource()
         self.team_id = 123
         self.config = JudgeMeReviewsSourceConfig(shop_domain="example.myshopify.com", api_token="jm-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JUDGEMEREVIEWS
 
     def test_no_connection_host_fields(self) -> None:
         # shop_domain selects which shop's data the fixed judge.me host returns; the token is never

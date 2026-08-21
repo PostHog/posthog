@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source import (
     ThinkificCoursesSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific_courses.source.validate_thinkific_credentials"
 
@@ -22,9 +21,6 @@ def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificCour
 
 
 class TestThinkificCoursesSourceConfig:
-    def test_source_type(self) -> None:
-        assert ThinkificCoursesSource().source_type == ExternalDataSourceType.THINKIFICCOURSES
-
     def test_source_config_is_released_alpha(self) -> None:
         cfg = ThinkificCoursesSource().get_source_config
         assert cfg.label == "Thinkific Courses"

@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.wh
     MAX_INDICATOR_CODES,
     who_gho_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -51,9 +50,6 @@ class TestWhoGhoSource:
     def setup_method(self) -> None:
         self.source = WhoGhoSource()
         self.config = WhoGhoSourceConfig(indicator_codes="WHOSIS_000001\nWHOSIS_000002")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WHOGHO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

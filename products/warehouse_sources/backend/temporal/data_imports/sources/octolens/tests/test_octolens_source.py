@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OctolensSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.source import OctolensSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.octolens.source"
 
@@ -15,9 +14,6 @@ class TestOctolensSource:
         self.source = OctolensSource()
         self.team_id = 123
         self.config = OctolensSourceConfig(api_key="octolens-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OCTOLENS
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
     BrowserbaseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BrowserbaseSourceConfig:
@@ -25,9 +24,6 @@ def _config() -> BrowserbaseSourceConfig:
 
 
 class TestBrowserbaseSourceConfig:
-    def test_source_type(self) -> None:
-        assert BrowserbaseSource().source_type == ExternalDataSourceType.BROWSERBASE
-
     def test_source_config_basics(self) -> None:
         config = BrowserbaseSource().get_source_config
 

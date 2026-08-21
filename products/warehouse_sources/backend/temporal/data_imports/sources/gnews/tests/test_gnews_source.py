@@ -2,7 +2,6 @@ from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gnews import GNewsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.source import GNewsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gnews.source"
 
@@ -16,9 +15,6 @@ def _config(**overrides: Any) -> GNewsSourceConfig:
 class TestGNewsSource:
     def setup_method(self) -> None:
         self.source = GNewsSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GNEWS
 
     def test_get_schemas_are_incremental_and_append_on_published_at(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=1)}

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.set
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMatomoSource:
@@ -15,9 +14,6 @@ class TestMatomoSource:
         self.source = MatomoSource()
         self.team_id = 123
         self.config = MatomoSourceConfig(host="https://myorg.matomo.cloud", site_id="1", api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MATOMO
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored token gets sent.

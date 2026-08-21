@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
     GoogleSearchConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(search_types: list[str] | None = None) -> GoogleSearchConsoleSourceConfig:
@@ -40,10 +40,6 @@ def _expected_names(search_types: list[str]) -> set[str]:
         for base_name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
         if search_type == DEFAULT_SEARCH_TYPE or not schema.get("web_only")
     } | set(PROPERTY_SCHEMAS.keys())
-
-
-def test_source_type():
-    assert GoogleSearchConsoleSource().source_type == ExternalDataSourceType.GOOGLESEARCHCONSOLE
 
 
 def test_get_source_config_fields():

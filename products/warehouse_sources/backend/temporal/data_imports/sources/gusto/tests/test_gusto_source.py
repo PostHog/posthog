@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"payrolls", "pay_periods", "contractor_payments"}
 
@@ -35,9 +34,6 @@ class TestGustoSource:
             refresh_token="refresh",
             environment="production",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GUSTO
 
     def test_source_is_visible_to_users(self) -> None:
         # A truthy `unreleasedSource` hides the connector from the wizard entirely.

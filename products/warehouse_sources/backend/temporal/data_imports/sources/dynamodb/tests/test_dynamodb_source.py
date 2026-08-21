@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamodb import (
     DynamoDBSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamodb.source"
 
@@ -45,9 +44,6 @@ class TestDynamoDBSource:
             aws_region="us-east-1",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNAMODB
 
     def test_region_change_forces_credential_re_entry(self) -> None:
         # The region decides which host the stored key is signed for and sent to.

@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.source import AhaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Aha! list action exposes the server-side `updated_since` filter.
 _INCREMENTAL_ENDPOINTS = {"products", "features", "epics", "initiatives", "ideas", "todos"}
@@ -16,9 +15,6 @@ class TestAhaSource:
         self.source = AhaSource()
         self.team_id = 123
         self.config = AhaSourceConfig(subdomain="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AHA
 
     def test_subdomain_listed_as_connection_host_field(self):
         # The API key is sent to <subdomain>.aha.io, so retargeting the subdomain must re-require it.

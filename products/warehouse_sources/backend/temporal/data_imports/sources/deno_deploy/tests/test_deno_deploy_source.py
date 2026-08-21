@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.deno_deploy.source import DenoDeploySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -16,9 +15,6 @@ def _config() -> Any:
 
 
 class TestDenoDeploySourceConfig:
-    def test_source_type(self) -> None:
-        assert DenoDeploySource().source_type == ExternalDataSourceType.DENODEPLOY
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog (no I/O), so the public docs catalog opts in.
         assert DenoDeploySource.lists_tables_without_credentials is True

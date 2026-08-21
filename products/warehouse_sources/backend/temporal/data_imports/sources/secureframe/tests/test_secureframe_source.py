@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source import SecureframeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MOCK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source"
 
@@ -18,9 +17,6 @@ class TestSecureframeSource:
         self.source = SecureframeSource()
         self.team_id = 123
         self.config = SecureframeSourceConfig(api_key="key", api_secret="secret", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SECUREFRAME
 
     @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
     def test_credential_fields_are_secret_passwords(self, field_name):

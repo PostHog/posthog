@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
     FirecrawlSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FirecrawlSourceConfig:
@@ -19,9 +18,6 @@ def _config() -> FirecrawlSourceConfig:
 
 
 class TestFirecrawlSourceConfig:
-    def test_source_type(self) -> None:
-        assert FirecrawlSource().source_type == ExternalDataSourceType.FIRECRAWL
-
     def test_api_key_field_is_a_required_secret(self) -> None:
         # A non-secret / non-password api_key field would render in plaintext and leak the credential.
         fields = {f.name: f for f in FirecrawlSource().get_source_config.fields}

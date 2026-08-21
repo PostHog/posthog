@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.source import OpinionStageSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOpinionStageSource:
@@ -16,9 +15,6 @@ class TestOpinionStageSource:
         self.source = OpinionStageSource()
         self.team_id = 123
         self.config = OpinionStageSourceConfig(api_key="os-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPINIONSTAGE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

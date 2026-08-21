@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buttondown import (
     ButtondownSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source.validate_buttondown_credentials"
@@ -19,9 +18,6 @@ class TestButtondownSource:
         self.source = ButtondownSource()
         self.team_id = 123
         self.config = ButtondownSourceConfig(api_key="bd-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUTTONDOWN
 
     def test_only_endpoints_with_a_server_side_date_filter_advertise_incremental(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

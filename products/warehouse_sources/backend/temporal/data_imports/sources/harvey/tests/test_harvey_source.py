@@ -7,7 +7,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvey import HarveySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.source import HarveySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHarveySource:
@@ -15,9 +14,6 @@ class TestHarveySource:
         self.source = HarveySource()
         self.team_id = 123
         self.config = HarveySourceConfig(api_key="test-token", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HARVEY
 
     def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
         # New sources start on v2; v1 stays supported so already-pinned rows keep resolving to the

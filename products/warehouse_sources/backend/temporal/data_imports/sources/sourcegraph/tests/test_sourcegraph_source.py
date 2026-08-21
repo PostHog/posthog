@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sourcegraph.source import SourcegraphSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSourcegraphSource:
@@ -13,9 +12,6 @@ class TestSourcegraphSource:
         self.source = SourcegraphSource()
         self.team_id = 123
         self.config = SourcegraphSourceConfig(host="https://sourcegraph.example.com", access_token="sgp_token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SOURCEGRAPH
 
     def test_connection_host_fields_force_token_reentry_on_host_change(self):
         # `host` is where the access token is sent; changing it must re-require the

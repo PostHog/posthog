@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.confluentcloud import (
     ConfluentCloudSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _METRICS_ENDPOINTS = {name for name, c in CONFLUENT_CLOUD_ENDPOINTS.items() if c.kind == "metrics"}
 _DESCRIPTOR_ENDPOINTS = set(ENDPOINTS) - _METRICS_ENDPOINTS
@@ -27,9 +26,6 @@ class TestConfluentCloudSource:
         self.config = ConfluentCloudSourceConfig(
             api_key="cloud-key", api_secret="cloud-secret", kafka_cluster_ids="lkc-111, lkc-222"
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONFLUENTCLOUD
 
     @pytest.mark.parametrize(
         "observed_error",

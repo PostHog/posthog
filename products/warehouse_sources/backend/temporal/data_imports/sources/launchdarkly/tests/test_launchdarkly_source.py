@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source import LaunchDarklySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLaunchDarklySource:
@@ -14,9 +13,6 @@ class TestLaunchDarklySource:
         self.source = LaunchDarklySource()
         self.team_id = 123
         self.config = LaunchDarklySourceConfig(access_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LAUNCHDARKLY
 
     @pytest.mark.parametrize(
         "observed_error",

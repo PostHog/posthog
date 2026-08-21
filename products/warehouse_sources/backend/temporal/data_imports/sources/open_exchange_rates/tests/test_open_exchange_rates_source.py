@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_excha
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
     OpenExchangeRatesSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOpenExchangeRatesSource:
@@ -16,9 +15,6 @@ class TestOpenExchangeRatesSource:
         self.source = OpenExchangeRatesSource()
         self.team_id = 123
         self.config = OpenExchangeRatesSourceConfig(app_id="oxr-test", base_currency="USD", start_date=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPENEXCHANGERATES
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — safe to surface in public docs.

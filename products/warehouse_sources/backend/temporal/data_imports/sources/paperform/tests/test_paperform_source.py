@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.source import PaperformSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPaperformSource:
@@ -16,9 +15,6 @@ class TestPaperformSource:
         self.source = PaperformSource()
         self.team_id = 123
         self.config = PaperformSourceConfig(api_key="pf-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PAPERFORM
 
     def test_get_schemas_only_submissions_supports_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}

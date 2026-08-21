@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.source import KubecostSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestKubecostSource:
@@ -19,9 +18,6 @@ class TestKubecostSource:
         self.source = KubecostSource()
         self.team_id = 123
         self.config = KubecostSourceConfig(host="https://kubecost.example.com", api_key="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.KUBECOST
 
     def test_api_key_field_is_optional_secret_password(self):
         config = self.source.get_source_config

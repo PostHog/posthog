@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
     GooglePlayConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 SOURCE_MODULE = GooglePlayConsoleSource.__module__
 
@@ -34,10 +34,6 @@ def _config(app_package_names: str | None = None) -> GooglePlayConsoleSourceConf
         ),
         app_package_names=app_package_names,
     )
-
-
-def test_source_type() -> None:
-    assert GooglePlayConsoleSource().source_type == ExternalDataSourceType.GOOGLEPLAYCONSOLE
 
 
 def test_package_names_force_the_key_to_be_re_uploaded() -> None:

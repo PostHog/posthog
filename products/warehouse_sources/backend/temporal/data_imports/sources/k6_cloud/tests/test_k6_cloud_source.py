@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.k6_cloud.source import K6CloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"test_runs"}
 
@@ -16,9 +15,6 @@ class TestK6CloudSource:
         self.source = K6CloudSource()
         self.team_id = 123
         self.config = K6CloudSourceConfig(api_token="tok", stack_id="12345")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.K6CLOUD
 
     def test_stack_id_is_a_connection_host_field(self) -> None:
         # `stack_id` routes the stored token to a specific k6 stack, so changing it must re-require

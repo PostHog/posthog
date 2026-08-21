@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PerigonSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source.validate_perigon_credentials"
@@ -20,9 +19,6 @@ class TestPerigonSource:
     def setup_method(self) -> None:
         self.source = PerigonSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PERIGON
 
     def test_source_config_is_released_alpha(self) -> None:
         config = self.source.get_source_config

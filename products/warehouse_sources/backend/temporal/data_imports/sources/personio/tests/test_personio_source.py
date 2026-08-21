@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.source import PersonioSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPersonioSource:
@@ -17,9 +16,6 @@ class TestPersonioSource:
         self.source = PersonioSource()
         self.team_id = 123
         self.config = PersonioSourceConfig(client_id="client-id", client_secret="client-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PERSONIO
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source"
 
@@ -54,9 +53,6 @@ class TestOpenMeteoSource:
         self.source = OpenMeteoSource()
         self.team_id = 123
         self.config = OpenMeteoSourceConfig(locations="51.5,-0.12,London", start_date="2024-01-01", api_key=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.OPENMETEO
 
     def test_source_config_is_released_as_alpha(self) -> None:
         config = self.source.get_source_config

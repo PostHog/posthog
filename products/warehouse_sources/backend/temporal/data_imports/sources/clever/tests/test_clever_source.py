@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clever imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(
@@ -35,9 +34,6 @@ class TestCleverSource:
     def setup_method(self) -> None:
         self.source = CleverSource()
         self.config = CleverSourceConfig(bearer_token="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLEVER
 
     def test_no_unreleased_source_flag(self) -> None:
         # A finished source ships visible; `unreleasedSource` hides it from every user.

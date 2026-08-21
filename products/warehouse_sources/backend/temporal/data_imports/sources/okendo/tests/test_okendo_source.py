@@ -5,7 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.validate_okendo_credentials"
@@ -17,9 +16,6 @@ class TestOkendoSource:
         self.source = OkendoSource()
         self.team_id = 123
         self.config = OkendoSourceConfig(user_id="user-1", api_key="key-1")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OKENDO
 
     @parameterized.expand(
         [

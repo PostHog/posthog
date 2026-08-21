@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
     BillComSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.source"
 
@@ -25,9 +24,6 @@ class TestBillComSource:
             dev_key="dev-key",
             environment="production",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BILLCOM
 
     def test_api_version_is_pinned_to_the_path_the_source_calls(self) -> None:
         assert self.source.supported_versions == ("v3",)

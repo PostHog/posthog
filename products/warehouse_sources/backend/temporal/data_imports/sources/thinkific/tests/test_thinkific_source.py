@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ThinkificSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source import ThinkificSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.thinkific.source.validate_thinkific_credentials"
@@ -22,9 +21,6 @@ def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificSour
 
 
 class TestThinkificSourceConfig:
-    def test_source_type(self) -> None:
-        assert ThinkificSource().source_type == ExternalDataSourceType.THINKIFIC
-
     def test_source_config_fields(self) -> None:
         cfg = ThinkificSource().get_source_config
         fields = {f.name: f for f in cfg.fields}

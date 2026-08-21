@@ -4,18 +4,12 @@ from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.source import KnockSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "sk_test") -> Any:
     config = MagicMock()
     config.api_key = api_key
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert KnockSource().source_type == ExternalDataSourceType.KNOCK
 
 
 class TestGetSchemas:

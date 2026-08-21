@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
     FirstPromoterSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 FULL_REFRESH_ENDPOINTS = ("payouts", "promo_codes", "promoter_campaigns", "promoters", "referrals")
 
@@ -27,9 +26,6 @@ class TestFirstPromoterSource:
         self.source = FirstPromoterSource()
         self.team_id = 123
         self.config = FirstPromoterSourceConfig(api_key="fp-key", account_id="98765")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FIRSTPROMOTER
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

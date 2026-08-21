@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.hugging_face.source import HuggingFaceSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> HuggingFaceSourceConfig:
@@ -20,9 +19,6 @@ class TestHuggingFaceSourceClass:
     def setup_method(self) -> None:
         self.source = HuggingFaceSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HUGGINGFACE
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}

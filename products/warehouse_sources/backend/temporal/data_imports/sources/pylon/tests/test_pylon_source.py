@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:
@@ -17,9 +16,6 @@ def _config(api_token: str = "token") -> PylonSourceConfig:
 
 
 class TestPylonSourceConfig:
-    def test_source_type(self) -> None:
-        assert PylonSource().source_type == ExternalDataSourceType.PYLON
-
     def test_get_source_config_basics(self) -> None:
         config = PylonSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.PYLON

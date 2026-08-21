@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {name for name, endpoint in TELNYX_ENDPOINTS.items() if endpoint.incremental_field}
 FULL_REFRESH_ENDPOINTS = set(ENDPOINTS) - INCREMENTAL_ENDPOINTS
@@ -38,9 +37,6 @@ class TestTelnyxSource:
         self.source = TelnyxSource()
         self.team_id = 123
         self.config = TelnyxSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TELNYX
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.

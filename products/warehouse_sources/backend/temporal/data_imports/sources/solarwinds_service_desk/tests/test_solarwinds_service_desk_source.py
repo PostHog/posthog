@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
     SolarwindsServiceDeskSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source"
 
@@ -23,9 +22,6 @@ class TestSolarwindsServiceDeskSource:
         self.source = SolarwindsServiceDeskSource()
         self.team_id = 123
         self.config = SolarwindsServiceDeskSourceConfig(api_token="swsd-token", region="eu")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SOLARWINDSSERVICEDESK
 
     def test_region_is_a_connection_host_field(self) -> None:
         # The token is sent to the host derived from `region`; retargeting the region must force

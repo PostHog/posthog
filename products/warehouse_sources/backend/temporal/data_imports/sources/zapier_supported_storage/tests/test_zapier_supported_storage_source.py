@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_sup
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source import (
     ZapierSupportedStorageSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.source"
 
@@ -17,9 +16,6 @@ class TestZapierSupportedStorageSource:
         self.source = ZapierSupportedStorageSource()
         self.team_id = 123
         self.config = ZapierSupportedStorageSourceConfig(secret="abcdef01-2345-4678-9abc-def012345678")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZAPIERSUPPORTEDSTORAGE
 
     def test_get_source_config_single_secret_field(self) -> None:
         config = self.source.get_source_config

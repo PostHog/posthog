@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.breezomete
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
     BreezometerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBreezometerSource:
@@ -13,9 +12,6 @@ class TestBreezometerSource:
         self.source = BreezometerSource()
         self.team_id = 123
         self.config = BreezometerSourceConfig(api_key="test-key", locations="51.5,-0.12,London")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BREEZOMETER
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — must opt in so public docs render the table list.

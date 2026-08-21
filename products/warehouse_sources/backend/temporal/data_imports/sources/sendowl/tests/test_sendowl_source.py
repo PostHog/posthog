@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SendowlSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source import SendowlSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSendowlSource:
@@ -17,9 +16,6 @@ class TestSendowlSource:
         self.source = SendowlSource()
         self.team_id = 123
         self.config = SendowlSourceConfig(api_key="sendowl-key", api_secret="sendowl-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SENDOWL
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

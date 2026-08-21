@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source"
 
@@ -20,9 +19,6 @@ class TestKommoSource:
         self.source = KommoSource()
         self.team_id = 123
         self.config = KommoSourceConfig(subdomain="acme", api_key="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KOMMO
 
     def test_subdomain_is_declared_as_a_connection_host_field(self) -> None:
         # The token is sent to https://<subdomain>.kommo.com, so editing the subdomain must

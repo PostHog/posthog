@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.s
     LACEWORK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.source import LaceworkSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.lacework.source"
 
@@ -17,9 +16,6 @@ class TestLaceworkSource:
     def setup_method(self) -> None:
         self.source = LaceworkSource()
         self.config = LaceworkSourceConfig(account_name="mycompany", key_id="KEY_ID", secret_key="secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LACEWORK
 
     def test_account_name_is_a_connection_host_field(self) -> None:
         # Retargeting the account (and therefore the host the secret is sent to) must force the

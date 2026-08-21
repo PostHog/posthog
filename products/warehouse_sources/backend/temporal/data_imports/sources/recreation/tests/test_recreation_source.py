@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import RECREATION_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.source import RecreationSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str) -> SourceInputs:
@@ -34,9 +33,6 @@ class TestRecreationSource:
     def setup_method(self) -> None:
         self.source = RecreationSource()
         self.config = RecreationSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RECREATION
 
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_error_fragment"),

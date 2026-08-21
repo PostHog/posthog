@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAshbySource:
@@ -12,9 +11,6 @@ class TestAshbySource:
         self.source = AshbySource()
         self.team_id = 123
         self.config = AshbySourceConfig(api_key="ashby-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ASHBY
 
     def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

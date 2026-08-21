@@ -15,16 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.source import TeamworkSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"tasks", "tasklists", "milestones", "timelogs"}
 FULL_REFRESH_ENDPOINTS = {"projects", "people", "companies", "tags", "comments"}
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert TeamworkSource().source_type == ExternalDataSourceType.TEAMWORK
-
     def test_site_is_a_connection_host_field(self) -> None:
         # The API key is sent to the host derived from `site`, so retargeting it must re-require the key.
         assert TeamworkSource().connection_host_fields == ["site"]

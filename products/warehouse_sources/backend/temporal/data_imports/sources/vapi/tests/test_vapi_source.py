@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.setti
     VAPI_VERSION_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source import VapiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Vapi list action exposes a server-side timestamp filter usable with the
 # endpoint's ordering guarantees; the rest are full refresh only.
@@ -22,9 +21,6 @@ class TestVapiSource:
         self.source = VapiSource()
         self.team_id = 123
         self.config = VapiSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.VAPI
 
     def test_declares_v1_and_v2_with_v2_default(self):
         # New sources are stamped v2; v1 stays declared so existing pinned rows keep their path.

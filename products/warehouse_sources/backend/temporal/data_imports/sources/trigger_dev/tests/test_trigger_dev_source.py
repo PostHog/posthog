@@ -4,13 +4,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTriggerDevSourceConfig:
-    def test_source_type(self) -> None:
-        assert TriggerDevSource().source_type == ExternalDataSourceType.TRIGGERDEV
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved key leaks to a new host.
         assert TriggerDevSource().connection_host_fields == ["base_url"]

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
     AsknicelySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -36,9 +35,6 @@ class TestAsknicelySource:
         self.source = AsknicelySource()
         self.team_id = 123
         self.config = AsknicelySourceConfig(subdomain="acme", api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ASKNICELY
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # Changing the subdomain retargets which AskNicely tenant the stored key is

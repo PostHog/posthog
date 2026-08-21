@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source import OnepagecrmSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOnepagecrmSource:
@@ -19,9 +18,6 @@ class TestOnepagecrmSource:
         self.source = OnepagecrmSource()
         self.team_id = 123
         self.config = OnepagecrmSourceConfig(user_id="uid-1", api_key="key-1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONEPAGECRM
 
     def test_no_connection_host_fields(self) -> None:
         # The user ID is only a Basic-auth username against the hardcoded API host, so there is no

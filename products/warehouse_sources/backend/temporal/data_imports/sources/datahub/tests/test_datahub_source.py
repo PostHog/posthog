@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (
     DatahubSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDatahubSource:
@@ -18,9 +17,6 @@ class TestDatahubSource:
         self.source = DatahubSource()
         self.team_id = 123
         self.config = DatahubSourceConfig(instance_url="https://datahub.example.com", api_token="secret-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DATAHUB
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

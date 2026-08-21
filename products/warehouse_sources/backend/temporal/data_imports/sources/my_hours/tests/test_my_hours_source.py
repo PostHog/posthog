@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MyHoursSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.my_hours.source import MyHoursSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "clients") -> SourceInputs:
@@ -36,9 +35,6 @@ class TestMyHoursSource:
         self.source = MyHoursSource()
         self.team_id = 123
         self.config = MyHoursSourceConfig(api_key="mh-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MYHOURS
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

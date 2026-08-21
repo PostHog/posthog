@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_a
     POWER_BI_ADMIN_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source import PowerBiAdminSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.power_bi_admin.source"
 
@@ -56,9 +55,6 @@ class TestPowerBiAdminSource:
         self.source = PowerBiAdminSource()
         self.team_id = 123
         self.config = PowerBiAdminSourceConfig(tenant_id=TENANT_ID, client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.POWERBIADMIN
 
     def test_tenant_id_is_a_connection_host_field(self) -> None:
         # Retargeting the tenant ID must force re-entry of the client secret — without this an

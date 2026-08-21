@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
     ChargedeskSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ChargedeskSourceConfig:
@@ -18,9 +17,6 @@ def _config() -> ChargedeskSourceConfig:
 
 
 class TestChargedeskSourceConfig:
-    def test_source_type(self) -> None:
-        assert ChargedeskSource().source_type == ExternalDataSourceType.CHARGEDESK
-
     def test_single_secret_api_key_field(self) -> None:
         fields = ChargedeskSource().get_source_config.fields
         assert len(fields) == 1

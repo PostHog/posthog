@@ -12,18 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.se
     SEMGREP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> Any:
     config = MagicMock()
     config.api_token = api_token
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert SemgrepSource().source_type == ExternalDataSourceType.SEMGREP
 
 
 class TestGetSchemas:

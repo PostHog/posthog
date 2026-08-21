@@ -773,7 +773,10 @@ The line is whether the thing under test can vary at runtime, not which method i
   One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
   create time needs one per branch.
 - `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
-  picks between transports, or resolves anything from schema metadata needs one per branch.
+  picks between transports, or resolves anything from schema metadata needs one per branch. The
+  `db_incremental_field_last_value if inputs.should_use_incremental_field else None` ternary is not a
+  branch worth its own source-level test — cover it with the transport's full-refresh test below,
+  which asserts the request actually goes out without a watermark.
 - Any `raise`, any curated error message a user reads, and any value derived rather than declared —
   test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
   is a naming branch, and getting it wrong writes data where nothing reads it.

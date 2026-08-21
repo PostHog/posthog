@@ -4,16 +4,12 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pexels.source import PexelsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPexelsSource:
     def setup_method(self) -> None:
         self.source = PexelsSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PEXELS
 
     def test_schemas_without_query_exclude_search_tables(self) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)

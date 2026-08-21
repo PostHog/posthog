@@ -8,16 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
     CodefreshSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCodefreshSource:
     def setup_method(self) -> None:
         self.source = CodefreshSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CODEFRESH
 
     @parameterized.expand(
         [

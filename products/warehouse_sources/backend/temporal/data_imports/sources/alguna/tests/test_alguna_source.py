@@ -5,7 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.alguna.source import AlgunaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alguna import AlgunaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAlgunaSource:
@@ -13,9 +12,6 @@ class TestAlgunaSource:
         self.source = AlgunaSource()
         self.team_id = 123
         self.config = AlgunaSourceConfig(api_key="alg-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ALGUNA
 
     @parameterized.expand(
         [

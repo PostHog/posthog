@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynatrace import (
     DynatraceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"problems", "events", "audit_logs"}
 
@@ -15,9 +14,6 @@ class TestDynatraceSource:
         self.config = DynatraceSourceConfig(
             environment_url="https://abc12345.live.dynatrace.com", api_token="dt0c01.token"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNATRACE
 
     def test_environment_url_is_a_connection_host_field(self) -> None:
         # Changing the environment URL must force the token to be re-entered so it's never

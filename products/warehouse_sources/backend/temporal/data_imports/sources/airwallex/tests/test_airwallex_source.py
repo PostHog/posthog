@@ -8,7 +8,6 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source"
 
@@ -39,9 +38,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestAirwallexSource:
-    def test_source_type(self) -> None:
-        assert AirwallexSource().source_type == ExternalDataSourceType.AIRWALLEX
-
     @parameterized.expand(
         [
             ("settlements_track_settled_at", "Settlements", "settled_at"),

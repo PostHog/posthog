@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     JobNimbusSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jobnimbus.source import JobNimbusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJobNimbusSource:
@@ -17,9 +16,6 @@ class TestJobNimbusSource:
         self.source = JobNimbusSource()
         self.team_id = 123
         self.config = JobNimbusSourceConfig(api_key="jn-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JOBNIMBUS
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

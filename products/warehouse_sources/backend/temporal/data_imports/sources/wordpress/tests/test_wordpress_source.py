@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.source import WordpressSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWordpressSource:
@@ -14,9 +13,6 @@ class TestWordpressSource:
         self.config.site_url = "https://example.com"
         self.config.username = "admin"
         self.config.application_password = "app pass word"
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WORDPRESS
 
     def test_connection_host_fields(self):
         assert self.source.connection_host_fields == ["site_url"]

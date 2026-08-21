@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source import PostmarkSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPostmarkSource:
@@ -16,9 +15,6 @@ class TestPostmarkSource:
         self.source = PostmarkSource()
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_token="test-server-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.POSTMARK
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

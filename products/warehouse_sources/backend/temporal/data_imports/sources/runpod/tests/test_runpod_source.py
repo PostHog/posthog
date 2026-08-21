@@ -3,15 +3,9 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.source import RunPodSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _BILLING_ENDPOINTS = ["billing_pods", "billing_endpoints", "billing_network_volumes"]
 _INVENTORY_ENDPOINTS = ["pods", "endpoints", "templates", "network_volumes"]
-
-
-class TestRunPodSourceConfig:
-    def test_source_type(self) -> None:
-        assert RunPodSource().source_type == ExternalDataSourceType.RUNPOD
 
 
 class TestRunPodSchemas:

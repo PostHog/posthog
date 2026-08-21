@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.transistor
     TRANSISTOR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source import TransistorSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.transistor.source"
 
@@ -46,9 +45,6 @@ class TestTransistorSource:
     def setup_method(self):
         self.source = TransistorSource()
         self.config = TransistorSourceConfig(api_key="secret-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRANSISTOR
 
     def test_get_source_config(self):
         config = self.source.get_source_config

@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source import LoopReturnsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source."
@@ -60,9 +59,6 @@ class TestLoopReturnsSource:
         self.source = LoopReturnsSource()
         self.team_id = 1
         self.config = LoopReturnsSourceConfig(api_key="loop_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LOOPRETURNS
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

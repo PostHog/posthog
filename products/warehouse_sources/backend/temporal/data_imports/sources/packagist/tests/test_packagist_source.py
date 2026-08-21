@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.source import PackagistSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -40,9 +39,6 @@ class TestPackagistSource:
         self.source = PackagistSource()
         self.team_id = 123
         self.config = PackagistSourceConfig(packages="monolog/monolog\nsymfony/console")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PACKAGIST
 
     def test_get_source_config(self):
         config = self.source.get_source_config

@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.source import EppoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eppo import EppoSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Only "Experiments" documents a server-side timestamp filter (created_since/updated_since).
 _INCREMENTAL_ENDPOINTS = {"Experiments"}
@@ -16,9 +15,6 @@ class TestEppoSource:
         self.source = EppoSource()
         self.team_id = 123
         self.config = EppoSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.EPPO
 
     def test_api_docs_url_is_set(self):
         assert self.source.api_docs_url == "https://eppo.cloud/api/docs"

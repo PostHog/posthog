@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
     CoinGeckoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinGeckoSource:
@@ -14,9 +13,6 @@ class TestCoinGeckoSource:
         self.source = CoinGeckoSource()
         self.team_id = 123
         self.config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINGECKO
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsAuthError,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source"
 INTEGRATION_ID = 42
@@ -78,9 +77,6 @@ class TestYouTubeAnalyticsSource:
             mock.patch(f"{MODULE}.OauthIntegration", return_value=oauth),
             oauth,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.YOUTUBEANALYTICS
 
     def test_source_config_is_released_as_alpha(self) -> None:
         config = self.source.get_source_config

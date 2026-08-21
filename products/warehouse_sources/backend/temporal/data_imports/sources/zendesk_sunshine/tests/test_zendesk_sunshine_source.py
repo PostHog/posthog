@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_su
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.source import (
     ZendeskSunshineSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZendeskSunshineSource:
@@ -28,9 +27,6 @@ class TestZendeskSunshineSource:
         self.config = ZendeskSunshineSourceConfig(
             subdomain="nibbles", api_key="zendesk-token", email_address="agent@example.com"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZENDESKSUNSHINE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

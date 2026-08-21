@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
     CalendlySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "scheduled_events", **overrides):
@@ -42,9 +41,6 @@ class TestCalendlySource:
         self.source = CalendlySource()
         self.team_id = 123
         self.config = CalendlySourceConfig(personal_access_token="cal_test_token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CALENDLY
 
     @pytest.mark.parametrize(
         "expected_key",

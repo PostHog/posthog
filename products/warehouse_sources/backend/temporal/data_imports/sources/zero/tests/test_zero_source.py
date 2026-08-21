@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zero import ZeroSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zero.source import ZeroSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {name for name, config in ENDPOINT_CONFIGS.items() if config.incremental_fields}
 
@@ -16,9 +15,6 @@ class TestZeroSource:
         self.source = ZeroSource()
         self.team_id = 123
         self.config = ZeroSourceConfig(api_key="api_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZERO
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render it.

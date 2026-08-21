@@ -4,12 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.source import ElevenLabsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestElevenLabsSourceConfig:
-    def test_source_type(self) -> None:
-        assert ElevenLabsSource().source_type == ExternalDataSourceType.ELEVENLABS
 
 
 class TestElevenLabsSchemas:

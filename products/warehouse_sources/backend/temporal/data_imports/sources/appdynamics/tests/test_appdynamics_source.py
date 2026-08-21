@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AppdynamicsAuthMethodConfig,
     AppdynamicsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _api_client_config(metric_paths: str | None = None) -> AppdynamicsSourceConfig:
@@ -55,9 +54,6 @@ class TestAppdynamicsSource:
     def setup_method(self) -> None:
         self.source = AppdynamicsSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPDYNAMICS
 
     def test_account_name_is_a_connection_host_field(self) -> None:
         # Changing account_name retargets the preserved credential, so it must force re-entry.

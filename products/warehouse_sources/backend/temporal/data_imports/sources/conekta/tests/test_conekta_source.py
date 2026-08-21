@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.conekta import (
     ConektaSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.conekta.source.api_client"
 
@@ -28,9 +27,6 @@ class TestConektaSource:
         self.source = ConektaSource()
         self.team_id = 123
         self.config = ConektaSourceConfig(api_key="key_priv")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONEKTA
 
     def test_get_source_config(self):
         config = self.source.get_source_config

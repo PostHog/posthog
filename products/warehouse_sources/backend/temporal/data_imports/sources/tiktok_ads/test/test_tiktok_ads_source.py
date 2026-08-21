@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -52,9 +52,6 @@ class TestTikTokAdsSource:
         self.mock_integration = Mock(spec=Integration)
         self.mock_integration.access_token = "test_access_token"
         self.mock_integration.team_id = self.team_id
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
         [

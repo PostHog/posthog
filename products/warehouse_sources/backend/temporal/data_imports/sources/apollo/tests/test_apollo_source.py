@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.source import ApolloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestApolloSource:
@@ -12,9 +11,6 @@ class TestApolloSource:
         self.source = ApolloSource()
         self.team_id = 123
         self.config = ApolloSourceConfig(api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.APOLLO
 
     @pytest.mark.parametrize(
         "observed_error",

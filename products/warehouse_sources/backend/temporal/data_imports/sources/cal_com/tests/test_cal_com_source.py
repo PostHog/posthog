@@ -7,7 +7,6 @@ from posthog.schema import SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCalComSource:
@@ -15,9 +14,6 @@ class TestCalComSource:
         self.source = CalComSource()
         self.team_id = 123
         self.config = CalComSourceConfig(api_key="cal_live_key", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CALCOM
 
     def test_region_field_defaults_to_us(self) -> None:
         # Every connection made before this field existed talks to the US host, so the default must

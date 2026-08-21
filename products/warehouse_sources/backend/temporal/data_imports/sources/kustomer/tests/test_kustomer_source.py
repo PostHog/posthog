@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source import KustomerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The REST framework builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -24,9 +23,6 @@ class TestKustomerSource:
         self.source = KustomerSource()
         self.team_id = 123
         self.config = KustomerSourceConfig(org_name="myorg", api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.KUSTOMER
 
     def test_org_name_is_a_connection_host_field(self):
         # The stored API key is sent to the host derived from org_name, so

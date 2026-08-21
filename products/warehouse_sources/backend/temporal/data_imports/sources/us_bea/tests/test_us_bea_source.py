@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.set
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source import UsBeaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides) -> UsBeaSourceConfig:
@@ -26,9 +25,6 @@ class _FakeInputs:
 class TestUsBeaSource:
     def setup_method(self):
         self.source = UsBeaSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USBEA
 
     def test_get_schemas_static_catalog(self):
         schemas = self.source.get_schemas(_config(), team_id=1)

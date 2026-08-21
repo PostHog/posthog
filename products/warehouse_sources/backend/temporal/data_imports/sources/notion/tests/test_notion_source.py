@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 NOTION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
 
@@ -45,9 +44,6 @@ class FakeResponse:
 class TestNotionSource:
     def setup_method(self) -> None:
         self.source = NotionSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NOTION
 
     def test_new_sources_default_to_latest_version(self) -> None:
         # New sources are stamped with default_version, so a regression here silently pins them to

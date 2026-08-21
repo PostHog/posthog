@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_ins
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.source import (
     Rapid7InsightvmSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.source"
 
@@ -19,9 +18,6 @@ class TestRapid7InsightvmSource:
         self.source = Rapid7InsightvmSource()
         self.team_id = 123
         self.config = Rapid7InsightvmSourceConfig(api_key="key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RAPID7INSIGHTVM
 
     def test_get_source_config_is_released_alpha(self):
         config = self.source.get_source_config

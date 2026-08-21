@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.setti
     SnykScope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snyk.source import SnykSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -41,9 +40,6 @@ class TestSnykSource:
     def setup_method(self) -> None:
         self.source = SnykSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SNYK
 
     def test_credential_retargeting_fields_force_token_reentry(self) -> None:
         # `region` picks the host the token is sent to and `organization_id` picks the tenant it

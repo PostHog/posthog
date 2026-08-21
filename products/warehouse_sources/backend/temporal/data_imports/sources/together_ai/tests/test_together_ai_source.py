@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.together_a
     TOGETHER_AI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "together_test") -> Any:
@@ -18,9 +17,6 @@ def _config(api_key: str = "together_test") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert TogetherAISource().source_type == ExternalDataSourceType.TOGETHERAI
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert TogetherAISource.lists_tables_without_credentials is True

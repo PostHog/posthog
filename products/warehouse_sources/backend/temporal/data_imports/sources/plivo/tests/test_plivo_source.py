@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plivo.source import PlivoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlivoSource:
@@ -17,9 +16,6 @@ class TestPlivoSource:
         self.source = PlivoSource()
         self.team_id = 123
         self.config = PlivoSourceConfig(auth_id="MA123", auth_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PLIVO
 
     def test_get_source_config(self):
         config = self.source.get_source_config

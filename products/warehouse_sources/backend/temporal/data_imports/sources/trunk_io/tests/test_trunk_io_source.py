@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     TrunkIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str, **overrides) -> SourceInputs:
@@ -43,9 +42,6 @@ class TestTrunkIoSource:
             repo_name="my-repo",
             merge_queue_target_branch="main",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRUNKIO
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog with no I/O, so it must be safe for public docs.

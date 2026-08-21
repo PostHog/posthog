@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.brex 
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.source import BrexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brex import BrexSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBrexSource:
@@ -16,9 +15,6 @@ class TestBrexSource:
         self.source = BrexSource()
         self.team_id = 123
         self.config = BrexSourceConfig(api_key="bxt_test_token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BREX
 
     def test_supported_versions_and_default(self):
         # New sources are stamped with the default; v1 stays supported so existing pins keep working.

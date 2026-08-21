@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firehydran
     FIREHYDRANT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.source import FireHydrantSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -19,9 +18,6 @@ def _config() -> Any:
 
 
 class TestFireHydrantSourceConfig:
-    def test_source_type(self) -> None:
-        assert FireHydrantSource().source_type == ExternalDataSourceType.FIREHYDRANT
-
     def test_get_source_config_basics(self) -> None:
         config = FireHydrantSource().get_source_config
         assert config.label == "FireHydrant"

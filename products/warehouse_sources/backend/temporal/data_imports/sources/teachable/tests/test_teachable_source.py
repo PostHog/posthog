@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.
     TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.source import TeachableSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTeachableSource:
@@ -18,9 +17,6 @@ class TestTeachableSource:
         self.source = TeachableSource()
         self.team_id = 123
         self.config = TeachableSourceConfig(api_key="teachable-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TEACHABLE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

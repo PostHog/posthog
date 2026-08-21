@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.source import PandaDocSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPandaDocSource:
@@ -14,9 +13,6 @@ class TestPandaDocSource:
         self.source = PandaDocSource()
         self.team_id = 123
         self.config = PandaDocSourceConfig(api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PANDADOC
 
     def test_declares_v1_and_v2_with_v2_default(self):
         # v2 must be the default (new sources stamp it) while v1 stays supported. The registry

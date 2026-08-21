@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source import (
     LightspeedRetailSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLightspeedRetailSource:
@@ -20,9 +19,6 @@ class TestLightspeedRetailSource:
         self.source = LightspeedRetailSource()
         self.team_id = 123
         self.config = LightspeedRetailSourceConfig(domain_prefix="mystore", api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LIGHTSPEEDRETAIL
 
     def test_domain_prefix_is_a_connection_host_field(self):
         # The stored token is sent to the host derived from domain_prefix, so

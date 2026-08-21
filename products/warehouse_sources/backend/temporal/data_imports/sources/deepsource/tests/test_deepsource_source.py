@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
     DeepsourceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CONFIG = DeepsourceSourceConfig(api_token="tok", account_login="acme", vcs_provider="GITHUB")
 
@@ -22,9 +21,6 @@ def _source_inputs(schema_name: str) -> MagicMock:
 
 
 class TestDeepsourceSource:
-    def test_source_type(self) -> None:
-        assert DeepsourceSource().source_type == ExternalDataSourceType.DEEPSOURCE
-
     def test_connection_host_fields_force_secret_reentry_on_account_change(self) -> None:
         # Changing account_login/vcs_provider retargets the stored PAT at another account, so
         # both must be host fields — the update serializer then demands the PAT be re-entered.

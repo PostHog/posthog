@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source import HyperspellSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source"
 
@@ -13,9 +12,6 @@ class TestHyperspellSource:
         self.source = HyperspellSource()
         self.team_id = 123
         self.config = HyperspellSourceConfig(api_key="hs_test", region="eu", user_ids="user-1, user-2")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HYPERSPELL
 
     def test_get_schemas_lists_all_endpoints_as_full_refresh_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

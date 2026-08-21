@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.source import SmartsheetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSmartsheetSource:
@@ -14,9 +13,6 @@ class TestSmartsheetSource:
         self.source = SmartsheetSource()
         self.team_id = 123
         self.config = SmartsheetSourceConfig(access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SMARTSHEET
 
     @pytest.mark.parametrize(
         "observed_error",

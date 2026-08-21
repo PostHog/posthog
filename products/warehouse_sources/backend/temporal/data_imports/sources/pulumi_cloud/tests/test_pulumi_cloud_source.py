@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pulumi_cloud.source import PulumiCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -38,9 +37,6 @@ def _source_inputs(
 class TestPulumiCloudSource:
     def setup_method(self) -> None:
         self.source = PulumiCloudSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PULUMICLOUD
 
     def test_source_is_released_as_alpha(self) -> None:
         # unreleasedSource hides the connector from every user; a finished source must ship visible

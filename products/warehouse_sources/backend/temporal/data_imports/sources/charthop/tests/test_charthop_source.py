@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
     ChartHopSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.check_access"
 
@@ -16,9 +15,6 @@ class TestChartHopSource:
         self.source = ChartHopSource()
         self.team_id = 123
         self.config = ChartHopSourceConfig(api_key="charthop-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHARTHOP
 
     def test_version_declaration_defaults_to_v2(self) -> None:
         # New sources are stamped with default_version; v1 stays supported for existing pins.

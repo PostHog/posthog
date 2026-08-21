@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsflyer import (
     AppsFlyerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAppsFlyerSource:
@@ -20,9 +19,6 @@ class TestAppsFlyerSource:
         self.source = AppsFlyerSource()
         self.team_id = 123
         self.config = AppsFlyerSourceConfig(app_id="id123", api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.APPSFLYER
 
     def test_connection_host_fields_includes_app_id(self):
         # Changing app_id retargets the stored token, so editing it must require re-entering secrets.

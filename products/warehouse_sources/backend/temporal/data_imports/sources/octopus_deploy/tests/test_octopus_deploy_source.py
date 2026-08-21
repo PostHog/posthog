@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_deploy.source import OctopusDeploySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOctopusDeploySource:
@@ -13,9 +12,6 @@ class TestOctopusDeploySource:
         self.source = OctopusDeploySource()
         self.team_id = 123
         self.config = OctopusDeploySourceConfig(host="https://my-org.octopus.app", api_key="API-KEY")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OCTOPUSDEPLOY
 
     def test_connection_host_fields_force_key_reentry_on_host_change(self):
         # Changing host retargets the stored API key, so it must count as a host field and force

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
     AttentiveSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWebhookTableTransformer:
@@ -50,9 +49,6 @@ class TestAttentiveSource:
         self.source = AttentiveSource()
         self.team_id = 123
         self.config = AttentiveSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ATTENTIVE
 
     def test_webhook_template_registered(self):
         template = self.source.webhook_template

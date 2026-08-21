@@ -11,16 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cdcopendata import (
     CdcOpenDataSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCdcOpenDataSource:
     def setup_method(self) -> None:
         self.source = CdcOpenDataSource()
         self.config = CdcOpenDataSourceConfig(dataset_ids="9bhg-hcku, vbim-akqf\nhk9y-quqm", app_token=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CDCOPENDATA
 
     def test_ships_released_on_alpha(self) -> None:
         # A finished source must not carry `unreleasedSource=True` (that hides it entirely);

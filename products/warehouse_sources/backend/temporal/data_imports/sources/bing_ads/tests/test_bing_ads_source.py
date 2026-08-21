@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestBingAdsSource:
@@ -22,9 +22,6 @@ class TestBingAdsSource:
             account_id="12345",
             bing_ads_integration_id=1,
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BINGADS
 
     @pytest.mark.parametrize(
         "account_id,integration_id,expected_error_fragment",

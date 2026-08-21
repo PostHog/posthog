@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.source import (
     MicrosoftClaritySource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -30,11 +29,6 @@ def _config(
         dimension2=dimension2,
         dimension3=dimension3,
     )
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MicrosoftClaritySource().source_type == ExternalDataSourceType.MICROSOFTCLARITY
 
 
 class TestGetSchemas:

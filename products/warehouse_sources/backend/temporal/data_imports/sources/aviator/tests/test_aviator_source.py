@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aviator import (
     AviatorSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -36,9 +35,6 @@ def _source_inputs(
 class TestAviatorSource:
     def setup_method(self) -> None:
         self.source = AviatorSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AVIATOR
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.

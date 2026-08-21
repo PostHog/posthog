@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -37,9 +36,6 @@ class TestAutumnSource:
     def setup_method(self) -> None:
         self.source = AutumnSource()
         self.config = AutumnSourceConfig(api_key="am_sk_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AUTUMN
 
     @pytest.mark.parametrize(
         ("should_use_incremental_field", "expected_last_value"),

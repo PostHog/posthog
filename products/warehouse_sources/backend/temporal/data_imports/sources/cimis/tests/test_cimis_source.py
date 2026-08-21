@@ -10,7 +10,6 @@ from posthog.schema import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", "M"] = "E") -> CimisSourceConfig:
@@ -18,9 +17,6 @@ def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", 
 
 
 class TestCimisSourceConfig:
-    def test_source_type(self) -> None:
-        assert CimisSource().source_type == ExternalDataSourceType.CIMIS
-
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in CimisSource().get_source_config.fields}
         assert set(fields) == {"app_key", "targets", "unit_of_measure"}

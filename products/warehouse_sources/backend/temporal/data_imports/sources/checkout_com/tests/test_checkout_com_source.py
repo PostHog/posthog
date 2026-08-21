@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
     CheckoutComSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
@@ -32,9 +31,6 @@ class TestCheckoutComSource:
         self.source = CheckoutComSource()
         self.team_id = 123
         self.config = CheckoutComSourceConfig(environment="production", client_id="ack_id", client_secret="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CHECKOUTCOM
 
     @pytest.mark.parametrize(
         "observed_error",

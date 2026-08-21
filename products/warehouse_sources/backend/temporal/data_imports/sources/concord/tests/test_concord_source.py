@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
     ConcordSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestConcordSourceClass:
     def setup_method(self):
         self.source = ConcordSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CONCORD
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog, so the public docs can render the table list

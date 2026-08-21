@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.active_cam
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
     ActiveCampaignSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestActiveCampaignSource:
@@ -13,9 +12,6 @@ class TestActiveCampaignSource:
         self.source = ActiveCampaignSource()
         self.team_id = 123
         self.config = ActiveCampaignSourceConfig(api_url="https://acme.api-us1.com", api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ACTIVECAMPAIGN
 
     def test_api_url_is_a_connection_host_field(self) -> None:
         # Changing api_url must force the api_key to be re-entered, so the stored

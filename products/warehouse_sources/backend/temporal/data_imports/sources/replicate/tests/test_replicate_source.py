@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.source import ReplicateSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "r8_test") -> MagicMock:
@@ -13,9 +12,6 @@ def _config(api_key: str = "r8_test") -> MagicMock:
 
 
 class TestReplicateSource:
-    def test_source_type(self) -> None:
-        assert ReplicateSource().source_type == ExternalDataSourceType.REPLICATE
-
     @parameterized.expand(
         [
             # (endpoint, supports_incremental, should_sync_default, primary_keys)

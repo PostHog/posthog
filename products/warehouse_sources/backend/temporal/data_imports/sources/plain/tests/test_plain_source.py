@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlainSource:
@@ -9,9 +8,6 @@ class TestPlainSource:
         self.source = PlainSource()
         self.team_id = 123
         self.config = PlainSourceConfig(api_key="plainApiKey_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PLAIN
 
     def test_source_config_documents_scopes_the_queries_require(self):
         # The customers/threads/timeline_entries queries read assignee (user:read), label (label:read),

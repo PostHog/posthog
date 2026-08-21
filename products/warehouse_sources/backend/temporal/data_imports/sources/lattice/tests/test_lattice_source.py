@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.source import LatticeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLatticeSource:
@@ -13,9 +12,6 @@ class TestLatticeSource:
         self.source = LatticeSource()
         self.team_id = 123
         self.config = LatticeSourceConfig(region="us", api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LATTICE
 
     @pytest.mark.parametrize(
         "observed_error",

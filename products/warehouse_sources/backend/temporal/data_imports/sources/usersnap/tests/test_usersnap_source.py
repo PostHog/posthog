@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source import UsersnapSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUsersnapSource:
@@ -17,9 +16,6 @@ class TestUsersnapSource:
         self.source = UsersnapSource()
         self.team_id = 123
         self.config = UsersnapSourceConfig(jwt_secret="shared-secret", jwt_id="jwt-id-123")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USERSNAP
 
     @pytest.mark.parametrize(
         "observed_error",

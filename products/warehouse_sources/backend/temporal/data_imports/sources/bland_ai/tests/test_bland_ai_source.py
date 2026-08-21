@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
     BlandAISourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBlandAISource:
@@ -18,9 +17,6 @@ class TestBlandAISource:
         self.source = BlandAISource()
         self.team_id = 123
         self.config = BlandAISourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BLANDAI
 
     def test_lists_tables_without_credentials(self):
         # get_schemas iterates a static endpoint catalog with no I/O, so the public docs catalog renders.

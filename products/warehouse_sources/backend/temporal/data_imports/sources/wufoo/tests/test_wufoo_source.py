@@ -5,7 +5,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wufoo import WufooSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.source import WufooSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWufooSource:
@@ -13,9 +12,6 @@ class TestWufooSource:
         self.source = WufooSource()
         self.team_id = 123
         self.config = WufooSourceConfig(subdomain="acme", api_key="wufoo-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WUFOO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

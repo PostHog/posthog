@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jira import JiraSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jira.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jira.source import JiraSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJiraSource:
@@ -12,9 +11,6 @@ class TestJiraSource:
         self.source = JiraSource()
         self.team_id = 123
         self.config = JiraSourceConfig(subdomain="acme", email="e@x.com", api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JIRA
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["subdomain"]

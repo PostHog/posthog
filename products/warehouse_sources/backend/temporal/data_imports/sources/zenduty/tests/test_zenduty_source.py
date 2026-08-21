@@ -8,13 +8,9 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty import source as zenduty_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZendutySourceConfig:
-    def test_source_type(self) -> None:
-        assert ZendutySource().source_type == ExternalDataSourceType.ZENDUTY
-
     def test_config_basics(self) -> None:
         config = ZendutySource().get_source_config
         assert config.label == "Zenduty"

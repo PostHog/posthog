@@ -4,15 +4,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = {"secret_incidents", "secret_occurrences", "sources", "honeytokens", "members", "teams"}
 
 
 class TestGitguardianSourceConfig:
-    def test_source_type(self) -> None:
-        assert GitguardianSource().source_type == ExternalDataSourceType.GITGUARDIAN
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Retargeting base_url must re-require the secret, else the preserved token leaks to a new host.
         assert GitguardianSource().connection_host_fields == ["base_url"]

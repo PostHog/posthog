@@ -5,15 +5,9 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lob import LobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lob.source import LobSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"letters", "postcards", "checks", "self_mailers"}
 FULL_REFRESH_ENDPOINTS = {"addresses", "bank_accounts", "templates", "campaigns"}
-
-
-class TestLobSourceConfig:
-    def test_source_type(self) -> None:
-        assert LobSource().source_type == ExternalDataSourceType.LOB
 
 
 class TestLobGetSchemas:

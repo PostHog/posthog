@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LightdashSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightdash.source import LightdashSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLightdashSource:
@@ -12,9 +11,6 @@ class TestLightdashSource:
         self.source = LightdashSource()
         self.team_id = 123
         self.config = LightdashSourceConfig(instance_url="https://app.lightdash.cloud", api_token="tok")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LIGHTDASH
 
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible: `unreleasedSource` hides it from every user.

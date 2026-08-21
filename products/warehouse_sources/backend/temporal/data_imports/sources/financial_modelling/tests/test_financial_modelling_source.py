@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling.source import (
     FinancialModellingSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -32,11 +31,6 @@ def _inputs(schema_name: str, **overrides: Any) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestFinancialModellingSourceConfig:
-    def test_source_type(self) -> None:
-        assert FinancialModellingSource().source_type == ExternalDataSourceType.FINANCIALMODELLING
 
 
 class TestGetSchemas:

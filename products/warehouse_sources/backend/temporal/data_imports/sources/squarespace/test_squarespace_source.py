@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
     SQUARESPACE_API_VERSION_V2,
     SquarespaceSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"orders", "products", "transactions"}
 
@@ -25,9 +24,6 @@ class TestSquarespaceSource:
         self.source = SquarespaceSource()
         self.team_id = 123
         self.config = SquarespaceSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SQUARESPACE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

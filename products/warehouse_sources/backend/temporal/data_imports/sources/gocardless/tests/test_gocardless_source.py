@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.source import GoCardlessSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGoCardlessSource:
@@ -14,9 +13,6 @@ class TestGoCardlessSource:
         self.source = GoCardlessSource()
         self.team_id = 123
         self.config = GoCardlessSourceConfig(environment="live", access_token="access-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GOCARDLESS
 
     @pytest.mark.parametrize(
         "observed_error",

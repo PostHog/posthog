@@ -8,7 +8,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.groq.source import GroqSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.groq.source"
 
@@ -20,9 +19,6 @@ def _make_config(api_key: str = "gsk_test") -> Any:
 
 
 class TestGroqSource:
-    def test_source_type(self) -> None:
-        assert GroqSource().source_type == ExternalDataSourceType.GROQ
-
     def test_source_config_has_single_password_api_key_field(self) -> None:
         config = GroqSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key"]

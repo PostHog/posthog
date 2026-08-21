@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
     BabelforceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBabelforceSource:
@@ -14,9 +13,6 @@ class TestBabelforceSource:
         self.source = BabelforceSource()
         self.team_id = 123
         self.config = BabelforceSourceConfig(environment="services", access_id="access-id", access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BABELFORCE
 
     def test_environment_is_a_connection_host_field(self):
         # `environment` decides which host receives the stored token; changing it must force

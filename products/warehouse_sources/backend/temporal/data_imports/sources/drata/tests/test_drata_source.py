@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDrataSource:
@@ -14,9 +13,6 @@ class TestDrataSource:
         self.source = DrataSource()
         self.team_id = 123
         self.config = DrataSourceConfig(api_key="drata_key", region="EU")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DRATA
 
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

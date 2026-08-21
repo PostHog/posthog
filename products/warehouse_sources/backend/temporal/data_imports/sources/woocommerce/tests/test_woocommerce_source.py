@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
     WEBHOOK_TOPICS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source import WooCommerceSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -52,9 +51,6 @@ class TestWooCommerceSource:
             consumer_key="ck_test",
             consumer_secret="cs_test",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WOOCOMMERCE
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",

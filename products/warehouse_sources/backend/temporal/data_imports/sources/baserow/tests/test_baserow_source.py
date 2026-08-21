@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baserow import (
     BaserowSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Two databases sharing a table name — only the colliding names get the id suffix.
 TABLES = [
@@ -44,9 +43,6 @@ class TestBaserowSource:
         self.source = BaserowSource()
         self.team_id = 123
         self.config = BaserowSourceConfig(database_token="test-token", base_url=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BASEROW
 
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Changing base_url must force the database token to be re-entered, so the stored

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.source import JumpcloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", org_id: str | None = None, region: str = "us") -> Any:
@@ -21,9 +20,6 @@ def _config(api_key: str = "key", org_id: str | None = None, region: str = "us")
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert JumpcloudSource().source_type == ExternalDataSourceType.JUMPCLOUD
-
     def test_connection_host_fields_force_secret_reentry_on_retarget(self) -> None:
         # Changing org_id or region retargets the stored API key (different organization's
         # data, or a different regional host), so both must force re-entering the key.

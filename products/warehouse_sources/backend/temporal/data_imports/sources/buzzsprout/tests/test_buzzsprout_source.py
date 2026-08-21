@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buzzsprout import (
     BuzzsproutSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBuzzsproutSource:
@@ -15,9 +14,6 @@ class TestBuzzsproutSource:
         self.source = BuzzsproutSource()
         self.team_id = 123
         self.config = BuzzsproutSourceConfig(api_token="test-token", podcast_id="123456")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BUZZSPROUT
 
     def test_get_source_config_fields(self):
         fields = self.source.get_source_config.fields

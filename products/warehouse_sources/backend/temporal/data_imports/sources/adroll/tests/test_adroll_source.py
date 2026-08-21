@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.source import AdRollSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adroll import AdRollSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAdRollSource:
@@ -11,9 +10,6 @@ class TestAdRollSource:
         self.source = AdRollSource()
         self.team_id = 123
         self.config = AdRollSourceConfig(client_id="cid", personal_access_token="pat")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ADROLL
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.se
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source import LogzIOSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.source"
 
@@ -18,9 +17,6 @@ class TestLogzIOSource:
         self.source = LogzIOSource()
         self.team_id = 123
         self.config = LogzIOSourceConfig(api_token="token", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LOGZIO
 
     def test_connection_host_fields_includes_region(self):
         # region picks the host the stored token is sent to, so editing it must re-require the secret.

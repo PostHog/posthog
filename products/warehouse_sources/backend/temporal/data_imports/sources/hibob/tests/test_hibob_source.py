@@ -2,7 +2,6 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.source import HiBobSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHiBobSource:
@@ -10,9 +9,6 @@ class TestHiBobSource:
         self.source = HiBobSource()
         self.team_id = 123
         self.config = HiBobSourceConfig(service_user_id="service-id", service_user_token="service-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HIBOB
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.healthchec
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source import HealthchecksSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHealthchecksSource:
@@ -17,9 +16,6 @@ class TestHealthchecksSource:
         self.source = HealthchecksSource()
         self.team_id = 123
         self.config = HealthchecksSourceConfig(api_key="key", base_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HEALTHCHECKS
 
     def test_connection_host_fields_cover_base_url(self):
         # The base URL decides where the stored API key gets sent.

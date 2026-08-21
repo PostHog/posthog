@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.payfit import PayFitSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.source import PayFitSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPayFitSource:
@@ -14,9 +13,6 @@ class TestPayFitSource:
         self.source = PayFitSource()
         self.team_id = 123
         self.config = PayFitSourceConfig(api_key="payfit-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PAYFIT
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; both hosts are hardcoded, so there is no non-secret

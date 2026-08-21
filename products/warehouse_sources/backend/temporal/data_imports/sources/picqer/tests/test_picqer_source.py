@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.picqer import picqer_source
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.picqer.source import PicqerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Picqer list action exposes a genuine update-based `updated_after` filter.
 _INCREMENTAL_ENDPOINTS = {"purchaseorders", "returns"}
@@ -17,9 +16,6 @@ class TestPicqerSource:
         self.source = PicqerSource()
         self.team_id = 123
         self.config = PicqerSourceConfig(account_name="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PICQER
 
     def test_account_listed_as_connection_host_field(self):
         # The API key is sent to <account_name>.picqer.com, so retargeting it must re-require the key.

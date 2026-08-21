@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
     FactorialSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -37,9 +36,6 @@ class TestFactorialSource:
         self.source = FactorialSource()
         self.team_id = 123
         self.config = FactorialSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FACTORIAL
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O in get_schemas), so the public docs can render the

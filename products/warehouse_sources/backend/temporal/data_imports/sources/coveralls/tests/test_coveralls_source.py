@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coveralls import (
     CoverallsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -38,9 +37,6 @@ class TestCoverallsSource:
         self.source = CoverallsSource()
         self.team_id = 123
         self.config = CoverallsSourceConfig(repositories="acme/widgets\nacme/gadgets", service="github")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.COVERALLS
 
     def test_connection_host_fields_gate_token_retargeting(self):
         # `service` and `repositories` decide which repos the stored token queries, so the update

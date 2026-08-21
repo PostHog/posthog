@@ -10,16 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.source import LemlistSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key") -> Any:
     return MagicMock(api_key=api_key)
-
-
-class TestLemlistSourceConfig:
-    def test_source_type(self) -> None:
-        assert LemlistSource().source_type == ExternalDataSourceType.LEMLIST
 
 
 class TestVersioning:

@@ -8,7 +8,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vendr import VendrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.settings import ENDPOINTS, VENDR_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vendr.source import VendrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestVendrSource:
@@ -16,9 +15,6 @@ class TestVendrSource:
         self.source = VendrSource()
         self.team_id = 123
         self.config = VendrSourceConfig(api_key="vendr-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VENDR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

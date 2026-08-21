@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
     ChurnkeySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source.validate_churnkey_credentials"
@@ -36,9 +35,6 @@ def _inputs() -> SourceInputs:
 
 
 class TestChurnkeySourceConfig:
-    def test_source_type(self) -> None:
-        assert ChurnkeySource().source_type == ExternalDataSourceType.CHURNKEY
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static catalog (no I/O), so the public docs can render the table list.
         assert ChurnkeySource.lists_tables_without_credentials is True

@@ -6,16 +6,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SkyvernSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.skyvern.source import SkyvernSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSkyvernSource:
     def setup_method(self):
         self.source = SkyvernSource()
         self.team_id = 1
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SKYVERN
 
     @pytest.mark.parametrize(
         "error_message",

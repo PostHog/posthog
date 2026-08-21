@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "organization_members", "workspaces"]
 CATALOG_ENDPOINTS = ["models", "providers"]
@@ -23,9 +22,6 @@ class TestOpenRouterSource:
         self.source = OpenRouterSource()
         self.team_id = 123
         self.config = OpenRouterSourceConfig(api_key="sk-or-test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPENROUTER
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O — required for the public-docs table list to render.

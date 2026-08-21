@@ -6,7 +6,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.svix import SvixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.source import SvixSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSvixSource:
@@ -14,9 +13,6 @@ class TestSvixSource:
         self.source = SvixSource()
         self.team_id = 123
         self.config = SvixSourceConfig(api_key="sk-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SVIX
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

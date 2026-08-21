@@ -3,7 +3,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hex.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hex.source import HexSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHexSource:
@@ -11,9 +10,6 @@ class TestHexSource:
         self.source = HexSource()
         self.team_id = 123
         self.config = HexSourceConfig(api_key="hex_token", workspace_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HEX
 
     def test_workspace_url_is_a_connection_host_field(self):
         # Retargeting the workspace URL must force re-entry of the API token — without this an

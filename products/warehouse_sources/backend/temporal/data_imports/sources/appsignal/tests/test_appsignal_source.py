@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appsignal import (
     AppsignalSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAppsignalSource:
@@ -17,9 +16,6 @@ class TestAppsignalSource:
         self.source = AppsignalSource()
         self.team_id = 123
         self.config = AppsignalSourceConfig(api_token="api-token", app_id="app-id")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.APPSIGNAL
 
     def test_connection_host_fields_force_secret_reentry_on_app_change(self):
         # Changing app_id retargets the stored token at a different AppSignal app, so the update

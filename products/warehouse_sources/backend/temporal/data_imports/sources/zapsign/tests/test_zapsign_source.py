@@ -8,7 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.settings import DOCUMENTS_RESOURCE
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.source import ZapSignSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.zapsign"
 
@@ -37,9 +36,6 @@ def _source_inputs(
 class TestZapSignSource:
     def setup_method(self) -> None:
         self.source = ZapSignSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZAPSIGN
 
     def test_webhook_resource_map_routes_documents_to_wildcard(self) -> None:
         assert self.source.webhook_resource_map == {DOCUMENTS_RESOURCE: "*"}

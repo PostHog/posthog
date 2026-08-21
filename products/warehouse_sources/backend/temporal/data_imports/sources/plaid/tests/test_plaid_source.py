@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plaid import PlaidSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plaid.source import PlaidSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlaidSource:
@@ -11,9 +10,6 @@ class TestPlaidSource:
         self.source = PlaidSource()
         self.team_id = 123
         self.config = PlaidSourceConfig(environment="production", client_id="cid", secret="sec", access_token="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PLAID
 
     @pytest.mark.parametrize(
         "observed_error",

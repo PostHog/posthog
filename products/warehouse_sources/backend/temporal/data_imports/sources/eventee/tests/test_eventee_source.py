@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventee import (
     EventeeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEventeeSource:
@@ -14,9 +13,6 @@ class TestEventeeSource:
         self.source = EventeeSource()
         self.team_id = 123
         self.config = EventeeSourceConfig(api_key="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.EVENTEE
 
     @pytest.mark.parametrize(
         "observed_error",

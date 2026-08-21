@@ -5,7 +5,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source import YocoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestYocoSource:
@@ -13,9 +12,6 @@ class TestYocoSource:
         self.source = YocoSource()
         self.team_id = 123
         self.config = YocoSourceConfig(api_key="yoco-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.YOCO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source import ServiceNowSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(username: str = "admin", password: str = "secret") -> ServiceNowSourceConfig:
@@ -56,9 +55,6 @@ class TestServiceNowSource:
     def setup_method(self) -> None:
         self.source = ServiceNowSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SERVICENOW
 
     def test_get_schemas_all_incremental(self) -> None:
         schemas = self.source.get_schemas(_api_key_config(), self.team_id)

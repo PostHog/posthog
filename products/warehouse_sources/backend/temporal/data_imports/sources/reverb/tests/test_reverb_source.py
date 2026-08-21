@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Orders", "Payouts"}
 _FULL_REFRESH_ENDPOINTS = {"Listings"}
@@ -14,9 +13,6 @@ class TestReverbSource:
         self.source = ReverbSource()
         self.team_id = 123
         self.config = ReverbSourceConfig(api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.REVERB
 
     def test_supported_api_version_is_declared_and_not_deprecated(self):
         assert self.source.default_version in self.source.supported_versions

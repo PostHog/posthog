@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gridly import GridlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source import GridlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gridly.source"
 
@@ -13,9 +12,6 @@ class TestGridlySource:
         self.source = GridlySource()
         self.team_id = 123
         self.config = GridlySourceConfig(api_key="key", view_id="view")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GRIDLY
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog (no I/O), so the source opts into public-docs table listing.

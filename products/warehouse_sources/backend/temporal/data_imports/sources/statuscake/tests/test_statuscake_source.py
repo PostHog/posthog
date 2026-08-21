@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source import StatuscakeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"uptime_history", "uptime_periods", "uptime_alerts", "pagespeed_history"}
 
@@ -19,9 +18,6 @@ class TestStatuscakeSource:
     def setup_method(self):
         self.source = StatuscakeSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.STATUSCAKE
 
     def test_source_config_is_released_alpha(self):
         config = self.source.get_source_config

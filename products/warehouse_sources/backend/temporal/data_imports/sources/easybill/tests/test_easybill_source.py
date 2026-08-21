@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.easybill import (
     EasybillSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEasybillSourceClass:
@@ -19,9 +18,6 @@ class TestEasybillSourceClass:
         self.source = EasybillSource()
         self.config = EasybillSourceConfig(api_key="key")
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EASYBILL
 
     def test_no_unreleased_flag(self) -> None:
         # A finished source ships visible: unreleasedSource must not be set at all.

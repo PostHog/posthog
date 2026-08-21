@@ -3,7 +3,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
     AlgoliaSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAlgoliaSource:
@@ -11,9 +10,6 @@ class TestAlgoliaSource:
         self.source = AlgoliaSource()
         self.team_id = 123
         self.config = AlgoliaSourceConfig(application_id="APPID", api_key="test-key", index_name="my_index")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ALGOLIA
 
     def test_application_id_is_a_connection_host_field(self) -> None:
         # The stored API key is sent to the host derived from application_id, so changing

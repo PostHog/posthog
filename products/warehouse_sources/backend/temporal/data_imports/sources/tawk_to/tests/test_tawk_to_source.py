@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source"
 
@@ -14,9 +13,6 @@ class TestTawkToSource:
         self.source = TawkToSource()
         self.team_id = 123
         self.config = TawkToSourceConfig(api_key="api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TAWKTO
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Charges"}
 _FULL_REFRESH_ENDPOINTS = {"PaymentRequests", "SubscriptionPlans", "Customers", "RecurringBilling"}
@@ -15,9 +14,6 @@ class TestHitpaySource:
         self.source = HitpaySource()
         self.team_id = 123
         self.config = HitpaySourceConfig(api_key="key", environment="production")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HITPAY
 
     @parameterized.expand(
         [

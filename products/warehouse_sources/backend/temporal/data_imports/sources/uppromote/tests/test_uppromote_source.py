@@ -12,7 +12,6 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source"
 
@@ -39,9 +38,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 class TestUpPromoteSource:
     def setup_method(self) -> None:
         self.source = UpPromoteSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UPPROMOTE
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config

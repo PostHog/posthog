@@ -9,7 +9,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source import AlphaVantageSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.source"
 
@@ -22,9 +21,6 @@ def _make_config(api_key: str = "key", symbols: str = "IBM, AAPL") -> Any:
 
 
 class TestAlphaVantageSource:
-    def test_source_type(self) -> None:
-        assert AlphaVantageSource().source_type == ExternalDataSourceType.ALPHAVANTAGE
-
     def test_source_config_has_api_key_and_symbols_fields(self) -> None:
         config = AlphaVantageSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key", "symbols"]

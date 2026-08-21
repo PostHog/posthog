@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -30,11 +29,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestSourceType:
-    def test_source_type(self) -> None:
-        assert TrelloSource().source_type == ExternalDataSourceType.TRELLO
 
 
 class TestSourceForPipeline:

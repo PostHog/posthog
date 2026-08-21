@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kandji import KandjiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kandji.source import KandjiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestKandjiSource:
@@ -11,9 +10,6 @@ class TestKandjiSource:
         self.source = KandjiSource()
         self.team_id = 123
         self.config = KandjiSourceConfig(api_token="tok", subdomain="accuhive", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KANDJI
 
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible: `unreleasedSource` hides it from every user.

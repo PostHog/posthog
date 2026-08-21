@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.source import CohereSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cohere import CohereSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> CohereSourceConfig:
@@ -17,9 +16,6 @@ class TestCohereSourceClass:
     def setup_method(self) -> None:
         self.source = CohereSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COHERE
 
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_get_schemas_are_full_refresh_only(self, endpoint: str) -> None:

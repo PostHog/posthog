@@ -5,15 +5,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chartmogul import (
     ChartMogulSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestChartMogulSource:
     def setup_method(self) -> None:
         self.source = ChartMogulSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHARTMOGUL
 
     def test_validate_credentials_success(self) -> None:
         with patch(

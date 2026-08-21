@@ -9,7 +9,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source"
 
@@ -31,9 +30,6 @@ def _make_config(
 
 
 class TestDataForSEOSource:
-    def test_source_type(self) -> None:
-        assert DataForSEOSource().source_type == ExternalDataSourceType.DATAFORSEO
-
     def test_source_config_fields(self) -> None:
         config = DataForSEOSource().get_source_config
         assert [f.name for f in config.fields] == [

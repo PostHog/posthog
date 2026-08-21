@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.front import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.source import FrontSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger()
 
@@ -17,9 +16,6 @@ def _config(api_token: str = "tok") -> Any:
 
 
 class TestFrontSource:
-    def test_source_type(self) -> None:
-        assert FrontSource().source_type == ExternalDataSourceType.FRONT
-
     @parameterized.expand(
         [
             # (status_at_create, expected_ok) — source-create probe accepts everything but 401

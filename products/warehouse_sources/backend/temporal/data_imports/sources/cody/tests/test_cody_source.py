@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = [
     "usage_by_user",
@@ -30,9 +29,6 @@ class TestCodySource:
         self.source = CodySource()
         self.config = CodySourceConfig(instance_url="example.sourcegraphcloud.com", access_token="token")
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CODY
 
     def test_get_source_config(self):
         config = self.source.get_source_config

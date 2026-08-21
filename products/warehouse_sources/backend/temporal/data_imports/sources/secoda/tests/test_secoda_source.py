@@ -7,7 +7,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secoda import SecodaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.source import SecodaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSecodaSource:
@@ -15,9 +14,6 @@ class TestSecodaSource:
         self.source = SecodaSource()
         self.team_id = 123
         self.config = SecodaSourceConfig(api_key="sk-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SECODA
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

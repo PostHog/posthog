@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostexplorer import (
     AwsCostExplorerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -55,9 +54,6 @@ class TestAwsCostExplorerSource:
             aws_session_token=None,
             start_date="2024-01-01",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSCOSTEXPLORER
 
     @pytest.mark.parametrize(
         "observed_error",

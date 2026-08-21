@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
     BeehiivSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source.validate_beehiiv_credentials"
@@ -44,9 +43,6 @@ def _source_inputs(schema_name: str = "Subscriptions") -> SourceInputs:
 class TestBeehiivSource:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BEEHIIV
 
     def test_no_table_advertises_incremental_sync(self) -> None:
         # beehiiv has no updated-since or created-after filter, so an incremental sync would

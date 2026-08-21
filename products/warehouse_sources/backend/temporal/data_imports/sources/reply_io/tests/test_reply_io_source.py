@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ReplyIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestReplyIoSource:
@@ -15,9 +14,6 @@ class TestReplyIoSource:
         self.source = ReplyIoSource()
         self.team_id = 123
         self.config = ReplyIoSourceConfig(api_key="reply-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.REPLYIO
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

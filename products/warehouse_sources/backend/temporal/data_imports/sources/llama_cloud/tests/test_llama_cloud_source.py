@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
     LlamaCloudEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.source import LlamaCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLlamaCloudSource:
@@ -17,9 +16,6 @@ class TestLlamaCloudSource:
         self.source = LlamaCloudSource()
         self.team_id = 1
         self.config = LlamaCloudSourceConfig(api_key="llx-test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LLAMACLOUD
 
     def test_get_schemas_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

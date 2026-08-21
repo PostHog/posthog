@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
     EverhourSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source"
 
@@ -16,9 +15,6 @@ class TestEverhourSource:
         self.source = EverhourSource()
         self.team_id = 123
         self.config = EverhourSourceConfig(api_key="ev_abc")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EVERHOUR
 
     @pytest.mark.parametrize(
         "observed_error",

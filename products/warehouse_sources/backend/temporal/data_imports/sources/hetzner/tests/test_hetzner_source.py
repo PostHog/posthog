@@ -9,16 +9,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHetznerSource:
     def setup_method(self) -> None:
         self.source = HetznerSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HETZNER
 
     def test_config_has_single_secret_token_field(self) -> None:
         # The token is a credential — it must render as a masked password input and be marked secret,

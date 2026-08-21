@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTremendousSource:
@@ -16,9 +15,6 @@ class TestTremendousSource:
         self.source = TremendousSource()
         self.team_id = 123
         self.config = TremendousSourceConfig(api_key="tremendous-key", environment="sandbox")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TREMENDOUS
 
     def test_get_schemas_incremental_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

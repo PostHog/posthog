@@ -9,7 +9,6 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCursorSource:
@@ -17,9 +16,6 @@ class TestCursorSource:
         self.source = CursorSource()
         self.config = CursorSourceConfig(api_key="key_test")
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CURSOR
 
     def test_get_source_config(self):
         config = self.source.get_source_config

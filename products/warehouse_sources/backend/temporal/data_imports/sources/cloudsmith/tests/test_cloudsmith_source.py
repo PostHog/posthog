@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudsmith import (
     CloudsmithSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCloudsmithSource:
@@ -15,9 +14,6 @@ class TestCloudsmithSource:
         self.source = CloudsmithSource()
         self.team_id = 123
         self.config = CloudsmithSourceConfig(api_key="cloudsmith-key", workspace="acme")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLOUDSMITH
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

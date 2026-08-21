@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cronitor import (
     CronitorSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Only the metrics API exposes a server-side time filter (start/end); everything else is full refresh.
 _INCREMENTAL_ENDPOINTS = {"metrics"}
@@ -18,9 +17,6 @@ class TestCronitorSource:
         self.source = CronitorSource()
         self.team_id = 123
         self.config = CronitorSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CRONITOR
 
     @pytest.mark.parametrize(
         "observed_error",

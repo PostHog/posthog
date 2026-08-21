@@ -18,9 +18,6 @@ def _config() -> MetorialSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MetorialSource().source_type.value == "Metorial"
-
     def test_api_key_is_a_required_secret_field(self) -> None:
         # A non-secret key field would be stored unencrypted; a non-required one would let a source be
         # created with no credentials.

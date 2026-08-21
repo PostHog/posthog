@@ -6,15 +6,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
     EventzillaSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEventzillaSourceClass:
     def setup_method(self) -> None:
         self.source = EventzillaSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.EVENTZILLA
 
     def test_all_schemas_are_full_refresh_only(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)

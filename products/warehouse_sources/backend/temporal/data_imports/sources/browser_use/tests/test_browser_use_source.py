@@ -12,16 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browser_us
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
     BrowserUseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBrowserUseSource:
     def setup_method(self) -> None:
         self.source = BrowserUseSource()
         self.config = BrowserUseSourceConfig(api_key="bu_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BROWSERUSE
 
     def test_default_version_is_v4(self) -> None:
         # New sources must start on v4 (declared newest-last, default flipped to it) and, with no

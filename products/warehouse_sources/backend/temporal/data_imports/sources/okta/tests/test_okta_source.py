@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okta import OktaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.source import OktaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOktaSource:
@@ -11,9 +10,6 @@ class TestOktaSource:
         self.source = OktaSource()
         self.team_id = 123
         self.config = OktaSourceConfig(okta_domain="example.okta.com", api_key="00token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OKTA
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

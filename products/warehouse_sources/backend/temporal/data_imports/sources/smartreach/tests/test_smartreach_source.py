@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach
     SMARTREACH_API_V3,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.source import SmartreachSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSmartreachSource:
@@ -20,9 +19,6 @@ class TestSmartreachSource:
         self.source = SmartreachSource()
         self.team_id = 123
         self.config = SmartreachSourceConfig(api_key="uk_test", team_id="team_abc")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SMARTREACH
 
     def test_supported_versions_and_default(self) -> None:
         # v3 is the new default for freshly created sources; v1 stays supported so pinned rows keep working.

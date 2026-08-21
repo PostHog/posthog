@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.source import ScalewaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ScalewaySourceConfig:
@@ -22,9 +21,6 @@ class TestScalewaySource:
     def setup_method(self) -> None:
         self.source = ScalewaySource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SCALEWAY
 
     def test_secret_key_field_is_marked_secret(self) -> None:
         # A secret leaking as a plain (non-secret) field would be stored/echoed in cleartext, so lock

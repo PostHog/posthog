@@ -6,16 +6,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aiven impo
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.source import AivenSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aiven import AivenSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AivenSourceConfig:
     return AivenSourceConfig.from_dict({"api_token": "tok"})
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert AivenSource().source_type == ExternalDataSourceType.AIVEN
 
 
 class TestGetSchemas:

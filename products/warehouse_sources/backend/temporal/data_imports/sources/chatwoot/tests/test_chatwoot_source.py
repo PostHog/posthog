@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
     ChatwootSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestChatwootSource:
@@ -14,9 +13,6 @@ class TestChatwootSource:
         self.source = ChatwootSource()
         self.team_id = 123
         self.config = ChatwootSourceConfig(account_id="7", api_access_token="token", host="https://chat.example.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CHATWOOT
 
     def test_host_and_account_are_connection_host_fields(self):
         # Retargeting the host could exfiltrate the stored token to an attacker-controlled server,

@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appstack import (
     AppstackSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> AppstackSourceConfig:
@@ -25,9 +24,6 @@ def _config() -> AppstackSourceConfig:
 
 
 class TestAppstackSourceConfig:
-    def test_source_type(self) -> None:
-        assert AppstackSource().source_type == ExternalDataSourceType.APPSTACK
-
     def test_get_source_config(self) -> None:
         config = AppstackSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.APPSTACK

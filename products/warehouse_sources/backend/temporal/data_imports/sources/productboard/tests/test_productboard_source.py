@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.productboa
     ProductboardSource,
     _probe_path,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestProductboardSource:
@@ -16,9 +15,6 @@ class TestProductboardSource:
         self.source = ProductboardSource()
         self.team_id = 123
         self.config = ProductboardSourceConfig(access_token="pb-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PRODUCTBOARD
 
     @pytest.mark.parametrize(
         "observed_error",

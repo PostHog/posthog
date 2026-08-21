@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
     AzureDevOpsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAzureDevOpsSource:
@@ -17,9 +16,6 @@ class TestAzureDevOpsSource:
         self.source = AzureDevOpsSource()
         self.team_id = 123
         self.config = AzureDevOpsSourceConfig(organization="myorg", personal_access_token="pat")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AZUREDEVOPS
 
     def test_connection_host_fields_includes_organization(self):
         # The PAT is sent to dev.azure.com/<organization>, so retargeting the

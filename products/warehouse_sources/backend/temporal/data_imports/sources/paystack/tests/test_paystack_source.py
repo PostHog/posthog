@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.paystack.source import PaystackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPaystackSource:
@@ -14,9 +13,6 @@ class TestPaystackSource:
         self.source = PaystackSource()
         self.team_id = 123
         self.config = PaystackSourceConfig(secret_api_key="sk_test_x")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PAYSTACK
 
     @pytest.mark.parametrize(
         "observed_error",

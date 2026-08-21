@@ -5,7 +5,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTempoSource:
@@ -13,9 +12,6 @@ class TestTempoSource:
         self.source = TempoSource()
         self.team_id = 123
         self.config = TempoSourceConfig(api_token="tempo-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TEMPO
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no

@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.source import IterableSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestIterableSource:
@@ -14,9 +13,6 @@ class TestIterableSource:
         self.source = IterableSource()
         self.team_id = 123
         self.config = IterableSourceConfig(api_key="fake-key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ITERABLE
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     VeracodeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.source import VeracodeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> VeracodeSourceConfig:
@@ -36,9 +35,6 @@ def _inputs(schema_name: str) -> SourceInputs:
 
 
 class TestVeracodeSourceConfig:
-    def test_source_type(self) -> None:
-        assert VeracodeSource().source_type == ExternalDataSourceType.VERACODE
-
     def test_config_is_visible_and_alpha(self) -> None:
         config = VeracodeSource().get_source_config
         # A finished source must never keep unreleasedSource (that hides it from every user).

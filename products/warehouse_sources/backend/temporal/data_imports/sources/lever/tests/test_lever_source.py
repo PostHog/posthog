@@ -2,7 +2,6 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.source import LeverSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"opportunities"}
 
@@ -12,9 +11,6 @@ class TestLeverSource:
         self.source = LeverSource()
         self.team_id = 123
         self.config = LeverSourceConfig(api_key="test_api_key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LEVER
 
     @pytest.mark.parametrize(
         "expected_key",

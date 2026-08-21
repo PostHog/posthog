@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PingdomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.source import PingdomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPingdomSource:
@@ -13,9 +12,6 @@ class TestPingdomSource:
         self.source = PingdomSource()
         self.team_id = 123
         self.config = PingdomSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PINGDOM
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -2,7 +2,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SentineloneSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.source import SentineloneSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSentineloneSource:
@@ -10,9 +9,6 @@ class TestSentineloneSource:
         self.source = SentineloneSource()
         self.team_id = 123
         self.config = SentineloneSourceConfig(console_url="example.sentinelone.net", api_token="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SENTINELONE
 
     def test_console_url_is_a_connection_host_field(self):
         # Retargeting the console URL must force re-entry of the API token — otherwise a

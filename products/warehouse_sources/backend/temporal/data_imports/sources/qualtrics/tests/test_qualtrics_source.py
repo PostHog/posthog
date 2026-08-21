@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import QualtricsCredentials
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 EXPECTED_ENDPOINTS = {
     "surveys",
@@ -59,9 +58,6 @@ def _inputs(schema_name: str = "surveys", **kwargs: Any) -> SourceInputs:
 class TestQualtricsSource:
     def setup_method(self) -> None:
         self.source = source_module.QualtricsSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.QUALTRICS
 
     def test_source_is_released_as_alpha(self) -> None:
         config = self.source.get_source_config

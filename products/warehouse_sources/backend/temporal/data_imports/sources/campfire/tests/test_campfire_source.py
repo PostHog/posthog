@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
     CampfireSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -39,9 +38,6 @@ def _source_inputs(
 class TestCampfireSource:
     def setup_method(self) -> None:
         self.source = CampfireSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CAMPFIRE
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # Public docs list the table catalog through this path; it must not need I/O.

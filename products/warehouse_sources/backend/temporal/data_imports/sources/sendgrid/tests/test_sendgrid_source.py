@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import SENDGRID_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source"
 _TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid"
@@ -44,9 +43,6 @@ def _config() -> SendGridSourceConfig:
 
 
 class TestSendGridSource:
-    def test_source_type(self) -> None:
-        assert SendGridSource().source_type == ExternalDataSourceType.SENDGRID
-
     def test_incremental_endpoints_expose_their_cursor_field(self) -> None:
         schemas = {s.name: s for s in SendGridSource().get_schemas(_config(), team_id=1)}
         for name in ALL_ENDPOINTS:

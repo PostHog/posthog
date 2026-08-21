@@ -11,16 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.source import JellyfishSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJellyfishSource:
     def setup_method(self) -> None:
         self.source = JellyfishSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JELLYFISH
 
     def test_source_is_released(self) -> None:
         # `unreleasedSource=True` hides the connector from every user — a finished source must

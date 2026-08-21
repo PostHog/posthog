@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZenloopSource:
@@ -16,9 +15,6 @@ class TestZenloopSource:
         self.source = ZenloopSource()
         self.team_id = 123
         self.config = ZenloopSourceConfig(api_token="zenloop-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZENLOOP
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

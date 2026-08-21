@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.source import CopperSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MagicMock:
@@ -16,9 +15,6 @@ def _config() -> MagicMock:
 class TestCopperSource:
     def setup_method(self):
         self.source = CopperSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.COPPER
 
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(_config(), team_id=1)

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ShopWiredSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source import ShopWiredSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShopWiredSource:
@@ -15,9 +14,6 @@ class TestShopWiredSource:
         self.source = ShopWiredSource()
         self.team_id = 123
         self.config = ShopWiredSourceConfig(api_key="sw-key", api_secret="sw-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHOPWIRED
 
     def test_no_connection_host_fields(self) -> None:
         # Both fields are secrets and the base URL is hardcoded, so there is no non-secret field an

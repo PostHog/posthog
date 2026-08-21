@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJamfProSource:
@@ -20,9 +19,6 @@ class TestJamfProSource:
                 selection="client_credentials", client_id="cid", client_secret="secret"
             ),
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JAMFPRO
 
     def test_connection_host_fields_covers_instance_url(self):
         # Without this, an org member could retarget the instance URL at a server they control

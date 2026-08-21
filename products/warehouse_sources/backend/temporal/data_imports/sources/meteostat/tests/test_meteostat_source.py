@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import MAX_STATIONS
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.source import MeteostatSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.source"
 
@@ -15,9 +14,6 @@ class TestMeteostatSource:
         self.source = MeteostatSource()
         self.team_id = 123
         self.config = MeteostatSourceConfig(api_key="key-123", station_ids="10637")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.METEOSTAT
 
     def test_validate_credentials_rejects_no_stations(self):
         config = MeteostatSourceConfig(api_key="key-123", station_ids="")

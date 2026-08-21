@@ -4,7 +4,6 @@ from unittest.mock import patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.source import DubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dub import DubSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 EVENT_ENDPOINTS = ("click_events", "lead_events", "sale_events")
 
@@ -13,9 +12,6 @@ class TestDubSource:
     def setup_method(self):
         self.source = DubSource()
         self.config = DubSourceConfig(api_key="dub_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DUB
 
     def test_source_is_released(self) -> None:
         # unreleasedSource=True hides the connector from every user; a finished source

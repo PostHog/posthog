@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
     AircallSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAircallSource:
@@ -14,9 +13,6 @@ class TestAircallSource:
         self.source = AircallSource()
         self.team_id = 123
         self.config = AircallSourceConfig(api_id="api-id", api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AIRCALL
 
     @pytest.mark.parametrize(
         "observed_error",

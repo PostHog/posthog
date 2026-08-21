@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudbeds import (
     CloudbedsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCloudbedsSource:
@@ -15,9 +14,6 @@ class TestCloudbedsSource:
         self.source = CloudbedsSource()
         self.team_id = 123
         self.config = CloudbedsSourceConfig(api_key="cbat_key", property_id="12345")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLOUDBEDS
 
     def test_new_sources_default_to_latest_version(self) -> None:
         # New Cloudbeds sources are stamped with default_version; v1.3 is the current PMS API version.

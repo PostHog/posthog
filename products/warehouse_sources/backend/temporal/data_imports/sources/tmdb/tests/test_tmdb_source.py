@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.source import TMDbSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTMDbSource:
@@ -11,9 +10,6 @@ class TestTMDbSource:
         self.source = TMDbSource()
         self.team_id = 123
         self.config = TMDbSourceConfig(api_key="tmdb-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TMDB
 
     def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

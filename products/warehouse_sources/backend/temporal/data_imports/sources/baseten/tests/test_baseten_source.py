@@ -8,15 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baseten import (
     BasetenSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.baseten.source"
 
 
 class TestBasetenSourceConfig:
-    def test_source_type(self) -> None:
-        assert BasetenSource().source_type == ExternalDataSourceType.BASETEN
-
     def test_config_metadata(self) -> None:
         config = BasetenSource().get_source_config
         # Alpha + unreleased per the task's staged-rollout requirement.

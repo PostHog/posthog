@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.
     INSIGHTLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Derived from settings so a new endpoint is automatically covered by the parametrized tests below.
 INCREMENTAL_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if cfg.supports_incremental}
@@ -21,9 +20,6 @@ class TestInsightlySource:
         self.source = InsightlySource()
         self.team_id = 123
         self.config = InsightlySourceConfig(pod="na1", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INSIGHTLY
 
     def test_pod_is_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["pod"]

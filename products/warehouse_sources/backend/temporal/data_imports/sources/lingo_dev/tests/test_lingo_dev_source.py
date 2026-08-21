@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.source import LingoDevSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLingoDevSource:
@@ -13,9 +12,6 @@ class TestLingoDevSource:
         self.source = LingoDevSource()
         self.team_id = 123
         self.config = LingoDevSourceConfig(api_key="test-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LINGODEV
 
     def test_non_retryable_errors_matches_observed_error_message(self):
         observed_error = "401 Client Error: Unauthorized for url: https://api.lingo.dev/jobs/localization?limit=100"

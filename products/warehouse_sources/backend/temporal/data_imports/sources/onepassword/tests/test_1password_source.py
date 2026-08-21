@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.source import OnePasswordSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_FEATURES_INTROSPECTION = {
     "uuid": "OK41XEGLRTH4YKO5YRTCPNX3IU",
@@ -39,9 +38,6 @@ def _source_inputs(schema_name: str, last_value: Optional[Any] = None, use_incre
 class TestOnePasswordSource:
     def setup_method(self) -> None:
         self.source = OnePasswordSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONEPASSWORD
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.

@@ -10,7 +10,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.profound.source import ProfoundSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.source"
 PROFOUND_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.profound.profound"
@@ -61,9 +60,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestProfoundSource:
-    def test_source_type(self) -> None:
-        assert ProfoundSource().source_type == ExternalDataSourceType.PROFOUND
-
     @parameterized.expand(
         [
             ("visibility_is_incremental", "Visibility", True),

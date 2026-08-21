@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.source import FramerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.framer import FramerSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> FramerSourceConfig:
@@ -21,9 +20,6 @@ def _inputs(schema_name: str, api_version: str | None = None) -> Any:
 
 
 class TestFramerSource:
-    def test_source_type(self) -> None:
-        assert FramerSource().source_type == ExternalDataSourceType.FRAMER
-
     @parameterized.expand(
         [
             (None, "0.1.29"),  # no pin falls back to default_version
@@ -55,3 +51,8 @@ class TestFramerSource:
             "Framer API error METHOD_ERROR: getCollectionItems2: ensureComponentsInLoader: Some modules are missing."
         )
         assert any(key in observed_error for key in FramerSource().get_non_retryable_errors())
+
+    def test_pool_exhausted_stays_retryable(self) -> None:
+        observed_error = "Framer API error POOL_EXHAUSTED: busy"
+        assert not any(key in observed_error for key in FramerSource().get_non_retryable_errors())
+        assert any(key in observed_error for key in FramerSource().get_retryable_errors())

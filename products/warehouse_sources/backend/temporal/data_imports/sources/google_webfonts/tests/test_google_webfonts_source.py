@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.source import GoogleWebfontsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.source"
 
@@ -15,9 +14,6 @@ class TestGoogleWebfontsSource:
         self.source = GoogleWebfontsSource()
         self.team_id = 123
         self.config = GoogleWebfontsSourceConfig(api_key="AIza-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GOOGLEWEBFONTS
 
     @pytest.mark.parametrize(
         "observed_error",

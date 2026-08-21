@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source import StreamElementsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStreamElementsSource:
@@ -14,9 +13,6 @@ class TestStreamElementsSource:
         self.source = StreamElementsSource()
         self.team_id = 123
         self.config = StreamElementsSourceConfig(api_token="jwt-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.STREAMELEMENTS
 
     @pytest.mark.parametrize(
         "observed_error",

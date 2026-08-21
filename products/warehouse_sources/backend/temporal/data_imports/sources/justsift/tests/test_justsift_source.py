@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.source import JustSiftSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJustSiftSource:
@@ -18,9 +17,6 @@ class TestJustSiftSource:
         self.source = JustSiftSource()
         self.team_id = 123
         self.config = JustSiftSourceConfig(api_key="sift-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JUSTSIFT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

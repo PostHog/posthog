@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uk_compani
     NO_COMPANY_NUMBERS_ERROR,
     UkCompaniesHouseSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.validate_companies_house_credentials"
 TRANSPORT_TARGET = "products.warehouse_sources.backend.temporal.data_imports.sources.uk_companies_house.source.uk_companies_house_source"
@@ -53,9 +52,6 @@ class TestUkCompaniesHouseSource:
     def setup_method(self) -> None:
         self.source = UkCompaniesHouseSource()
         self.config = UkCompaniesHouseSourceConfig(api_key="test-key", company_numbers="6400\nSC123456")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UKCOMPANIESHOUSE
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so it is safe for public docs.

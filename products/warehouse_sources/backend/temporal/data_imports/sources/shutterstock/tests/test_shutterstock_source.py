@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shuttersto
     ShutterstockSource,
     _auth_from_config,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _basic_config(**auth_overrides: str) -> ShutterstockSourceConfig:
@@ -27,9 +26,6 @@ class TestShutterstockSource:
         self.source = ShutterstockSource()
         self.team_id = 123
         self.config = _basic_config()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHUTTERSTOCK
 
     @pytest.mark.parametrize(
         "observed_error",

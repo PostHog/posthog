@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
     FormbricksSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFormbricksSource:
@@ -25,9 +24,6 @@ class TestFormbricksSource:
         self.source = FormbricksSource()
         self.team_id = 123
         self.config = FormbricksSourceConfig(api_key="fb-key", host="https://formbricks.example.com")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FORMBRICKS
 
     def test_host_field_is_optional_connection_target(self) -> None:
         config = self.source.get_source_config

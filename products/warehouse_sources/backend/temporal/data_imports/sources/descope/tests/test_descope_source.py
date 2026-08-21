@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.descope.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.descope import (
     DescopeSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDescopeSource:
@@ -13,9 +12,6 @@ class TestDescopeSource:
         self.source = DescopeSource()
         self.team_id = 123
         self.config = DescopeSourceConfig(project_id="P2abc", management_key="mgmt-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DESCOPE
 
     @pytest.mark.parametrize(
         "observed_error",

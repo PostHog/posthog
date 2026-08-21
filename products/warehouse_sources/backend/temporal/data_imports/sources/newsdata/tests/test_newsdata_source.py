@@ -10,7 +10,6 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(**overrides: Any) -> MagicMock:
@@ -22,9 +21,6 @@ def _source_inputs(**overrides: Any) -> MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert NewsDataSource().source_type == ExternalDataSourceType.NEWSDATA
-
     def test_config_identity_and_release_contract(self) -> None:
         config = NewsDataSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.NEWS_DATA

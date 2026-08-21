@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.source import SquadcastSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 SQUADCAST_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.squadcast"
 
@@ -12,9 +12,6 @@ class TestSquadcastSource:
     def setup_method(self) -> None:
         self.source = SquadcastSource()
         self.config = MagicMock(refresh_token="refresh_tok", region="us")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SQUADCAST
 
     def test_get_schemas_lists_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

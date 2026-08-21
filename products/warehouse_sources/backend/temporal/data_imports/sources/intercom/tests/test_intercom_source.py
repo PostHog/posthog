@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
 
@@ -16,9 +15,6 @@ class TestIntercomSource:
         self.source = IntercomSource()
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INTERCOM
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.

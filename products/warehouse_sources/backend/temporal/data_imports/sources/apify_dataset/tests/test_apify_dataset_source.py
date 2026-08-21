@@ -1,14 +1,10 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.source import ApifyDatasetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestApifyDatasetSource:
     def setup_method(self) -> None:
         self.source = ApifyDatasetSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APIFYDATASET
 
     def test_source_config_basics(self) -> None:
         config = self.source.get_source_config

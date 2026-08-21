@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source import MetabaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(selection: Literal["api_key", "session"] = "api_key", **auth_kwargs) -> MetabaseSourceConfig:
@@ -31,9 +30,6 @@ class TestMetabaseSource:
         self.source = MetabaseSource()
         self.team_id = 123
         self.config = _config(api_key="mb_secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.METABASE
 
     def test_dns_resolution_failure_message_is_classified_non_retryable(self):
         # `_is_host_safe` raises this exact message when the Instance URL doesn't resolve via

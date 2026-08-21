@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OmnisendSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source import OmnisendSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> OmnisendSourceConfig:
@@ -13,9 +12,6 @@ def _config() -> OmnisendSourceConfig:
 
 
 class TestOmnisendSource:
-    def test_source_type(self) -> None:
-        assert OmnisendSource().source_type == ExternalDataSourceType.OMNISEND
-
     def test_all_endpoints_are_full_refresh(self) -> None:
         # We can't curl-verify Omnisend's server-side timestamp filter, so every endpoint
         # ships full refresh (no incremental advertised). See api_inventory.md.

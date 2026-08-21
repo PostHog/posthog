@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.source import NorthflankSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNorthflankSource:
@@ -15,9 +14,6 @@ class TestNorthflankSource:
         self.source = NorthflankSource()
         self.team_id = 123
         self.config = NorthflankSourceConfig(api_token="nf-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.NORTHFLANK
 
     def test_get_source_config(self):
         config = self.source.get_source_config

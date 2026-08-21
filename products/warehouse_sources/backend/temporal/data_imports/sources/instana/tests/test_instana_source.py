@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import InstanaHostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.source import InstanaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInstanaSource:
@@ -15,9 +14,6 @@ class TestInstanaSource:
         self.source = InstanaSource()
         self.team_id = 123
         self.config = InstanaSourceConfig(base_url="https://unit-tenant.instana.io", api_token="secret-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INSTANA
 
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Changing the base URL must force the token to be re-entered so it's never

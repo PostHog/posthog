@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.s
     SPLIT_IO_API_VERSION_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSplitIoSource:
@@ -18,9 +17,6 @@ class TestSplitIoSource:
         self.source = SplitIoSource()
         self.team_id = 123
         self.config = SplitIoSourceConfig(api_key="admin-api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SPLITIO
 
     @pytest.mark.parametrize(
         "observed_error",

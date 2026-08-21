@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source import RKICovidSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.source"
 
@@ -19,9 +18,6 @@ def _make_config(history_days: int | None = None) -> Any:
 
 
 class TestRKICovidSource:
-    def test_source_type(self) -> None:
-        assert RKICovidSource().source_type == ExternalDataSourceType.RKICOVID
-
     def test_source_config_is_released_alpha(self) -> None:
         config = RKICovidSource().get_source_config
         # A finished source must stay visible: unreleasedSource hides it from every user.

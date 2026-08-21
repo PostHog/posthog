@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
     ClockodoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ClockodoSourceConfig:
@@ -15,9 +14,6 @@ def _config() -> ClockodoSourceConfig:
 
 
 class TestClockodoSource:
-    def test_source_type(self) -> None:
-        assert ClockodoSource().source_type == ExternalDataSourceType.CLOCKODO
-
     def test_get_schemas_lists_all_endpoints_full_refresh_only(self) -> None:
         schemas = ClockodoSource().get_schemas(_config(), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)

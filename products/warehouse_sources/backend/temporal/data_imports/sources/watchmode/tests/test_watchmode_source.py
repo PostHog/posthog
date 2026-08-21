@@ -8,16 +8,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.watchmode.source import WatchmodeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWatchmodeSource:
     def setup_method(self) -> None:
         self.source = WatchmodeSource()
         self.config = WatchmodeSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WATCHMODE
 
     def test_get_schemas_are_all_full_refresh(self) -> None:
         # No Watchmode endpoint has a server-side timestamp filter usable for incremental

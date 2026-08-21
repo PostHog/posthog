@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.source import WrikeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWrikeSource:
@@ -11,9 +10,6 @@ class TestWrikeSource:
         self.source = WrikeSource()
         self.team_id = 123
         self.config = WrikeSourceConfig(access_token="token", host="www.wrike.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WRIKE
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.se
     RECURLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if e.supports_incremental]
 FULL_REFRESH_ENDPOINTS = [name for name, e in RECURLY_ENDPOINTS.items() if not e.supports_incremental]
@@ -25,9 +24,6 @@ class TestRecurlySource:
         self.source = RecurlySource()
         self.team_id = 123
         self.config = RecurlySourceConfig(api_key="test-key", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RECURLY
 
     def test_get_schemas_returns_every_endpoint(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

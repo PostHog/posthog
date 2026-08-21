@@ -15,13 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.source import IntruderSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert IntruderSource().source_type == ExternalDataSourceType.INTRUDER
-
     def test_config_shape(self) -> None:
         config = IntruderSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING

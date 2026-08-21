@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahaideas import (
     AhaIdeasSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Aha! Ideas list action exposes the server-side `updated_since` filter.
 _INCREMENTAL_ENDPOINTS = {"ideas", "idea_organizations", "idea_users", "idea_endorsements"}
@@ -18,9 +17,6 @@ class TestAhaIdeasSource:
         self.source = AhaIdeasSource()
         self.team_id = 123
         self.config = AhaIdeasSourceConfig(subdomain="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AHAIDEAS
 
     def test_subdomain_listed_as_connection_host_field(self):
         # The API key is sent to <subdomain>.aha.io, so retargeting the subdomain must re-require it.

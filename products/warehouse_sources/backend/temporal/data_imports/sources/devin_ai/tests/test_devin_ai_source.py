@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.s
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.source import DevinAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
@@ -19,9 +18,6 @@ def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DevinAISource().source_type == ExternalDataSourceType.DEVINAI
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert DevinAISource.lists_tables_without_credentials is True

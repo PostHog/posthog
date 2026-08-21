@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source import NewRelicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source"
 
@@ -15,9 +14,6 @@ class TestNewRelicSource:
         self.source = NewRelicSource()
         self.team_id = 123
         self.config = NewRelicSourceConfig(api_key="NRAK-x", account_id=1234567, region="US")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.NEWRELIC
 
     @parameterized.expand(
         [

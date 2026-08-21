@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.pluralsight_flow.source import (
     PluralsightFlowSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPluralsightFlowSource:
@@ -15,9 +14,6 @@ class TestPluralsightFlowSource:
         self.source = PluralsightFlowSource()
         self.team_id = 123
         self.config = PluralsightFlowSourceConfig(workspace="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PLURALSIGHTFLOW
 
     def test_workspace_listed_as_connection_host_field(self):
         # The API key is sent to <workspace>.appfireflow.com, so retargeting the workspace must

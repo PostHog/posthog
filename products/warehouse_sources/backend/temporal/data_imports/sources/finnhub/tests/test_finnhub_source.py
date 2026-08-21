@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnhub import (
     FinnhubSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> FinnhubSourceConfig:
@@ -21,9 +20,6 @@ def _config(**overrides: Any) -> FinnhubSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert FinnhubSource().source_type == ExternalDataSourceType.FINNHUB
-
     def test_fields(self) -> None:
         fields = {f.name: f for f in FinnhubSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "symbols", "exchange"}

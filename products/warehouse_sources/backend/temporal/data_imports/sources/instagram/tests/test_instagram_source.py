@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import INSTAGRAM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source import InstagramSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.instagram.source"
 ACCOUNT_ID = "17841400000000000"
@@ -54,9 +53,6 @@ class TestInstagramSource:
         self.source = InstagramSource()
         self.team_id = 1
         self.config = InstagramSourceConfig(instagram_integration_id=7, instagram_account_id=ACCOUNT_ID)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INSTAGRAM
 
     def test_the_connection_is_a_posthog_owned_oauth_app(self) -> None:
         integration = next(f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldOauthConfig))

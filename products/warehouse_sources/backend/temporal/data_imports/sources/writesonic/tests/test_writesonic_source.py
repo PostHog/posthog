@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic
     WRITESONIC_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source import WritesonicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWritesonicSource:
@@ -16,9 +15,6 @@ class TestWritesonicSource:
         self.source = WritesonicSource()
         self.team_id = 123
         self.config = WritesonicSourceConfig(api_key="key_test", site_url="https://example.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WRITESONIC
 
     def test_connection_host_fields_cover_data_targeting_fields(self):
         # Changing which tracked site the stored API key is used against must force re-entry

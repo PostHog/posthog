@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
     BigCommerceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -35,9 +34,6 @@ class TestBigCommerceSource:
         self.source = BigCommerceSource()
         self.team_id = 123
         self.config = BigCommerceSourceConfig(store_hash="store123", access_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BIGCOMMERCE
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",

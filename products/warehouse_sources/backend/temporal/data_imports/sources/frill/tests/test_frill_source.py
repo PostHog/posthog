@@ -6,7 +6,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.source import FrillSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.frill import FrillSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFrillSource:
@@ -14,9 +13,6 @@ class TestFrillSource:
         self.source = FrillSource()
         self.team_id = 123
         self.config = FrillSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRILL
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

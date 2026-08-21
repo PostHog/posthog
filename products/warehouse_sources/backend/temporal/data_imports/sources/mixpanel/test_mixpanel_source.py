@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.source import MixpanelSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = structlog.get_logger()
 
@@ -44,11 +43,6 @@ def _inputs(schema_name: str = "export", **overrides) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestSourceType:
-    def test_source_type(self) -> None:
-        assert MixpanelSource().source_type == ExternalDataSourceType.MIXPANEL
 
 
 class TestConnectionHostFields:

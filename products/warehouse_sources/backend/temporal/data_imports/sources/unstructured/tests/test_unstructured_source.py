@@ -11,16 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUnstructuredSourceClass:
     def setup_method(self) -> None:
         self.source = UnstructuredSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UNSTRUCTURED
 
     def test_form_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.windmill.source import WindmillSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 BASE_URL = "https://app.windmill.dev"
 WORKSPACE = "my-workspace"
@@ -19,9 +18,6 @@ class TestWindmillSource:
         self.source = WindmillSource()
         self.team_id = 123
         self.config = WindmillSourceConfig(host=BASE_URL, workspace=WORKSPACE, api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WINDMILL
 
     def test_connection_host_fields_force_token_reentry_on_host_change(self):
         # host receives the api_token, so editing it must re-require the token (no exfiltration

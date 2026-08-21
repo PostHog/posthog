@@ -6,7 +6,6 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType, S
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAblySource:
@@ -16,9 +15,6 @@ class TestAblySource:
 
     def _field(self, name: str):
         return next(f for f in self.source.get_source_config.fields if f.name == name)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ABLY
 
     def test_api_key_field_is_secret_password(self):
         field = self._field("api_key")

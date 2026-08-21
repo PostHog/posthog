@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
     AmazonAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAmazonAdsSource:
@@ -14,9 +13,6 @@ class TestAmazonAdsSource:
         self.source = AmazonAdsSource()
         self.team_id = 123
         self.config = AmazonAdsSourceConfig(region="na", client_id="cid", client_secret="sec", refresh_token="rt")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AMAZONADS
 
     @pytest.mark.parametrize(
         "observed_error",

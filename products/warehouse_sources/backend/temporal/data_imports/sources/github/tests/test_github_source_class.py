@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
     GRANT_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GITHUB_INTEGRATION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
@@ -41,9 +40,6 @@ class TestGithubSource:
     def setup_method(self):
         self.source = GithubSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITHUB
 
     @mock.patch(_GITHUB_INTEGRATION_PATH)
     @mock.patch.object(GithubSource, "get_oauth_integration")

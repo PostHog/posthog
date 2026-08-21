@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
     FinnworldsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
@@ -28,9 +27,6 @@ class TestFinnworldsSource:
         self.source = FinnworldsSource()
         self.team_id = 123
         self.config = FinnworldsSourceConfig(api_key="fw-test", tickers="AAPL, MSFT")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FINNWORLDS
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True

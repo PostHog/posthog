@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azurecostmanagement import (
     AzureCostManagementSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost_management.source"
 
@@ -55,9 +54,6 @@ class TestAzureCostManagementSource:
             scope="subscriptions/abc",
             start_date=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AZURECOSTMANAGEMENT
 
     def test_source_is_released(self) -> None:
         # A truthy `unreleasedSource` hides the connector from users entirely.

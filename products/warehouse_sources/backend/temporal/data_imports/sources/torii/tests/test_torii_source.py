@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.torii import ToriiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.torii.source import ToriiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestToriiSource:
@@ -11,9 +10,6 @@ class TestToriiSource:
         self.source = ToriiSource()
         self.team_id = 123
         self.config = ToriiSourceConfig(api_key="test-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TORII
 
     @pytest.mark.parametrize(
         "observed_error",

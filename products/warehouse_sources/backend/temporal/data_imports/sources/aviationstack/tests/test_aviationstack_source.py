@@ -8,7 +8,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config(access_key: str = "key") -> Any:
@@ -18,9 +17,6 @@ def _make_config(access_key: str = "key") -> Any:
 
 
 class TestAviationstackSource:
-    def test_source_type(self) -> None:
-        assert AviationstackSource().source_type == ExternalDataSourceType.AVIATIONSTACK
-
     def test_source_config_has_single_access_key_field(self) -> None:
         config = AviationstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key"]

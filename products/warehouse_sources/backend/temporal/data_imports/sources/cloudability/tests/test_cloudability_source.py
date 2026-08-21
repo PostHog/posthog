@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudability import (
     CloudabilitySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCloudabilitySource:
@@ -19,9 +18,6 @@ class TestCloudabilitySource:
         self.source = CloudabilitySource()
         self.team_id = 123
         self.config = CloudabilitySourceConfig(api_key="key", region="us", view_id=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLOUDABILITY
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_no_endpoint_advertises_incremental(self, endpoint):

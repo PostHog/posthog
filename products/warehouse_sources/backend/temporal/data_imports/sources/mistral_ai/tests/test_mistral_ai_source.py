@@ -7,7 +7,6 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.source import MistralAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> MagicMock:
@@ -21,9 +20,6 @@ def _make_inputs(**overrides: Any) -> MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MistralAISource().source_type == ExternalDataSourceType.MISTRALAI
-
     def test_api_key_field_is_required_secret_password(self) -> None:
         # A non-secret key field would persist the API key in plaintext job inputs.
         fields = MistralAISource().get_source_config.fields

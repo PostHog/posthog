@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.sftp 
     SFTPCredentialsError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sftp.source import SFTPSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DIRECTORY_MODE = stat.S_IFDIR | 0o755
 FILE_MODE = stat.S_IFREG | 0o644
@@ -115,9 +114,6 @@ def patched_connection(client: FakeClient, target: str = CONNECTION_TARGET) -> A
 class TestSFTPSourceConfig:
     def setup_method(self) -> None:
         self.source = SFTPSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SFTP
 
     def test_port_change_requires_credential_reentry(self) -> None:
         assert self.source.connection_host_fields == ["port"]

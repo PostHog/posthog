@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
     CratesIOSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCratesIOSource:
@@ -15,9 +14,6 @@ class TestCratesIOSource:
         self.source = CratesIOSource()
         self.team_id = 123
         self.config = CratesIOSourceConfig(crates="serde\ntokio")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CRATESIO
 
     def test_get_source_config(self):
         config = self.source.get_source_config

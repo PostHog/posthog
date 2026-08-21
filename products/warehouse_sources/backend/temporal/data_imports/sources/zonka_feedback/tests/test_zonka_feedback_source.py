@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feed
     ZONKA_API_VERSION_V1,
     ZONKA_API_VERSION_V2_1,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZonkaFeedbackSource:
@@ -21,9 +20,6 @@ class TestZonkaFeedbackSource:
         self.source = ZonkaFeedbackSource()
         self.team_id = 123
         self.config = ZonkaFeedbackSourceConfig(auth_token="zonka-token", data_center="us1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZONKAFEEDBACK
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

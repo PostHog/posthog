@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source import MailerLiteSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MailerLiteSourceConfig:
@@ -32,9 +31,6 @@ def _config() -> MailerLiteSourceConfig:
 
 
 class TestMailerLiteSourceClass:
-    def test_source_type(self) -> None:
-        assert MailerLiteSource().source_type == ExternalDataSourceType.MAILERLITE
-
     @pytest.mark.parametrize(
         ("valid", "expected_ok"),
         [(True, True), (False, False)],

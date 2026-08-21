@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
     FreshcallerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"
 
@@ -38,9 +37,6 @@ class TestFreshcallerSource:
         self.source = FreshcallerSource()
         self.team_id = 1
         self.config = FreshcallerSourceConfig(subdomain="acme", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHCALLER
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog -> the public docs Supported-tables section can render.

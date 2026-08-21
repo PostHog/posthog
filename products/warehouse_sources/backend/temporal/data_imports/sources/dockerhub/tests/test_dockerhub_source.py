@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
     DockerhubSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDockerhubSource:
@@ -16,9 +15,6 @@ class TestDockerhubSource:
         self.source = DockerhubSource()
         self.team_id = 123
         self.config = DockerhubSourceConfig(username="tom", personal_access_token="dckr_pat_token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DOCKERHUB
 
     def test_namespace_is_a_connection_host_field(self) -> None:
         # The stored token pulls data from whatever namespace is configured, so changing it must force

@@ -5,7 +5,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.huntr import HuntrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.huntr.source import HuntrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHuntrSource:
@@ -13,9 +12,6 @@ class TestHuntrSource:
         self.source = HuntrSource()
         self.team_id = 123
         self.config = HuntrSourceConfig(access_token="huntr-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HUNTR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

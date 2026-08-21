@@ -5,7 +5,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hyros import HyrosSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyros.source import HyrosSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Leads", "Sales", "Calls", "Subscriptions"}
 _FULL_REFRESH_ENDPOINTS = {"Sources", "Tags", "Keywords", "Stages"}
@@ -16,9 +15,6 @@ class TestHyrosSource:
         self.source = HyrosSource()
         self.team_id = 123
         self.config = HyrosSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HYROS
 
     def test_api_version_metadata(self):
         assert self.source.supported_versions == ("v1.0",)

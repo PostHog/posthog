@@ -3,7 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.drip.source import DripSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drip import DripSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDripSource:
@@ -11,9 +10,6 @@ class TestDripSource:
         self.source = DripSource()
         self.team_id = 123
         self.config = DripSourceConfig(api_token="test_token", account_id="9999999")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DRIP
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

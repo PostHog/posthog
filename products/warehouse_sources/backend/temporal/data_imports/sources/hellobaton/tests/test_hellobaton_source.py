@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source import HellobatonSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHellobatonSource:
@@ -14,9 +13,6 @@ class TestHellobatonSource:
         self.source = HellobatonSource()
         self.team_id = 123
         self.config = HellobatonSourceConfig(company="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HELLOBATON
 
     def test_company_listed_as_connection_host_field(self):
         # The API key is sent to <company>.hellobaton.com, so retargeting the company must re-require it.

@@ -10,13 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.better_sta
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBetterStackSourceConfig:
-    def test_source_type(self) -> None:
-        assert BetterStackSource().source_type == ExternalDataSourceType.BETTERSTACK
-
     def test_config_basics(self) -> None:
         config = BetterStackSource().get_source_config
         assert config.label == "Better Stack"

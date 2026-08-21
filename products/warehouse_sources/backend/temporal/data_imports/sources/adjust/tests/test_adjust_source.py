@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adj
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.settings import ADJUST_REPORTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source import AdjustSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adjust import AdjustSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adjust.source"
 
@@ -20,9 +19,6 @@ class TestAdjustSource:
         self.source = AdjustSource()
         self.team_id = 123
         self.config = AdjustSourceConfig(api_token="adjust-token", app_tokens="abc123")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ADJUST
 
     def test_source_is_released(self) -> None:
         # A truthy unreleasedSource hides the connector from users entirely.

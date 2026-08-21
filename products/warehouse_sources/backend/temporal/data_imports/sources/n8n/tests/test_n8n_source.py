@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestN8nSource:
@@ -12,9 +11,6 @@ class TestN8nSource:
         self.source = N8nSource()
         self.team_id = 123
         self.config = N8nSourceConfig(host="https://myorg.app.n8n.cloud", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.N8N
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored API key gets sent.

@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twenty import TwentySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twenty.source import TwentySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTwentySource:
@@ -9,9 +8,6 @@ class TestTwentySource:
         self.source = TwentySource()
         self.team_id = 123
         self.config = TwentySourceConfig(api_key="tok", base_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TWENTY
 
     def test_connection_host_fields_force_secret_reentry(self):
         # The API key is sent to base_url, so retargeting it must re-require the key.

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.unleash.source import UnleashSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUnleashSource:
@@ -16,9 +15,6 @@ class TestUnleashSource:
         self.source = UnleashSource()
         self.team_id = 123
         self.config = UnleashSourceConfig(instance_url="https://unleash.example.com", api_token="user:secret-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UNLEASH
 
     def test_connection_host_fields_covers_instance_url(self) -> None:
         # The stored API token is sent to whatever `instance_url` points at, so retargeting the

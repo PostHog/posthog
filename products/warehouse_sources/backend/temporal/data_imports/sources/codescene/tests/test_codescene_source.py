@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codescene import (
     CodesceneSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCodesceneSource:
@@ -14,9 +13,6 @@ class TestCodesceneSource:
         self.source = CodesceneSource()
         self.team_id = 123
         self.config = CodesceneSourceConfig(api_token="cs-token", base_url=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CODESCENE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

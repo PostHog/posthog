@@ -2,7 +2,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cortex.source import CortexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cortex import CortexSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCortexSource:
@@ -10,9 +9,6 @@ class TestCortexSource:
         self.source = CortexSource()
         self.team_id = 123
         self.config = CortexSourceConfig(api_key="cx_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CORTEX
 
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible: `unreleasedSource` hides it from every user.

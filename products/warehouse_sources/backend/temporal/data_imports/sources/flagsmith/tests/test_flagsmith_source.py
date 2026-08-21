@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
     FlagsmithSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.validate_flagsmith_credentials"
@@ -18,9 +17,6 @@ class TestFlagsmithSource:
         self.source = FlagsmithSource()
         self.team_id = 123
         self.config = FlagsmithSourceConfig(api_key="org-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FLAGSMITH
 
     def test_base_url_is_a_connection_host_field(self):
         # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).

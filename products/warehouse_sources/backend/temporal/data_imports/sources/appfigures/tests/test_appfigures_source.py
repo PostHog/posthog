@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
     AppfiguresSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAppfiguresSource:
@@ -14,9 +13,6 @@ class TestAppfiguresSource:
         self.source = AppfiguresSource()
         self.team_id = 123
         self.config = AppfiguresSourceConfig(personal_access_token="pat_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.APPFIGURES
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.

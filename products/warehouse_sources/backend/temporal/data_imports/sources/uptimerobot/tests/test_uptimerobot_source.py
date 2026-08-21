@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.source import UptimerobotSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"monitor_logs", "response_times"}
 _FULL_REFRESH_ENDPOINTS = {"monitors", "alert_contacts", "maintenance_windows", "status_pages"}
@@ -17,9 +16,6 @@ class TestUptimerobotSource:
         self.source = UptimerobotSource()
         self.team_id = 123
         self.config = UptimerobotSourceConfig(api_key="ur123-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.UPTIMEROBOT
 
     @pytest.mark.parametrize(
         "observed_error",

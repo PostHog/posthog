@@ -10,9 +10,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNebiusAISourceConfig:
-    def test_source_type(self) -> None:
-        assert NebiusAISource().source_type == ExternalDataSourceType.NEBIUSAI
-
     def test_docs_url_matches_published_doc_slug(self) -> None:
         # docsUrl must match the posthog.com doc filename so the docs link resolves.
         assert NebiusAISource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/nebius-ai"

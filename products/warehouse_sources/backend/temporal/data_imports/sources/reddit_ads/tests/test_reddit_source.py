@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -39,9 +38,6 @@ class TestRedditAdsSource:
         self.source = RedditAdsSource()
         self.team_id = 123
         self.config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="789")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.REDDITADS
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="")

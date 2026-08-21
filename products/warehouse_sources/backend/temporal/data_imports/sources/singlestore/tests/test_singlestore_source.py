@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singlestor
     source as singlestore_source_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.source import SinglestoreSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -39,9 +38,6 @@ class TestSinglestoreSource:
     def setup_method(self) -> None:
         self.source = SinglestoreSource()
         self.config = SinglestoreSourceConfig(api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SINGLESTORE
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas iterates a static catalog with no I/O, so the public docs render the table list.

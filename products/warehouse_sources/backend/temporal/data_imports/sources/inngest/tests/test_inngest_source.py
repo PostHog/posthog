@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.source import InngestSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(
@@ -38,9 +37,6 @@ def _source_inputs(
 class TestInngestSource:
     def setup_method(self) -> None:
         self.source = InngestSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INNGEST
 
     def test_source_config_is_alpha_and_unreleased(self) -> None:
         # The source ships hidden (unreleasedSource) and labelled alpha; a regression that flipped

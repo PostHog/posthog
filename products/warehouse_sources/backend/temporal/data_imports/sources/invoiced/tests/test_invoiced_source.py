@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     InvoicedSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source import InvoicedSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInvoicedSource:
@@ -15,9 +14,6 @@ class TestInvoicedSource:
         self.source = InvoicedSource()
         self.team_id = 123
         self.config = InvoicedSourceConfig(api_key="invoiced-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.INVOICED
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

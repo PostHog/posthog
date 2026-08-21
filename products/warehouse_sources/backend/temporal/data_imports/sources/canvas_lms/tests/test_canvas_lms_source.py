@@ -2,7 +2,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.canvaslms import (
     CanvasLmsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCanvasLmsSource:
@@ -10,9 +9,6 @@ class TestCanvasLmsSource:
         self.source = CanvasLmsSource()
         self.team_id = 123
         self.config = CanvasLmsSourceConfig(canvas_domain="yourschool.instructure.com", account_id="1", api_key="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CANVASLMS
 
     def test_connection_host_fields(self):
         assert self.source.connection_host_fields == ["canvas_domain", "account_id"]

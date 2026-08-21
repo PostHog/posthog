@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb import source as koyeb_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.source import KoyebSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -38,9 +38,6 @@ class TestKoyebSource:
     def setup_method(self) -> None:
         self.source = KoyebSource()
         self.config = KoyebSourceConfig(api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KOYEB
 
     def test_source_config_metadata(self) -> None:
         config = self.source.get_source_config

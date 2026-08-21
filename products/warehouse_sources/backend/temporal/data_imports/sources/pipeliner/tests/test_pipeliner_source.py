@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipeliner.source import PipelinerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPipelinerSource:
@@ -21,9 +20,6 @@ class TestPipelinerSource:
             username="api-user",
             password="api-pass",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PIPELINER
 
     def test_get_source_config(self):
         config = self.source.get_source_config

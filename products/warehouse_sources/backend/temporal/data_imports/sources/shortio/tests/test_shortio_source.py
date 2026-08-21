@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ShortioSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source import ShortioSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str = "domains") -> SourceInputs:
@@ -36,9 +35,6 @@ class TestShortioSource:
         self.source = ShortioSource()
         self.team_id = 123
         self.config = ShortioSourceConfig(api_key="sk-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SHORTIO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

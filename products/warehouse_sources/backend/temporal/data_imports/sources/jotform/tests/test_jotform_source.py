@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.se
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jotform.source import JotformSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJotformSource:
@@ -19,9 +18,6 @@ class TestJotformSource:
         self.source = JotformSource()
         self.team_id = 123
         self.config = JotformSourceConfig(api_key="key-123", region="us")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JOTFORM
 
     def test_get_source_config(self):
         config = self.source.get_source_config

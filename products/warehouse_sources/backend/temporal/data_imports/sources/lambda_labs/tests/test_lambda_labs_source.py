@@ -16,13 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LambdaLabsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.source import LambdaLabsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLambdaLabsSource:
-    def test_source_type(self) -> None:
-        assert LambdaLabsSource().source_type == ExternalDataSourceType.LAMBDALABS
-
     def test_get_source_config(self) -> None:
         config = LambdaLabsSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING

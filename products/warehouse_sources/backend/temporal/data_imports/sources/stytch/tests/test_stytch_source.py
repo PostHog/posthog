@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStytchSource:
@@ -12,9 +11,6 @@ class TestStytchSource:
         self.source = StytchSource()
         self.team_id = 123
         self.config = StytchSourceConfig(project_id="project-live-x", secret="secret-live-x")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.STYTCH
 
     @pytest.mark.parametrize(
         "observed_error",

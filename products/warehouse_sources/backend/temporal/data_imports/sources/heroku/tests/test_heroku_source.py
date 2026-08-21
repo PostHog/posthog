@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source import HerokuSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.heroku.source"
 
@@ -15,9 +14,6 @@ SOURCE_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.
 class TestHerokuSource:
     def setup_method(self) -> None:
         self.source = HerokuSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HEROKU
 
     def test_get_schemas_returns_full_refresh_only_endpoints(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)

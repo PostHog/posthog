@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.twelve_labs.source import TwelveLabsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str, last_value: object = None, should_use_incremental: bool = False) -> SourceInputs:
@@ -32,9 +31,6 @@ def _inputs(schema_name: str, last_value: object = None, should_use_incremental:
 class TestTwelveLabsSource:
     def setup_method(self) -> None:
         self.source = TwelveLabsSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TWELVELABS
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.source import TrustPilotSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTrustPilotSource:
@@ -15,9 +14,6 @@ class TestTrustPilotSource:
         self.source = TrustPilotSource()
         self.team_id = 123
         self.config = TrustPilotSourceConfig(api_key="key", api_secret="secret", business_unit="example.com")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRUSTPILOT
 
     def test_get_source_config(self):
         config = self.source.get_source_config

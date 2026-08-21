@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.cano
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.source import MoxieSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMoxieSource:
@@ -16,9 +15,6 @@ class TestMoxieSource:
         self.source = MoxieSource()
         self.team_id = 123
         self.config = MoxieSourceConfig(base_url="https://pod00.withmoxie.dev/api/public", api_key="test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MOXIE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

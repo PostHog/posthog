@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
 
@@ -15,9 +14,6 @@ class TestCloseSource:
         self.source = CloseSource()
         self.team_id = 123
         self.config = CloseSourceConfig(api_key="api_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLOSE
 
     def test_get_schemas_lists_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

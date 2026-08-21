@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
     DatadogSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"logs", "audit_logs", "events"}
 
@@ -16,9 +15,6 @@ class TestDatadogSource:
         self.source = DatadogSource()
         self.team_id = 123
         self.config = DatadogSourceConfig(api_key="dd-api", application_key="dd-app", site="datadoghq.com")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DATADOG
 
     def test_site_is_a_connection_host_field(self) -> None:
         # Changing the site must force the secrets to be re-entered so they're never

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
     WEBHOOK_EVENTS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.source import InstantlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInstantlySource:
@@ -17,9 +16,6 @@ class TestInstantlySource:
         self.source = InstantlySource()
         self.team_id = 123
         self.config = InstantlySourceConfig(api_key="test-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INSTANTLY
 
     def test_get_schemas_only_emails_supports_incremental(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

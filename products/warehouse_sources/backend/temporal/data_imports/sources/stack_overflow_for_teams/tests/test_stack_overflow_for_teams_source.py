@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stack_over
 from products.warehouse_sources.backend.temporal.data_imports.sources.stack_overflow_for_teams.source import (
     StackOverflowForTeamsSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestStackOverflowForTeamsSource:
@@ -16,9 +15,6 @@ class TestStackOverflowForTeamsSource:
         self.source = StackOverflowForTeamsSource()
         self.team_id = 123
         self.config = StackOverflowForTeamsSourceConfig(team="engineering", api_token="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.STACKOVERFLOWFORTEAMS
 
     def test_team_listed_as_connection_host_field(self):
         # The PAT is sent to api.stackoverflowteams.com/v3/teams/<team>, so retargeting the

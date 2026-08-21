@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ShortcutSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.source import ShortcutSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestShortcutSource:
@@ -12,9 +11,6 @@ class TestShortcutSource:
         self.source = ShortcutSource()
         self.team_id = 123
         self.config = ShortcutSourceConfig(api_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SHORTCUT
 
     def test_only_stories_supports_incremental(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

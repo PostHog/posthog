@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_m
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campaignmonitor import (
     CampaignMonitorSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCampaignMonitorSource:
@@ -15,9 +14,6 @@ class TestCampaignMonitorSource:
         self.source = CampaignMonitorSource()
         self.team_id = 123
         self.config = CampaignMonitorSourceConfig(api_key="test-key", client_id="client-abc")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CAMPAIGNMONITOR
 
     def test_client_id_is_a_connection_host_field(self):
         # Changing the targeted client must force the API key to be re-entered.

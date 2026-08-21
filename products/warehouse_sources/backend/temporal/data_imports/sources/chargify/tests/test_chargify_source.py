@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
     ChargifySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -40,9 +39,6 @@ class TestChargifySource:
         self.source = ChargifySource()
         self.team_id = 123
         self.config = ChargifySourceConfig(api_key="test-key", subdomain="acme")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHARGIFY
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored API key is sent to https://{subdomain}.chargify.com, so changing subdomain

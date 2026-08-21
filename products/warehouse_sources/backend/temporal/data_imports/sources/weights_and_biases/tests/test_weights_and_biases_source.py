@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source import (
     WeightsAndBiasesSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.source"
 
@@ -21,9 +20,6 @@ class TestWeightsAndBiasesSource:
         self.source = WeightsAndBiasesSource()
         self.team_id = 123
         self.config = WeightsAndBiasesSourceConfig(api_key="wb-key", entity="acme")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WEIGHTSANDBIASES
 
     def test_entity_is_a_connection_host_field(self):
         # Changing `entity` retargets the stored key at another W&B account's data, so the update

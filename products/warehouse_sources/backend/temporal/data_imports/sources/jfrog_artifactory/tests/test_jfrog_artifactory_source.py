@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source import (
     JfrogArtifactorySource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # AQL endpoints expose server-side timestamp filters; the REST list endpoints don't.
 _INCREMENTAL_ENDPOINTS = {"artifacts", "builds"}
@@ -20,9 +19,6 @@ class TestJfrogArtifactorySource:
         self.source = JfrogArtifactorySource()
         self.team_id = 123
         self.config = JfrogArtifactorySourceConfig(base_url="https://acme.jfrog.io", access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JFROGARTIFACTORY
 
     def test_base_url_listed_as_connection_host_field(self):
         # The access token is sent to base_url, so retargeting it must re-require the token.

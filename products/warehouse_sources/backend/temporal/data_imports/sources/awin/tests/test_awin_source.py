@@ -9,13 +9,9 @@ from posthog.schema import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAwinSourceClass:
-    def test_source_type(self) -> None:
-        assert AwinSource().source_type == ExternalDataSourceType.AWIN
-
     def test_get_source_config_region_field(self) -> None:
         # Awin's aggregated advertiser report 400s without a region (no "all regions" value exists),
         # so every connection must pick one.

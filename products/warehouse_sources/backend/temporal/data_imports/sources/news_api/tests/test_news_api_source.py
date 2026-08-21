@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     NewsApiSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(language: str | None = None) -> NewsApiSourceConfig:
@@ -21,9 +20,6 @@ class TestNewsApiSource:
     def setup_method(self) -> None:
         self.source = NewsApiSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.NEWSAPI
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs render the table list.

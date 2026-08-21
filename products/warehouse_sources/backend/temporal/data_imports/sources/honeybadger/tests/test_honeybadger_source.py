@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source import HoneybadgerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHoneybadgerSource:
@@ -14,9 +13,6 @@ class TestHoneybadgerSource:
         self.source = HoneybadgerSource()
         self.team_id = 123
         self.config = HoneybadgerSourceConfig(api_key="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HONEYBADGER
 
     @pytest.mark.parametrize(
         "expected_key",

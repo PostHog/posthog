@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.adobeanalytics import (
     AdobeAnalyticsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source"
 
@@ -29,9 +28,6 @@ class TestAdobeAnalyticsSource:
             report_suite_id="rs1",
             global_company_id="gcid",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ADOBEANALYTICS
 
     @pytest.mark.parametrize(
         "observed_error",

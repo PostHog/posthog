@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pypi import PyPISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.source import PyPISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPyPISource:
@@ -11,9 +10,6 @@ class TestPyPISource:
         self.source = PyPISource()
         self.team_id = 123
         self.config = PyPISourceConfig(packages="requests\ndjango")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PYPI
 
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

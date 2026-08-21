@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_3
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dynamics365businesscentral import (
     Dynamics365BusinessCentralSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.source"
 
@@ -29,9 +28,6 @@ class TestDynamics365BusinessCentralSource:
             client_id="client-id",
             client_secret="client-secret",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DYNAMICS365BUSINESSCENTRAL
 
     def test_connection_host_fields_force_credential_reentry(self) -> None:
         # Both feed the request path (`/{tenant_id}/{environment}/api/...`), so editing either

@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
     FreshdeskSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.validate_freshdesk_credentials"
@@ -40,9 +39,6 @@ class TestFreshdeskSource:
         self.source = FreshdeskSource()
         self.team_id = 1
         self.config = FreshdeskSourceConfig(subdomain="acme", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHDESK
 
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

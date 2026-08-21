@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dodopaymen
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dodopayments import (
     DodoPaymentsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.dodopayments.source.api_client"
 
@@ -28,9 +27,6 @@ class TestDodoPaymentsSource:
         self.source = DodoPaymentsSource()
         self.team_id = 123
         self.config = DodoPaymentsSourceConfig(api_key="test-api-key", mode="live")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DODOPAYMENTS
 
     def test_get_source_config(self):
         config = self.source.get_source_config

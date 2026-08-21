@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
     FIREWORKS_AI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "fw_test", account_id: str = "my-account") -> Any:
@@ -18,9 +17,6 @@ def _config(api_key: str = "fw_test", account_id: str = "my-account") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert FireworksAISource().source_type == ExternalDataSourceType.FIREWORKSAI
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert FireworksAISource.lists_tables_without_credentials is True

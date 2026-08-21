@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSmailySource:
@@ -14,9 +13,6 @@ class TestSmailySource:
         self.source = SmailySource()
         self.team_id = 123
         self.config = SmailySourceConfig(subdomain="acme", username="user", password="pass")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SMAILY
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored password is sent to `{subdomain}.sendsmaily.net`; retargeting the subdomain

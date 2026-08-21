@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PinterestAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPinterestAdsSource:
@@ -18,9 +17,6 @@ class TestPinterestAdsSource:
         self.source = PinterestAdsSource()
         self.team_id = 123
         self.config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="789")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PINTERESTADS
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="")

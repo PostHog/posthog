@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leexi import LeexiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source import LeexiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source.probe_endpoint"
 
@@ -14,9 +13,6 @@ class TestLeexiSource:
         self.source = LeexiSource()
         self.team_id = 123
         self.config = LeexiSourceConfig(api_key_id="key-id", api_key_secret="key-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LEEXI
 
     @pytest.mark.parametrize(
         "observed_error",

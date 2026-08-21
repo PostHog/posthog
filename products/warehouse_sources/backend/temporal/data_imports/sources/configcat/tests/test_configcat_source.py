@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
     ConfigCatSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestConfigCatSource:
@@ -17,9 +16,6 @@ class TestConfigCatSource:
         self.source = ConfigCatSource()
         self.team_id = 123
         self.config = ConfigCatSourceConfig(basic_auth_username="user", basic_auth_password="pass")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CONFIGCAT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

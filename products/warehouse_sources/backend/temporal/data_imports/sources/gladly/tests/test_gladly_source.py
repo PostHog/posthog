@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.set
     REPORT_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGladlySource:
@@ -15,9 +14,6 @@ class TestGladlySource:
         self.source = GladlySource()
         self.team_id = 123
         self.config = GladlySourceConfig(organization="myorg", agent_email="agent@x.com", api_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GLADLY
 
     def test_connection_host_fields_cover_organization(self):
         # The org subdomain and the domain together decide where the stored token gets sent.

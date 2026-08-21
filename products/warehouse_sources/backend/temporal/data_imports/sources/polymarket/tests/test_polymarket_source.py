@@ -3,15 +3,11 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.source import PolymarketSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.polymarket.source"
 
 
 class TestPolymarketSource:
-    def test_source_type(self) -> None:
-        assert PolymarketSource().source_type == ExternalDataSourceType.POLYMARKET
-
     @parameterized.expand(["events", "markets", "series", "tags"])
     def test_no_table_advertises_incremental(self, endpoint: str) -> None:
         # Gamma filters on startDate and endDate, which describe the trading window rather than when

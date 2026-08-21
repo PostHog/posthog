@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plunk import PlunkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.source import PlunkSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPlunkSource:
@@ -9,9 +8,6 @@ class TestPlunkSource:
         self.source = PlunkSource()
         self.team_id = 123
         self.config = PlunkSourceConfig(api_key="sk_test", base_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PLUNK
 
     def test_connection_host_fields_force_secret_reentry(self):
         # The secret key is sent to base_url, so retargeting it must re-require the key.

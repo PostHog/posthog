@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleciinsights import (
     CircleciInsightsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCircleciInsightsSource:
@@ -27,9 +26,6 @@ class TestCircleciInsightsSource:
             reporting_window="last-90-days",
             branch_scope="all_branches",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CIRCLECIINSIGHTS
 
     def test_connection_host_fields_includes_project_slugs(self):
         # The token is sent to circleci.com scoped to <project_slugs>, so retargeting the

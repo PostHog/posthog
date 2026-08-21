@@ -3,12 +3,6 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestAnthropicSourceConfig:
-    def test_source_type(self) -> None:
-        assert AnthropicSource().source_type == ExternalDataSourceType.ANTHROPIC
 
 
 class TestAnthropicSchemas:

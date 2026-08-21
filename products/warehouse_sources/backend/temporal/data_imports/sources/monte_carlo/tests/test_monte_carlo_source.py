@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.source import MonteCarloSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMonteCarloSource:
     def setup_method(self) -> None:
         self.source = MonteCarloSource()
         self.config = MonteCarloSourceConfig(api_key_id="key-id", api_key_secret="key-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MONTECARLO
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

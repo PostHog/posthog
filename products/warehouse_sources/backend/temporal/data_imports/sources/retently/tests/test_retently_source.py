@@ -8,15 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.retently.source import RetentlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRetentlySourceConfig:
     def setup_method(self) -> None:
         self.source = RetentlySource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RETENTLY
 
     def test_config_is_unreleased_alpha(self) -> None:
         config = self.source.get_source_config

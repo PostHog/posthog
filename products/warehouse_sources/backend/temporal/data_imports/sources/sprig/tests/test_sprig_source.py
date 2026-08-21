@@ -4,16 +4,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sprig import SprigSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.source import SprigSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> SprigSourceConfig:
     return SprigSourceConfig(api_key="sprig-key")
-
-
-class TestSprigSourceConfig:
-    def test_source_type(self) -> None:
-        assert SprigSource().source_type == ExternalDataSourceType.SPRIG
 
 
 class TestValidateCredentials:

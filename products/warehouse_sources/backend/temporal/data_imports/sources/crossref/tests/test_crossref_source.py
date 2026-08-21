@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crossref import (
     CrossrefSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCrossrefSource:
@@ -15,9 +14,6 @@ class TestCrossrefSource:
         self.source = CrossrefSource()
         self.team_id = 123
         self.config = CrossrefSourceConfig()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CROSSREF
 
     @parameterized.expand(
         [

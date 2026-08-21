@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
     BugsnagSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(schema_name: str = "errors") -> SourceInputs:
@@ -40,9 +39,6 @@ class TestBugsnagSource:
     def setup_method(self) -> None:
         self.source = BugsnagSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUGSNAG
 
     def test_source_config_basics(self) -> None:
         config = self.source.get_source_config

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkmarx import (
     CheckmarxSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config(**overrides: Any) -> CheckmarxSourceConfig:
@@ -18,9 +17,6 @@ def _make_config(**overrides: Any) -> CheckmarxSourceConfig:
 class TestCheckmarxSource:
     def setup_method(self) -> None:
         self.source = CheckmarxSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CHECKMARX
 
     @pytest.mark.parametrize(
         ("endpoint", "supports_incremental", "supports_append"),

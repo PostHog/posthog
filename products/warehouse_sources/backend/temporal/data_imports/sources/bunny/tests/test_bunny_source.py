@@ -6,7 +6,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.source import BunnySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bunny import BunnySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBunnySource:
@@ -14,9 +13,6 @@ class TestBunnySource:
         self.source = BunnySource()
         self.team_id = 123
         self.config = BunnySourceConfig(access_key="bunny-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUNNY
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

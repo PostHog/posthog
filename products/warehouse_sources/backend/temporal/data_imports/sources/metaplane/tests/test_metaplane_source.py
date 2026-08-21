@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.source import MetaplaneSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMetaplaneSource:
@@ -14,9 +13,6 @@ class TestMetaplaneSource:
         self.source = MetaplaneSource()
         self.team_id = 123
         self.config = MetaplaneSourceConfig(api_key="mp-test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.METAPLANE
 
     def test_get_schemas_matches_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

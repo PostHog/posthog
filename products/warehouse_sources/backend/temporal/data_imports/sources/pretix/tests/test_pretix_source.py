@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.set
     INCREMENTAL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPretixSource:
@@ -15,9 +14,6 @@ class TestPretixSource:
         self.source = PretixSource()
         self.team_id = 123
         self.config = PretixSourceConfig(organizer="acme", api_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PRETIX
 
     def test_connection_host_fields_covers_base_url(self):
         # Retargeting the API URL must force re-entry of the token, otherwise an editor could point

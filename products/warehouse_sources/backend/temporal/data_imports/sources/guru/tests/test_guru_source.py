@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.guru import GuruSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.source import GuruSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestGuruSource:
@@ -12,9 +11,6 @@ class TestGuruSource:
         self.source = GuruSource()
         self.team_id = 123
         self.config = GuruSourceConfig(username="user@company.com", api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GURU
 
     @pytest.mark.parametrize(
         "observed_error",

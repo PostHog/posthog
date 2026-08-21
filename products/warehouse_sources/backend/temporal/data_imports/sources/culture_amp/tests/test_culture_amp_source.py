@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.culture_am
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cultureamp import (
     CultureAmpSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCultureAmpSource:
@@ -17,9 +16,6 @@ class TestCultureAmpSource:
         self.source = CultureAmpSource()
         self.team_id = 123
         self.config = CultureAmpSourceConfig(client_id="cid", client_secret="sec", account_id="entity-1")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CULTUREAMP
 
     @pytest.mark.parametrize(
         "observed_error",

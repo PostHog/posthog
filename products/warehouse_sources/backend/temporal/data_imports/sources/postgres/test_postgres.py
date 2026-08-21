@@ -1293,6 +1293,12 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
 
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
+        error_msg = str(_recovery_conflict_abort_error(10))
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
+
 
 class TestPostgresSourceRetryableErrors:
     @pytest.fixture
@@ -1385,6 +1391,18 @@ class TestPostgresSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern.lower() in error_msg.lower() for pattern in retryable)
         assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_server_shutting_down_is_not_also_non_retryable(self, source):
+        error_msg = "the database system is shutting down"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
+
+    def test_connection_dropped_is_not_also_non_retryable(self, source):
+        error_msg = "the connection is lost"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:
@@ -2132,6 +2150,11 @@ class TestRecoveryConflictAbortError:
         assert "conflict with recovery" in message
         assert "max_standby_streaming_delay" in message
         assert "hot_standby_feedback" in message
+
+    def test_message_is_non_retryable(self):
+        message = str(_recovery_conflict_abort_error(10))
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
 
 
 # Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flexmail import (
     FlexmailSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFlexmailSource:
@@ -16,9 +15,6 @@ class TestFlexmailSource:
         self.source = FlexmailSource()
         self.team_id = 123
         self.config = FlexmailSourceConfig(account_id="12345", personal_access_token="flexmail-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FLEXMAIL
 
     def test_no_connection_host_fields(self) -> None:
         # The base URL is hardcoded and the account ID only selects the Flexmail account the token

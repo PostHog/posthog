@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.source import PropertywareSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPropertywareSource:
@@ -14,9 +13,6 @@ class TestPropertywareSource:
         self.source = PropertywareSource()
         self.team_id = 123
         self.config = PropertywareSourceConfig(client_id="cid", client_secret="secret", system_id="org-1")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PROPERTYWARE
 
     @pytest.mark.parametrize(
         "observed_error",

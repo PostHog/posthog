@@ -11,7 +11,6 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.raygun import RaygunSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source import RaygunSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.raygun.source"
 
@@ -21,9 +20,6 @@ def _config() -> RaygunSourceConfig:
 
 
 class TestRaygunSourceConfig:
-    def test_source_type(self) -> None:
-        assert RaygunSource().source_type == ExternalDataSourceType.RAYGUN
-
     def test_get_source_config_shape(self) -> None:
         config = RaygunSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING

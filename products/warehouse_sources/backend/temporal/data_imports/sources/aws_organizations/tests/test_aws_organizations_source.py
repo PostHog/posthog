@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsorganizations import (
     AwsOrganizationsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(schema_name: str) -> SourceInputs:
@@ -50,9 +49,6 @@ class TestAwsOrganizationsSource:
             aws_secret_access_key="secret",
             aws_session_token=None,
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSORGANIZATIONS
 
     def test_the_api_version_pins_the_service_model_the_requests_carry(self) -> None:
         assert self.source.supported_versions == (ORGANIZATIONS_API_VERSION,)

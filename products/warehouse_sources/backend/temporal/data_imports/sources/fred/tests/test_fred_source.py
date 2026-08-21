@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fred.canon
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.settings import ENDPOINTS, FRED_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fred.source import FredSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fred import FredSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.fred.source"
 
@@ -17,9 +16,6 @@ class TestFredSource:
         self.source = FredSource()
         self.team_id = 123
         self.config = FredSourceConfig(api_key="key", series_ids="UNRATE, CPIAUCSL")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FRED
 
     @pytest.mark.parametrize(
         "observed_error",

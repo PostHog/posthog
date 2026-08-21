@@ -8,7 +8,6 @@ from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.source import StockDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL = {"news": "published_at", "eod": "date", "intraday": "date"}
 _FULL_REFRESH_ONLY = {"quote", "dividends", "splits"}
@@ -22,9 +21,6 @@ def _make_config(api_token: str = "token", symbols: str | None = "AAPL") -> Any:
 
 
 class TestStockDataSource:
-    def test_source_type(self) -> None:
-        assert StockDataSource().source_type == ExternalDataSourceType.STOCKDATA
-
     def test_source_config_fields(self) -> None:
         config = StockDataSource().get_source_config
         assert [f.name for f in config.fields] == ["api_token", "symbols"]

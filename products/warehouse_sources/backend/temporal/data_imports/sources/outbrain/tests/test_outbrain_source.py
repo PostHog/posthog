@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.source import OutbrainSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOutbrainSource:
@@ -17,9 +16,6 @@ class TestOutbrainSource:
         self.source = OutbrainSource()
         self.team_id = 123
         self.config = OutbrainSourceConfig(username="u@x.com", password="pw")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OUTBRAIN
 
     @pytest.mark.parametrize(
         "observed_error",

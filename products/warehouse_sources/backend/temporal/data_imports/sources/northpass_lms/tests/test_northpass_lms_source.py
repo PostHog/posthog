@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.source import NorthpassLMSSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestNorthpassLMSSource:
@@ -17,9 +16,6 @@ class TestNorthpassLMSSource:
         self.source = NorthpassLMSSource()
         self.team_id = 123
         self.config = NorthpassLMSSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.NORTHPASSLMS
 
     def test_get_source_config(self):
         config = self.source.get_source_config

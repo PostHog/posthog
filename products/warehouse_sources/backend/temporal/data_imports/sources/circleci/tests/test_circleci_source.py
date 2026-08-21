@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
     CircleCISourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCircleCISource:
@@ -16,9 +15,6 @@ class TestCircleCISource:
         self.source = CircleCISource()
         self.team_id = 123
         self.config = CircleCISourceConfig(api_token="circle-token", org_slug="gh/posthog")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CIRCLECI
 
     @parameterized.expand(
         [

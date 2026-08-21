@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.settings import ENDPOINTS, XENDIT_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source import XenditSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.xendit.source.validate_xendit_credentials"
@@ -22,9 +21,6 @@ class TestXenditSource:
         self.source = XenditSource()
         self.team_id = 123
         self.config = XenditSourceConfig(api_key="xnd_test_key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.XENDIT
 
     def test_connection_host_fields_pin_sub_account(self):
         # Retargeting the stored key at another sub-account must force credential re-entry.

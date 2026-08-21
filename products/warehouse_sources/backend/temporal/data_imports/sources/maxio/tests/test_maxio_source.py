@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.sett
     TIMEZONE_SKEW_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> MaxioSourceConfig:
@@ -40,9 +39,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False, **over
 
 
 class TestMaxioSource:
-    def test_source_type(self) -> None:
-        assert MaxioSource().source_type == ExternalDataSourceType.MAXIO
-
     def test_connection_host_fields_cover_host_determining_fields(self) -> None:
         assert MaxioSource().connection_host_fields == ["subdomain", "region"]
 

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
     BloomerangSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Constituents"}
 _FULL_REFRESH_ENDPOINTS = {"Transactions", "Interactions", "Appeals", "Campaigns", "Funds"}
@@ -18,9 +17,6 @@ class TestBloomerangSource:
         self.source = BloomerangSource()
         self.team_id = 123
         self.config = BloomerangSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BLOOMERANG
 
     @pytest.mark.parametrize(
         "observed_error",

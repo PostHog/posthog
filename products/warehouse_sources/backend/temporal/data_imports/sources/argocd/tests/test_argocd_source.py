@@ -1,7 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.source import ArgocdSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.argocd import ArgocdSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestArgocdSource:
@@ -9,9 +8,6 @@ class TestArgocdSource:
         self.source = ArgocdSource()
         self.team_id = 123
         self.config = ArgocdSourceConfig(host="https://argocd.example.com", api_token="tok", project=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ARGOCD
 
     def test_get_schemas_returns_all_endpoints_full_refresh_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

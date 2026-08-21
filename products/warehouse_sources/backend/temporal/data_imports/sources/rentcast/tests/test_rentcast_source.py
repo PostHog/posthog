@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RentCastSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.source import RentCastSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRentCastSource:
@@ -17,9 +16,6 @@ class TestRentCastSource:
         self.source = RentCastSource()
         self.team_id = 123
         self.config = RentCastSourceConfig(api_key="rc-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RENTCAST
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

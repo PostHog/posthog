@@ -3,12 +3,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.source import NetlifySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestNetlifySourceConfig:
-    def test_source_type(self) -> None:
-        assert NetlifySource().source_type == ExternalDataSourceType.NETLIFY
 
 
 class TestNetlifyGetSchemas:

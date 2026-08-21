@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClockifySource:
     def setup_method(self) -> None:
         self.source = ClockifySource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLOCKIFY
 
     def test_non_retryable_error_keys_match_clockify_host(self) -> None:
         # The observed HTTPError message embeds the request URL; the key must match the base host.

@@ -8,7 +8,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHeightSource:
@@ -16,9 +15,6 @@ class TestHeightSource:
         self.source = HeightSource()
         self.team_id = 123
         self.config = HeightSourceConfig(api_key="secret_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HEIGHT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

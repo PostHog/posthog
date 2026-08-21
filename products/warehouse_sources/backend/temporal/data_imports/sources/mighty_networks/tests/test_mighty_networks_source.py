@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMightyNetworksSource:
@@ -16,9 +15,6 @@ class TestMightyNetworksSource:
         self.source = MightyNetworksSource()
         self.team_id = 123
         self.config = MightyNetworksSourceConfig(network_id="1234", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MIGHTYNETWORKS
 
     def test_connection_host_fields_cover_network_id(self):
         # network_id is where the stored api_key is sent; retargeting it must re-require the key.

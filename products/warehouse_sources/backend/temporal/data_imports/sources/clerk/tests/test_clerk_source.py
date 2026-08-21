@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source import ClerkSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClerkSource:
@@ -11,9 +10,6 @@ class TestClerkSource:
         self.source = ClerkSource()
         self.team_id = 123
         self.config = ClerkSourceConfig(secret_key="sk_live_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLERK
 
     @pytest.mark.parametrize(
         "expected_key",

@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LangSmithSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLangSmithSource:
@@ -15,9 +14,6 @@ class TestLangSmithSource:
         self.source = LangSmithSource()
         self.team_id = 123
         self.config = LangSmithSourceConfig(api_key="key", host=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LANGSMITH
 
     def test_config_fields(self):
         field_names = {f.name for f in self.source.get_source_config.fields}

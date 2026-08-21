@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.se
     TRANSACTIONS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -41,9 +40,6 @@ class TestMercurySource:
     def setup_method(self) -> None:
         self.source = MercurySource()
         self.config = MercurySourceConfig(api_key="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MERCURY
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)

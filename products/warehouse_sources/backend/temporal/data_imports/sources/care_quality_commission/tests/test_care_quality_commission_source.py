@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.care_quali
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.source import (
     CareQualityCommissionSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
@@ -23,9 +22,6 @@ def _config(api_key: str = "key", partner_code: str | None = "PC") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert CareQualityCommissionSource().source_type == ExternalDataSourceType.CAREQUALITYCOMMISSION
-
     def test_config_metadata(self) -> None:
         config = CareQualityCommissionSource().get_source_config
         assert config.label == "Care Quality Commission"

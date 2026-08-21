@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.source import JustCallSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.justcall.source"
 
@@ -16,9 +15,6 @@ class TestJustCallSource:
         self.source = JustCallSource()
         self.team_id = 123
         self.config = JustCallSourceConfig(api_key="key", api_secret="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JUSTCALL
 
     @pytest.mark.parametrize(
         "observed_error",

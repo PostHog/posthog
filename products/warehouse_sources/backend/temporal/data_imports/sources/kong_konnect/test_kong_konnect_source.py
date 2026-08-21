@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     KongKonnectSource,
     _coerce_lookback_days,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> KongKonnectSourceConfig:
@@ -28,9 +27,6 @@ def _config(**overrides: Any) -> KongKonnectSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert KongKonnectSource().source_type == ExternalDataSourceType.KONGKONNECT
-
     def test_connection_host_fields_includes_region(self) -> None:
         # `region` selects the host the stored access token is sent to, so editing it must re-require the secret.
         assert KongKonnectSource().connection_host_fields == ["region"]

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workday.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.source import WorkdaySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.workday.workday import WorkdayResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.workday.source"
 
@@ -34,9 +33,6 @@ class TestWorkdaySource:
         self.source = WorkdaySource()
         self.team_id = 123
         self.config = _config()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WORKDAY
 
     def test_hostname_is_a_connection_host_field(self) -> None:
         # Retargeting the hostname must force the client secret / refresh token to be re-entered,

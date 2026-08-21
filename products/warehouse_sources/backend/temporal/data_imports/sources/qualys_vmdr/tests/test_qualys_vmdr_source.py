@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     QualysVmdrSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source import QualysVmdrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.source"
 
@@ -30,9 +29,6 @@ def _inputs(**overrides) -> mock.MagicMock:
 class TestQualysVmdrSource:
     def setup_method(self):
         self.source = QualysVmdrSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.QUALYSVMDR
 
     def test_api_server_is_a_connection_host_field(self):
         # Retargeting `api_server` must force re-entry of the stored credentials

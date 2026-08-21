@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.source import TailscaleSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTailscaleSource:
@@ -17,9 +16,6 @@ class TestTailscaleSource:
             auth_method=TailscaleAuthMethodConfig(selection="api_key", api_key="tskey-api-test"),
             tailnet="example.com",
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TAILSCALE
 
     def test_tailnet_change_requires_reentering_secrets(self):
         # The update serializer keys off this to force re-entry of the stored credential

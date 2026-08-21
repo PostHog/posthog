@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import template
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _STATISTICS_ENDPOINTS = {"openinformation", "clickstatistics"}
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"
@@ -25,9 +24,6 @@ class TestMailJetSource:
         self.source = MailJetSource()
         self.team_id = 123
         self.config = MailjetSourceConfig(api_key="key", secret_key="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MAILJET
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.s
     RIPPLING_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The REST framework builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -27,9 +26,6 @@ class TestRipplingSource:
         self.source = RipplingSource()
         self.team_id = 123
         self.config = RipplingSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RIPPLING
 
     @pytest.mark.parametrize(
         "observed_error",

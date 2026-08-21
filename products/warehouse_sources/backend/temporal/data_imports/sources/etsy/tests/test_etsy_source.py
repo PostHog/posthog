@@ -2,16 +2,12 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, ETSY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if cfg.incremental_fields]
 _FULL_REFRESH_ENDPOINTS = [name for name, cfg in ETSY_ENDPOINTS.items() if not cfg.incremental_fields]
 
 
 class TestEtsySourceClass:
-    def test_source_type(self) -> None:
-        assert EtsySource().source_type == ExternalDataSourceType.ETSY
-
     def test_source_config(self) -> None:
         config = EtsySource().get_source_config
 

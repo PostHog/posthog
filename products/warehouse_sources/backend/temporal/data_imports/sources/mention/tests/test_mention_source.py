@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.source import MentionSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMentionSource:
@@ -16,9 +15,6 @@ class TestMentionSource:
         self.source = MentionSource()
         self.team_id = 123
         self.config = MentionSourceConfig(access_token="tok")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MENTION
 
     def test_new_sources_default_to_latest_version(self) -> None:
         # New sources are stamped with default_version; it must be the newest supported label.

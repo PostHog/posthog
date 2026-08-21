@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PartnerizeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.source import PartnerizeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"conversions", "clicks"}
 
@@ -19,9 +18,6 @@ class TestPartnerizeSource:
         self.config = PartnerizeSourceConfig(
             application_key="app-key", user_api_key="api-key", publisher_id="111111l92"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PARTNERIZE
 
     @parameterized.expand(
         [

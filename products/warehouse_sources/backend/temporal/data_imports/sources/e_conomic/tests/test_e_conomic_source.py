@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.economic import (
     EConomicSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"customers", "products", "invoices_booked"}
 
@@ -16,9 +15,6 @@ class TestECONomicSource:
         self.source = EConomicSource()
         self.team_id = 123
         self.config = EConomicSourceConfig(app_secret_token="secret", agreement_grant_token="grant")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ECONOMIC
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O), so the public docs can render the table list.

@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshchat import (
     FreshchatSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.source.validate_freshchat_credentials"
@@ -42,9 +41,6 @@ class TestFreshchatSource:
         self.source = FreshchatSource()
         self.team_id = 1
         self.config = FreshchatSourceConfig(domain="acme.freshchat.com", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHCHAT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

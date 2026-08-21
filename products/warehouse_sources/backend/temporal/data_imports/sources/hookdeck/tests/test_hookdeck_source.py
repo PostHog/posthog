@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
     HOOKDECK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source"
 
@@ -42,9 +41,6 @@ class TestHookdeckSource:
         self.source = HookdeckSource()
         self.team_id = 123
         self.config = HookdeckSourceConfig(api_key="hd_test_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HOOKDECK
 
     def test_non_retryable_errors_match_the_error_the_api_raises(self) -> None:
         observed = "401 Client Error: Unauthorized for url: https://api.hookdeck.com/2025-07-01/events?limit=250"

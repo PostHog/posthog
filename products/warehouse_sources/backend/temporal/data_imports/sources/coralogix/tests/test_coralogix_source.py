@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coralogix import (
     CoralogixSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -20,9 +19,6 @@ def _config(
 
 
 class TestCoralogixSource:
-    def test_source_type(self) -> None:
-        assert CoralogixSource().source_type == ExternalDataSourceType.CORALOGIX
-
     def test_source_config_shape(self) -> None:
         config = CoralogixSource().get_source_config
         # A finished source must be visible: unreleasedSource hides the connector from every user.

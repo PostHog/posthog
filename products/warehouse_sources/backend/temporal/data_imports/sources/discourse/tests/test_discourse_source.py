@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.discourse.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.discourse import (
     DiscourseSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDiscourseSource:
@@ -17,9 +16,6 @@ class TestDiscourseSource:
         self.config = DiscourseSourceConfig(
             base_url="https://forum.example.com", api_key="secret-key", api_username="system"
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DISCOURSE
 
     def test_config_has_no_unreleased_flag(self) -> None:
         # A finished source must not carry `unreleasedSource` — it hides the connector entirely.

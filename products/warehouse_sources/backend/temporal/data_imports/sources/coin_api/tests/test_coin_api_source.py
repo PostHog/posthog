@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
     CoinApiSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinApiSource:
@@ -14,9 +13,6 @@ class TestCoinApiSource:
         self.source = CoinApiSource()
         self.team_id = 123
         self.config = CoinApiSourceConfig(api_key="key", symbol_id="BITSTAMP_SPOT_BTC_USD", period_id="1DAY")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINAPI
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.

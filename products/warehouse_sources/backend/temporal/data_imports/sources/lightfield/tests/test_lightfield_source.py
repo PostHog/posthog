@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LightfieldSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source import LightfieldSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_TOKEN_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.source.check_token"
 
@@ -16,9 +15,6 @@ class TestLightfieldSource:
         self.source = LightfieldSource()
         self.team_id = 123
         self.config = LightfieldSourceConfig(api_key="sk_lf_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LIGHTFIELD
 
     def test_non_retryable_errors_matches_observed_error_message(self):
         observed_error = "401 Client Error: Unauthorized for url: https://api.lightfield.app/v1/accounts?limit=25"

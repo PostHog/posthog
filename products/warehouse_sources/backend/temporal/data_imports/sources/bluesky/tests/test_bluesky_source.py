@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluesky import (
     BlueskySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBlueskySource:
@@ -18,9 +17,6 @@ class TestBlueskySource:
         self.source = BlueskySource()
         self.team_id = 123
         self.config = BlueskySourceConfig(actor="jay.bsky.team")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BLUESKY
 
     def test_lists_tables_without_credentials_publishes_catalog(self):
         # Static endpoint catalog (no I/O) — the public docs table list should render.

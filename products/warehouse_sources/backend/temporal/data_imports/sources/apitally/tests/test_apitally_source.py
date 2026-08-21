@@ -2,15 +2,11 @@ from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally import ApitallyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.apitally.source import ApitallySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestApitallySourceConfig:
     def setup_method(self) -> None:
         self.source = ApitallySource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APITALLY
 
     def test_source_config_is_released_and_alpha(self) -> None:
         config = self.source.get_source_config

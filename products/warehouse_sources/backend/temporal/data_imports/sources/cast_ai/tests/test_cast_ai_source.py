@@ -4,7 +4,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.castai import CastAiSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCastAiSource:
@@ -12,9 +11,6 @@ class TestCastAiSource:
         self.source = CastAiSource()
         self.team_id = 123
         self.config = CastAiSourceConfig(api_key="castai-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CASTAI
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

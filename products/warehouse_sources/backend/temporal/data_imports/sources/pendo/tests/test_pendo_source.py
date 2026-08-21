@@ -3,7 +3,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pendo import PendoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.source import PendoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPendoSource:
@@ -11,9 +10,6 @@ class TestPendoSource:
         self.source = PendoSource()
         self.team_id = 123
         self.config = PendoSourceConfig(integration_key="integration-key", region="eu")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PENDO
 
     def test_get_schemas_are_all_full_refresh(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

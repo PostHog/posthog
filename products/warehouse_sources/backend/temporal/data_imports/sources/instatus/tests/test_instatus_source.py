@@ -3,16 +3,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.instatus.source import InstatusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestInstatusSource:
     def setup_method(self):
         self.source = InstatusSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INSTATUS
 
     def test_get_schemas_returns_all_endpoints_as_full_refresh(self):
         schemas = self.source.get_schemas(InstatusSourceConfig(api_key="key"), self.team_id)

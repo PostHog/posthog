@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source import Servicem8Source
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.servicem8.source"
 
@@ -43,9 +42,6 @@ class TestServiceM8Source:
         self.source = Servicem8Source()
         self.team_id = 123
         self.config = Servicem8SourceConfig(api_key="sm8-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SERVICEM8
 
     @parameterized.expand(
         [

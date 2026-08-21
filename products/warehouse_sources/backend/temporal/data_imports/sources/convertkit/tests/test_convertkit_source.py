@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convertkit
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.convertkit import (
     ConvertKitSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestConvertKitSource:
@@ -12,9 +11,6 @@ class TestConvertKitSource:
         self.source = ConvertKitSource()
         self.team_id = 123
         self.config = ConvertKitSourceConfig(api_key="kit_test")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CONVERTKIT
 
     @parameterized.expand(
         [

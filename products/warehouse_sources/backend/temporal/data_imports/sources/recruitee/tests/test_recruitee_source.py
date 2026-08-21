@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RecruiteeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.source import RecruiteeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRecruiteeSource:
@@ -17,9 +16,6 @@ class TestRecruiteeSource:
         self.source = RecruiteeSource()
         self.team_id = 123
         self.config = RecruiteeSourceConfig(company_id="acme", api_token="rc-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.RECRUITEE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     ElasticsearchAuthMethodConfig,
     ElasticsearchSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.source"
 
@@ -44,9 +43,6 @@ class TestElasticsearchSource:
         self.source = ElasticsearchSource()
         self.team_id = 123
         self.config = _config()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ELASTICSEARCH
 
     @pytest.mark.parametrize(
         "observed_error",

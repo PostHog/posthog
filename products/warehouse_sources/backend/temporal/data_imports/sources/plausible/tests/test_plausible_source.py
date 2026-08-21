@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
     PLAUSIBLE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source import PlausibleSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source"
 
@@ -35,9 +34,6 @@ def _inputs(**overrides: Any) -> mock.MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self):
-        assert PlausibleSource().source_type == ExternalDataSourceType.PLAUSIBLE
-
     def test_get_source_config_fields(self):
         config = PlausibleSource().get_source_config
 

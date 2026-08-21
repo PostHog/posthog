@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applesearchads import (
     AppleSearchAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source"
 
@@ -39,9 +38,6 @@ class TestAppleSearchAdsSource:
             private_key="-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
             start_date="2026-01-01",
         )
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.APPLESEARCHADS
 
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("v5",)

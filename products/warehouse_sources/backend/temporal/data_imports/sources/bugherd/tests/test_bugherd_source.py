@@ -2,15 +2,11 @@ from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import BugherdResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.source import BugherdSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBugherdSourceConfig:
     def setup_method(self) -> None:
         self.source = BugherdSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUGHERD
 
     def test_source_config_is_released_and_alpha(self) -> None:
         config = self.source.get_source_config

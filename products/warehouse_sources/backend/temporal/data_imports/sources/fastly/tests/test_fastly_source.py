@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.source import FastlySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fastly import FastlySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFastlySource:
@@ -12,9 +11,6 @@ class TestFastlySource:
         self.source = FastlySource()
         self.team_id = 123
         self.config = FastlySourceConfig(api_key="token123")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FASTLY
 
     def test_lists_tables_without_credentials(self):
         # get_schemas iterates a static endpoint catalog with no I/O, so the public docs render tables.

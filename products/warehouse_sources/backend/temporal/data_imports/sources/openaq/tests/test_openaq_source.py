@@ -7,7 +7,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.settings import OPENAQ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> OpenAQSourceConfig:
@@ -15,9 +14,6 @@ def _config() -> OpenAQSourceConfig:
 
 
 class TestOpenAQSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAQSource().source_type == ExternalDataSourceType.OPENAQ
-
     def test_docs_url_matches_slug(self) -> None:
         # The website derives the doc slug from this URL; a mismatch 404s the Supported tables section.
         assert OpenAQSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/openaq"

@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
     BingWebmasterToolsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _STATS_ENDPOINTS = [name for name, endpoint in ENDPOINT_CONFIGS.items() if endpoint.per_site]
 
@@ -43,9 +42,6 @@ class TestBingWebmasterToolsSource:
         self.source = BingWebmasterToolsSource()
         self.team_id = 123
         self.config = BingWebmasterToolsSourceConfig(api_key="test-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BINGWEBMASTERTOOLS
 
     def test_get_source_config(self):
         config = self.source.get_source_config

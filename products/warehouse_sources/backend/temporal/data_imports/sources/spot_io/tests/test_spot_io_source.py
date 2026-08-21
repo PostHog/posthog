@@ -6,7 +6,6 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.spotio import SpotIoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.spot_io.source import SpotIoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSpotIoSource:
@@ -14,9 +13,6 @@ class TestSpotIoSource:
         self.source = SpotIoSource()
         self.team_id = 123
         self.config = SpotIoSourceConfig(api_token="spot-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SPOTIO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.courier.se
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.source import CourierSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "sk_test") -> Any:
@@ -18,9 +17,6 @@ def _config(api_key: str = "sk_test") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert CourierSource().source_type == ExternalDataSourceType.COURIER
-
     def test_supports_legacy_and_2_0_0_with_2_0_0_default(self) -> None:
         # 2.0.0 is Courier's current API reference and the new default for new sources; the legacy
         # placeholder stays supported so existing pinned rows keep resolving to the same unversioned

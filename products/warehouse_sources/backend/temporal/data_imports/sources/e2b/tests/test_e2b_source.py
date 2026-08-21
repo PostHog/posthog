@@ -5,16 +5,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestE2BSource:
     def setup_method(self) -> None:
         self.source = E2BSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.E2B
 
     def test_get_schemas_are_all_full_refresh(self) -> None:
         # No E2B list endpoint has a server-side timestamp filter, so none may advertise incremental

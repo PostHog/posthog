@@ -4,7 +4,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
     DebugbearSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDebugbearSource:
@@ -12,9 +11,6 @@ class TestDebugbearSource:
         self.source = DebugbearSource()
         self.team_id = 123
         self.config = DebugbearSourceConfig(api_key="test-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DEBUGBEAR
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs table

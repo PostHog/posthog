@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura import source as oura_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.source import OuraSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(token: str = "tok") -> Any:
@@ -14,9 +13,6 @@ def _config(token: str = "tok") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert OuraSource().source_type == ExternalDataSourceType.OURA
-
     def test_config_basics(self) -> None:
         cfg = OuraSource().get_source_config
         assert cfg.name == "Oura"

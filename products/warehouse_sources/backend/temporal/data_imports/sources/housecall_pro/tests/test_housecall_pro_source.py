@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     HousecallProSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.housecall_pro.source import HousecallProSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHousecallProSource:
@@ -13,9 +12,6 @@ class TestHousecallProSource:
         self.source = HousecallProSource()
         self.team_id = 123
         self.config = HousecallProSourceConfig(api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HOUSECALLPRO
 
     @pytest.mark.parametrize(
         "observed_error",

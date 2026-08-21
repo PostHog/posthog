@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.sett
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source import ZuoraSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZuoraSource:
@@ -18,9 +17,6 @@ class TestZuoraSource:
         self.source = ZuoraSource()
         self.team_id = 123
         self.config = ZuoraSourceConfig(environment="us_production", client_id="cid", client_secret="sec")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ZUORA
 
     @pytest.mark.parametrize(
         "observed_error",

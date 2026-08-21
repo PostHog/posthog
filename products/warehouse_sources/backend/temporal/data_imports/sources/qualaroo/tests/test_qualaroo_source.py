@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     QualarooSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source import QualarooSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestQualarooSource:
@@ -17,9 +16,6 @@ class TestQualarooSource:
         self.source = QualarooSource()
         self.team_id = 123
         self.config = QualarooSourceConfig(api_key="q-key", api_secret="q-secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.QUALAROO
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

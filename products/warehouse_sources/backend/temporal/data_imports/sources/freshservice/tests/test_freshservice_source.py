@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshservi
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshservice import (
     FreshserviceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source.validate_freshservice_credentials"
 
@@ -37,9 +36,6 @@ class TestFreshserviceSource:
         self.source = FreshserviceSource()
         self.team_id = 1
         self.config = FreshserviceSourceConfig(domain="acme", api_key="key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHSERVICE
 
     @pytest.mark.parametrize(
         "domain, status, schema_name, expected_valid",

@@ -3,15 +3,11 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.source import BeamerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestBeamerSourceConfig:
     def setup_method(self) -> None:
         self.source = BeamerSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BEAMER
 
     def test_config_is_released_alpha(self) -> None:
         config = self.source.get_source_config

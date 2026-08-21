@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> CodacySourceConfig:
@@ -13,9 +12,6 @@ def _config() -> CodacySourceConfig:
 class TestCodacySource:
     def setup_method(self) -> None:
         self.source = CodacySource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CODACY
 
     def test_connection_host_fields_force_token_reentry_on_target_change(self) -> None:
         # provider and organization pick the Codacy tenant the stored token queries; listing them

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.
     ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_census.source import USCensusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides) -> USCensusSourceConfig:
@@ -32,9 +31,6 @@ class _FakeInputs:
 class TestUSCensusSource:
     def setup_method(self):
         self.source = USCensusSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USCENSUS
 
     def test_get_schemas_static_catalog(self):
         schemas = self.source.get_schemas(_config(), team_id=1)

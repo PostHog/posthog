@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_obs
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.source import (
     SplunkObservabilityCloudSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -40,9 +39,6 @@ class TestSplunkObservabilityCloudSource:
         self.source = SplunkObservabilityCloudSource()
         self.team_id = 123
         self.config = SplunkObservabilityCloudSourceConfig(realm="us0", access_token="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD
 
     def test_realm_is_a_connection_host_field(self) -> None:
         # The realm becomes the request hostname the stored token is sent to, so

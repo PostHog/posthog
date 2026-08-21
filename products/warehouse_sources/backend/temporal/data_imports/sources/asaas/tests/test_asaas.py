@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.sour
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asaas import AsaasSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"Payments", "Transfers"}
 _FULL_REFRESH_ENDPOINTS = {"Customers", "Subscriptions", "Installments"}
@@ -216,9 +215,6 @@ class TestAsaasSource:
         self.source = AsaasSource()
         self.team_id = 123
         self.config = AsaasSourceConfig(api_key="test-key", environment="production")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ASAAS
 
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("v3",)

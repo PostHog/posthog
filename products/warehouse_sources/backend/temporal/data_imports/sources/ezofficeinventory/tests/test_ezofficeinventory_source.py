@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficein
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.source"
 
@@ -27,9 +26,6 @@ def _config() -> EZOfficeInventorySourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EZOfficeInventorySource().source_type == ExternalDataSourceType.EZOFFICEINVENTORY
-
     def test_get_source_config_fields(self) -> None:
         config = EZOfficeInventorySource().get_source_config
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in config.fields}

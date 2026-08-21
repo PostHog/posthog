@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
     FloatAppSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CURSOR_ENDPOINTS = {"deleted_tasks", "deleted_timeoffs", "deleted_logged_time"}
 
@@ -19,9 +18,6 @@ class TestFloatAppSource:
         self.source = FloatAppSource()
         self.team_id = 123
         self.config = FloatAppSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FLOATAPP
 
     @pytest.mark.parametrize(
         "observed_error",

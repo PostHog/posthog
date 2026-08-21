@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoupaSource:
@@ -13,9 +12,6 @@ class TestCoupaSource:
         self.config = CoupaSourceConfig(
             instance_url="https://myorg.coupahost.com", client_id="cid", client_secret="sec"
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.COUPA
 
     def test_connection_host_fields_cover_instance_url(self):
         # The instance URL decides where the stored credentials get sent.

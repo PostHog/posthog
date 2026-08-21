@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.source import AsanaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asana import AsanaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAsanaSource:
@@ -11,9 +10,6 @@ class TestAsanaSource:
         self.source = AsanaSource()
         self.team_id = 123
         self.config = AsanaSourceConfig(access_token="1/abc")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ASANA
 
     @pytest.mark.parametrize(
         "observed_error",

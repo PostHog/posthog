@@ -8,12 +8,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert ElasticemailSource().source_type == ExternalDataSourceType.ELASTICEMAIL
 
 
 class TestGetSchemas:

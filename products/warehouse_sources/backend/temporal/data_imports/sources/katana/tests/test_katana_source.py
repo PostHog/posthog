@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.katana.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.settings import ENDPOINTS, KATANA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.source import KatanaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = [name for name, cfg in KATANA_ENDPOINTS.items() if cfg.incremental_fields]
 _FULL_REFRESH_ENDPOINTS = [name for name, cfg in KATANA_ENDPOINTS.items() if not cfg.incremental_fields]
 
 
 class TestKatanaSourceClass:
-    def test_source_type(self) -> None:
-        assert KatanaSource().source_type == ExternalDataSourceType.KATANA
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table list must render.
         assert KatanaSource.lists_tables_without_credentials is True

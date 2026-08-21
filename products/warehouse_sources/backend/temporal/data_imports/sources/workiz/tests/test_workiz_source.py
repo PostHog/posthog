@@ -8,7 +8,6 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workiz import WorkizSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source import WorkizSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWorkizSource:
@@ -16,9 +15,6 @@ class TestWorkizSource:
         self.source = WorkizSource()
         self.team_id = 123
         self.config = WorkizSourceConfig(api_token="tok")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WORKIZ
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config

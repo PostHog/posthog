@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source import SwarmiaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.swarmia.source"
 
@@ -19,9 +18,6 @@ class TestSwarmiaSource:
     def setup_method(self) -> None:
         self.source = SwarmiaSource()
         self.config = SwarmiaSourceConfig(api_key="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SWARMIA
 
     @parameterized.expand(
         [

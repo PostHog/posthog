@@ -1,6 +1,5 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lago import LagoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.source import LagoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestLagoSource:
@@ -8,9 +7,6 @@ class TestLagoSource:
         self.source = LagoSource()
         self.team_id = 123
         self.config = LagoSourceConfig(api_key="lago_key", api_url=None)
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.LAGO
 
     def test_connection_host_fields_force_secret_reentry(self):
         # The API key is sent to api_url, so retargeting it must re-require the key.

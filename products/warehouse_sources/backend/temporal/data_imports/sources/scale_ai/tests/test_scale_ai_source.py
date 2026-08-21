@@ -5,13 +5,9 @@ from parameterized import parameterized
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source import ScaleAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestScaleAISourceConfig:
-    def test_source_type(self) -> None:
-        assert ScaleAISource().source_type == ExternalDataSourceType.SCALEAI
-
     def test_config_requires_a_secret_api_key_field(self) -> None:
         # A non-secret or non-required key field would leak the credential or let the form submit blank.
         fields = ScaleAISource().get_source_config.fields

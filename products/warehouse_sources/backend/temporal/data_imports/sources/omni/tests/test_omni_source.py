@@ -3,7 +3,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omni import OmniSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.omni.source import OmniSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOmniSource:
@@ -11,9 +10,6 @@ class TestOmniSource:
         self.source = OmniSource()
         self.team_id = 123
         self.config = OmniSourceConfig(host="https://acme.omniapp.co", api_key="omni-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OMNI
 
     @pytest.mark.parametrize(
         "observed_error",

@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.source import TravisCISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> TravisCISourceConfig:
@@ -21,9 +20,6 @@ class TestTravisCISource:
     def setup_method(self) -> None:
         self.source = TravisCISource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TRAVISCI
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}

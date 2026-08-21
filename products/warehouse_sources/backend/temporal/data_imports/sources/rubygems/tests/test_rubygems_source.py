@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.source import RubygemsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRubygemsSource:
@@ -13,9 +12,6 @@ class TestRubygemsSource:
         self.source = RubygemsSource()
         self.team_id = 123
         self.config = RubygemsSourceConfig(gems="rails\nrspec")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.RUBYGEMS
 
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
