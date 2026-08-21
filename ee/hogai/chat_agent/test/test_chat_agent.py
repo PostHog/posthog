@@ -854,7 +854,8 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         # Mock the memory collector to first analyze and then append memory
         def memory_collector_side_effect(prompt):
             prompt_messages = prompt.to_messages()
-            if len(prompt_messages) == 2:  # First run
+            # First run: two system messages (stable prompt + dynamic context) and the human message.
+            if len(prompt_messages) == 3:
                 return messages.AIMessage(
                     content="Let me analyze that.",
                     tool_calls=[
