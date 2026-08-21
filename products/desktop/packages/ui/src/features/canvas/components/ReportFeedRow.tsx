@@ -76,6 +76,7 @@ export function ReportFeedRow({
             <span
               className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover/report:opacity-100"
               onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
             >
               {report.implementation_pr_url && !archived && (
                 <Button
