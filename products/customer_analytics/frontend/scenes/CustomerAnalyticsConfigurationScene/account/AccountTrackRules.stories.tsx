@@ -113,7 +113,7 @@ const meta: Meta = {
                     tracked: 95,
                     ignored: 25,
                     newly_ignored: 3,
-                    restored: 2,
+                    restored: 0,
                     tracked_samples: [
                         { id: '01980d7c-0000-7000-8000-000000000101', name: 'Acme' },
                         { id: '01980d7c-0000-7000-8000-000000000102', name: 'Hooli' },

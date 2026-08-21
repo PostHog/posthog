@@ -276,6 +276,13 @@ export function AccountTrackRules(): JSX.Element {
     )
 }
 
+type PreviewMetric = {
+    key: 'eligible_active' | 'skipped_churned' | 'tracked' | 'ignored'
+    deltaKey?: 'restored' | 'newly_ignored'
+    label: string
+    tooltip: string
+}
+
 const PREVIEW_METRICS = [
     {
         key: 'eligible_active',
@@ -283,31 +290,25 @@ const PREVIEW_METRICS = [
         tooltip: 'Active accounts evaluated by this preview. Churned accounts are not eligible.',
     },
     {
-        key: 'tracked',
-        label: 'Tracked',
-        tooltip: 'Eligible accounts that match at least one group and will remain tracked or be restored.',
-    },
-    {
-        key: 'ignored',
-        label: 'Ignored',
-        tooltip: 'Eligible accounts that do not match any group and will remain ignored or become ignored.',
-    },
-    {
-        key: 'newly_ignored',
-        label: 'Newly ignored',
-        tooltip: 'Currently tracked accounts that will become ignored when this preview is applied.',
-    },
-    {
-        key: 'restored',
-        label: 'Restored',
-        tooltip: 'Currently ignored accounts that will become tracked when this preview is applied.',
-    },
-    {
         key: 'skipped_churned',
         label: 'Churned skipped',
         tooltip: 'Churned accounts excluded from evaluation. Applying these rules will not change them.',
     },
-] as const
+    {
+        key: 'tracked',
+        deltaKey: 'restored',
+        label: 'Tracked',
+        tooltip:
+            'Eligible accounts that match at least one group. The number in parentheses shows ignored accounts that will be restored.',
+    },
+    {
+        key: 'ignored',
+        deltaKey: 'newly_ignored',
+        label: 'Ignored',
+        tooltip:
+            'Eligible accounts that do not match any group. The number in parentheses shows tracked accounts that will become ignored.',
+    },
+] satisfies PreviewMetric[]
 
 type PreviewSampleKind = 'included' | 'excluded'
 
@@ -320,7 +321,6 @@ function PreviewResult({
 }): JSX.Element {
     const [sampleKind, setSampleKind] = useState<PreviewSampleKind>('included')
     const samples = sampleKind === 'included' ? preview.tracked_samples : preview.ignored_samples
-    const total = sampleKind === 'included' ? preview.tracked : preview.ignored
     const columns: LemonTableColumns<AccountTrackRuleSampleApi> = [
         {
             title: 'Account',
@@ -333,53 +333,52 @@ function PreviewResult({
     ]
 
     return (
-        <div className="flex flex-col gap-3">
-            <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-3">
+        <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
+            <div className="p-4 flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">Preview for version {preview.config_version}</span>
                     <LemonTag type={current ? 'success' : 'warning'}>{current ? 'Current' : 'Stale'}</LemonTag>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {PREVIEW_METRICS.map(({ key, label, tooltip }) => (
-                        <div key={key}>
-                            <Tooltip title={tooltip}>
-                                <span className="text-xs text-secondary cursor-help border-b border-dotted">
-                                    {label}
-                                </span>
-                            </Tooltip>
-                            <div className="text-lg font-semibold">{preview[key].toLocaleString()}</div>
-                        </div>
-                    ))}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {PREVIEW_METRICS.map(({ key, deltaKey, label, tooltip }) => {
+                        const delta = deltaKey ? preview[deltaKey] : 0
+                        return (
+                            <div key={key}>
+                                <Tooltip title={tooltip}>
+                                    <span className="text-xs text-secondary cursor-help border-b border-dotted">
+                                        {label}
+                                    </span>
+                                </Tooltip>
+                                <div className="text-lg font-semibold">
+                                    {preview[key].toLocaleString()}
+                                    {delta > 0 && <span className="text-secondary"> (+{delta.toLocaleString()})</span>}
+                                </div>
+                            </div>
+                        )
+                    })}
                 </div>
-            </LemonCard>
+            </div>
 
-            <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div>
-                        <div className="font-semibold">Preview results</div>
-                        <div className="text-xs text-secondary">
-                            Showing {samples.length.toLocaleString()} sample accounts of {total.toLocaleString()}{' '}
-                            {sampleKind}
-                        </div>
-                    </div>
-                    <LemonSegmentedButton<PreviewSampleKind>
-                        value={sampleKind}
-                        onChange={setSampleKind}
-                        options={[
-                            { value: 'included', label: 'Included' },
-                            { value: 'excluded', label: 'Excluded' },
-                        ]}
-                        size="small"
-                    />
-                </div>
-                <LemonTable
-                    dataSource={[...samples]}
-                    columns={columns}
-                    emptyState={`No ${sampleKind} accounts`}
-                    className="border-t"
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t">
+                <div className="font-semibold">Preview results</div>
+                <LemonSegmentedButton<PreviewSampleKind>
+                    value={sampleKind}
+                    onChange={setSampleKind}
+                    options={[
+                        { value: 'included', label: 'Included' },
+                        { value: 'excluded', label: 'Excluded' },
+                    ]}
+                    size="small"
                 />
-            </LemonCard>
-        </div>
+            </div>
+            <LemonTable
+                embedded
+                dataSource={[...samples]}
+                columns={columns}
+                emptyState={`No ${sampleKind} accounts`}
+                className="border-t"
+            />
+        </LemonCard>
     )
 }
 
