@@ -21,16 +21,18 @@ and skewing pytest-split.
 This script merges the per-shard artifacts, floors any test recorded far
 above its JUnit call time (or sitting at a flat-default placeholder) back
 to that call time, and outputs clean durations for balanced distribution.
+
+With --prune-missing-files it also drops entries for deleted tests, which
+nothing else does: shard artifacts carry the whole map forward, so a nodeid
+survives every merge long after its file is gone.
 """
 
 import re
 import sys
-import glob
 import json
 import logging
 import argparse
 import statistics
-import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +41,10 @@ import defusedxml.ElementTree as ET
 from defusedxml.ElementTree import ParseError
 
 logger = logging.getLogger(__name__)
+
+# Nodeid paths are repo-relative. Anchor on the script's own location rather
+# than the cwd so a prune can't silently empty the map when run from elsewhere.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 MIN_DURATION = 0.01
 # Tests with recorded duration above this threshold in a single shard
@@ -463,57 +469,52 @@ def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnit
     return timing_ids == junit_ids
 
 
-def collect_existing_tests(segment: str | None = None) -> set[str]:
-    """Collect test names that actually exist in the codebase.
+def prune_missing_files(durations: dict[str, float], repo_root: Path = REPO_ROOT) -> dict[str, float]:
+    """Drop nodeids whose test file is gone from the checkout.
 
-    Filters out stale tests from artifacts that no longer exist.
+    Nothing else prunes the map. Every shard restores the merged file and
+    uploads it back with only its own slice refreshed, so a deleted test's
+    entry rides along for ever and inflates both the pytest-split plan and
+    turbo-discover's shard sizing.
+
+    Stats the file part of each nodeid, which is cheap enough for the merge
+    job's no-test-execution budget. It cannot drop a live test: a file that
+    exists is kept whether or not it currently collects, so a test that is
+    merely skipped, renamed within its file, or gated behind a marker keeps
+    its timing.
     """
-    cmd = [
-        "pytest",
-        "posthog",
-        "products",
-        "ee/",
-        "-m",
-        "not async_migrations",
-        "--ignore=posthog/temporal",
-        "--ignore=posthog/dags",
-        "--ignore=products/**/dags",
-        "--ignore=products/batch_exports/backend/tests/temporal",
-        "--ignore=common/hogvm/python/test",
-        "--collect-only",
-        "-q",
-    ]
-
-    if segment == "Temporal":
-        cmd = [
-            "pytest",
-            "posthog/temporal",
-            "products/batch_exports/backend/tests/temporal",
-            "-m",
-            "not async_migrations",
-            "--collect-only",
-            "-q",
-        ]
-    elif segment == "Dagster":
-        # Expand glob in Python since subprocess won't do shell expansion
-        product_dags = glob.glob("products/**/dags", recursive=True)
-        cmd = [
-            "pytest",
-            "posthog/dags",
-            *product_dags,
-            "--collect-only",
-            "-q",
-        ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    tests = set()
-    for line in result.stdout.splitlines():
-        if "::" in line:
-            tests.add(line.strip())
-    return tests
+    exists: dict[str, bool] = {}
+    kept: dict[str, float] = {}
+    for nodeid, duration in durations.items():
+        path = nodeid.split("::", 1)[0]
+        if path not in exists:
+            exists[path] = (repo_root / path).exists()
+        if exists[path]:
+            kept[nodeid] = duration
+    return kept
 
 
-def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
+def prune_or_exit(durations: dict[str, float], output_file: Path) -> dict[str, float]:
+    """Prune stale nodeids, refusing to write an empty file.
+
+    Every path missing means the checkout is wrong, not that every test was
+    deleted — same guard as the empty-input checks below, because an empty
+    .test_durations un-shards every downstream job.
+    """
+    pruned = prune_missing_files(durations)
+    logger.info("  Pruned %d stale nodeids (file gone), %d remain", len(durations) - len(pruned), len(pruned))
+    if not pruned:
+        logger.error("Pruning removed every entry (wrong checkout?) — refusing to write %s", output_file)
+        sys.exit(1)
+    return pruned
+
+
+def run_merge_files(
+    input_files: list[Path],
+    output_file: Path,
+    replace_prefix: str | None = None,
+    prune_missing: bool = False,
+) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
@@ -536,13 +537,17 @@ def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: 
             test_id: duration for test_id, duration in sources[0].items() if not test_id.startswith(replace_prefix)
         }
     merged = outlier_merge_durations(sources)
+    if prune_missing:
+        merged = prune_or_exit(merged, output_file)
     with open(output_file, "w") as f:
         json.dump(merged, f, indent=4, sort_keys=True)
         f.write("\n")
     logger.info("Merged %d tests across %d segment(s) into %s", len(merged), len(sources), output_file)
 
 
-def run_average_files(input_files: list[Path], output_file: Path, strategy: str = "mean") -> None:
+def run_average_files(
+    input_files: list[Path], output_file: Path, strategy: str = "mean", prune_missing: bool = False
+) -> None:
     """Average mode: combine already-merged per-RUN files into one output.
 
     Pass the LATEST run's file first -- membership anchors to it. Fails loudly if
@@ -567,6 +572,9 @@ def run_average_files(input_files: list[Path], output_file: Path, strategy: str 
     if not averaged:
         logger.error("Averaged durations are empty (newest run scoped to nothing?) — refusing to write %s", output_file)
         sys.exit(1)
+
+    if prune_missing:
+        averaged = prune_or_exit(averaged, output_file)
 
     with open(output_file, "w") as f:
         json.dump(averaged, f, indent=4, sort_keys=True)
@@ -599,9 +607,14 @@ def main():
         help="Expected number of shards. Enables statistical carrier detection when JUnit is unavailable.",
     )
     parser.add_argument(
-        "--filter-existing",
+        "--prune-missing-files",
         action="store_true",
-        help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
+        help=(
+            "Drop nodeids whose test file no longer exists in the checkout. Nothing else "
+            "prunes the map -- shard artifacts carry deleted tests forward for ever, which "
+            "inflates the split plan and turbo-discover's shard sizing. Stats one path per "
+            "distinct file, so it fits a merge job that runs no tests."
+        ),
     )
     parser.add_argument(
         "--scope-to-junit",
@@ -648,11 +661,11 @@ def main():
     args = parser.parse_args()
 
     if args.merge_files:
-        run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
+        run_merge_files(args.merge_files, args.output_file, args.replace_prefix, args.prune_missing_files)
         return
 
     if args.average_files:
-        run_average_files(args.average_files, args.output_file, args.average_strategy)
+        run_average_files(args.average_files, args.output_file, args.average_strategy, args.prune_missing_files)
         return
 
     if args.artifacts_dir is None:
@@ -744,15 +757,8 @@ def main():
         else:
             logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
 
-    # Filter to only existing tests if requested
-    if args.filter_existing:
-        logger.info("Collecting existing tests from codebase...")
-        existing_tests = collect_existing_tests(segment=args.segment)
-        logger.info("  Found %d tests in codebase", len(existing_tests))
-
-        before_count = len(durations)
-        durations = {k: v for k, v in durations.items() if k in existing_tests}
-        logger.info("  Filtered to %d tests (removed %d stale)", len(durations), before_count - len(durations))
+    if args.prune_missing_files:
+        durations = prune_or_exit(durations, args.output_file)
 
     logger.info("  Total tests: %d", len(durations))
     processed = ensure_minimum_duration(durations)

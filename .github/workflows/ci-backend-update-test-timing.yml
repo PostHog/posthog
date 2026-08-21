@@ -233,9 +233,16 @@ jobs:
                   # in optimize_test_durations.py (outlier_merge_durations) is shared
                   # with per-segment artifact processing and covered by tests next
                   # to the script — see test_optimize_test_durations.py.
+                  #
+                  # --prune-missing-files is the only thing that drops deleted tests.
+                  # Every shard restores this file and uploads it back with just its own
+                  # slice refreshed, so an entry for a deleted test rides along for ever,
+                  # inflating both the split plan and turbo-discover's shard sizing. It
+                  # stats one path per distinct file, which fits this job's budget.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations \
-                      --replace-prefix products/
+                      --replace-prefix products/ \
+                      --prune-missing-files
 
                   # Additionally emit nodeid-clean per-segment files for
                   # --split-granularity=file. The shared .test_durations above is a union

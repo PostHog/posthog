@@ -17,6 +17,7 @@ from optimize_test_durations import (
     average_durations,
     main,
     outlier_merge_durations,
+    prune_missing_files,
     run_average_files,
     run_merge_files,
     shard_sets_match,
@@ -283,6 +284,46 @@ class TestStatisticalCorrection:
         # carrier floored toward its real (small) value after tax subtraction
         assert result.corrected_durations["t0"] < 410.0
         assert result.carriers_found == 1
+
+
+class TestPruneMissingFiles:
+    """Deleted tests ride the shard artifacts forever — this is the only thing that drops them."""
+
+    @pytest.mark.parametrize(
+        "nodeid",
+        [
+            "pkg/test_live.py",
+            "pkg/test_live.py::test_one",
+            "pkg/test_live.py::TestThing::test_one",
+            # A param value can hold anything, including a path-like string
+            # with its own '::'. Splitting anywhere but the first one would
+            # stat a garbage path and drop a live test.
+            "pkg/test_live.py::test_one[a/b::c]",
+        ],
+    )
+    def test_keeps_every_nodeid_shape_of_a_live_file(self, tmp_path: Path, nodeid: str) -> None:
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "test_live.py").touch()
+
+        assert prune_missing_files({nodeid: 1.0}, tmp_path) == {nodeid: 1.0}
+
+    def test_drops_entries_whose_file_is_gone(self, tmp_path: Path) -> None:
+        (tmp_path / "test_live.py").touch()
+        durations = {"test_live.py::test_a": 1.0, "test_deleted.py::test_b": 90.0}
+
+        assert prune_missing_files(durations, tmp_path) == {"test_live.py::test_a": 1.0}
+
+    def test_merge_refuses_to_write_when_prune_empties_the_map(self, tmp_path: Path) -> None:
+        # Every path missing means a wrong checkout, not a repo with no tests.
+        # Writing {} would un-shard every downstream job.
+        source = tmp_path / "core.json"
+        source.write_text(json.dumps({"gone/test_x.py::test_a": 1.0}))
+        output = tmp_path / "out.json"
+
+        with pytest.raises(SystemExit):
+            run_merge_files([source], output, prune_missing=True)
+
+        assert not output.exists()
 
 
 def test_merge_files_replaces_stale_segment_entries(tmp_path: Path) -> None:

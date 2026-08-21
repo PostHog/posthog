@@ -76,9 +76,12 @@ jobs:
                       --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products --junit-dir junit_artifacts
+                  # --prune-missing-files drops deleted tests; nothing else does, so shard
+                  # artifacts carry them forward for ever. See the canonical workflow.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations \
-                      --replace-prefix products/
+                      --replace-prefix products/ \
+                      --prune-missing-files
                   rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
 
             - name: Compute cache key
