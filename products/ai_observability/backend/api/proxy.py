@@ -71,6 +71,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "azure_openai": "Azure OpenAI",
     "minimax": "MiniMax",
     "zeabur": "Zeabur AI Hub",
+    "openai_compatible": "OpenAI-compatible",
 }
 
 

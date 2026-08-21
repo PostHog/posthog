@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from rest_framework import status
 
 from products.ai_observability.backend.api.models import LLMModelInfoSerializer, LLMModelsListResponseSerializer
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
 class TestLLMModelInfoSerializer(SimpleTestCase):
@@ -58,6 +59,26 @@ class TestLLMModelsViewSet(APIBaseTest):
         self.assertIn("models", response.data)
         returned_ids = [m["id"] for m in response.data["models"]]
         self.assertEqual(returned_ids, ["gpt-4o-mini", "gpt-4o"])
+
+    @patch("products.ai_observability.backend.llm.client.Client.list_models")
+    def test_key_scoped_listing_forwards_provider_config(self, mock_list_models):
+        mock_list_models.return_value = ["qwen3-max"]
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai_compatible",
+            name="Custom endpoint",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "custom-key-123", "base_url": "https://8.8.8.8/v1"},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/models/?provider=openai_compatible&key_id={key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([m["id"] for m in response.data["models"]], ["qwen3-max"])
+        # Without the forwarded base_url the adapter cannot reach the endpoint and returns [].
+        mock_list_models.assert_called_once_with("openai_compatible", "custom-key-123", base_url="https://8.8.8.8/v1")
 
     def test_unauthenticated_user_cannot_list_models(self):
         self.client.logout()

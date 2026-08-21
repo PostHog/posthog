@@ -400,9 +400,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'together_ai',
                             'minimax',
                             'zeabur',
+                            'openai_compatible',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
@@ -595,9 +596,10 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                             'together_ai',
                             'minimax',
                             'zeabur',
+                            'openai_compatible',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                         ),
                     model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
@@ -792,9 +794,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'together_ai',
                             'minimax',
                             'zeabur',
+                            'openai_compatible',
                         ])
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
@@ -1360,9 +1363,10 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1372,6 +1376,12 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
+        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
@@ -1393,9 +1403,10 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1405,6 +1416,12 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
+        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
@@ -1426,10 +1443,11 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
             'together_ai',
             'minimax',
             'zeabur',
+            'openai_compatible',
         ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -1439,6 +1457,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
+        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
@@ -1460,9 +1484,10 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
             'together_ai',
             'minimax',
             'zeabur',
+            'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -1472,6 +1497,12 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
+        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 
@@ -2148,12 +2179,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'together_ai',
                         'minimax',
                         'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -2287,12 +2319,13 @@ export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
                         'together_ai',
                         'minimax',
                         'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -2428,12 +2461,13 @@ export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'together_ai',
                         'minimax',
                         'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()

@@ -1,3 +1,5 @@
+import { IconGlobe } from '@posthog/icons'
+
 import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
 import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
@@ -21,6 +23,8 @@ const PROVIDER_COMPONENTS: Partial<Record<LLMProvider, React.ComponentType>> = {
     openai: OpenAILogo,
     openrouter: OpenRouterLogo,
     anthropic: AnthropicLogo,
+    // No vendor logo: this provider represents any user-configured OpenAI-compatible endpoint.
+    openai_compatible: IconGlobe,
 }
 
 export function LLMProviderIcon({

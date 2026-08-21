@@ -114,11 +114,9 @@ class OpenAIAdapter:
         analytics: AnalyticsContext,
     ) -> Any:
         """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
         default_headers = self._get_default_headers()
         posthog_client = posthoganalytics.default_client
-        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
+        http_client = self._build_http_client(base_url)
         if analytics.capture and posthog_client:
             return OpenAI(
                 api_key=api_key,
@@ -135,6 +133,16 @@ class OpenAIAdapter:
             default_headers=default_headers or None,
             http_client=http_client,
         )
+
+    def _build_http_client(self, base_url: str | None) -> Any:
+        """Build the transport the provider client runs on.
+
+        Overridden by providers that talk to a user-configured endpoint, where the
+        connection itself has to be constrained (SSRF pinning, no redirects).
+        """
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
+        return tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
 
     def complete(
         self,

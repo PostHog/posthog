@@ -31339,6 +31339,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
+     * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -31353,6 +31354,7 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
       Zeabur: 'zeabur',
+      OpenaiCompatible: 'openai_compatible',
     } as const;
 
     /**
@@ -31472,6 +31474,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -54847,7 +54856,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -60333,6 +60343,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly api_version_display?: string | null;
+      /** Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). Required for the openai_compatible provider; must be a public https:// URL. */
+      base_url?: string;
+      /**
+         * OpenAI-compatible base URL (read-only, for display)
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -63831,7 +63848,8 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub */
+       * * `zeabur` - Zeabur AI Hub
+       * * `openai_compatible` - OpenAI-compatible */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -91205,6 +91223,7 @@ export namespace Schemas {
       Gemini: 'gemini',
       Minimax: 'minimax',
       Openai: 'openai',
+      OpenaiCompatible: 'openai_compatible',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
