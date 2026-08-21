@@ -18,7 +18,7 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
-@dataclass
+@frozen
 class SlackAppForkThreadInputs:
     """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
 
