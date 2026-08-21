@@ -4,7 +4,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -355,7 +354,7 @@ export const preflightLogic = kea<preflightLogicType>([
         isCloudOrDev: [
             (s) => [s.preflight],
             (preflight: PreflightStatus | null): boolean | undefined => {
-                return areClientFeatureFlagsHonored(preflight)
+                return preflight?.cloud || preflight?.is_debug
             },
         ],
         isTest: [(s) => [s.preflight], (preflight: PreflightStatus | null) => !!preflight?.is_test],
