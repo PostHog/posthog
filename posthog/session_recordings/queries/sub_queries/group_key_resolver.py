@@ -8,7 +8,7 @@ a column instead is measurably cheaper and returns the same sessions.
 
 import json
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from django.core.cache import cache
 
@@ -44,6 +44,14 @@ _RESOLVABLE_OPERATORS = {
     PropertyOperator.LT,
     PropertyOperator.LTE,
     PropertyOperator.IS_SET,
+}
+
+# Numeric comparisons need the cast the group-join path gets from its typed field.
+_NUMERIC_OPERATORS = {
+    PropertyOperator.GT: ast.CompareOperationOp.Gt,
+    PropertyOperator.GTE: ast.CompareOperationOp.GtEq,
+    PropertyOperator.LT: ast.CompareOperationOp.Lt,
+    PropertyOperator.LTE: ast.CompareOperationOp.LtEq,
 }
 
 _FALLBACK = "fallback"
@@ -85,14 +93,29 @@ def _group_keys(team: Team, prop: GroupPropertyFilter) -> list[str] | None:
     return resolved
 
 
-def _query_group_keys(team: Team, prop: GroupPropertyFilter) -> list[str]:
-    # Reuse the event-property expression so operator handling stays in one place; inside a select
-    # over `groups` the `properties` chain resolves to that table's latest properties.
-    predicate = property_to_expr(
+def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:
+    """The filter's predicate, expressed against the `properties` of a select over `groups`."""
+    numeric_op = _NUMERIC_OPERATORS.get(prop.operator)
+    if numeric_op is not None:
+        # A group property is stored as a JSON string, and the group-join path reaches it through a
+        # typed field that carries the cast. Comparing the raw string to a number instead fails on
+        # "no supertype for types String, Float64", so the cast has to be explicit here.
+        return ast.CompareOperation(
+            op=numeric_op,
+            left=ast.Call(name="toFloat", args=[ast.Field(chain=["properties", prop.key])]),
+            right=ast.Constant(value=float(cast(float | str, prop.value))),
+        )
+    # String operators need no cast, so reuse the event-property expression and keep their handling
+    # in one place. Inside a select over `groups`, `properties` resolves to that table's latest values.
+    return property_to_expr(
         EventPropertyFilter(key=prop.key, value=prop.value, operator=prop.operator),
         team=team,
         scope="event",
     )
+
+
+def _query_group_keys(team: Team, prop: GroupPropertyFilter) -> list[str]:
+    predicate = _resolution_predicate(team, prop)
     query = ast.SelectQuery(
         select=[ast.Field(chain=["key"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),

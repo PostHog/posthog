@@ -11,6 +11,7 @@ from posthog.hogql import ast
 
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
     MAX_RESOLVED_GROUP_KEYS,
+    _resolution_predicate,
     resolved_group_key_expr,
 )
 
@@ -75,6 +76,20 @@ class TestGroupKeyResolver(BaseTest):
             assert resolved_group_key_expr(self.team, _filter()) is None
 
         assert resolve.call_count == 1
+
+    def test_a_numeric_comparison_casts_the_property(self) -> None:
+        # Without the cast ClickHouse rejects the resolution with "no supertype for types String,
+        # Float64", the resolver falls back, and the scanner silently keeps paying for the join.
+        prop = GroupPropertyFilter(key="score", value=8, operator=PropertyOperator.GT, group_type_index=0)
+
+        predicate = _resolution_predicate(self.team, prop)
+
+        assert isinstance(predicate, ast.CompareOperation)
+        assert predicate.op == ast.CompareOperationOp.Gt
+        assert isinstance(predicate.left, ast.Call)
+        assert predicate.left.name == "toFloat"
+        assert isinstance(predicate.right, ast.Constant)
+        assert predicate.right.value == 8.0
 
     def test_a_failed_resolution_keeps_the_join(self) -> None:
         with patch(_RESOLVER, side_effect=Exception("clickhouse said no")):
