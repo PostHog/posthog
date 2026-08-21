@@ -229,10 +229,12 @@ function readSignature(fn) {
     return { kind: 'positional', names }
 }
 
-// Invoke with the fewest sentinel args that yield a clean path — drops optional trailing params and
-// hits guarded default branches (`replay()` -> `/replay/home`) instead of erroring on a sentinel.
+// Invoke with every sentinel arg count and keep each distinct clean path — a builder with an
+// optional trailing param yields both its base and detail routes (`replay()` -> `/replay/home`,
+// `replay(':id')` -> `/replay/:id`), and a count that errors on a sentinel is simply skipped.
 function probeBuilder(fn, signature) {
     const maxArgs = signature.kind === 'object' ? 0 : signature.names.length
+    const paths = []
     for (let count = 0; count <= maxArgs; count++) {
         const args = signature.kind === 'object' ? [{}] : signature.names.slice(0, count).map(sentinel)
         let raw
@@ -253,19 +255,26 @@ function probeBuilder(fn, signature) {
         ) {
             continue
         }
-        return pathOnly
+        if (!paths.includes(pathOnly)) {
+            paths.push(pathOnly)
+        }
     }
-    return null
+    return paths
 }
 
 function replaceSentinels(pathOnly, paramNames) {
     let template = pathOnly
     const found = new Set()
     for (const name of [...paramNames].sort((a, b) => b.length - a.length)) {
-        const encoded = encodeURIComponent(sentinel(name))
         const plain = sentinel(name)
+        const encoded = encodeURIComponent(plain)
+        // Some builders pre-encode a path segment so it survives kea-router's decode (e.g.
+        // aiObservabilityTrace) — the sentinel then comes back double-encoded.
+        const doubleEncoded = encodeURIComponent(encoded)
         const before = template
-        template = template.split(encoded).join(`{${name}}`).split(plain).join(`{${name}}`)
+        for (const form of [doubleEncoded, encoded, plain]) {
+            template = template.split(form).join(`{${name}}`)
+        }
         if (template !== before) {
             found.add(name)
         }
@@ -292,15 +301,27 @@ function buildManifest(urls) {
             excluded.push({ name, reason: 'could not parse signature' })
             continue
         }
-        const probePath = probeBuilder(fn, signature)
-        if (!probePath) {
+        const probePaths = probeBuilder(fn, signature)
+        if (probePaths.length === 0) {
             excluded.push({ name, reason: 'no clean path' })
             continue
         }
         // Map against the full signature so a sentinel-valued default (`accountConnected`) still resolves.
-        const { template, params } = replaceSentinels(probePath, signature.names)
-        manifest[name] = { template, params, scope: isProjectScoped(template) ? 'project' : 'global' }
-        if ((signature.kind === 'object' || signature.names.length > 0) && params.length === 0) {
+        const entries = []
+        for (const probePath of probePaths) {
+            const { template, params } = replaceSentinels(probePath, signature.names)
+            if (entries.some((entry) => entry.template === template)) {
+                continue
+            }
+            entries.push({ template, params, scope: isProjectScoped(template) ? 'project' : 'global' })
+        }
+        entries.forEach((entry, index) => {
+            manifest[index === 0 ? name : `${name}.${index}`] = entry
+        })
+        if (
+            (signature.kind === 'object' || signature.names.length > 0) &&
+            entries.every((entry) => entry.params.length === 0)
+        ) {
             baseOnly.push(name)
         }
     }

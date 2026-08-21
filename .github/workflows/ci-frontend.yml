@@ -676,6 +676,9 @@ jobs:
             - name: Check if products.tsx and products.json are up to date
               run: pnpm --filter=@posthog/frontend build:products && git diff --exit-code
 
+            - name: Check if MCP app-url-manifest.json is up to date
+              run: pnpm --filter=@posthog/frontend build:app-urls:check
+
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
