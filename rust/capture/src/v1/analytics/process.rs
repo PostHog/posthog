@@ -83,11 +83,6 @@ pub async fn process_batch(
     // the all-dropped early return so those batches are covered too.
     emit_validation_drop_warnings(state, context, &events);
 
-    // Illegal distinct_ids are ingested but with person processing forced off.
-    // Emit here, before the rate limiter reuses the same person-off marker, so
-    // this scan sees only the placeholder-id events.
-    emit_illegal_distinct_id_warnings(state, context, &events);
-
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
     // returning 200 (accept-and-discard) so the batch-import-worker doesn't retry.
@@ -212,6 +207,14 @@ pub async fn process_batch(
     let mut all_results = serialized.failures;
     all_results.extend(sink_results);
     merge_sink_results(&mut events, &all_results);
+
+    // Illegal distinct_ids are kept but with person processing forced off. Emit
+    // only after the sink accepts the batch: an event dropped by a membership
+    // filter (import mode, quota, restrictions, size) or rejected by the sink
+    // was never ingested, so it must not be counted or named as "ingested but
+    // modified". The scan re-derives illegality from the distinct_id, so this
+    // late placement still selects exactly the surviving placeholder events.
+    emit_illegal_distinct_id_warnings(state, context, &events);
 
     Ok(BatchResponse::build(context, &events))
 }
@@ -4640,6 +4643,35 @@ mod tests {
         assert_eq!(
             emitted[0].extra_details.get("distinctIdCount"),
             Some(&serde_json::json!(2))
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_illegal_distinct_id_suppressed_when_batch_dropped() {
+        // Import mode discards any non-historical batch (accept-and-discard), so
+        // these placeholder-id events are never ingested. No illegal_distinct_id
+        // warning may claim otherwise.
+        let collector = Arc::new(CollectingEmitter::new());
+        let state = TestStateBuilder::new()
+            .with_ingestion_warning_emitter(collector.clone())
+            .with_capture_mode(crate::config::CaptureMode::Import)
+            .build()
+            .state;
+        let mut ctx = test_utils::test_analytics_context();
+        let anon = || Event {
+            distinct_id: "anonymous".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![anon(), anon()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        assert!(
+            collector
+                .emitted()
+                .iter()
+                .all(|w| w.warning != WarningType::IllegalDistinctId),
+            "an import-mode-dropped batch must not emit illegal_distinct_id"
         );
     }
 
