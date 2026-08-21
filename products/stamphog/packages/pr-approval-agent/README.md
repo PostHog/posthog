@@ -234,7 +234,7 @@ PostHog's auth system or its billing.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `migration_risk.py` for how stamphog reads it.
 
-If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would hand the PR to ReviewHog and strip the trigger label over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
+If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would cost a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
 
 ### Ownership
 

@@ -524,6 +524,32 @@ describe("conversationTurnsToJsonlEntries", () => {
     expect(parsed.slug).toBeDefined();
   });
 
+  it("derives a stable slug from the session id across rehydrations", () => {
+    const turns = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+    ];
+    const slugOf = (lines: string[]) =>
+      parseConversationEntries(lines).find((e: { slug?: string }) => e.slug)
+        ?.slug;
+
+    const slugFor = (sessionId: string) =>
+      slugOf(conversationTurnsToJsonlEntries(turns, { ...config, sessionId }));
+
+    const first = slugOf(conversationTurnsToJsonlEntries(turns, config));
+
+    expect(first).toBeDefined();
+    expect(slugOf(conversationTurnsToJsonlEntries(turns, config))).toBe(first);
+    expect(slugFor("sess-2")).not.toBe(first);
+
+    const sameMillisecondA = "01a011f5-c8f3-73d9-a32e-ff7eee2a8793";
+    const sameMillisecondB = "01a011f5-c8f3-7b41-9c05-1122334455aa";
+
+    expect(slugFor(sameMillisecondA)).not.toBe(slugFor(sameMillisecondB));
+  });
+
   it("chains parentUuid across conversation entries", () => {
     const lines = conversationTurnsToJsonlEntries(
       [
