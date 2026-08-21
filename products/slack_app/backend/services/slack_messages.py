@@ -513,28 +513,27 @@ def footer_text(footer: RunFooter, configure_url: str | None = None) -> str:
     return " · ".join(segments)
 
 
-def reply_footer_block(
-    footer: RunFooter,
-    configure_url: str | None = None,
-    accessory: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    """The footer block, or `None` when there is nothing to say.
+def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
+    """The footer as a `context` block, or `None` when there is nothing to say.
 
-    Without an accessory this is a `context` block: the answer itself is the message,
-    so the footer is muted rather than competing with the prose. A run with no links
-    and no pinned model contributes no segments and gets no trailing line at all.
-
-    An accessory forces a `section` instead, because a context block holds only text
-    and images — Slack rejects an interactive element inside one outright. That buys
-    the control a place on the footer's own line (accessories render beside the text,
-    right-aligned) and costs the muted styling, since `section` renders at body weight.
+    The answer itself is the message, so this is muted rather than competing with the
+    prose. A run with no links and no pinned model contributes no segments and gets no
+    trailing line at all.
     """
     text = footer_text(footer, configure_url)
     if not text:
         return None
-    if accessory is None:
-        return context_block(text)
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text}, "accessory": accessory}
+    return context_block(text)
+
+
+def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
+    """The fork menu as a standalone block, for replies with no section to hang it on.
+
+    A streamed answer arrives as markdown chunks and the chart delivery puts the answer
+    in the card message, so neither has a `section` whose accessory the menu could be.
+    Costs a line, which is why the plain-post path prefers the accessory.
+    """
+    return {"type": "actions", "elements": [element]}
 
 
 FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
