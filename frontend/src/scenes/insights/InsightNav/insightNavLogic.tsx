@@ -793,7 +793,16 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (isRetentionQuery(query)) {
         const seriesEntity = retentionEntityToSeriesEntity(query.retentionFilter?.targetEntity)
         if (seriesEntity) {
-            newCache.series = [seriesEntity]
+            // Only the first series maps to the target entity, so the rest of a multi-series cache survives.
+            const [firstCached, ...restCached] = newCache.series ?? []
+            // A target that still points at the cached entity keeps it whole, math included; a target
+            // edited on retention replaces it.
+            const targetIsCachedEntity =
+                firstCached?.kind === seriesEntity.kind &&
+                (seriesEntity.kind === NodeKind.ActionsNode
+                    ? (firstCached as ActionsNode).id === seriesEntity.id
+                    : (firstCached as EventsNode).event === seriesEntity.event)
+            newCache.series = [targetIsCachedEntity ? firstCached : seriesEntity, ...restCached]
         }
     }
 

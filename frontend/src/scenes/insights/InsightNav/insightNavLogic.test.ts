@@ -787,6 +787,80 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('SCRATCH count+math', async () => {
+                const trendsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: 'a_event',
+                                event: 'a_event',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                            { kind: NodeKind.EventsNode, name: 'b_event', event: 'b_event' },
+                            { kind: NodeKind.EventsNode, name: 'c_event', event: 'c_event' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const back = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                // eslint-disable-next-line no-console
+                console.log('SCRATCH after round trip:', JSON.stringify(back.series))
+                expect(back.series).toHaveLength(3)
+            })
+
+            it('keeps every trends series and its math through a retention round trip', async () => {
+                const trendsQuery: InsightVizNode = setLatestVersionsOnQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: 'a_event',
+                                event: 'a_event',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                            { kind: NodeKind.EventsNode, name: 'b_event', event: 'b_event' },
+                            { kind: NodeKind.EventsNode, name: 'c_event', event: 'c_event' },
+                        ],
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                // Retention holds a single target entity, so the series beyond the first only survive
+                // in the cache — dropping them here silently deleted the rest of the insight.
+                const backToTrends = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(backToTrends.series).toMatchObject([
+                    { event: 'a_event', math: BaseMathType.UniqueUsers },
+                    { event: 'b_event' },
+                    { event: 'c_event' },
+                ])
+            })
+
             it('carries a funnel event into retention as a targetEntity in the right shape', async () => {
                 const funnelsQuery: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
