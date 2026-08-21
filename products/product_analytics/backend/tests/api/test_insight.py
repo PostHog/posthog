@@ -1624,6 +1624,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.active_tile_count", return_value=99)
+    def test_insight_dashboard_limit_includes_dashboard_context(
+        self, _mock_active_tile_count: mock.Mock, mock_report_user_action: mock.Mock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Important dashboard"})
+
+        self.dashboard_api.create_insight({"filters": {"insight": "TRENDS"}, "dashboards": [dashboard_id]})
+
+        limit_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "resource limit hit"
+        )
+        assert limit_call.args[2]["dashboard_id"] == dashboard_id
+        assert limit_call.args[2]["dashboard_name"] == "Important dashboard"
+
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
