@@ -494,6 +494,10 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return None
         # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
         # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
+        reference_counts = self.context.get("github_reference_counts")
+        if reference_counts is not None:
+            # List passes counts for the whole page, so the field costs one query however many rows there are.
+            return reference_counts.get(obj.integration_id, 0) > 1
         return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
@@ -2056,7 +2060,21 @@ class IntegrationViewSet(
         for instance in instances:
             if instance.kind == "github":
                 GitHubIntegration(instance).ensure_account_name()
-        serializer = self.get_serializer(instances, many=True)
+        # One grouped lookup for the whole page instead of an `exists()` per row, so
+        # `installation_shared` stays a fixed one query however many GitHub rows there are.
+        reference_counts = GitHubIntegration.installation_reference_counts(
+            {
+                instance.integration_id
+                for instance in instances
+                if instance.kind == "github" and instance.integration_id
+            },
+            include_personal=False,
+        )
+        serializer = self.get_serializer(
+            instances,
+            many=True,
+            context={**self.get_serializer_context(), "github_reference_counts": reference_counts},
+        )
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)

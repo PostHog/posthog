@@ -252,12 +252,17 @@ class GitHubIntegrationBase:
         return team_qs.count() + user_qs.count()
 
     @staticmethod
-    def installation_reference_counts(installation_ids: Iterable[str]) -> dict[str, int]:
-        """Total PostHog rows (team + personal) referencing each GitHub App installation.
+    def installation_reference_counts(
+        installation_ids: Iterable[str], *, include_personal: bool = True
+    ) -> dict[str, int]:
+        """PostHog rows referencing each GitHub App installation, keyed by installation id.
 
-        Batched form of :meth:`installation_reference_count` for list endpoints: two grouped
-        queries for the whole page instead of a count pair per row. The returned count includes
-        every reference, so a caller checking "is this shared besides the current row" tests ``> 1``.
+        Batched form of :meth:`installation_reference_count` for list endpoints: one grouped
+        query per model for the whole page instead of a count pair per row. The returned count
+        includes every reference, so a caller checking "is this shared besides the current row"
+        tests ``> 1``. Pass ``include_personal=False`` to count team rows only — those are the
+        ones that keep the App installed on GitHub, since disconnecting the last team row
+        deletes the personal rows sharing it.
         """
         # Local imports: both model modules import this module at load time.
         from posthog.models.integration import Integration
@@ -268,7 +273,10 @@ class GitHubIntegrationBase:
         if not ids:
             return counts
 
-        for model in (Integration, UserIntegration):
+        models: list[type[Integration] | type[UserIntegration]] = [Integration]
+        if include_personal:
+            models.append(UserIntegration)
+        for model in models:
             grouped = (
                 model.objects.filter(kind="github", integration_id__in=ids)
                 .values("integration_id")

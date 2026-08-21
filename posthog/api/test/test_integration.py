@@ -10,8 +10,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
 from django.test.client import Client as HttpClient
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import requests
@@ -5507,6 +5509,23 @@ class TestGitHubIntegrationListStatusFields:
         row = self._list_github_row(client, integration.id)
 
         assert row["installation_shared"] is True
+
+    def test_listing_more_github_rows_does_not_add_queries(self, client: HttpClient):
+        self._create_github_integration(self.team, installation_id="1")
+        client.force_login(self.user)
+        url = f"/api/environments/{self.team.pk}/integrations/?kind=github"
+
+        def integration_table_queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                assert client.get(url).status_code == status.HTTP_200_OK
+            return sum(1 for query in captured.captured_queries if "posthog_integration" in query["sql"])
+
+        integration_table_queries()  # warm the caches shared across requests
+        with_one_row = integration_table_queries()
+        for installation_id in ("2", "3", "4", "5"):
+            self._create_github_integration(self.team, installation_id=installation_id)
+
+        assert integration_table_queries() == with_one_row
 
     def test_installation_status_reports_unavailable_marker(self, client: HttpClient):
         integration = self._create_github_integration(self.team, installation_unavailable_since=1704110400)
