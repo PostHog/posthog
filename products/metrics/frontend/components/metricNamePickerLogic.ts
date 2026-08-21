@@ -56,13 +56,16 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         items: [
             [] as MetricNameItem[],
             {
-                loadItems: async (_, breakpoint) => {
+                loadItems: async ({ debounce = true }: { debounce?: boolean } = {}, breakpoint) => {
                     if (!canViewMetrics()) {
                         return []
                     }
-                    // Debounce — match the 300ms cadence used in the viewer logic so
-                    // both fetches feel cohesive.
-                    await breakpoint(300)
+                    // Keystrokes only — matches the 300ms cadence used in the viewer
+                    // logic. The afterMount prime blocks first paint, so debouncing it
+                    // is dead time on every scene load.
+                    if (debounce) {
+                        await breakpoint(300)
+                    }
                     const response = await metricsValuesRetrieve(String(values.currentTeamId), {
                         value: values.search,
                         limit: 100,
@@ -82,7 +85,7 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         // Prime the list so the dropdown isn't empty on first open. Mirrors
         // serviceFilterLogic's afterMount in logs.
         if (canViewMetrics()) {
-            actions.loadItems({})
+            actions.loadItems({ debounce: false })
         }
     }),
 ])
