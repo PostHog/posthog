@@ -4,6 +4,7 @@ from io import StringIO
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -11,6 +12,12 @@ from django.utils.html import format_html
 from posthog.management.commands.rerun_google_ads_failed_invocations import MAX_WINDOW_DAYS
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
+from products.cdp.backend.services.masked_secrets import (
+    DEFAULT_MAX_RESULTS,
+    findings_as_csv,
+    scan_for_masked_secrets,
+    summarize_by_organization,
+)
 
 
 class HogFunctionAdminForm(forms.ModelForm):
@@ -88,6 +95,39 @@ class RerunGoogleAdsFailedInvocationsForm(forms.Form):
         return cleaned
 
 
+class MaskedSecretsForm(forms.Form):
+    """Admin-facing wrapper around the `find_masked_hog_function_secrets` command.
+
+    Mirrors its flags so an operator who needs the full list can rerun the same scope from the
+    shell without re-deriving the arguments.
+    """
+
+    team_ids = forms.CharField(
+        required=False,
+        help_text="Optional comma-separated team IDs. Leave blank to scan every team.",
+    )
+    include_deleted = forms.BooleanField(
+        required=False,
+        initial=False,
+        help_text="Include soft-deleted hog functions. They send nothing, so they are off by default.",
+    )
+    max_results = forms.IntegerField(
+        initial=DEFAULT_MAX_RESULTS,
+        min_value=1,
+        max_value=10000,
+        help_text="Cap on reported hog functions. You are told when the scan stops at the cap.",
+    )
+
+    def clean_team_ids(self) -> list[int]:
+        raw = self.cleaned_data.get("team_ids", "") or ""
+        if not raw.strip():
+            return []
+        try:
+            return [int(part.strip()) for part in raw.split(",") if part.strip()]
+        except ValueError:
+            raise forms.ValidationError("Team IDs must be a comma-separated list of integers.")
+
+
 @admin.register(HogFunction)
 class HogFunctionAdmin(admin.ModelAdmin):
     form = HogFunctionAdminForm
@@ -150,13 +190,66 @@ class HogFunctionAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.rerun_google_ads_view),
                 name="rerun-google-ads-failed-invocations",
             ),
+            path(
+                "masked-secrets/",
+                self.admin_site.admin_view(self.masked_secrets_view),
+                name="hog-function-masked-secrets",
+            ),
         ]
         return custom_urls + super().get_urls()
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
         extra_context["show_rerun_google_ads_button"] = True
+        extra_context["show_masked_secrets_button"] = True
         return super().changelist_view(request, extra_context=extra_context)
+
+    def masked_secrets_view(self, request):
+        scan = None
+        organizations: list = []
+        if request.method == "POST":
+            form = MaskedSecretsForm(request.POST)
+            if form.is_valid():
+                scan = scan_for_masked_secrets(
+                    team_ids=form.cleaned_data["team_ids"] or None,
+                    include_deleted=form.cleaned_data["include_deleted"],
+                    max_results=form.cleaned_data["max_results"],
+                )
+                wants_csv = bool(request.POST.get("_csv"))
+                # A downloaded CSV carries no place to show a warning, and a partial list of
+                # "everyone affected" is the kind of thing someone acts on as if it were complete.
+                if wants_csv and not scan.truncated:
+                    response = HttpResponse(findings_as_csv(scan.findings), content_type="text/csv")
+                    response["Content-Disposition"] = 'attachment; filename="masked-hog-function-secrets.csv"'
+                    return response
+
+                organizations = summarize_by_organization(scan.findings)
+                if scan.truncated:
+                    cap = form.cleaned_data["max_results"]
+                    lead = "The download was held back because the scan" if wants_csv else "The scan"
+                    messages.warning(
+                        request,
+                        f"{lead} stopped at the cap of {cap} hog functions, so more are affected than this "
+                        "shows. Raise the cap or scan a narrower set of teams, then try again.",
+                    )
+                elif not scan.findings:
+                    messages.success(
+                        request,
+                        f"Scanned {scan.scanned_count} hog function(s) with stored secrets. None store the mask.",
+                    )
+        else:
+            form = MaskedSecretsForm()
+
+        return render(
+            request,
+            "admin/cdp/hogfunction/masked_secrets.html",
+            {
+                "form": form,
+                "scan": scan,
+                "organizations": organizations,
+                "title": "Hog functions storing the secret mask",
+            },
+        )
 
     def rerun_google_ads_view(self, request):
         output: str | None = None
