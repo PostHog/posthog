@@ -26121,7 +26121,10 @@
                 "Profound",
                 "Airwallex",
                 "Polymarket",
-                "Kalshi"
+                "Kalshi",
+                "Capterra",
+                "GooglePostmasterTools",
+                "Growi"
             ],
             "type": "string"
         },
