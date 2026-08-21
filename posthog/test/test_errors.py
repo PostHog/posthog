@@ -1,4 +1,4 @@
-from clickhouse_driver.errors import ServerException, UnexpectedPacketFromServerError
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError, UnexpectedPacketFromServerError
 from parameterized import parameterized
 
 from posthog.errors import (
@@ -87,11 +87,20 @@ class TestWrapClickhouseQueryError:
             ("connection_reset", ConnectionResetError(104, "Connection reset by peer")),
             ("eof", EOFError("Unexpected EOF while reading bytes")),
             ("socket_timeout", TimeoutError("timed out")),
+            # The driver wraps a socket read timeout and a connect-time failure in its own error
+            # types before the raw socket error escapes, so the raw types above never see the
+            # connect path that froze the feature-flag sync.
+            ("driver_socket_timeout", SocketTimeoutError("timed out")),
+            ("driver_network_error", NetworkError("Connection refused")),
+            # The server returns UNKNOWN_DATABASE (81) during the handshake when the fixed target
+            # database is not attached yet. It is a ServerException, so it reaches the wrap through
+            # the code lookup rather than the type check above.
+            ("unknown_database", ServerException("DB::Exception: Database posthog does not exist", code=81)),
         ]
     )
-    def test_socket_level_errors_wrap_as_transient_connection_error(self, _name: str, err: Exception) -> None:
-        # These carry no ClickHouse error code, so before classification they passed through
-        # unwrapped and fingerprinted into a separate error-tracking issue per socket frame.
+    def test_connection_errors_wrap_as_transient_connection_error(self, _name: str, err: Exception) -> None:
+        # These carry no stable ClickHouse error code for classification, so before this fix they
+        # passed through as their own error-tracking issue and no retry path saw them as transient.
         wrapped = wrap_clickhouse_query_error(err)
 
         assert isinstance(wrapped, ClickHouseConnectionError)

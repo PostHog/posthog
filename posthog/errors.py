@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -19,15 +19,19 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 
-# Socket-level failures the clickhouse_driver raises when the connection drops mid-query. Unlike
-# ServerException, these carry no ClickHouse error code, so the code lookup below never reaches them.
+# Connection failures the clickhouse_driver raises while opening or reading a connection. None of them
+# is a ServerException, so the code lookup below never reaches them. The driver wraps a socket read
+# timeout as SocketTimeoutError and a connect-time failure (refused, reset, unexpected EOF) as
+# NetworkError before the raw socket error escapes, so the raw types alone miss the connect path.
 # UnexpectedPacketFromServerError is deliberately excluded: the driver raises it only after reading a
 # valid packet-type byte that's wrong for the current protocol state, so it flags a protocol defect (a
-# persistent bug), not a dropped socket, and must stay reportable rather than be retried silently.
+# persistent bug), not a dropped connection, and must stay reportable rather than be retried silently.
 CLICKHOUSE_CONNECTION_ERROR_TYPES: tuple[type[BaseException], ...] = (
     ConnectionResetError,
     EOFError,
     socket.timeout,
+    NetworkError,
+    SocketTimeoutError,
 )
 
 
@@ -176,6 +180,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "UNKNOWN_DATABASE":
+        # The server returns this during the handshake when the fixed target database is not attached
+        # yet, for example while a node restarts or a replica catches up. The database name is static
+        # config, so its absence is a connection-establishment failure that clears on its own, not a
+        # query error. Group it with the other connection errors so the retry paths cover it.
+        return ClickHouseConnectionError()
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
