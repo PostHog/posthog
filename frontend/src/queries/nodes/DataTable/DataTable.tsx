@@ -86,6 +86,7 @@ import {
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isSessionsQuery,
+    shouldQueryBeAsync,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
@@ -190,6 +191,7 @@ export function DataTable({
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
+    const onRetry = (): void => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
@@ -1048,7 +1050,8 @@ export function DataTable({
                                                 titleStatus={responseErrorObject?.status}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
-                                                onRetry={() => loadData('force_blocking')}
+                                                onRetry={onRetry}
+                                                retryLoading={responseLoading}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -1060,7 +1063,8 @@ export function DataTable({
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
-                                                onRetry={() => loadData('force_blocking')}
+                                                onRetry={onRetry}
+                                                retryLoading={responseLoading}
                                             />
                                         )
                                     ) : (
