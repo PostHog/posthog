@@ -403,6 +403,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "custom_image_id",
         "fast_mode",
         "initial_permission_mode",
+        # The agent reads this to build its first message. Without it here the API
+        # strips the key, `getInitialPromptOverride` returns null, and the run silently
+        # falls back to `task.description`.
+        "initial_prompt_override",
         "mode",
         "model",
         "pending_user_artifact_ids",

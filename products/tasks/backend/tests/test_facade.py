@@ -219,6 +219,24 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
+    def test_run_detail_exposes_the_boot_prompt_and_still_hides_internal_state(self):
+        # The agent reads initial_prompt_override off this payload to build its first
+        # message. Dropping it from the allowlist strips it silently, and the run falls
+        # back to task.description with none of its framing or triggering event.
+        task = self._make_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+        )
+
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id)
+
+        assert detail is not None
+        self.assertEqual(detail.state["initial_prompt_override"], "framed prompt")
+        self.assertNotIn("sandbox_jwt_kid", detail.state)
+
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
         run = TaskRun.objects.create(
