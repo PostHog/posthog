@@ -625,6 +625,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       isLocalOnlyCommand,
       commandName: command,
       broadcast: () => this.broadcastUserMessage(params),
+      pendingInput: userMessage,
       settled: false,
       resolve: () => {},
       reject: () => {},
@@ -635,9 +636,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
 
     this.session.turnQueue.push(turn);
-    this.session.input.push(userMessage);
+    this.dispatchQueuedInput(this.session);
     this.ensureConsumer(params.sessionId);
     return response;
+  }
+
+  private dispatchQueuedInput(session: Session): void {
+    if (session.queryClosed) {
+      return;
+    }
+    if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    const head = session.turnQueue.find((turn) => !turn.settled);
+    if (!head?.pendingInput) {
+      return;
+    }
+    const input = head.pendingInput;
+    head.pendingInput = undefined;
+    session.input.push(input);
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -840,6 +857,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      this.dispatchQueuedInput(session);
       turn.resolve(result);
     };
 
@@ -858,6 +876,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
+      this.dispatchQueuedInput(session);
       turn.reject(error);
     };
 
@@ -1090,6 +1109,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 head.settled = true;
                 declinePendingSteers(head);
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
+                this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
                 break;
               }
@@ -1570,8 +1590,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     session.cancelled = true;
 
-    // Settle not-yet-echoed turns immediately; the SDK still runs their
-    // pushed messages, so count the echo-less results they owe as orphans.
+    // Settle not-yet-echoed turns immediately; the SDK still runs the messages
+    // already pushed, so count the echo-less results those owe as orphans.
     for (const turn of [...session.turnQueue]) {
       if (turn === session.activeTurn || turn.settled) {
         continue;
@@ -1579,7 +1599,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.settled = true;
       declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
-      session.pendingOrphanResults += 1;
+      if (!turn.pendingInput) {
+        session.pendingOrphanResults += 1;
+      }
+      turn.pendingInput = undefined;
       turn.resolve(this.cancelledResponse());
     }
 
