@@ -1805,6 +1805,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Product tour`,
         type: 'product_tour',
         href: urls.productTour('new'),
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
         iconType: 'product_tour',
         iconColor: [
             'var(--color-product-product-tours-light)',
