@@ -88,7 +88,7 @@ def signed_directory(
 
 def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     """
-    The Web Bot Auth key directory for PostHogSessionReplayBot. A stored file cannot serve this:
+    The Web Bot Auth key directory for PostHogImageFetcherBot. A stored file cannot serve this:
     Cloudflare uses a key only when the response carries a signature made with that key, covering
     the authority asked for and expiring minutes later.
 

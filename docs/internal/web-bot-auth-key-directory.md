@@ -1,7 +1,7 @@
 # Web Bot Auth key directory
 
 PostHog Cloud US serves the Web Bot Auth key directory at `/.well-known/http-message-signatures-directory`.
-The directory publishes the public keys for `PostHogSessionReplayBot` and signs each response with the corresponding private keys.
+The directory publishes the public keys for `PostHogImageFetcherBot` and signs each response with the corresponding private keys.
 
 ## Configuration
 
