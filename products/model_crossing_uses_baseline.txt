@@ -94,6 +94,7 @@ cohorts.Cohort products.signals.backend.scout_harness.profile.builders instance-
 cohorts.Cohort products.workflows.backend.api.hog_flow instance-single 1
 dashboards.Dashboard ee.api.dashboard_collaborator instance-single 2
 dashboards.Dashboard ee.api.dashboard_collaborator passed-as-class(cast) 1
+dashboards.Dashboard ee.api.subscription instance-many(manager) 2
 dashboards.Dashboard ee.api.subscription instance-single 1
 dashboards.Dashboard ee.hogai.context.entity_search.context in-collection 1
 dashboards.Dashboard ee.hogai.eval.ci.max_tools.eval_upsert_dashboard instance-many(filter) 1
@@ -137,6 +138,7 @@ dashboards.Dashboard products.pulse.backend.sources.anchored_dashboards instance
 dashboards.Dashboard products.reminders.backend.constants in-collection 1
 dashboards.Dashboard products.signals.backend.scout_harness.profile.builders instance-many(order_by) 1
 dashboards.Dashboard products.slack_app.backend.slack_link_unfurl instance-single 1
+dashboards.DashboardTile ee.api.subscription instance-many(manager) 2
 dashboards.DashboardTile ee.hogai.eval.ci.max_tools.eval_upsert_dashboard write(acreate) 1
 dashboards.DashboardTile ee.hogai.tools.upsert_dashboard.tool construct 1
 dashboards.DashboardTile ee.hogai.tools.upsert_dashboard.tool instance-many(select_related) 2
@@ -172,6 +174,8 @@ dashboards.DashboardTile products.product_analytics.backend.presentation.insight
 dashboards.DashboardTile products.product_analytics.backend.presentation.insight write(update) 4
 dashboards.Text posthog.helpers.dashboard_templates write(create) 1
 dashboards.Text posthog.models.resource_transfer.visitors.text other(Return) 1
+product_analytics.Insight ee.api.subscription instance-many(filter) 2
+product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
 product_analytics.Insight ee.hogai.artifacts.types in-collection 1
 product_analytics.Insight ee.hogai.chat_agent.insights.nodes instance-many(order_by) 1
@@ -197,11 +201,11 @@ product_analytics.Insight posthog.models.resource_transfer.visitors.insight othe
 product_analytics.Insight posthog.models.sharing_configuration passed-as-class(cast) 1
 product_analytics.Insight posthog.temporal.product_analytics.upgrade_queries_activities instance-many(filter) 1
 product_analytics.Insight products.actions.backend.api.action instance-many(extra) 1
-product_analytics.Insight products.alerts.backend.api.alert drf-field-queryset 2
-product_analytics.Insight products.alerts.backend.api.alert instance-many(filter) 1
 product_analytics.Insight products.alerts.backend.max_tools instance-many(filter) 1
 product_analytics.Insight products.alerts.backend.max_tools passed-as-class(cast) 1
 product_analytics.Insight products.alerts.backend.max_tools write(create) 1
+product_analytics.Insight products.alerts.backend.presentation.views.alert drf-field-queryset 2
+product_analytics.Insight products.alerts.backend.presentation.views.alert instance-many(filter) 1
 product_analytics.Insight products.annotations.backend.api.annotation drf-field-queryset 1
 product_analytics.Insight products.dashboards.backend.api.dashboard drf-model-serializer 1
 product_analytics.Insight products.dashboards.backend.api.dashboard instance-many(distinct) 1
@@ -211,7 +215,7 @@ product_analytics.Insight products.dashboards.backend.api.dashboard write(bulk_u
 product_analytics.Insight products.dashboards.backend.api.dashboard write(update) 1
 product_analytics.Insight products.data_catalog.backend.logic.drift instance-many(filter) 1
 product_analytics.Insight products.data_catalog.backend.logic.drift instance-many(manager) 2
-product_analytics.Insight products.data_catalog.evals.seeders write(create) 2
+product_analytics.Insight products.data_catalog.evals.seeders write(create) 3
 product_analytics.Insight products.data_catalog.evals.seeders write(update) 1
 product_analytics.Insight products.demo.backend.logic.legacy.app_data_generator write(create) 1
 product_analytics.Insight products.demo.backend.logic.legacy.insight_variables_data_generator write(create) 5
@@ -293,7 +297,7 @@ warehouse_sources.DataWarehouseTable products.demo.backend.logic.products.hedgeb
 warehouse_sources.DataWarehouseTable products.demo.backend.logic.products.hedgebox.matrix write(create) 1
 warehouse_sources.DataWarehouseTable products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.DataWarehouseTable products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
-warehouse_sources.DataWarehouseTable products.managed_warehouse.backend.logic.connection write(update) 3
+warehouse_sources.DataWarehouseTable products.managed_warehouse.backend.logic.connection write(update) 2
 warehouse_sources.DataWarehouseTable products.managed_warehouse.backend.table_binding instance-many(prefetch_related) 1
 warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.api instance-single 1
 warehouse_sources.DataWarehouseTable products.marketing_analytics.backend.demo.warehouse instance-many(select_related) 1
@@ -350,7 +354,6 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.he
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.logic.sources instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
-warehouse_sources.ExternalDataSchema products.managed_warehouse.backend.logic.connection write(delete) 1
 warehouse_sources.ExternalDataSchema products.managed_warehouse.backend.logic.connection write(get_or_create) 1
 warehouse_sources.ExternalDataSchema products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow instance-single 1
 warehouse_sources.ExternalDataSchema products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow instance-single 2
@@ -378,7 +381,7 @@ warehouse_sources.ExternalDataSource products.engineering_analytics.backend.mana
 warehouse_sources.ExternalDataSource products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
 warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection instance-many(exclude) 1
 warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection instance-many(filter) 1
-warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection write(create) 2
+warehouse_sources.ExternalDataSource products.managed_warehouse.backend.logic.connection write(create) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.demo.health write(create) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.demo.health write(update) 1
 warehouse_sources.ExternalDataSource products.marketing_analytics.backend.hogql_queries.adapters.factory instance-many(filter) 1
