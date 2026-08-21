@@ -20,7 +20,10 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { createRecordEventUsageStep } from '~/ingestion/common/steps/usage-records-steps'
+import {
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
 import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
@@ -188,5 +191,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ),
             { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
         )
+        .pipe(createRecordEventUsageAfterIngestStep())
         .pipe(createRecordIngestionLagStep())
 }
