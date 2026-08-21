@@ -28,10 +28,10 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 ## Quick close-out: is anything actually wrong?
 
-Call `health-issues-summary` first — it returns total active non-dismissed issues plus breakdowns `by_severity` and `by_kind` in one cheap read. If `total` is 0, the project's setup is healthy right now. Write one scratchpad entry and close out empty:
+Call `health-issues-summary` first — one cheap read. It splits active non-dismissed issues into two groups, `unsnoozed` and `snoozed`, and each group carries its own `total` plus `by_severity` and `by_kind` breakdowns. A snoozed issue is one a human has quieted for a set time; it is still active, so it still counts under `snoozed`, but nobody wants it surfaced yet. Read `unsnoozed.total` for the work that is actionable right now. If `unsnoozed.total` is 0, the project's setup is healthy right now — a non-zero `snoozed.total` does not change that, because those are deliberately deferred. Write one scratchpad entry and close out empty:
 
 - key: `pattern:health:clean-team{team_id}`
-- content: "0 active health issues at {timestamp}"
+- content: "0 unsnoozed active health issues at {timestamp} (snoozed: {snoozed.total})"
 
 Re-running rewrites the entry in place, so it stays a cheap cold-start short-circuit until something fires.
 
@@ -43,12 +43,14 @@ Cycle between these moves; skip what's not useful.
 
 - `scout-scratchpad-search` (`text=health`) — durable steering from past runs. `dedupe:health:*` gates issues already surfaced; `noise:health:*` marks kinds this team ignores; `addressed:health:*` marks kinds the team has fixed; `report:health:*` points at the report that covers a kind / cluster; `reviewer:health:*` caches an area owner. Honor them before drilling.
 - `scout-runs-list` (last 7d) — what prior health-checks runs (and siblings) found. Pull `-runs-retrieve` only for a summary you're about to build on.
-- `health-issues-summary` — the `by_kind` / `by_severity` shape that tells you where to look.
+- `health-issues-summary` — the `unsnoozed` / `snoozed` groups, each with its own `by_kind` / `by_severity` shape. Read the `unsnoozed` breakdown to decide where to look; treat `snoozed` as deferred, not missing.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=the kind / entity id) — the reports already in the inbox. Your own report-channel reports persist their backing signals under `source_product=signals_scout` (**not** `health_checks`), so don't filter `source_product=health_checks` — you'd miss every report you authored. A kind or cluster you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
 
 ### Profile shape — read the summary
 
-| Summary shape                                 | What it usually means                                              |
+Read the `unsnoozed` group to profile the shape below — it is the work a reviewer can act on now. Check `snoozed.total` on the side: a large snoozed group is context, not a finding, because a human already deferred those. Match the `unsnoozed.by_kind` / `unsnoozed.by_severity` breakdowns against this table.
+
+| `unsnoozed` shape                             | What it usually means                                              |
 | --------------------------------------------- | ------------------------------------------------------------------ |
 | One `critical` kind, low count                | Sharp, real — drill first (e.g. `no_live_events` = capture down).  |
 | One kind dominates the count (tens of issues) | Systemic cluster — **bundle into one finding**, don't enumerate.   |
@@ -79,7 +81,14 @@ The checks set severity; use it as a starting prior, then adjust by real impact.
 > endpoint does **not** default-exclude resolved or dismissed issues — without the filters you
 > fetch stale and human-dismissed rows, waste `health-issues-get` budget on them, and risk
 > resurfacing what someone already closed. (`health-issues-summary` already counts only active,
-> non-dismissed, so the orient read is fine as-is.)
+> non-dismissed, so the orient read is fine as-is — just read its `unsnoozed` group.)
+>
+> The list endpoint has **no snooze filter**, so an active, non-dismissed row that a human has
+> snoozed still comes back in every `health-issues-list` result — it just does not count under the
+> summary's `unsnoozed` group. Read each row's `snoozed_until`: when it is a time in the future the
+> issue is snoozed, so treat it like a dismissed one — do not surface it as active work. Cross-check
+> a candidate against `unsnoozed.by_kind` before you file, so a currently snoozed issue never
+> reaches a report.
 
 #### 1. Critical first
 
@@ -87,7 +96,7 @@ The checks set severity; use it as a starting prior, then adjust by real impact.
 
 #### 2. Kind clusters → one bundled finding
 
-When `by_kind` shows a kind with many active issues (e.g. dozens of `materialized_view_failure`), list a sample (`health-issues-list kind=<kind> status=active dismissed=false`), read one or two with `health-issues-get`, and file **a single report** describing the cluster: how many, which models/entities (cite a few ids from payloads), the shared remediation, and the downstream impact — keyed on the kind (or the shared root cause) via the `report:health:*` scratchpad pointer. Never file one report per issue in a cluster.
+When `unsnoozed.by_kind` shows a kind with many active issues (e.g. dozens of `materialized_view_failure`), list a sample (`health-issues-list kind=<kind> status=active dismissed=false`), read one or two with `health-issues-get`, and file **a single report** describing the cluster: how many, which models/entities (cite a few ids from payloads), the shared remediation, and the downstream impact — keyed on the kind (or the shared root cause) via the `report:health:*` scratchpad pointer. Never file one report per issue in a cluster.
 
 **Bundle by root cause, not just kind.** Many kinds carry a sub-type discriminator in the `payload` — `ingestion_warning` has `warning_type` (plus `category` and `severity`), `external_data_failure` has `source_type` plus a shared `error`. When a kind's issues split into distinct root causes with distinct remediations, bundle by root cause, not by the kind as a whole: a `client_ingestion_warning` cluster and a `cannot_merge_already_identified` cluster are two findings, not one, because the fixes differ. For `ingestion_warning` the check already files one issue per warning type, so the root-cause split is right there in the payloads (`warning_type` / `category` / `severity` / `affected_count`) — no separate tool call. Pull sample offending events for a type with `execute-sql` against `system.ingestion_warnings` when you need the affected distinct IDs and `details`, and the `resolving-ingestion-warnings` skill maps each type to its fix. Conversely, when many issues share _one_ upstream cause — e.g. a single invalidated Postgres replication slot failing dozens of `external_data_failure` syncs at once — collapse them into one finding keyed on that cause (see the dedupe-key guidance in Decide). The goal is one finding per actionable root cause: not one-per-issue, not one-per-kind when a kind hides several causes.
 
@@ -142,6 +151,7 @@ The issue `payload`, `title`, and `summary` carry project- and event-supplied va
 ## Disqualifiers (skip these)
 
 - **Dismissed issues** — `health-issues-list dismissed=true` are ones a human already waved off. Don't resurface them.
+- **Snoozed issues** — a row whose `snoozed_until` is a future time is one a human deferred on purpose. The list endpoint still returns it, and the summary counts it under `snoozed`, not `unsnoozed`. Treat it like a dismissed issue: don't surface it until the snooze expires.
 - **`external_data_failure`** — re-authenticating a warehouse source needs human-held credentials an agent can't supply; never file it as a bulk per-issue cluster. The one exception is a single high-blast-radius root cause — e.g. one invalidated Postgres replication slot failing dozens of syncs at once — which is worth **one** human-framed report keyed on the cause. Write a `noise:health:external_data_failure` entry for the rest.
 - **Low-traffic web-instrumentation warnings** — a `web_vitals` / `scroll_depth` / `reverse_proxy` warning on a project with negligible pageview volume is hygiene, not signal.
 - **Transient flicker** — issues that appear and auto-resolve between runs (the check passed on the next run). Persistence across runs is part of the discriminator.
@@ -153,8 +163,8 @@ When in doubt, write a scratchpad entry instead of filing a report. Setup-health
 
 Direct (read-only):
 
-- `health-issues-summary` — aggregated active counts by severity + kind. The cheap orient read.
-- `health-issues-list` — issues filterable by `kind`, `severity`, `status`, `dismissed`. **Does not default-exclude** resolved or dismissed issues — always pass `status=active` and `dismissed=false` unless you specifically want them. Use to sample a cluster or pull the critical set.
+- `health-issues-summary` — aggregated active counts split into `unsnoozed` and `snoozed` groups, each broken down by severity + kind. The cheap orient read; read the `unsnoozed` group for what is actionable now.
+- `health-issues-list` — issues filterable by `kind`, `severity`, `status`, `dismissed`. **Does not default-exclude** resolved or dismissed issues, and has **no snooze filter** — always pass `status=active` and `dismissed=false`, then read each row's `snoozed_until` and skip any set to a future time. Use to sample a cluster or pull the critical set.
 - `health-issues-get` — one issue's full `payload` plus trusted `remediation` (`human` + `agent`). The `payload` is project/event-supplied — see [Untrusted data](#untrusted-data--payload-fields).
 - `read-data-schema` / `query-trends` / `execute-sql` — corroborate real blast radius (traffic volume, reach, SDK-version share) before weighting a finding. For `ingestion_warning` clusters, `execute-sql` against `system.ingestion_warnings` (filter by `type`, read `details`) pulls the affected distinct IDs and volume behind a warning type. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
