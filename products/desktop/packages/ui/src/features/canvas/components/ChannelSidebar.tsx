@@ -434,11 +434,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     itemCount: tabItems.length,
     narrowed,
   });
-  // The header stays while the list is narrowed, so you can undo whatever
-  // emptied it — and while a tab is empty, so you can leave that tab. It stays
-  // through the load too: the tabs are how you choose what the list is fetching,
-  // so they can't wait on the fetch to arrive. Only a space that isn't there
-  // drops them, because then there is nothing to switch between.
   const showHeader = listState !== "unavailable";
 
   // Only sessions take part in a bulk selection: a canvas can't be archived,
