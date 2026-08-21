@@ -207,6 +207,137 @@ export interface PatchedAccountRelationshipDefinitionApi {
 }
 
 /**
+ * * `account_field` - account_field
+ * * `custom_property` - custom_property
+ */
+export type AccountTrackRuleFieldKindEnumApi =
+    (typeof AccountTrackRuleFieldKindEnumApi)[keyof typeof AccountTrackRuleFieldKindEnumApi]
+
+export const AccountTrackRuleFieldKindEnumApi = {
+    AccountField: 'account_field',
+    CustomProperty: 'custom_property',
+} as const
+
+/**
+ * * `name` - name
+ * * `external_id` - external_id
+ * * `created_at` - created_at
+ * * `updated_at` - updated_at
+ * * `churned_at` - churned_at
+ * * `ignored_at` - ignored_at
+ * * `stripe_customer_id` - stripe_customer_id
+ * * `hubspot_deal_id` - hubspot_deal_id
+ * * `billing_id` - billing_id
+ * * `sfdc_id` - sfdc_id
+ * * `zendesk_id` - zendesk_id
+ */
+export type AccountTrackRuleFieldFieldEnumApi =
+    (typeof AccountTrackRuleFieldFieldEnumApi)[keyof typeof AccountTrackRuleFieldFieldEnumApi]
+
+export const AccountTrackRuleFieldFieldEnumApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountTrackRuleFieldApi {
+    kind: AccountTrackRuleFieldKindEnumApi
+    field?: AccountTrackRuleFieldFieldEnumApi
+    definition_id?: string
+}
+
+export interface AccountTrackRuleConditionApi {
+    field: AccountTrackRuleFieldApi
+    operator: string
+    values?: unknown[]
+}
+
+export interface AccountTrackRuleGroupApi {
+    conditions: AccountTrackRuleConditionApi[]
+}
+
+export interface AccountTrackRulesConfigApi {
+    schema_version: number
+    /** @minimum 0 */
+    version: number
+    enabled: boolean
+    groups: AccountTrackRuleGroupApi[]
+}
+
+export interface AccountTrackRuleSampleApi {
+    readonly id: string
+    readonly name: string
+}
+
+export interface AccountTrackRulePreviewApi {
+    config_version: number
+    eligible_active: number
+    skipped_churned: number
+    tracked: number
+    ignored: number
+    newly_ignored: number
+    restored: number
+    readonly tracked_samples: readonly AccountTrackRuleSampleApi[]
+    readonly ignored_samples: readonly AccountTrackRuleSampleApi[]
+    preview_token: string
+    validation_errors?: string[]
+}
+
+export interface AccountTrackRuleRunRequestApi {
+    /** @minimum 0 */
+    config_version: number
+    preview_token: string
+    idempotency_key: string
+    confirmed: boolean
+}
+
+export interface AccountTrackRuleRunViewApi {
+    readonly id: string
+    /** @minimum 0 */
+    readonly config_version: number
+    readonly trigger: string
+    readonly status: string
+    /** @minimum 0 */
+    readonly eligible_active: number
+    /** @minimum 0 */
+    readonly skipped_churned: number
+    /** @minimum 0 */
+    readonly tracked: number
+    /** @minimum 0 */
+    readonly ignored: number
+    /** @minimum 0 */
+    readonly newly_ignored: number
+    /** @minimum 0 */
+    readonly restored: number
+    /** @nullable */
+    readonly started_at: string | null
+    /** @nullable */
+    readonly finished_at: string | null
+    /** @nullable */
+    readonly error: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedAccountTrackRuleRunViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountTrackRuleRunViewApi[]
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -1885,9 +2016,10 @@ export interface FeatureRequestVersionApi {
  * * `evidence` - Evidence
  * * `product_areas` - Product areas
  */
-export type FieldEnumApi = (typeof FieldEnumApi)[keyof typeof FieldEnumApi]
+export type FeatureRequestHistoryChangeFieldEnumApi =
+    (typeof FeatureRequestHistoryChangeFieldEnumApi)[keyof typeof FeatureRequestHistoryChangeFieldEnumApi]
 
-export const FieldEnumApi = {
+export const FeatureRequestHistoryChangeFieldEnumApi = {
     Status: 'status',
     Priority: 'priority',
     Account: 'account',
@@ -1965,7 +2097,7 @@ export interface FeatureRequestHistoryChangeApi {
      * * `accounts` - Accounts
      * * `evidence` - Evidence
      * * `product_areas` - Product areas */
-    readonly field: FieldEnumApi
+    readonly field: FeatureRequestHistoryChangeFieldEnumApi
     /** Value before the update, including relation snapshots. */
     readonly before: FeatureRequestHistoryChangeApiBefore
     /** Value after the update, including relation snapshots. */
@@ -2269,6 +2401,17 @@ export type AccountNotesListParams = {
 }
 
 export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
      */
