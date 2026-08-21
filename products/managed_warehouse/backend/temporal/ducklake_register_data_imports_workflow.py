@@ -853,7 +853,7 @@ def _sweep_query(schema_name: str) -> psql.Composed:
         "  ON sn.snapshot_id = t.begin_snapshot "
         "WHERE t.end_snapshot IS NULL "
         "  AND s.schema_name = {} "
-        "  AND regexp_matches(t.table_name, {}) "
+        "  AND t.table_name ~ {} "
         # DuckDB does not infer intervals from bare string literals; the
         # explicit CAST is what makes the age guard bind at all.
         "  AND (sn.snapshot_id IS NULL OR CAST(sn.snapshot_time AS TIMESTAMPTZ) < now() - CAST({} AS INTERVAL)) "
