@@ -12,9 +12,7 @@ from products.access_control.backend.models import SurfaceAccessLimit
 
 class TestSurfaceLimitResolution(BaseTest):
     def test_resource_row_overrides_wildcard_row(self) -> None:
-        SurfaceAccessLimit.objects.create(
-            organization=self.organization, surface="mcp", resource=None, max_level="viewer"
-        )
+        SurfaceAccessLimit.objects.create(organization=self.organization, surface="mcp", max_level="viewer")
         SurfaceAccessLimit.objects.create(
             organization=self.organization, surface="mcp", resource="feature_flag", max_level="editor"
         )
