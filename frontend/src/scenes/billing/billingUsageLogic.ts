@@ -355,8 +355,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         )
                         if (billingUsageError?.code !== BILLING_USAGE_QUERY_TOO_LARGE_CODE) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
+                            throw error
                         }
-                        throw error
+                        return null
                     }
                 },
             },
