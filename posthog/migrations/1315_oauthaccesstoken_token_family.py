@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1313_healthissue_snoozed_until"),
+        ("posthog", "1314_callable_choices"),
     ]
 
     operations = [

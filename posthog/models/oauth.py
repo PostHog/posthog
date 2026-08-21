@@ -532,8 +532,8 @@ class OAuthAccessToken(AbstractAccessToken):
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
-            # `revoke_oauth_token_family` deletes a whole grant's tokens by this column, so without
-            # an index every RFC 7009 revocation sequentially scans the table.
+            # `revoke_oauth_grant_session` deletes a whole grant's tokens by this column, so
+            # without an index every RFC 7009 revocation sequentially scans the table.
             models.Index(fields=["token_family"], name="oauthaccesstoken_family_idx"),
         ]
 

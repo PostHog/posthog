@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     atomic = False
 
-    dependencies = [("posthog", "1314_oauthaccesstoken_token_family")]
+    dependencies = [("posthog", "1315_oauthaccesstoken_token_family")]
 
     operations = [
         SafeAddIndexConcurrently(
