@@ -38,6 +38,24 @@ describe('router-utils', () => {
         expect(altered).toEqual('/feature_flags/staff/cohorts')
     })
 
+    describe('desktop share link routes', () => {
+        // /code/* are public bridges for PostHog Desktop share links. The desktop app's link
+        // parser only matches the unprefixed form, so a project id injected here produces an
+        // address-bar URL the app refuses to open once someone copies and shares it.
+        it.each([
+            ['/code/canvas/chan-1/dash-1', '/code/canvas/chan-1/dash-1'],
+            ['/code/channel/chan-1', '/code/channel/chan-1'],
+            ['/code/channel/chan-1/tasks/task-1', '/code/channel/chan-1/tasks/task-1'],
+            ['/code/task/task-1', '/code/task/task-1'],
+            // Links copied out of the address bar before this exemption existed carry the prefix.
+            ['/project/123/code/canvas/chan-1/dash-1', '/code/canvas/chan-1/dash-1'],
+            // /code-review is a separate first segment and stays project-scoped.
+            ['/code-review', '/project/123/code-review'],
+        ])('routes %s to %s', (input, expected) => {
+            expect(addProjectIdIfMissing(input, 123)).toEqual(expected)
+        })
+    })
+
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('../dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')

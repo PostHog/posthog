@@ -39,6 +39,21 @@ describe("parseShareLink", () => {
       "https://us.posthog.com/code/channel/chan1/tasks/task1",
       { kind: "channel", channelId: "chan1", taskId: "task1" },
     ],
+    [
+      "canvas link carrying the project prefix the web app used to inject",
+      "https://us.posthog.com/project/2/code/canvas/chan1/dash1",
+      { kind: "canvas", channelId: "chan1", dashboardId: "dash1" },
+    ],
+    [
+      "channel thread link prefixed with a project API key",
+      "https://eu.posthog.com/project/phc_gE7SWBNBgFbA4eQ154KPX/code/channel/chan1/tasks/task1",
+      { kind: "channel", channelId: "chan1", taskId: "task1" },
+    ],
+    [
+      "canvas filed in a channel named project",
+      "https://us.posthog.com/code/canvas/project/2",
+      { kind: "canvas", channelId: "project", dashboardId: "2" },
+    ],
   ])("parses a %s", (_label, href, expected) => {
     expect(parseShareLink(href)).toEqual(expected);
   });
@@ -58,6 +73,10 @@ describe("parseShareLink", () => {
       "https://us.posthog.com/code/channel/chan1/foo/task1",
     ],
     ["a malformed url", "not a url"],
+    [
+      "a project segment whose id is neither numeric nor a project API key",
+      "https://us.posthog.com/project/notanid/code/canvas/chan1/dash1",
+    ],
   ])("returns null for %s", (_label, href) => {
     expect(parseShareLink(href)).toBeNull();
   });

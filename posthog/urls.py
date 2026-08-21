@@ -786,9 +786,15 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
-    r"code/canvas/[^/]+/[^/]+",
-    r"code/task/[^/]+",
+    # Public bridges for desktop-app share links, which deep-link into PostHog Desktop.
+    # The optional project prefix has to be tolerated: the web app used to inject one into
+    # the address bar, so links copied from there and passed on are already in circulation,
+    # and a logged-out recipient of one still needs the bridge rather than a login redirect.
+    # These are anchored because re_path matches with re.search, which would otherwise
+    # exempt any path that merely contains one of them.
+    r"^(project/[^/]+/)?code/canvas/[^/]+/[^/]+",
+    r"^(project/[^/]+/)?code/channel/[^/]+",
+    r"^(project/[^/]+/)?code/task/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

@@ -84,18 +84,33 @@ export function usePrefetchDashboards(): (channelId: string) => void {
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
 export function useDashboard(id: string | undefined): {
+  /** `undefined` while unresolved, `null` when the signed-in project has no such canvas. */
   dashboard: DashboardRecord | null | undefined;
   isLoading: boolean;
   isFetching: boolean;
+  isError: boolean;
+  // Narrowed to the message rather than the tRPC error shape, which is all any caller renders.
+  error: { message: string } | null;
+  refetch: () => void;
 } {
   const trpc = useHostTRPC();
-  const { data, isLoading, isFetching } = useQuery(
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery(
     trpc.dashboards.get.queryOptions(
       { id: id ?? "" },
-      { enabled: !!id, staleTime: 5_000 },
+      // AUTH_SCOPED_QUERY_META so switching project drops the entry. Without it a cached
+      // `null` from the previous project outlives the switch, and a canvas that now resolves
+      // still renders as missing.
+      { enabled: !!id, staleTime: 5_000, meta: AUTH_SCOPED_QUERY_META },
     ),
   );
-  return { dashboard: data, isLoading, isFetching };
+  return {
+    dashboard: data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch: () => void refetch(),
+  };
 }
 
 /** A canvas's source project — the head, or a historical version. */
