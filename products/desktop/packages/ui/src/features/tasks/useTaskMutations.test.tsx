@@ -1,17 +1,26 @@
 import type { Schemas } from "@posthog/api-client";
 import type { Task } from "@posthog/shared/domain-types";
-import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
+import {
+  channelFeedQueryKey,
+  channelFeedQueryRoot,
+} from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import {
   type SpaceTaskPage,
   spaceTreeTasksQueryRoot,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { taskFeedResultsQueryKey } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUpdateTask = vi.hoisted(() => vi.fn());
-const mockClient = vi.hoisted(() => ({ updateTask: mockUpdateTask }));
+const mockHandoffTask = vi.hoisted(() => vi.fn());
+const mockClient = vi.hoisted(() => ({
+  updateTask: mockUpdateTask,
+  handoffTask: mockHandoffTask,
+}));
 const mockUpdateSessionTaskTitle = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -25,7 +34,7 @@ vi.mock("@posthog/di/react", () => ({
 }));
 
 import { taskKeys } from "./taskKeys";
-import { useRenameTask } from "./useTaskMutations";
+import { useHandoffTask, useRenameTask } from "./useTaskMutations";
 
 const TASK_ID = "task-1";
 const OTHER_TASK_ID = "task-2";
@@ -44,6 +53,8 @@ function createTask(overrides: Partial<Task> = {}): Task {
     ...overrides,
   };
 }
+
+type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
 function createSummary(overrides: Partial<Schemas.TaskSummary> = {}) {
   return {
@@ -77,6 +88,7 @@ describe("useRenameTask", () => {
     const summaryKey = taskKeys.summaries([TASK_ID]);
     const detailKey = taskKeys.detail(TASK_ID);
     const channelFeedKey = channelFeedQueryKey("channel-1");
+    const taskFeedKey = taskFeedResultsQueryKey("created-by:@me");
     queryClient.setQueryData<Task[]>(listKey, [
       createTask(),
       createTask({ id: OTHER_TASK_ID, title: "Other" }),
@@ -90,6 +102,10 @@ describe("useRenameTask", () => {
     queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
       tasks: [createTask()],
       count: 7,
+    });
+    queryClient.setQueryData<TaskFeedResults>(taskFeedKey, {
+      tasks: [createTask()],
+      isComplete: true,
     });
 
     await act(async () => {
@@ -131,6 +147,12 @@ describe("useRenameTask", () => {
       tasks: [{ title: "Renamed", title_manually_set: true }],
       count: 7,
     });
+    expect(
+      queryClient.getQueryData<TaskFeedResults>(taskFeedKey)?.tasks[0],
+    ).toMatchObject({
+      title: "Renamed",
+      title_manually_set: true,
+    });
 
     expect(mockUpdateTask).toHaveBeenCalledWith(TASK_ID, {
       title: "Renamed",
@@ -148,6 +170,7 @@ describe("useRenameTask", () => {
     const summaryKey = taskKeys.summaries([TASK_ID]);
     const detailKey = taskKeys.detail(TASK_ID);
     const channelFeedKey = channelFeedQueryKey("channel-1");
+    const taskFeedKey = taskFeedResultsQueryKey("created-by:@me");
     queryClient.setQueryData<Task[]>(listKey, [createTask()]);
     queryClient.setQueryData<Schemas.TaskSummary[]>(summaryKey, [
       createSummary(),
@@ -157,6 +180,10 @@ describe("useRenameTask", () => {
     queryClient.setQueryData<SpaceTaskPage>(SPACE_TREE_KEY, {
       tasks: [createTask()],
       count: 7,
+    });
+    queryClient.setQueryData<TaskFeedResults>(taskFeedKey, {
+      tasks: [createTask()],
+      isComplete: true,
     });
 
     let caught: unknown;
@@ -190,6 +217,9 @@ describe("useRenameTask", () => {
     );
     expect(
       queryClient.getQueryData<SpaceTaskPage>(SPACE_TREE_KEY)?.tasks[0].title,
+    ).toBe("Original title");
+    expect(
+      queryClient.getQueryData<TaskFeedResults>(taskFeedKey)?.tasks[0].title,
     ).toBe("Original title");
 
     expect(mockUpdateSessionTaskTitle).toHaveBeenNthCalledWith(
@@ -341,5 +371,41 @@ describe("useRenameTask", () => {
     expect(queryClient.getQueryData<Task[]>(taskKeys.list())?.[0].title).toBe(
       "Renamed",
     );
+  });
+});
+
+describe("useHandoffTask", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("forwards the recipient id and invalidates the views a handoff redraws", async () => {
+    mockHandoffTask.mockResolvedValue(createTask({ created_by: null }));
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useHandoffTask(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ taskId: TASK_ID, userId: 7 });
+    });
+
+    expect(mockHandoffTask).toHaveBeenCalledWith(TASK_ID, 7);
+    // Skipping these would leave the old owner staring at a task (and a channel)
+    // the backend already moved to the recipient's space.
+    const invalidatedKeys = invalidateSpy.mock.calls.map(
+      ([options]) => options?.queryKey,
+    );
+    expect(invalidatedKeys).toContainEqual(taskKeys.lists());
+    expect(invalidatedKeys).toContainEqual(taskKeys.detail(TASK_ID));
+    expect(invalidatedKeys).toContainEqual(TASK_CHANNELS_QUERY_KEY);
+    expect(invalidatedKeys).toContainEqual(channelFeedQueryRoot);
   });
 });
