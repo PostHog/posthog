@@ -2,21 +2,12 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { hashCodeForString } from 'lib/utils/strings'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export function accountIconUrl(domain: string, theme: 'light' | 'dark'): string {
     return `/api/projects/@current/accounts/icon/?domain=${encodeURIComponent(domain)}&theme=${theme}`
-}
-
-// Spreads names across the lettermark palette so neighboring rows rarely share a color, and picks
-// the same one for a given account on every render.
-function lettermarkIndex(name: string): number {
-    let hash = 0
-    for (let index = 0; index < name.length; index++) {
-        hash = (hash * 31 + name.charCodeAt(index)) | 0
-    }
-    return Math.abs(hash)
 }
 
 interface AccountLogoProps {
@@ -42,7 +33,8 @@ export function AccountLogo({ domain, name }: AccountLogoProps): JSX.Element {
     const [failedIconKey, setFailedIconKey] = useState<string | null>(null)
 
     if (!domain || failedIconKey === iconKey) {
-        return <Lettermark name={name} index={lettermarkIndex(name)} />
+        // Hash the name into the index so an account keeps its color as the list reorders.
+        return <Lettermark name={name} index={hashCodeForString(name)} />
     }
     return (
         <img

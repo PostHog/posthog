@@ -345,6 +345,16 @@ class TestAccountsTableQueryRunner(BaseTest):
             definition=definition,
             value_str="https://www.acme.example/about",
         )
+        # A numeric case-variant also matches the name; it must not mask the text value with None.
+        numeric_variant = create_custom_property_definition(
+            team_id=self.team.id, name="domain", display_type=DisplayType.NUMBER
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=from_property,
+            definition=numeric_variant,
+            value_num=1.0,
+        )
         from_email_domains = create_account(
             team_id=self.team.id,
             name="From email domains",

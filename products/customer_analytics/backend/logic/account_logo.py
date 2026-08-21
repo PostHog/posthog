@@ -10,8 +10,12 @@ import re
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-# Dot-separated LDH labels, lowercase — the shape logo.dev is keyed on. Values reach here from
-# CRM columns and hand-typed fields, so anything else resolves to no logo rather than a request.
+from free_email_domains import whitelist as _free_email_domains
+
+# Dot-separated LDH labels, lowercase — the shape logo.dev is keyed on. Mirrors _DOMAIN_RE in
+# posthog/cdp/services/icons.py (kept as a copy: importing it would drag the egress/requests
+# stack into the facade import path). Values reach here from CRM columns and hand-typed fields,
+# so anything else resolves to no logo rather than a request.
 _HOSTNAME_RE = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _MAX_DOMAIN_LENGTH = 253
 
@@ -21,27 +25,9 @@ _MAX_DOMAIN_LENGTH = 253
 LOGO_DOMAIN_PROPERTY_NAME = "Domain"
 
 # Hosts that name a mailbox provider rather than a customer. A contact on a personal address
-# would otherwise put a webmail logo on the account row, which reads as a data bug.
-_MAILBOX_PROVIDER_DOMAINS = frozenset(
-    {
-        "aol.com",
-        "gmail.com",
-        "gmx.com",
-        "googlemail.com",
-        "hotmail.com",
-        "icloud.com",
-        "live.com",
-        "mail.com",
-        "me.com",
-        "msn.com",
-        "outlook.com",
-        "proton.me",
-        "protonmail.com",
-        "qq.com",
-        "yahoo.com",
-        "yandex.com",
-    }
-)
+# would otherwise put a webmail logo on the account row, which reads as a data bug. The
+# supplement covers providers the package hasn't picked up yet.
+_MAILBOX_PROVIDER_DOMAINS = frozenset(_free_email_domains) | {"proton.me"}
 
 
 def normalize_logo_domain(raw: str | None) -> str | None:
@@ -57,7 +43,9 @@ def normalize_logo_domain(raw: str | None) -> str | None:
     if not value:
         return None
     try:
-        host = urlsplit(value if "//" in value else f"//{value}").hostname
+        # Prefix unschemed values so urlsplit reads the host; "example.com//path" has a "//" but
+        # no scheme, and without the prefix it would parse entirely as a path.
+        host = urlsplit(value if "://" in value or value.startswith("//") else f"//{value}").hostname
     except ValueError:
         return None
     if not host:

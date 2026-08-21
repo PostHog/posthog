@@ -3179,21 +3179,27 @@ def query_accounts_table(
 
     # Read outside the selected columns: the logo renders on every row, whether or not the team
     # put the Domain property on screen.
-    logo_domain_properties: dict[UUID, str | None] = {}
+    logo_domain_properties: dict[UUID, str] = {}
     if account_ids:
-        logo_domain_properties = dict(
-            CustomPropertyValue.objects.for_team(team_id)
+        logo_domain_properties = {
+            account_id: value_str
+            for account_id, value_str in CustomPropertyValue.objects.for_team(team_id)
             .filter(
                 account_id__in=account_ids,
                 definition__name__iexact=LOGO_DOMAIN_PROPERTY_NAME,
                 definition__target_type=TargetType.ACCOUNT,
+                # Only text-typed variants hold a hostname; a numeric "domain" sibling would
+                # otherwise land here as None and mask a populated text value below.
+                value_str__isnull=False,
                 is_deleted=False,
             )
             # Names are unique per team only case-sensitively, so "Domain" and "domain" can
-            # coexist. Ordering makes which one wins the same on every page, not arbitrary.
+            # coexist. Sorting plus the comprehension's last-write-wins keeps the
+            # lexicographically last case-variant — an arbitrary winner, but a stable one.
             .order_by("definition__name")
             .values_list("account_id", "value_str")
-        )
+            if value_str is not None
+        }
 
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
