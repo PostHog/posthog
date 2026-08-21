@@ -130,12 +130,17 @@ def _format_query(query: str, escaped: dict[str, str]) -> str:
 
     The `%` operator reads every literal `%` in the query as the start of a
     format specifier. A pattern such as `LIKE '%foo%'` or a `formatDateTime`
-    mask therefore raises a cryptic `ValueError`. Turn that error into a message
-    that names the query and the fix: double each literal `%` to `%%`.
+    mask therefore raises a cryptic error: `ValueError` when the next character
+    is not a conversion type (`%b`, `%Y`), `TypeError` when it is (`%f` in
+    `%foo%`, `%d` in a date mask). Turn either error into a message that names
+    the query and the fix: double each literal `%` to `%%`.
+
+    A missing named parameter raises `KeyError` instead, which is a genuine
+    caller error and deliberately left to propagate unchanged.
     """
     try:
         return query % escaped
-    except ValueError as err:
+    except (ValueError, TypeError) as err:
         raise ValueError(
             f"Failed to substitute parameters into ClickHouse query: {err}. "
             "A literal '%' in the query is read as a format specifier. "
