@@ -1197,6 +1197,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly latest_error: string | null
     /** @nullable */
     readonly is_materialized: boolean | null
+    /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
+    readonly is_incremental: boolean
     /** Where this SavedQuery is created.
      *
      * * `data_warehouse` - Data Warehouse
@@ -1876,6 +1878,29 @@ export const TableFormatEnumApi = {
     JSONEachRow: 'JSONEachRow',
     Delta: 'Delta',
     DeltaS3Wrapper: 'DeltaS3Wrapper',
+} as const
+
+/**
+ * * `web` - web
+ * * `api` - api
+ * * `mcp` - mcp
+ * * `wizard` - wizard
+ * * `self_driving` - self_driving
+ * * `source` - source
+ * * `materialized_view` - materialized_view
+ * * `demo` - demo
+ */
+export type TableCreatedViaEnumApi = (typeof TableCreatedViaEnumApi)[keyof typeof TableCreatedViaEnumApi]
+
+export const TableCreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+    Wizard: 'wizard',
+    SelfDriving: 'self_driving',
+    Source: 'source',
+    MaterializedView: 'materialized_view',
+    Demo: 'demo',
 } as const
 
 export interface CredentialApi {
@@ -4536,6 +4561,17 @@ export interface TableApi {
     format: TableFormatEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via: TableCreatedViaEnumApi | null
     /** @maxLength 500 */
     url_pattern: string
     credential: CredentialApi
@@ -4583,6 +4619,17 @@ export interface PatchedTableApi {
     format?: TableFormatEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
+    /** Where the table came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup agent, `self_driving` for a self-driving run, `source` for a table a data source syncs, `materialized_view` for the table behind a materialized view, and `demo` for a demo project's sample table. Set server-side from the request, never from the request body. Null on tables created before this was recorded.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     * * `source` - source
+     * * `materialized_view` - materialized_view
+     * * `demo` - demo */
+    readonly created_via?: TableCreatedViaEnumApi | null
     /** @maxLength 500 */
     url_pattern?: string
     credential?: CredentialApi

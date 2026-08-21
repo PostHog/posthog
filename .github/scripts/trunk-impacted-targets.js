@@ -137,6 +137,11 @@ const PROTO = 'proto'
 // from its path, so it cannot be expressed as a static domain here.
 const SEMGREP = 'semgrep'
 
+// rust/Cargo.lock, answered by the cargo determinator rather than by the path.
+// Its own domain because the answer is a crate list rather than a fixed set of
+// lanes, and it degrades to RUST when that list is absent.
+const CARGO_LOCK = 'cargo-lock'
+
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
     // it is prose like any other. Ahead of the trees themselves, which would
@@ -249,11 +254,16 @@ const TRIPWIRE_RULES = [
     // pyproject.toml, so the python suites install a released wheel rather than
     // building either from this checkout. A resolution change reaches a python
     // lane only through the version bump, which is a pyproject.toml and uv.lock
-    // edit claiming those lanes above. ci-rust.yml already narrows a lockfile
-    // touch further, by diffing the resolved graph rather than rebuilding
-    // everything, which is a step this script cannot take without a cargo
-    // toolchain in the compute job.
-    ['rust/Cargo.lock', RUST],
+    // edit claiming those lanes above.
+    //
+    // The lockfile narrows further than the manifest, because it states the
+    // resolution rather than the request. CARGO_LOCK takes the crate list from
+    // the same determinator ci-rust.yml runs, so a dependency added for one
+    // crate stops claiming the whole workspace. rust/Cargo.toml stays on the
+    // whole domain: a workspace-wide feature or version request can change how
+    // a shared dependency compiles for every crate, and a manifest edit that
+    // moves no resolution leaves no lockfile diff for the determinator to read.
+    ['rust/Cargo.lock', CARGO_LOCK],
     ['rust/Cargo.toml', RUST],
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
@@ -1280,6 +1290,27 @@ function addRustLanes(targets, context) {
     return true
 }
 
+// The crates the determinator says the change set moved, or every crate when it
+// could not say. computeTargets runs its reverse closure over whatever lands
+// here, so these are seeds rather than a finished answer.
+//
+// An answer naming no crate is a real verdict on a lockfile edit that moved no
+// resolution, but claiming nothing for it costs more than it saves. A change set
+// of only rust/Cargo.lock would then reach computeTargets' empty-set guard,
+// which reads a target-less set as a path no rule claimed and widens to every
+// lane in the repo — worse than the every-crate fallback, for a case rare enough
+// not to be worth the lanes.
+function addCargoLockLanes(targets, context) {
+    const crates = context.cargoLockCrates
+    if (!crates || crates.length === 0) {
+        return addRustLanes(targets, context)
+    }
+    for (const crate of crates) {
+        targets.add(rustCrate(crate))
+    }
+    return true
+}
+
 // The nodejs lane on its own. No tripwire resolves to it, because a file that
 // can break the ingestion suite can almost always break more than that. The
 // rust and proto rules still need to name it without dragging in the frontend.
@@ -1351,6 +1382,7 @@ const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [RUST, addRustLanes],
+    [CARGO_LOCK, addCargoLockLanes],
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
     [PROTO, addProtoLanes],
@@ -1765,11 +1797,52 @@ function listServices(repoRoot) {
     }
 }
 
+// The crate list rust-compute-affected produced for this diff, as a JSON array.
+// The workflow only runs the determinator when the change set holds
+// rust/Cargo.lock, so on every other PR this is unset and never read.
+const CARGO_LOCK_CRATES_ENV = 'CARGO_LOCK_CRATES'
+
+// Returns null for unknown, which the caller widens on. The determinator answers
+// for the whole diff rather than for the lockfile alone, so this is a superset
+// of the lockfile's own contribution — the safe direction, and the union with
+// the path rules is what lands either way.
+//
+// A name the crate graph does not know means the two disagree about the
+// workspace, and a disagreement resolves to unknown rather than to a lane list
+// built from half of it.
+function parseCargoLockCrates(raw, rustGraph) {
+    if (!rustGraph || !raw) {
+        return null
+    }
+    let crates
+    try {
+        crates = JSON.parse(raw)
+    } catch (error) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not JSON (${error.message}); a lockfile change claims every crate`)
+        return null
+    }
+    if (!Array.isArray(crates) || crates.some((crate) => typeof crate !== 'string')) {
+        console.error(`${CARGO_LOCK_CRATES_ENV} is not a list of crate names; a lockfile change claims every crate`)
+        return null
+    }
+    const unknown = crates.filter((crate) => !rustGraph.dependsOn.has(crate))
+    if (unknown.length > 0) {
+        console.error(
+            `The determinator named crates the graph does not hold (${unknown.join(', ')}); ` +
+                'a lockfile change claims every crate'
+        )
+        return null
+    }
+    return crates
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
+    const rustGraph = loadRustGraph(repoRoot)
     return {
         products,
+        cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products),
         contractSurfaces: loadContractSurfaces(repoRoot, products),
@@ -1777,7 +1850,7 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
-        rustGraph: loadRustGraph(repoRoot),
+        rustGraph,
         tachGraph,
     }
 }
@@ -1800,7 +1873,9 @@ module.exports = {
     semgrepDomain,
     stripJsonComments,
     tripwireDomain,
+    parseCargoLockCrates,
     ALL,
+    CARGO_LOCK,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

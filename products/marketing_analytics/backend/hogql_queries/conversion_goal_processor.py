@@ -26,6 +26,7 @@ from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
@@ -60,7 +61,8 @@ PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "def
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+# kw_only off: the TRACKED_FIELDS table below reads as a table, one positional row per field.
+@frozen(kw_only=False)
 class TrackedField:
     """A field tracked through the conversion attribution pipeline for channel classification."""
 
@@ -68,6 +70,8 @@ class TrackedField:
     event_property: str  # Default event property name (e.g., "utm_campaign", "$referring_domain")
     schema_map_key: str | None = None  # Key in schema_map for DataWarehouse custom mapping
     default_value: str = ""  # Default when field is empty/missing in organic context
+    click_identifier: bool = False  # Ad click id (gclid, fbclid, …): on its own it marks a paid touchpoint
+    click_id_source: str = ""  # Ad network this click id names when the pageview carries no utm_source
 
     @property
     def conversion_array(self) -> str:
@@ -91,7 +95,7 @@ class TrackedField:
 
 
 # Fields tracked through the 4-stage attribution pipeline.
-# The first two (campaign, source) are also used as the pageview UTM filter criteria.
+# source (plus the click identifiers) gates whether a pageview counts as a paid touchpoint.
 TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("campaign", "utm_campaign", "utm_campaign_name"),
     TrackedField("source", "utm_source", "utm_source_name"),
@@ -102,10 +106,51 @@ TRACKED_FIELDS: list[TrackedField] = [
     # Unprefixed: these are the names the SDK writes on the event (see CAMPAIGN_PROPERTIES
     # in posthog/taxonomy/taxonomy.py). The `$initial_*` forms channel_type reads are
     # person-scoped copies derived from these, and `$gclid` exists nowhere at all.
-    TrackedField("gclid", "gclid"),
+    TrackedField("gclid", "gclid", click_identifier=True, click_id_source="google"),
+    # Not a click identifier: Facebook appends fbclid to every outbound link, organic posts
+    # included, so it names the network without saying the click was paid. `channel_type`'s paid
+    # branch and `attribution_health`'s paid counter both exclude it for that reason; treating it
+    # as evidence here would admit organic Facebook traffic as a paid touchpoint and then have
+    # channel_type call the same row organic.
     TrackedField("fbclid", "fbclid"),
-    TrackedField("gad_source", "gad_source"),
+    TrackedField("gad_source", "gad_source", click_identifier=True, click_id_source="google"),
 ]
+
+# Property names of the ad click identifiers. A pageview that carries one of these is a paid
+# touchpoint even with no utm_source. Deliberately only the Google Ads pair — see fbclid above.
+# referring_domain is out too: it defaults to $direct on organic traffic, so it is not evidence
+# of an ad click.
+CLICK_ID_PROPERTIES: list[str] = [f.event_property for f in TRACKED_FIELDS if f.click_identifier]
+
+CLICK_ID_FIELDS: list[TrackedField] = [f for f in TRACKED_FIELDS if f.click_identifier]
+
+
+def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
+    """A pageview is a paid touchpoint when it carries utm_source or any ad click identifier.
+
+    utm_campaign is optional — a source alone is enough. The precompute path
+    (build_touchpoints_precompute_query) and the fallback path (_build_pageview_event_filter,
+    _build_utm_pageview_array) must all gate on this same rule, or the two disagree and one
+    window's touchpoints go missing.
+    """
+
+    def not_empty(event_property: str) -> ast.Expr:
+        return ast.Call(
+            name="notEmpty",
+            args=[
+                ast.Call(
+                    name="toString",
+                    args=[
+                        ast.Call(
+                            name="ifNull",
+                            args=[ast.Field(chain=["events", "properties", event_property]), ast.Constant(value="")],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    return ast.Or(exprs=[not_empty(source_field), *[not_empty(p) for p in CLICK_ID_PROPERTIES]])
 
 
 def build_touchpoints_precompute_query() -> ast.SelectQuery:
@@ -134,8 +179,8 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
     for tracked in TRACKED_FIELDS:
         select_columns.append(ast.Alias(alias=tracked.attributed_name, expr=_prop_to_string(tracked.event_property)))
 
-    # Mirror the fallback's touchpoint definition (_build_pageview_event_filter): a UTM pageview
-    # requires BOTH campaign and source non-empty — keep these in lockstep.
+    # Touchpoint definition shared with the fallback path (build_pageview_touchpoint_condition):
+    # utm_source or any click id, campaign optional — keep the two paths in lockstep.
     return ast.SelectQuery(
         select=select_columns,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -156,8 +201,7 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
                     op=ast.CompareOperationOp.LtEq,
                     right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
                 ),
-                ast.Call(name="notEmpty", args=[_prop_to_string("utm_campaign")]),
-                ast.Call(name="notEmpty", args=[_prop_to_string("utm_source")]),
+                build_pageview_touchpoint_condition("utm_source"),
             ]
         ),
     )
@@ -205,6 +249,17 @@ class SharedTouchpointsPrecompute:
                     f"materialized {self._range}, asked for {(date_from, date_to)}"
                 )
             return self._result
+
+
+def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]) -> bool:
+    """Whether a goal's column holds a summed property value rather than a conversion count.
+
+    Everything that divides by a goal's column — the ROAS numerator, the CAC denominator, and the
+    processor-selection guards that decide which goals to build — needs the same answer, so they
+    all route through here rather than each re-deriving it from `math` and drifting apart.
+    """
+    math_type = goal.math
+    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
 
 
 # Mutable by design: `precompute_stale` is set while building the query, and each
@@ -279,11 +334,26 @@ class ConversionGoalProcessor:
     def sums_a_property(self) -> bool:
         """Whether this goal's column holds a summed property value rather than a conversion count.
 
-        Anything dividing by a goal's column needs to tell the two apart, so this shares the branch
-        with `get_select_field` rather than re-deriving it from `math`.
+        Shares the branch with `get_select_field` via `goal_sums_a_property` rather than re-deriving
+        it from `math`.
         """
-        math_type = self.goal.math
-        return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+        return goal_sums_a_property(self.goal)
+
+    def get_count_field(self) -> ast.Expr:
+        """Conversions counted, whatever the goal's own math is.
+
+        A summing goal's column holds money, so anything needing "how many" — cost per
+        customer, say — can't divide by it.
+
+        Branches on attribution mode for the same reason `_get_aggregation_expr` does: multi-touch
+        explodes one conversion into a row per touchpoint, so counting rows would report a purchase
+        with three touchpoints as three customers. The weights sum to 1.0 per conversion, so summing
+        them recovers the count with each touchpoint credited its share. A goal that scans directly
+        never explodes and has no weight column to read.
+        """
+        if self.config.is_multi_touch and self.uses_attribution_pipeline:
+            return ast.Call(name="sum", args=[ast.Field(chain=["attribution_weight"])])
+        return ast.Call(name="count", args=[ast.Constant(value="*")])
 
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
@@ -396,9 +466,19 @@ class ConversionGoalProcessor:
         `touchpoints` lets callers running several goals share one touchpoints materialization. When
         omitted the goal materializes its own, so standalone callers keep working unchanged.
         """
-        if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions, date_from, date_to, touchpoints)
+        if self.uses_attribution_pipeline:
+            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
+
+    @property
+    def uses_attribution_pipeline(self) -> bool:
+        """Whether this goal's rows come from the attribution pipeline rather than a direct scan.
+
+        Only the pipeline emits the columns attribution adds — `attribution_weight` above all — so
+        anything reading one has to ask first. Warehouse goals and a zero-length window both scan
+        directly.
+        """
+        return self.goal.kind in ["EventsNode", "ActionsNode"] and self.config.attribution_window_days > 0
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Build the per-person array-collection subquery.
@@ -426,18 +506,6 @@ class ConversionGoalProcessor:
             attribution = self._build_single_touch_attribution_subquery(array_join)
 
         return self._build_final_aggregation_query(attribution)
-
-    def _generate_array_based_query(
-        self,
-        additional_conditions: Sequence[ast.Expr],
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
-    ) -> ast.SelectQuery:
-        """Generate array-based query with attribution logic for Events/Actions"""
-        if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
-        return self._generate_direct_query(additional_conditions)
 
     def _generate_funnel_query(
         self,
@@ -857,16 +925,14 @@ class ConversionGoalProcessor:
             ),
         ]
         for field in TRACKED_FIELDS:
+            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
+            # positionally against it, and a stored row can legitimately carry an empty value for any
+            # field except campaign and source (which the precompute WHERE requires). Filtering the
+            # empties out here shifted every later element onto the wrong touchpoint.
             select_columns.append(
                 ast.Alias(
                     alias=field.utm_array,
-                    expr=ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])),
-                            ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                        ],
-                    ),
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
                 )
             )
 
@@ -946,13 +1012,10 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Build subquery that collects arrays of conversion and UTM data per person"""
         resolved = {f.name: self._resolve_field_name(f) for f in TRACKED_FIELDS}
-        utm_campaign_field = resolved["campaign"]
         utm_source_field = resolved["source"]
 
         # Build WHERE clause with clean separation of concerns
-        final_where = self._build_comprehensive_where_clause(
-            conversion_event, where_conditions, utm_campaign_field, utm_source_field
-        )
+        final_where = self._build_comprehensive_where_clause(conversion_event, where_conditions, utm_source_field)
 
         # Build SELECT columns
         select_columns: list[ast.Expr] = [
@@ -968,14 +1031,10 @@ class ConversionGoalProcessor:
             )
 
         # Add pageview UTM arrays (timestamps + each tracked field)
-        select_columns.append(
-            self._build_utm_pageview_array("utm_timestamps", utm_campaign_field, utm_source_field, "timestamp")
-        )
+        select_columns.append(self._build_utm_pageview_array("utm_timestamps", utm_source_field, "timestamp"))
         for field in TRACKED_FIELDS:
             select_columns.append(
-                self._build_utm_pageview_array(
-                    field.utm_array, utm_campaign_field, utm_source_field, resolved[field.name]
-                )
+                self._build_utm_pageview_array(field.utm_array, utm_source_field, resolved[field.name])
             )
 
         # Build HAVING clause
@@ -997,7 +1056,6 @@ class ConversionGoalProcessor:
         self,
         conversion_event: Optional[str],
         input_conditions: list[ast.Expr],
-        utm_campaign_field: str,
         utm_source_field: str,
     ) -> ast.Expr:
         """Build complete WHERE clause with proper condition separation"""
@@ -1017,20 +1075,20 @@ class ConversionGoalProcessor:
             if conversion_event == "$pageview":
                 # For pageview conversions, we only need attribution pageviews (with UTM data).
                 # No need for separate conversion filter since conversion IS the pageview.
-                event_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
+                event_filter = self._build_pageview_event_filter(date_conditions, utm_source_field)
             else:
                 # For non-pageview conversions, use both filters (no overlap possible)
                 event_filter = ast.Or(
                     exprs=[
                         self._build_conversion_event_filter(conversion_event, date_conditions),
-                        self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
+                        self._build_pageview_event_filter(date_conditions, utm_source_field),
                     ]
                 )
         elif self.goal.kind == "ActionsNode" and self.config.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)
-            pageview_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
+            pageview_filter = self._build_pageview_event_filter(date_conditions, utm_source_field)
             event_filter = ast.Or(exprs=[action_filter, pageview_filter])
         else:
             # For general queries, apply date conditions to all events
@@ -1085,9 +1143,7 @@ class ConversionGoalProcessor:
 
         return ast.And(exprs=conditions)
 
-    def _build_pageview_event_filter(
-        self, date_conditions: list[ast.Expr], utm_campaign_field: str, utm_source_field: str
-    ) -> ast.Expr:
+    def _build_pageview_event_filter(self, date_conditions: list[ast.Expr], utm_source_field: str) -> ast.Expr:
         """Build filter for pageview events with UTM requirements and extended date range"""
         conditions = [
             ast.CompareOperation(
@@ -1095,8 +1151,7 @@ class ConversionGoalProcessor:
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value="$pageview"),
             ),
-            self._build_utm_not_empty_condition(utm_campaign_field),
-            self._build_utm_not_empty_condition(utm_source_field),
+            build_pageview_touchpoint_condition(utm_source_field),
         ]
 
         # Apply extended date conditions for pageviews (attribution window)
@@ -1146,26 +1201,6 @@ class ConversionGoalProcessor:
         ]
 
         return ast.And(exprs=conditions) if conditions else ast.Constant(value=True)
-
-    def _build_utm_not_empty_condition(self, utm_field: str) -> ast.Call:
-        """Build UTM not empty condition"""
-        return ast.Call(
-            name="notEmpty",
-            args=[
-                ast.Call(
-                    name="toString",
-                    args=[
-                        ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Field(chain=["events", "properties", utm_field]),
-                                ast.Constant(value=""),
-                            ],
-                        )
-                    ],
-                )
-            ],
-        )
 
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array.
@@ -1315,10 +1350,18 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_utm_pageview_array(
-        self, alias: str, utm_campaign_field: str, utm_source_field: str, return_field: str
-    ) -> ast.Alias:
-        """Build array for UTM pageview data"""
+    def _build_utm_pageview_array(self, alias: str, utm_source_field: str, return_field: str) -> ast.Alias:
+        """Build array for UTM pageview data.
+
+        Every array this builds is read positionally against `utm_timestamps`
+        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
+        keep exactly one element per UTM pageview, in the same order. That means **every** array is
+        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
+        never by whether its own value happens to be set. `utm_source` or an ad click id is the
+        touchpoint qualifier; every other tracked field, `utm_campaign` included, is routinely empty
+        on a qualifying pageview, and dropping those positions used to shift every later element:
+        touchpoint i's timestamp paired with touchpoint j's value.
+        """
         pageview_with_utm = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -1326,46 +1369,78 @@ class ConversionGoalProcessor:
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value="$pageview"),
                 ),
-                self._build_utm_not_empty_condition(utm_campaign_field),
-                self._build_utm_not_empty_condition(utm_source_field),
+                build_pageview_touchpoint_condition(utm_source_field),
             ]
         )
-        return_expr: ast.Expr
-        false_value: ast.Expr
-        filter_expr: ast.Expr
-        if return_field == "timestamp":
-            return_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-            false_value = ast.Constant(value=0)
-            filter_expr = ast.CompareOperation(
-                left=ast.Field(chain=["x"]),
+        timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
+        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
+        qualified = ast.Lambda(
+            args=["_tp"],
+            expr=ast.CompareOperation(
+                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
                 op=ast.CompareOperationOp.Gt,
                 right=ast.Constant(value=0),
-            )
-        else:
-            return_expr = ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(chain=["events", "properties", return_field]),
-                            ast.Constant(value=""),
-                        ],
-                    )
-                ],
-            )
-            false_value = ast.Constant(value="")
-            filter_expr = ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])
+            ),
+        )
 
+        if return_field == "timestamp":
+            return ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                        ),
+                        ast.Call(name="groupArray", args=[qualified_timestamp]),
+                    ],
+                ),
+            )
+
+        value_expr = ast.Call(
+            name="toString",
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=["events", "properties", return_field]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            ],
+        )
+        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
+        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
         return ast.Alias(
             alias=alias,
             expr=ast.Call(
-                name="arrayFilter",
+                name="arrayMap",
                 args=[
-                    ast.Lambda(args=["x"], expr=filter_expr),
+                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
                     ast.Call(
-                        name="groupArray",
-                        args=[ast.Call(name="if", args=[pageview_with_utm, return_expr, false_value])],
+                        name="arrayFilter",
+                        args=[
+                            qualified,
+                            ast.Call(
+                                name="groupArray",
+                                args=[
+                                    ast.Tuple(
+                                        exprs=[
+                                            qualified_timestamp,
+                                            ast.Call(
+                                                name="if",
+                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
+                                            ),
+                                        ]
+                                    )
+                                ],
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -1751,6 +1826,9 @@ class ConversionGoalProcessor:
                         right=ast.Field(chain=["attribution_weight"]),
                     ),
                 ),
+                # Carried out of the subquery so a consumer can count conversions rather than
+                # rows: these sum to 1.0 per conversion, so summing them undoes the explode.
+                ast.Field(chain=["attribution_weight"]),
             ]
         )
 
@@ -1853,9 +1931,11 @@ class ConversionGoalProcessor:
         field_exprs: dict[str, ast.Expr] = {}
         for field in TRACKED_FIELDS:
             default = organic_overrides.get(field.name, field.default_value)
-            field_expr: ast.Expr = self._build_organic_default_expr(field.attributed_name, default)
+            field_expr: ast.Expr
             if field.name == "source":
-                field_expr = self._normalize_source_field(field_expr)
+                field_expr = self._normalize_source_field(self._build_source_expr(field, default))
+            else:
+                field_expr = self._build_organic_default_expr(field.attributed_name, default)
             field_exprs[field.name] = field_expr
 
         campaign_expr = field_exprs["campaign"]
@@ -1949,6 +2029,30 @@ class ConversionGoalProcessor:
                 ast.Field(chain=[field_name]),
                 ast.Constant(value=default_value),
             ],
+        )
+
+    def _build_source_expr(self, source: TrackedField, default_value: str) -> ast.Expr:
+        """Attributed source, naming the ad network when only a click id identifies it.
+
+        A pageview qualifies as a touchpoint on a click id alone, and channel_type reads those
+        same click ids to classify the row as paid. Falling straight through to the organic
+        default would put an organic source next to a paid channel on one row, and would leave
+        the conversion in the organic bucket on the campaign and source levels.
+        """
+        source_field = ast.Field(chain=[source.attributed_name])
+        fallback: ast.Expr = ast.Constant(value=default_value)
+        for field in reversed(CLICK_ID_FIELDS):
+            fallback = ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="notEmpty", args=[ast.Field(chain=[field.attributed_name])]),
+                    ast.Constant(value=field.click_id_source),
+                    fallback,
+                ],
+            )
+        return ast.Call(
+            name="if",
+            args=[ast.Call(name="notEmpty", args=[source_field]), source_field, fallback],
         )
 
     def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:

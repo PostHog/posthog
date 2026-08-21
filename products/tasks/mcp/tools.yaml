@@ -486,6 +486,9 @@ tools:
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
         enabled: false
+    tasks-runs-artifacts-references-create:
+        operation: tasks_runs_artifacts_references_create
+        enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
         enabled: false
