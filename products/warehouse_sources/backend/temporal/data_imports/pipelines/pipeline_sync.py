@@ -251,7 +251,9 @@ async def validate_schema_and_update_table(
                 if not table_created:
                     logger.debug(f"Creating table for schema: {str(schema_id)}")
                     table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
+                        external_data_source_id=job.pipeline.id,
+                        created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                        **table_params,
                     )
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
@@ -405,7 +407,9 @@ async def register_cdc_companion_table(
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
-                    external_data_source_id=job.pipeline.id, **table_params
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                    **table_params,
                 )
 
             raw_db_columns = companion_table.get_columns()

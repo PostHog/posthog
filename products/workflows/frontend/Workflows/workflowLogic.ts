@@ -112,9 +112,10 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
-// Trigger types whose runs have no person attached. Keep in sync with the backend's
-// ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
-export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'slack-message'])
+// Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
+// row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
+// backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'slack-message'])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -498,6 +499,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -759,6 +763,14 @@ export interface workflowLogicActions {
                                       type: 'data-warehouse-table'
                                   }
                                 | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
+                                  }
+                                | {
                                       inputs: Record<
                                           string,
                                           {
@@ -1017,6 +1029,14 @@ export interface workflowLogicActions {
                             type: 'data-warehouse-table'
                         }
                       | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
+                        }
+                      | {
                             inputs: Record<
                                 string,
                                 {
@@ -1111,6 +1131,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1304,6 +1327,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1565,6 +1591,14 @@ export interface workflowLogicActions {
                                       type: 'data-warehouse-table'
                                   }
                                 | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
+                                  }
+                                | {
                                       inputs: Record<
                                           string,
                                           {
@@ -1823,6 +1857,14 @@ export interface workflowLogicActions {
                             type: 'data-warehouse-table'
                         }
                       | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
+                        }
+                      | {
                             inputs: Record<
                                 string,
                                 {
@@ -1917,6 +1959,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -2081,6 +2126,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2096,6 +2144,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2433,6 +2489,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2448,6 +2507,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2711,6 +2778,14 @@ export interface workflowLogicMeta {
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -3496,7 +3571,7 @@ export const workflowLogic = kea<workflowLogicType>([
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
             (triggerAction: TriggerAction | null): boolean =>
-                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type as string),
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
         ],
 
         workflowSanitized: [

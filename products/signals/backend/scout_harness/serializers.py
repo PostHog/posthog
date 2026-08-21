@@ -80,6 +80,7 @@ logger = structlog.get_logger(__name__)
             "report_channel": {"type": "string"},
             "skill_origin": {"type": "string"},
             "github_guidance": {"type": "boolean"},
+            "business_knowledge_maintained": {"type": "boolean"},
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
@@ -229,8 +230,10 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
             "the run was given), `report_channel` (which report tools the run held: `none`, `emit`, "
             "`edit`, or `both`), "
-            "`skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got "
-            "the GitHub evidence section) — the provenance set that says which instructions the run "
+            "`skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got "
+            "the GitHub evidence section), and `business_knowledge_maintained` (whether the run got "
+            "the business-knowledge section: the product flag is on and the team's knowledge base "
+            "looks maintained) — the provenance set that says which instructions the run "
             "actually got, so runs are only compared against runs of the same shape. Present only "
             "when the run departed from a default: `model`, `runtime_adapter`, and "
             "`reasoning_effort` (routing overrode the agent-server default), and `network_access` "
@@ -1958,6 +1961,15 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         help_text=(
             "Slack channel target in the channel picker's `channel_id|#channel-name` format. "
             "Null while choosing a channel; no messages are sent until it is set."
+        ),
+    )
+    thread_reports = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, post a report as a thread: a short lead in the channel and the rest split "
+            "by the report's Markdown headings into replies. Keeps a long summary from being clipped "
+            "at Slack's section limit. Off by default, and it does not change how findings post."
         ),
     )
 
