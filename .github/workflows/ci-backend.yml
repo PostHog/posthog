@@ -1379,6 +1379,23 @@ jobs:
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
 
+                  # The Django test selector decides what this workflow runs, and a
+                  # wrong subset is silent — it reports green having skipped the test
+                  # that would have failed. Its own tests need no service container,
+                  # so they gate it here like ci-dagster gates its selector. Skipped
+                  # on branches that predate the files rather than failing on them.
+                  - name: Run backend test-selection unit tests
+                    run: |
+                        selector_tests=()
+                        for f in tools/test_snob_backend_test_selection_shadow.py tools/test_test_selection_verdict.py; do
+                            if [ -f "$f" ]; then
+                                selector_tests+=("$f")
+                            fi
+                        done
+                        if [ ${#selector_tests[@]} -gt 0 ]; then
+                            pytest -p no:cacheprovider "${selector_tests[@]}"
+                        fi
+
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
