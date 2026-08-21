@@ -536,6 +536,7 @@ flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags.json",
     load_fn=lambda key: _get_feature_flags_for_service(HyperCache.team_from_key(key)),
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     cache_ttl=settings.FLAGS_CACHE_TTL,
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,

@@ -261,6 +261,7 @@ team_metadata_hypercache = HyperCache(
     value="full_metadata.json",
     token_based=True,
     load_fn=_load_team_metadata,
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     batch_load_fn=_batch_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
