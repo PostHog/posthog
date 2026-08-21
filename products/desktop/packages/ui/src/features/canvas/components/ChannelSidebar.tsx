@@ -217,12 +217,6 @@ const SKELETON_ROW_WIDTHS = [60, 80, 40, 75, 50, 66] as const;
 function ChannelItemsSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-px">
-      {/* Stands in for the tabs row, so it carries that row's scale. */}
-      <SkeletonText
-        lines={1}
-        maxWidth={100}
-        className="mx-2 mt-1.5 mb-1 w-12 text-xs"
-      />
       {SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex items-center gap-2 px-2 py-1.5">
           <Skeleton className="size-4 shrink-0 rounded" />
@@ -440,9 +434,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     itemCount: tabItems.length,
     narrowed,
   });
-  // The header stays while the list is narrowed, so you can undo whatever
-  // emptied it — and while a tab is empty, so you can leave that tab.
-  const showHeader = listState === "ready" || listState === "empty";
+  const showHeader = listState !== "unavailable";
 
   // Only sessions take part in a bulk selection: a canvas can't be archived,
   // filed, or tiled the way a session can, so modifier-clicking one just opens it.
@@ -788,10 +780,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             </Empty>
           )}
 
-          {showHeader &&
-            (listState === "empty" ? (
-              <TabEmptyState tab={tab} />
-            ) : sections.length > 0 ? (
+          {listState === "empty" && <TabEmptyState tab={tab} />}
+
+          {listState === "ready" &&
+            (sections.length > 0 ? (
               <div className="flex flex-col gap-px">
                 {/* Always mounted, empty or not. Inserting the run on
                     dragstart restructures the list under the dragged row, and

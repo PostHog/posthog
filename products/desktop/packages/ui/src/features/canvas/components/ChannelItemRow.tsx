@@ -198,6 +198,10 @@ export function ChannelItemRowView({
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
+      // The space's lists follow web conventions — every clickable row shows a
+      // pointer, like the feed and activity rows — unlike the Code sidebar,
+      // which keeps SidebarItem's native cursor-default.
+      className="cursor-pointer"
       depth={0}
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.

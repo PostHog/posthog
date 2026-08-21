@@ -2583,6 +2583,9 @@ class ExternalDataSourceType(StrEnum):
     AIRWALLEX = "Airwallex"
     POLYMARKET = "Polymarket"
     KALSHI = "Kalshi"
+    CAPTERRA = "Capterra"
+    GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
+    GROWI = "Growi"
 
 
 class ExternalQueryErrorCode(StrEnum):
