@@ -9,4 +9,5 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType as IncrementalFieldType,
     ManagedWarehouseSQLMode as ManagedWarehouseSQLMode,
     PartitionSettings as PartitionSettings,
+    external_data_source_type_choices as external_data_source_type_choices,
 )
