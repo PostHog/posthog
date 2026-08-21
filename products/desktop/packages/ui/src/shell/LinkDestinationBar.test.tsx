@@ -1,9 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-  LinkDestinationBar,
-  resolveLinkDestination,
-} from "./LinkDestinationBar";
+import { LinkDestinationBar } from "./LinkDestinationBar";
+import { resolveLinkDestination } from "./linkDestination";
 
 describe("resolveLinkDestination", () => {
   function elementFor(html: string, selector: string): Element {
