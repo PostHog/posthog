@@ -1,9 +1,9 @@
 import re
 import json
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
-import asyncio
 
 from django.conf import settings
 
@@ -20,12 +20,12 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
-from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
