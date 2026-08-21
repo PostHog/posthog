@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, events, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    events,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+} from 'kea'
 
 import { usersIntegrationsGithubReposRetrieve } from '~/generated/core/api'
 
@@ -139,6 +151,15 @@ export const userGithubIntegrationLogic = kea<userGithubIntegrationLogicType>([
             }
         },
     })),
+
+    // The logic is keyed by installation id, so a scope change (all vs selected) reuses this instance:
+    // polling and the focus refetch can flip repository_selection in place, and the cached list and
+    // total would otherwise keep describing the previous scope until a full page reload.
+    propsChanged(({ actions, props }, previousProps) => {
+        if (props.installationId && props.repositorySelection !== previousProps.repositorySelection) {
+            actions.loadRepositories()
+        }
+    }),
 
     events(({ actions, props }) => ({
         afterMount: () => {
