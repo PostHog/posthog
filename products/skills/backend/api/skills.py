@@ -1006,6 +1006,14 @@ class LLMSkillViewSet(
                 author_handle=payload.validated_data.get("author_handle", ""),
             )
         except CommunitySkillPublishNotConfiguredError:
+            # The fail-safe is otherwise silent, so an instance that meant to have publishing on
+            # looks like one that never configured it until somebody reports the toast.
+            logger.warning(
+                "llma_skill_publish_to_community_not_configured",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                skill_name=skill.name,
+            )
             return Response(
                 {"detail": "Publishing to the community is not available on this instance."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
