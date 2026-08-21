@@ -50,11 +50,14 @@ export function IntegrationView({
     const refreshedAtTimestamp = integration.config?.refreshed_at || null
     const installationUnavailable = isGitHub && integration.installation_status === 'unavailable'
 
+    // Reload when the installation's repository scope changes, not just its id: polling and the
+    // focus refetch can flip repository_selection in place (e.g. after editing access on GitHub),
+    // and the cached list/total would otherwise stay stale until a full page reload.
     useEffect(() => {
         if (isGitHub) {
             loadGitHubRepositories(integration.id)
         }
-    }, [isGitHub, integration.id, loadGitHubRepositories])
+    }, [isGitHub, integration.id, integration.config?.repository_selection, loadGitHubRepositories])
 
     suffix = suffix || (
         <div className="flex flex-row gap-2">

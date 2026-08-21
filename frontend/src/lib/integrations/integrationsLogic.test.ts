@@ -85,6 +85,24 @@ describe('integrationsLogic', () => {
             expect(logic.values.getGitHubRepositoriesTotal(42)).toBe(200)
             expect(logic.values.githubRepositoriesLoading).toBe(false)
         })
+
+        it('clears the cached total when a reload starts so a scope change cannot show a stale count', async () => {
+            integrationsPayload = [
+                githubIntegration({ config: { installation_id: '12345', repository_selection: 'selected' } }),
+            ]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toDispatchActions([
+                'loadIntegrationsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.loadGitHubRepositories(42)).toFinishAllListeners()
+            expect(logic.values.getGitHubRepositoriesTotal(42)).toBe(200)
+
+            // A reload (e.g. after repository_selection flips via polling) drops the stale total
+            // immediately, before the refetch resolves.
+            logic.actions.loadGitHubRepositories(42)
+            expect(logic.values.getGitHubRepositoriesTotal(42)).toBeNull()
+
+            await expectLogic(logic).toFinishAllListeners()
+        })
     })
 
     describe('deleteIntegration', () => {

@@ -837,6 +837,16 @@ export const integrationsLogic = kea<integrationsLogicType>([
         githubRepositoriesTotal: [
             {} as Record<number, number>,
             {
+                // Clear the cached total when a reload starts so a scope change can't briefly (or, on a
+                // slow/failed refetch, indefinitely) show the previous selection's count.
+                loadGitHubRepositories: (state, { integrationId }) => {
+                    if (!(integrationId in state)) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[integrationId]
+                    return next
+                },
                 loadGitHubRepositoriesPageSuccess: (state, { integrationId, total }) =>
                     total == null ? state : { ...state, [integrationId]: total },
             },
