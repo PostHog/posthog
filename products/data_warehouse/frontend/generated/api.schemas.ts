@@ -3224,6 +3224,9 @@ export interface CredentialApi {
  * * `Airwallex` - Airwallex
  * * `Polymarket` - Polymarket
  * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4533,6 +4536,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Airwallex: 'Airwallex',
     Polymarket: 'Polymarket',
     Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

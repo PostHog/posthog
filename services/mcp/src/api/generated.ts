@@ -334,6 +334,50 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface ConversationMessageSender {
+      /** Display name of the message sender. */
+      readonly name: string;
+      /**
+         * Email address of the message sender, when available.
+         * @nullable
+         */
+      readonly email: string | null;
+      /**
+         * UUID of the matched PostHog person, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
+      /**
+         * Distinct ID of the sender, when available.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface ConversationMessageSummary {
+      /** Sender of the message. */
+      readonly sender: ConversationMessageSender;
+      /** Timestamp from the message source. */
+      readonly sent_at: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+    }
+
     /**
      * * `internal` - Internal
      * * `customer` - Customer
@@ -356,6 +400,11 @@ export namespace Schemas {
        * * `internal` - Internal
        * * `customer` - Customer */
       readonly kind: EmailThreadParticipantKindEnum;
+      /**
+         * UUID of the matched PostHog person for a customer participant, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
     }
 
     export interface AccountEmailThread {
@@ -370,11 +419,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly first_message_at: string | null;
+      /** Sender, timestamp, and direction of the first captured message, when available. */
+      readonly first_message: ConversationMessageSummary | null;
       /**
          * Source timestamp of the latest captured message.
          * @nullable
          */
       readonly last_message_at: string | null;
+      /** Sender, timestamp, and direction of the latest captured message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Number of captured messages in the thread. */
       readonly message_count: number;
       /** Participants included in the email thread. */
@@ -387,18 +440,6 @@ export namespace Schemas {
       /** Email address from the email header. */
       readonly email: string;
     }
-
-    /**
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound
-     */
-    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
-
-
-    export const EmailThreadMessageDirectionEnum = {
-      Inbound: 'inbound',
-      Outbound: 'outbound',
-    } as const;
 
     export interface AccountEmailThreadMessage {
       /** UUID of the captured email message. */
@@ -573,6 +614,24 @@ export namespace Schemas {
       definition: string;
       /** PostHog user id of the assignee. Must be a member of the account's organization. */
       user: number;
+    }
+
+    export interface AccountSupportTicketMessage {
+      /** UUID of the support ticket message. */
+      readonly id: string;
+      /** Plain-text message content. */
+      readonly content: string;
+      /** Display name of the message author. */
+      readonly author_name: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Whether the message is an internal note hidden from the customer. */
+      readonly is_private: boolean;
+      /** When the message was created. */
+      readonly created_at: string;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -23247,6 +23306,9 @@ export namespace Schemas {
      * * `Airwallex` - Airwallex
      * * `Polymarket` - Polymarket
      * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24556,6 +24618,9 @@ export namespace Schemas {
       Airwallex: 'Airwallex',
       Polymarket: 'Polymarket',
       Kalshi: 'Kalshi',
+      Capterra: 'Capterra',
+      GooglePostmasterTools: 'GooglePostmasterTools',
+      Growi: 'Growi',
     } as const;
 
     /**
@@ -25878,7 +25943,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27895,7 +27963,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -35850,7 +35921,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37193,7 +37267,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -50739,6 +50816,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AccountRelationshipDefinition[];
+    }
+
+    export interface PaginatedAccountSupportTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountSupportTicketMessage[];
     }
 
     export interface PaginatedActionList {
@@ -75606,7 +75692,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -76957,7 +77046,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -78298,7 +78390,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -79002,8 +79097,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_message_text: string | null;
+      /** Sender, timestamp, and direction of the latest public message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Absolute URL to open this ticket in the app. */
       readonly deep_link: string;
+      /** When the ticket conversation started. */
+      readonly created_at: string;
+      /** Display name of the customer who started the ticket. */
+      readonly started_by: string;
+      /** Distinct ID of the customer who started the ticket. */
+      readonly distinct_id: string;
     }
 
     /**
@@ -80497,6 +80600,7 @@ export namespace Schemas {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
+     * * `side_question` - side_question
      */
     export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
 
@@ -80511,6 +80615,7 @@ export namespace Schemas {
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
+      SideQuestion: 'side_question',
     } as const;
 
     /**
@@ -80531,7 +80636,8 @@ export namespace Schemas {
        * * `mcp_response` - mcp_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
-       * * `queue_clear` - queue_clear */
+       * * `queue_clear` - queue_clear
+       * * `side_question` - side_question */
       method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -85815,6 +85921,17 @@ export namespace Schemas {
     };
 
     export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
      */
