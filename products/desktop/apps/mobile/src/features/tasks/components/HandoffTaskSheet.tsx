@@ -8,9 +8,9 @@ import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
   TextInput,
   View,
 } from "react-native";
@@ -180,19 +180,20 @@ export function HandoffTaskSheet({
             </View>
           )
         ) : (
-          <ScrollView
+          <FlatList
+            className="flex-1"
+            data={options}
+            keyExtractor={(member) => String(member.id)}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12 }}
-          >
-            {options.map((member) => (
+            renderItem={({ item }) => (
               <MemberRow
-                key={member.id}
-                member={member}
-                selected={member.id === selectedId}
-                onPress={() => setSelectedId(member.id)}
+                member={item}
+                selected={item.id === selectedId}
+                onPress={() => setSelectedId(item.id)}
               />
-            ))}
-          </ScrollView>
+            )}
+          />
         )}
 
         <View

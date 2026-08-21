@@ -1,6 +1,6 @@
 import type { Task } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { Pressable } from "react-native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,9 +20,28 @@ vi.mock("react-native", () => {
   return {
     ActivityIndicator: host("ActivityIndicator"),
     Alert: { alert: vi.fn() },
+    FlatList: <T,>({
+      data,
+      renderItem,
+      keyExtractor,
+    }: {
+      data: readonly T[];
+      renderItem: (info: { item: T; index: number }) => ReactElement;
+      keyExtractor?: (item: T, index: number) => string;
+    }) =>
+      createElement(
+        "FlatList",
+        {},
+        (data ?? []).map((item, index) =>
+          createElement(
+            "FlatListItem",
+            { key: keyExtractor?.(item, index) ?? index },
+            renderItem({ item, index }),
+          ),
+        ),
+      ),
     Modal: host("Modal"),
     Pressable: host("Pressable"),
-    ScrollView: host("ScrollView"),
     TextInput: host("TextInput"),
     View: host("View"),
   };

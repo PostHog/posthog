@@ -24,8 +24,7 @@ export function useOrgMembers(options?: { enabled?: boolean }): {
   const members = useMemo(
     () =>
       (query.data?.members ?? [])
-        .map((member) => member.user)
-        .filter((user) => !!user?.email)
+        .flatMap((member) => (member.user?.email ? [member.user] : []))
         .sort((a, b) => userDisplayName(a).localeCompare(userDisplayName(b))),
     [query.data],
   );
