@@ -526,9 +526,7 @@ class TestStratifySessionIds:
     def test_total_respects_max_total_sessions(self) -> None:
         from products.mcp_analytics.backend.intent_clustering import stratify_session_ids
 
-        tool_sessions = {
-            f"tool_{t}": {f"tool_{t}-s{i}" for i in range(600)} for t in range(10)
-        }
+        tool_sessions = {f"tool_{t}": {f"tool_{t}-s{i}" for i in range(600)} for t in range(10)}
 
         selected = stratify_session_ids(tool_sessions, min_sessions_per_tool=400, max_total_sessions=2000)
 
@@ -562,10 +560,7 @@ class TestCapPerToolCallVolume:
     def test_caps_overrepresented_tool_and_reports_it(self) -> None:
         from products.mcp_analytics.backend.intent_clustering import cap_per_tool_call_volume
 
-        rows = (
-            [("s1", "exec", "operate", False)] * 100
-            + [("s2", "query-logs", "tail logs", False)] * 2
-        )
+        rows = [("s1", "exec", "operate", False)] * 100 + [("s2", "query-logs", "tail logs", False)] * 2
 
         capped_rows, per_tool = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
 
