@@ -1,7 +1,8 @@
 """API endpoints for evaluation report configuration and report run history."""
 
 import datetime as dt
-from typing import Any, cast
+from typing import Any, Protocol, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Count, Max, QuerySet
@@ -15,7 +16,6 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -569,26 +569,24 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         }
 
 
+class _EvaluationReportPermissionView(Protocol):
+    action: str
+    team_id: int
+
+
 class EvaluationReportAccessControlPermission(AccessControlPermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
-        report_view = cast(GenericViewSet, view)
+        report_view = cast(_EvaluationReportPermissionView, view)
         if report_view.action != "create":
             return super().has_permission(request, view)
 
-        # Report creation targets an existing evaluation, so specific evaluation grants apply.
-        report_view.action = "partial_update"
-        try:
-            if super().has_permission(request, view):
-                return True
-        finally:
-            report_view.action = "create"
-
-        # Scoped tokens must pass the shared scope check above. Session users can be authorized
-        # against the submitted parent directly when the generic any-object fallback misses it.
+        # Scoped tokens must pass the standard scope and resource checks. Session users can be
+        # authorized against the submitted parent before the generic create check rejects them.
         if get_authenticator_scopes(request.successful_authenticator) is not None:
-            return False
-        evaluation_id = request.data.get("evaluation")
+            return super().has_permission(request, view)
+
         try:
+            evaluation_id = UUID(str(request.data.get("evaluation")))
             evaluation = Evaluation.objects.filter(team_id=report_view.team_id, id=evaluation_id).first()
         except (TypeError, ValueError):
             return False
