@@ -367,18 +367,12 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(jwt.InvalidAudienceError):
             decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
 
-    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
-    def test_path_based_legacy_export_uses_impersonated_user_audience(self, patched_api_call: MagicMock) -> None:
+    def test_path_based_export_rejects_missing_authentication_source(self) -> None:
         exported_asset = self._create_asset()
         exported_asset.source_authentication = None
-        response = Mock()
-        response.json.return_value = {"next": None, "results": []}
-        patched_api_call.return_value = response
 
-        csv_exporter.export_tabular(exported_asset)
-
-        access_token = patched_api_call.call_args.args[0]
-        decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            csv_exporter.export_tabular(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
     def test_path_based_session_export_uses_impersonated_user_audience(self, patched_api_call: MagicMock) -> None:

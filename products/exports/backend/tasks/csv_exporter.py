@@ -420,7 +420,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             has_body=body is not None,
         )
         raise ValueError("This export request is no longer supported. Create a new export and try again.")
-    source_authentication = exported_asset.source_authentication or ExportedAsset.SourceAuthentication.SESSION
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None:
+        _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
     token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
     if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
