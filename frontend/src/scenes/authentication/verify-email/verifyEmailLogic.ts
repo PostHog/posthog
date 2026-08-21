@@ -274,6 +274,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         lemonToast.success(
                             'A new verification email has been sent to the associated email address. Please check your inbox.'
                         )
+                        // A resend invalidates the previous code, so drop it and its error (the
+                        // setVerificationCode reducer clears the error too). The 6-char field is
+                        // otherwise full and blocks typing the freshly sent code.
+                        actions.setVerificationCode('')
                         // Show the pending view after a resend - it has the code entry form.
                         actions.setView('pending')
                         return true
