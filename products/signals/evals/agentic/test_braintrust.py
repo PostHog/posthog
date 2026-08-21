@@ -1,9 +1,6 @@
 import asyncio
 
-from parameterized import parameterized
-
 from products.posthog_ai.eval_harness.scorers.contract import Score
-from products.posthog_ai.eval_harness.scorers.judged import JudgedScorer
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.braintrust import (
     ImplementationFixJudge,
@@ -38,6 +35,22 @@ def test_adapter_exposes_domain_score_to_braintrust() -> None:
     assert score.name == "repo_selected_correct"
     assert score.score == 1.0
     assert score.metadata["passed"] is True
+
+
+def test_judges_fail_closed_on_timeout() -> None:
+    judges = (
+        ResearchSummaryJudge([ResearchCase(case_id="research", step="research")]),
+        RepositorySelectionJudge([RepoSelectionCase(case_id="repo", step="repo_selection")]),
+        ImplementationFixJudge([ImplementationCase(case_id="implementation", step="implementation")]),
+        ScoutDecisionQualityJudge([ScoutCase(case_id="scout", step="scout")]),
+    )
+
+    for judge in judges:
+        case_id = next(iter(judge._cases))
+        score = judge._prepare({"timeout": True, "error": "case timeout after 120s"}, {"case_id": case_id})
+        assert isinstance(score, Score)
+        assert score.score == 0.0
+        assert score.metadata["reason"] == "case timeout after 120s"
 
 
 def test_implementation_judge_fails_closed_without_captured_diff() -> None:
@@ -123,19 +136,3 @@ def test_repository_selection_judge_includes_reference_evidence() -> None:
     assert "staticSvgScene.ts" in prepared["expected"]
     assert "excalidraw/excalidraw" in prepared["output"]
     assert '"repository_evidence_used": false' in prepared["output"]
-
-
-@parameterized.expand(
-    [
-        ("research", ResearchSummaryJudge([ResearchCase(case_id="c", step="research")])),
-        ("repo_selection", RepositorySelectionJudge([RepoSelectionCase(case_id="c", step="repo_selection")])),
-        ("implementation", ImplementationFixJudge([ImplementationCase(case_id="c", step="implementation")])),
-        ("scout", ScoutDecisionQualityJudge([ScoutCase(case_id="c", step="scout")])),
-    ]
-)
-def test_judges_score_timeout_output_zero_instead_of_raising(_name: str, judge: JudgedScorer) -> None:
-    score = judge._prepare({"timeout": True, "error": "case timeout after 900s"}, {"case_id": "c"})
-
-    assert isinstance(score, Score)
-    assert score.score == 0.0
-    assert score.metadata["reason"] == "workflow timed out"

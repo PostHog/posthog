@@ -33,6 +33,14 @@ def _lookup_case(cases: Mapping[str, CaseT], expected: dict[str, Any] | None) ->
     return cases.get(case_id) if case_id is not None else None
 
 
+def _workflow_failure(name: str, output: dict[str, Any] | None) -> Score | None:
+    if not output:
+        return Score(name=name, score=0.0, metadata={"reason": "workflow produced no output"})
+    if output.get("timeout"):
+        return Score(name=name, score=0.0, metadata={"reason": output.get("error", "workflow timed out")})
+    return None
+
+
 def decode_research(output: dict[str, Any]) -> ReportResearchOutput:
     return ReportResearchOutput.model_validate(output)
 
@@ -155,13 +163,11 @@ class ResearchSummaryJudge(JudgedScorer):
 
     def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
         case = _lookup_case(self._cases, expected)
-        if case is None or not output:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
-        # A timed-out case reaches the judge as `{"timeout": True, ...}`, which is truthy but has
-        # no gradeable fields; score it 0.0 so the decoder never raises and drops the case from
-        # the aggregate (see the JudgedScorer zero-score invariant).
-        if output.get("timeout"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "workflow timed out"})
+        if case is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case"})
+        if failure := _workflow_failure(self._name(), output):
+            return failure
+        assert output is not None
         research = decode_research(output)
         findings = [
             {
@@ -227,13 +233,11 @@ class RepositorySelectionJudge(JudgedScorer):
 
     def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
         case = _lookup_case(self._cases, expected)
-        if case is None or not output:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
-        # A timed-out case reaches the judge as `{"timeout": True, ...}`, which is truthy but has
-        # no gradeable fields; score it 0.0 so the decoder never raises and drops the case from
-        # the aggregate (see the JudgedScorer zero-score invariant).
-        if output.get("timeout"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "workflow timed out"})
+        if case is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case"})
+        if failure := _workflow_failure(self._name(), output):
+            return failure
+        assert output is not None
         selection = decode_repo_selection(output)
         evidence_calls = repository_evidence_calls(selection.raw_log)
         return {
@@ -291,13 +295,11 @@ class ImplementationFixJudge(JudgedScorer):
 
     def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
         case = _lookup_case(self._cases, expected)
-        if case is None or not output:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
-        # A timed-out case reaches the judge as `{"timeout": True, ...}`, which is truthy but has
-        # no gradeable fields; score it 0.0 so the decoder never raises and drops the case from
-        # the aggregate (see the JudgedScorer zero-score invariant).
-        if output.get("timeout"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "workflow timed out"})
+        if case is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case"})
+        if failure := _workflow_failure(self._name(), output):
+            return failure
+        assert output is not None
         implementation = decode_implementation(output)
         if not implementation.diff:
             return Score(name=self._name(), score=0.0, metadata={"reason": "no actual diff captured"})
@@ -350,13 +352,11 @@ class ScoutDecisionQualityJudge(JudgedScorer):
 
     def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
         case = _lookup_case(self._cases, expected)
-        if case is None or not output:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
-        # A timed-out case reaches the judge as `{"timeout": True, ...}`, which is truthy but has
-        # no gradeable fields; score it 0.0 so the decoder never raises and drops the case from
-        # the aggregate (see the JudgedScorer zero-score invariant).
-        if output.get("timeout"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": "workflow timed out"})
+        if case is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case"})
+        if failure := _workflow_failure(self._name(), output):
+            return failure
+        assert output is not None
         scout = decode_scout(output)
         return {
             "expected": json.dumps(

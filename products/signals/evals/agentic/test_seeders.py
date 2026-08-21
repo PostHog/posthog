@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -9,11 +10,31 @@ from products.signals.evals.agentic.datasets import RepoSelectionCase, ResearchC
 from products.signals.evals.agentic.seeders import (
     _seed_research_events,
     _seed_web_vitals,
+    _write_events,
     seed_repository_catalog,
     seed_research_project,
     seed_scout_project,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
+
+def test_write_events_reuses_shared_event_definition_helper() -> None:
+    rows = [
+        {
+            "event": "signed_up",
+            "distinct_id": "person-1",
+            "timestamp": datetime.now(UTC),
+        }
+    ]
+
+    with (
+        patch("products.signals.evals.agentic.seeders.create_placeholder_event_definitions") as create_definitions,
+        patch("posthog.models.event.util.bulk_create_events"),
+    ):
+        _write_events(7, rows)
+
+    assert create_definitions.call_args.kwargs["team_id"] == 7
+    assert [definition.name for definition in create_definitions.call_args.kwargs["definitions"]] == ["signed_up"]
 
 
 def test_seed_research_project_creates_every_referenced_session() -> None:

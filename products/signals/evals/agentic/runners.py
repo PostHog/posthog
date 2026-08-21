@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.runner import parse_agent_artifacts
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -183,9 +184,6 @@ async def run_implementation(
         task_id = str(session.task.id)
         task_run_id = str(session.task_run.id)
     finally:
-        # Shield cleanup so the workflow-completion signal still lands if the per-case deadline
-        # cancels this await. session.end() only catches Exception, so a bare CancelledError here
-        # would leave the sandbox workflow running and the TaskRun stuck IN_PROGRESS.
         await asyncio.shield(session.end())
     raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
     diff = parse_agent_artifacts(raw_log, duration_seconds=0, agent_finished=True).git_diff
@@ -213,7 +211,7 @@ class ScoutOutput(BaseModel):
 def _seed_scout(case: ScoutCase, sandbox_context: CustomPromptSandboxContext) -> tuple[str, set[str]]:
     from products.signals.backend.models import SignalScratchpad
 
-    keys = set(SignalScratchpad.all_teams.filter(team_id=sandbox_context.team_id).values_list("key", flat=True))
+    keys = set(SignalScratchpad.objects.for_team(sandbox_context.team_id).values_list("key", flat=True))
     return case.skill_name, keys
 
 
@@ -221,21 +219,25 @@ def _read_scout_output(
     team_id: int,
     run_id: str,
     previous_scratchpad_keys: set[str],
-) -> tuple[list[str], list[str], list[str], list[str], str]:
+) -> ScoutOutput:
     from products.signals.backend.models import SignalScoutRun, SignalScratchpad
 
-    run = SignalScoutRun.objects.unscoped().get(team_id=team_id, id=run_id)
+    run = SignalScoutRun.objects.for_team(team_id).get(id=run_id)
     scratchpad_keys = list(
-        SignalScratchpad.all_teams.filter(team_id=team_id)
+        SignalScratchpad.objects.for_team(team_id)
         .exclude(key__in=previous_scratchpad_keys)
         .values_list("key", flat=True)
     )
-    return (
-        list(run.emitted_report_ids or []),
-        list(run.edited_report_ids or []),
-        list(run.emitted_finding_ids or []),
-        scratchpad_keys,
-        run.summary,
+    emitted_report_ids = list(run.emitted_report_ids or [])
+    edited_report_ids = list(run.edited_report_ids or [])
+    emitted_finding_ids = list(run.emitted_finding_ids or [])
+    return ScoutOutput(
+        outcome=_scout_outcome(emitted_report_ids, edited_report_ids, emitted_finding_ids, scratchpad_keys),
+        summary=run.summary,
+        emitted_report_ids=emitted_report_ids,
+        edited_report_ids=edited_report_ids,
+        emitted_finding_ids=emitted_finding_ids,
+        scratchpad_keys=scratchpad_keys,
     )
 
 
@@ -254,6 +256,14 @@ def _scout_outcome(
     if scratchpad_keys:
         return "remember"
     return "no_output"
+
+
+def _remembered_scratchpad_keys(raw_log: str) -> list[str]:
+    return [
+        key
+        for call in LogParser.cached(raw_log).get_tool_calls("scout-scratchpad-remember")
+        if not call.is_error and isinstance((key := call.input.get("key")), str)
+    ]
 
 
 async def run_scout(
@@ -284,21 +294,20 @@ async def run_scout(
             )
         )
     )
-    emitted_reports, edited_reports, emitted_findings, scratchpad_keys, summary = await asyncio.to_thread(
+    output = await asyncio.to_thread(
         _read_scout_output,
         sandbox_context.team_id,
         run_id,
         previous_scratchpad_keys,
     )
-    raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
-    return ScoutOutput(
-        outcome=_scout_outcome(emitted_reports, edited_reports, emitted_findings, scratchpad_keys),
-        summary=summary,
-        emitted_report_ids=emitted_reports,
-        edited_report_ids=edited_reports,
-        emitted_finding_ids=emitted_findings,
-        scratchpad_keys=scratchpad_keys,
-        raw_log=raw_log,
-        run_id=run_id,
-        task_run_id=task_run_id,
-    ).model_dump(mode="json")
+    output.raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
+    output.scratchpad_keys = sorted(set(output.scratchpad_keys) | set(_remembered_scratchpad_keys(output.raw_log)))
+    output.outcome = _scout_outcome(
+        output.emitted_report_ids,
+        output.edited_report_ids,
+        output.emitted_finding_ids,
+        output.scratchpad_keys,
+    )
+    output.run_id = run_id
+    output.task_run_id = task_run_id
+    return output.model_dump(mode="json")

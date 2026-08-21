@@ -2,30 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.acp_log import parse_log
+from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.signals.evals.agentic.datasets import EvalCase, RepoSelectionCase
 from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 
 def repository_evidence_calls(raw_log: str) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
-    for tool in parse_log(raw_log).tools:
-        command = " ".join(str(value) for value in tool.input.values())
-        normalized = command.lower()
-        tool_name = tool.name.lower().replace("_", "-")
-        is_posthog_query = "posthog" in tool_name and ("exec" in tool_name or "execute-sql" in tool_name)
-        # The MCP exposes execute-sql either directly (SQL text in the input) or wrapped behind an
-        # `exec` command (the "execute-sql" marker lives in the command string), so check both the
-        # tool name and the input rather than only the input.
-        is_execute_sql = "execute-sql" in tool_name or "execute-sql" in normalized
-        if (
-            tool.is_error
-            or not is_posthog_query
-            or not is_execute_sql
-            or "system.integration_repository_cache" not in normalized
-        ):
+    for tool in LogParser.cached(raw_log).get_tool_calls("execute-sql"):
+        query = tool.input.get("query")
+        if tool.is_error or not isinstance(query, str) or "system.integration_repository_cache" not in query.lower():
             continue
-        calls.append({"tool": tool.name, "input": tool.input, "output": tool.output})
+        calls.append({"tool": tool.raw_name, "input": tool.input, "output": tool.output})
     return calls
 
 

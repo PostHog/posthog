@@ -8,23 +8,23 @@ from django.utils import timezone
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
 
+from products.event_definitions.backend.logic.placeholder import (
+    PlaceholderEventDefinition,
+    create_placeholder_event_definitions,
+)
 from products.signals.evals.agentic.datasets import EvalCase, RepoSelectionCase, ResearchCase, ResearchSeed, ScoutCase
 from products.signals.evals.agentic.repos import REGISTRY
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
 def _write_events(team_id: int, rows: list[dict]) -> None:
-    from posthog.models import EventDefinition, Person, Team
+    from posthog.models import Person
     from posthog.models.event.util import bulk_create_events
 
-    team = Team.objects.get(id=team_id)
-    last_seen_at = max(row["timestamp"] for row in rows)
-    for event_name in {row["event"] for row in rows}:
-        EventDefinition.objects.get_or_create(
-            project_id=team.project_id,
-            name=event_name,
-            defaults={"team_id": team_id, "last_seen_at": last_seen_at},
-        )
+    create_placeholder_event_definitions(
+        team_id=team_id,
+        definitions=[PlaceholderEventDefinition(name=name) for name in sorted({row["event"] for row in rows})],
+    )
     people = {
         row["distinct_id"]: Person(
             uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"{team_id}:{row['distinct_id']}"),

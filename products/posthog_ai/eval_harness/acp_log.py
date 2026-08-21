@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=False)
 class GenerationDescriptor:
     """One model turn: full conversation history → assistant response."""
 
@@ -36,7 +36,7 @@ class GenerationDescriptor:
         return _llm_metrics(self.token_usage, self.cost_usd)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SpanDescriptor:
     span_id: str
     span_name: str
@@ -44,7 +44,7 @@ class SpanDescriptor:
     timestamp: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ToolDescriptor:
     tool_call_id: str
     name: str
@@ -55,7 +55,7 @@ class ToolDescriptor:
     end_ts: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ParsedLog:
     generations: list[GenerationDescriptor] = field(default_factory=list)
     spans: list[SpanDescriptor] = field(default_factory=list)

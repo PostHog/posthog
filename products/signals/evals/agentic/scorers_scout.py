@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.acp_log import parse_log
+from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.signals.evals.agentic.datasets import EvalCase, ScoutCase
 from products.signals.evals.agentic.runners import ScoutOutput
 from products.signals.evals.agentic.scoring import DeterministicScorer, Score
@@ -29,12 +29,10 @@ class ScoutProjectDataScorer(DeterministicScorer):
 
     def grade(self, case: EvalCase, output: ScoutOutput) -> list[Score]:
         assert isinstance(case, ScoutCase)
-        calls: list[str] = []
-        for tool in parse_log(output.raw_log).tools:
-            if tool.is_error:
-                continue
-            haystack = f"{tool.name} {' '.join(str(value) for value in tool.input.values())}".lower()
-            calls.extend(name for name in case.expected_query_tools if name in haystack)
+        parser = LogParser.cached(output.raw_log)
+        calls = [
+            name for name in case.expected_query_tools if any(not call.is_error for call in parser.get_tool_calls(name))
+        ]
         return [Score.boolean(self.name, bool(calls), reasoning=f"matching_queries={sorted(set(calls))}")]
 
 

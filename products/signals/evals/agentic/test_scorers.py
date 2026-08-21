@@ -27,12 +27,14 @@ from products.signals.evals.agentic.runners import (
     ImplementationOutput,
     RepoSelectionOutput,
     ScoutOutput,
+    _remembered_scratchpad_keys,
     _scout_outcome,
 )
 from products.signals.evals.agentic.scorers_repo_selection import (
     RepoSelectionCorrectnessScorer,
     RepositoryEvidenceScorer,
     default_repo_selection_scorers,
+    repository_evidence_calls,
 )
 from products.signals.evals.agentic.scorers_research import default_research_scorers
 from products.signals.evals.agentic.scorers_scout import default_scout_scorers
@@ -146,14 +148,13 @@ def _repository_cache_log(
     output: str = "excalidraw/excalidraw",
     *,
     tool_name: str = "mcp__posthog__exec",
-    raw_input_key: str = "command",
 ) -> str:
     updates = [
         {
             "sessionUpdate": "tool_call",
             "toolCallId": "tool-1",
             "title": "PostHog",
-            "rawInput": {raw_input_key: command},
+            "rawInput": {"command": command} if tool_name.endswith("__exec") else {"query": command},
             "_meta": {"claudeCode": {"toolName": tool_name}},
         },
         {
@@ -192,17 +193,6 @@ def test_repository_evidence_scorer_requires_successful_cache_query():
             'call execute-sql {"query":"SELECT tree_paths FROM system.integration_repository_cache"}'
         ),
     )
-    # A direct execute-sql call carries the SQL in its input, so the tool name, not the input
-    # text, is what marks it as a cache query.
-    direct = RepoSelectionOutput(
-        repository="excalidraw/excalidraw",
-        reason="matched staticSvgScene.ts",
-        raw_log=_repository_cache_log(
-            "SELECT tree_paths FROM system.integration_repository_cache",
-            tool_name="mcp__posthog__execute-sql",
-            raw_input_key="query",
-        ),
-    )
     guessed = RepoSelectionOutput(
         repository="excalidraw/excalidraw",
         reason="the identifier sounds familiar",
@@ -210,8 +200,28 @@ def test_repository_evidence_scorer_requires_successful_cache_query():
     )
 
     assert _score([scorer], case, grounded)["repository_evidence_used"] is True
-    assert _score([scorer], case, direct)["repository_evidence_used"] is True
     assert _score([scorer], case, guessed)["repository_evidence_used"] is False
+
+
+def test_repository_evidence_scorer_accepts_direct_sql_tool():
+    output = RepoSelectionOutput(
+        repository="excalidraw/excalidraw",
+        reason="matched repository cache",
+        raw_log=_repository_cache_log(
+            "SELECT tree_paths FROM system.integration_repository_cache",
+            tool_name="mcp__posthog__execute-sql",
+        ),
+    )
+
+    assert len(repository_evidence_calls(output.raw_log)) == 1
+
+
+def test_scout_scratchpad_updates_are_attributed_from_the_log():
+    raw_log = _repository_cache_log(
+        'call scout-scratchpad-remember {"key":"watch:signup","content":"updated"}',
+    )
+
+    assert _remembered_scratchpad_keys(raw_log) == ["watch:signup"]
 
 
 @parameterized.expand([("no_expectation", None), ("empty_expected_set", ())])
@@ -277,3 +287,19 @@ def test_scout_outcome_scorer_discriminates():
     assert _score(default_scout_scorers(), case, bad)["scout_outcome_correct"] is False
     assert _score(default_scout_scorers(), case, good)["project_data_queried"] is True
     assert _score(default_scout_scorers(), case, bad)["project_data_queried"] is False
+
+
+def test_scout_project_data_scorer_ignores_tool_discovery():
+    case = ScoutCase(
+        case_id="scout_eval",
+        step="scout",
+        expected_query_tools=("query-funnel",),
+        expected=ScoutExpectation(expected_outcome="no_output"),
+    )
+    discovered = ScoutOutput(
+        outcome="no_output",
+        summary="Inspected the schema",
+        raw_log=_repository_cache_log("info query-funnel"),
+    )
+
+    assert _score(default_scout_scorers(), case, discovered)["project_data_queried"] is False

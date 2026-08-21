@@ -82,7 +82,7 @@ def test_agent_trace_uses_model_turns_and_tool_calls() -> None:
     )
     hooks = _Hooks()
 
-    log_agent_spans(hooks, parsed)  # type: ignore[arg-type]
+    log_agent_spans(hooks, parsed)
 
     assert [(name, kind) for name, kind, _, _, _ in hooks.spans] == [
         ("model turn 1", "llm"),

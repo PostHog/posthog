@@ -154,7 +154,7 @@ class AggregateMetric:
     unit: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class EvalSummary:
     """The per-experiment summary the reporting path consumes.
 
