@@ -104,7 +104,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(summary))
         if failed:
             raise CommandError(
-                f"{len(failed)} loop(s) could not be paused: {', '.join(str(loop.id) for loop in failed)}"
+                f"{len(failed)} loop(s) failed part-way: {', '.join(str(loop.id) for loop in failed)}. "
+                "Re-running skips any that were already marked paused, so check their schedules and runs by hand."
             )
 
     def _apply_filters(self, queryset: QuerySet[Loop], options: dict[str, Any]) -> QuerySet[Loop]:
