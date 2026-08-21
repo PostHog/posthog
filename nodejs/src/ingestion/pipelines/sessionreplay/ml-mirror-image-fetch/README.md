@@ -99,13 +99,11 @@ XMP is an opt-out for that image when it has one of these values:
 - `DMI-PROHIBITED-SEEEMBEDDEDRIGHTSEXPR`
 - `DMI-PROHIBITED-SEELINKEDRIGHTSEXPR`
 
-**2.8** A terminal refusal must be written to the URL crawl history. A transient configuration failure uses the shorter configuration-cache TTL in requirement 3.20 instead.
+**2.8** The lane ignores `X-Robots-Tag: noindex` as this is about indexing for search
 
-**2.9** The lane ignores `X-Robots-Tag: noindex` as this is about indexing for search
+**2.9** Opt-out signals are applied at fetch time. For the avoidance of doubt, if a signal changes in the future (e.g. a robots.txt change) we do not delete fetched images
 
-**2.10** Opt-out signals are applied at fetch time. For the avoidance of doubt, if a signal changes in the future (e.g. a robots.txt change) we do not delete fetched images
-
-**2.11** A `tdm-reservation` response header supersedes the matching value from `tdmrep.json`. The absence of the header does not reset the value from `tdmrep.json`.
+**2.10** A `tdm-reservation` response header supersedes the matching value from `tdmrep.json`. The absence of the header does not reset the value from `tdmrep.json`.
 
 ### 3. robots.txt and tdmrep.json
 
@@ -149,7 +147,9 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.20** If an unreachable configuration file has no previous cached version, the lane refuses the origin and caches that result for 1 hour. It must not write a 30-day terminal refusal for each URL in this case.
 
-**3.21** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has the TTL from section 12.
+**3.21** The lane writes a terminal refusal to the URL crawl history. A transient configuration failure uses the 1-hour configuration-cache TTL from requirement 3.20 instead.
+
+**3.22** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has a minimum TTL of 30 days. If the response's explicit freshness lifetime is longer, the entry uses that longer TTL.
 
 ### 4. Web Bot Auth
 
@@ -517,7 +517,7 @@ ai_research_session_replay_image_fetch_retry_1h
 | Specification                                                                                                            | What it governs here                                                                                                                                                 |
 |--------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Section 3. The response classes, the cache guidance, the redirect count, the 500 KiB parse limit, a line that does not parse, and how a product token matches a group |
-| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/), W3C Community Group Final Report        | Requirements 2.6, 2.11, and section 3. A Community Group report, which is not a W3C Standard                                                                      |
+| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/), W3C Community Group Final Report        | Requirements 2.6, 2.10, and section 3. A Community Group report, which is not a W3C Standard                                                                      |
 | [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 2.7. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
 | [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                             |
 | [Content Signals](https://contentsignals.org/)                                                                           | Requirement 2.6. The `Content-Signal` robots.txt rule and the `ai-train` category                                                                                     |
