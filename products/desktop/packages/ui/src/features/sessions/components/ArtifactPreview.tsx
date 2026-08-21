@@ -351,17 +351,6 @@ export function ArtifactPreview({
   }
 
   if (
-    previewData &&
-    typeof previewData === "object" &&
-    !(previewData instanceof Blob) &&
-    previewData.kind === "posthog-object"
-  ) {
-    return (
-      <PostHogObjectPage metadata={previewData.metadata} fallbackName={name} />
-    );
-  }
-
-  if (
     editing.isEditing &&
     artifactResult?.source !== undefined &&
     editing.editableKind
