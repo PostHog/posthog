@@ -66,7 +66,7 @@ from products.conversations.backend.events import (
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
 )
-from products.conversations.backend.github_link_metadata import refresh_stale_github_links
+from products.conversations.backend.github_link_metadata import has_stale_github_links
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import (
     EmailChannel,
@@ -78,6 +78,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.tasks import schedule_github_link_refresh
 
 from ee.models.rbac.role import Role
 
@@ -1422,7 +1423,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         """List the GitHub issues and pull requests linked to a ticket."""
         ticket = self.get_object()
         links = list(TicketGithubLink.objects.filter(ticket=ticket).select_related("created_by").order_by("created_at"))
-        refresh_stale_github_links(self.team_id, links)
+        if has_stale_github_links(links):
+            schedule_github_link_refresh(self.team_id, str(ticket.id))
         return Response(TicketGithubLinkSerializer(links, many=True).data)
 
     @extend_schema(

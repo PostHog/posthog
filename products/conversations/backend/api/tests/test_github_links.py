@@ -1,21 +1,24 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import ActivityLog, Organization, Team
+from posthog.models import ActivityLog, Integration, Organization, Team
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.conversations.backend.github_link_metadata import METADATA_STALE_AFTER
 from products.conversations.backend.github_references import GithubReference, parse_github_reference
 from products.conversations.backend.models import Ticket, TicketGithubLink, TicketGithubLinkType
 from products.conversations.backend.models.constants import Channel, Status
+from products.conversations.backend.tasks import refresh_ticket_github_links
 
-FIND_INTEGRATION = "products.conversations.backend.github_link_metadata.find_github_integration"
+GITHUB_INTEGRATION_CLASS = "products.conversations.backend.github_link_metadata.GitHubIntegration"
 
 ISSUE_URL = "https://github.com/PostHog/posthog/issues/123"
 PR_URL = "https://github.com/PostHog/posthog/pull/456"
@@ -64,10 +67,10 @@ def github_issue_payload(
     return payload
 
 
-@patch(FIND_INTEGRATION, return_value=None)
 class TestTicketGithubLinksAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
@@ -77,7 +80,15 @@ class TestTicketGithubLinksAPI(APIBaseTest):
         )
         self.links_url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/github_links/"
 
-    def test_link_list_and_unlink_round_trip(self, _find_integration: MagicMock) -> None:
+    def _add_github_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id=str(Integration.objects.count() + 1),
+            config={"account": {"name": "org"}},
+        )
+
+    def test_link_list_and_unlink_round_trip(self) -> None:
         created = self.client.post(self.links_url, {"url": PR_URL})
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         body = created.json()
@@ -104,20 +115,23 @@ class TestTicketGithubLinksAPI(APIBaseTest):
         )
         assert actions == ["created", "deleted"]
 
-    def test_linking_the_same_issue_twice_returns_the_existing_link(self, _find_integration: MagicMock) -> None:
+    @parameterized.expand(
+        [(ISSUE_URL + "#issuecomment-1",), ("posthog/posthog#123",), ("https://github.com/posthog/POSTHOG/issues/123",)]
+    )
+    def test_linking_the_same_issue_twice_returns_the_existing_link(self, second_value: str) -> None:
         first = self.client.post(self.links_url, {"url": ISSUE_URL})
-        second = self.client.post(self.links_url, {"url": ISSUE_URL + "#issuecomment-1"})
+        second = self.client.post(self.links_url, {"url": second_value})
         assert first.status_code == status.HTTP_201_CREATED
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["id"] == first.json()["id"]
         assert TicketGithubLink.objects.for_team(self.team.id).count() == 1
 
-    def test_rejects_non_github_url(self, _find_integration: MagicMock) -> None:
+    def test_rejects_non_github_url(self) -> None:
         response = self.client.post(self.links_url, {"url": "https://example.com/owner/repo/issues/1"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "url"
 
-    def test_links_are_scoped_to_the_ticket_and_team(self, _find_integration: MagicMock) -> None:
+    def test_links_are_scoped_to_the_ticket_and_team(self) -> None:
         other_ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
@@ -154,53 +168,89 @@ class TestTicketGithubLinksAPI(APIBaseTest):
             (ISSUE_URL, github_issue_payload(title="From URL", pull_request=True), "pull_request", "open"),
         ]
     )
+    @patch(GITHUB_INTEGRATION_CLASS)
     def test_link_resolves_title_state_and_type_from_github(
-        self, find_integration: MagicMock, value: str, payload: dict, expected_type: str, expected_state: str
+        self, value: str, payload: dict, expected_type: str, expected_state: str, github_cls: MagicMock
     ) -> None:
-        github = MagicMock()
-        github.get_issue.return_value = payload
-        find_integration.return_value = github
+        self._add_github_integration()
+        github_cls.return_value.get_issue.return_value = payload
 
         body = self.client.post(self.links_url, {"url": value}).json()
 
-        github.get_issue.assert_called_once_with("PostHog/posthog", body["number"])
+        github_cls.return_value.get_issue.assert_called_once_with(
+            "PostHog/posthog", body["number"], timeout=5, retry_transient=False
+        )
         assert body["title"] == payload["title"]
         assert body["link_type"] == expected_type
         assert body["link_state"] == expected_state
         expected_path = "pull" if expected_type == "pull_request" else "issues"
         assert body["url"] == f"https://github.com/PostHog/posthog/{expected_path}/{body['number']}"
 
-    def test_shorthand_without_integration_is_stored_as_an_issue(self, _find_integration: MagicMock) -> None:
+    @patch(GITHUB_INTEGRATION_CLASS)
+    def test_lookup_moves_on_to_the_next_integration_when_the_first_cannot_see_the_repo(
+        self, github_cls: MagicMock
+    ) -> None:
+        self._add_github_integration()
+        self._add_github_integration()
+        blind, sighted = MagicMock(), MagicMock()
+        blind.get_issue.side_effect = GitHubIntegrationError("not found", status_code=404)
+        sighted.get_issue.return_value = github_issue_payload(title="Seen by the second app")
+        github_cls.side_effect = [blind, sighted]
+
+        body = self.client.post(self.links_url, {"url": ISSUE_URL}).json()
+        assert body["title"] == "Seen by the second app"
+
+    def test_shorthand_without_integration_is_stored_as_an_issue(self) -> None:
         body = self.client.post(self.links_url, {"url": "PostHog/posthog#77"}).json()
         assert body["link_type"] == "issue"
         assert body["url"] == "https://github.com/PostHog/posthog/issues/77"
         assert body["title"] is None
 
-    def test_github_failure_still_creates_a_bare_link(self, find_integration: MagicMock) -> None:
-        github = MagicMock()
-        github.get_issue.side_effect = GitHubIntegrationError("not found", status_code=404)
-        find_integration.return_value = github
+    @parameterized.expand(
+        [
+            (GitHubIntegrationError("server error", status_code=502),),
+            (requests.ConnectionError("github unreachable"),),
+        ]
+    )
+    @patch(GITHUB_INTEGRATION_CLASS)
+    def test_github_failure_still_creates_a_bare_link(self, error: Exception, github_cls: MagicMock) -> None:
+        self._add_github_integration()
+        github_cls.return_value.get_issue.side_effect = error
 
         response = self.client.post(self.links_url, {"url": PR_URL})
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["title"] is None
         assert response.json()["link_type"] == "pull_request"
 
-    def test_list_refreshes_stale_metadata_but_not_fresh(self, find_integration: MagicMock) -> None:
-        github = MagicMock()
-        github.get_issue.return_value = github_issue_payload(title="Old title")
-        find_integration.return_value = github
+    @patch("products.conversations.backend.tasks.refresh_ticket_github_links.delay")
+    def test_list_schedules_one_background_refresh_for_stale_links_only(self, delay: MagicMock) -> None:
         link_id = self.client.post(self.links_url, {"url": ISSUE_URL}).json()["id"]
-        github.get_issue.reset_mock()
 
-        github.get_issue.return_value = github_issue_payload(title="New title", state="closed")
-        titles = [link["title"] for link in self.client.get(self.links_url).json()]
-        assert titles == ["Old title"]
-        github.get_issue.assert_not_called()
+        self.client.get(self.links_url)
+        delay.assert_not_called()
 
         TicketGithubLink.objects.for_team(self.team.id).filter(id=link_id).update(
             metadata_synced_at=timezone.now() - METADATA_STALE_AFTER * 2
         )
-        listed = self.client.get(self.links_url).json()
-        assert [(link["title"], link["link_state"]) for link in listed] == [("New title", "closed")]
-        github.get_issue.assert_called_once()
+        self.client.get(self.links_url)
+        self.client.get(self.links_url)
+        delay.assert_called_once_with(team_id=self.team.id, ticket_id=str(self.ticket.id))
+
+    @patch(GITHUB_INTEGRATION_CLASS)
+    def test_refresh_task_updates_stale_links_and_leaves_fresh_ones(self, github_cls: MagicMock) -> None:
+        self._add_github_integration()
+        github_cls.return_value.get_issue.return_value = github_issue_payload(title="Old title")
+        stale_id = self.client.post(self.links_url, {"url": ISSUE_URL}).json()["id"]
+        fresh_id = self.client.post(self.links_url, {"url": PR_URL}).json()["id"]
+        TicketGithubLink.objects.for_team(self.team.id).filter(id=stale_id).update(
+            metadata_synced_at=timezone.now() - METADATA_STALE_AFTER * 2
+        )
+        github_cls.return_value.get_issue.reset_mock()
+        github_cls.return_value.get_issue.return_value = github_issue_payload(title="New title", state="closed")
+
+        refresh_ticket_github_links(self.team.id, str(self.ticket.id))
+
+        github_cls.return_value.get_issue.assert_called_once()
+        by_id = {str(link.id): link for link in TicketGithubLink.objects.for_team(self.team.id)}
+        assert (by_id[stale_id].title, by_id[stale_id].link_state) == ("New title", "closed")
+        assert by_id[fresh_id].title == "Old title"

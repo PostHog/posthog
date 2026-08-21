@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -39,7 +40,8 @@ class TicketGithubLink(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_conversations_ticket_github_link"
         constraints = [
-            models.UniqueConstraint(fields=["ticket", "repo", "number"], name="unique_github_link_per_ticket"),
+            # GitHub repository names are case-insensitive, so PostHog/posthog#1 and posthog/posthog#1 are one link.
+            models.UniqueConstraint(Lower("repo"), "ticket", "number", name="unique_github_link_per_ticket"),
         ]
 
     @property

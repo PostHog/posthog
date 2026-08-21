@@ -81,13 +81,35 @@ describe('githubLinksLogic', () => {
         expect(logic.values.linkSubmitting).toEqual(false)
     })
 
+    it('tracks concurrent unlinks separately so one finishing does not clear the other', async () => {
+        mockRetrieve.mockResolvedValue([makeLink({ id: 'link-1' }), makeLink({ id: 'link-2', number: 456 })])
+        logic.unmount()
+        logic = githubLinksLogic({ ticketId: 'ticket-2' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubLinksSuccess'])
+
+        let resolveSecond: () => void = () => {}
+        mockDestroy.mockResolvedValueOnce(undefined)
+        mockDestroy.mockReturnValueOnce(new Promise<void>((resolve) => (resolveSecond = resolve)))
+        logic.actions.removeGithubLink('link-1')
+        logic.actions.removeGithubLink('link-2')
+        await expectLogic(logic).toDispatchActions(['removeGithubLinkSuccess'])
+        expect(logic.values.removingLinkIds).toEqual(['link-2'])
+        expect(logic.values.githubLinks.map((link) => link.id)).toEqual(['link-2'])
+
+        resolveSecond()
+        await expectLogic(logic).toDispatchActions(['removeGithubLinkSuccess'])
+        expect(logic.values.removingLinkIds).toEqual([])
+        expect(logic.values.githubLinks).toEqual([])
+    })
+
     it('removes a link only after the server confirms the delete', async () => {
         await expectLogic(logic).toDispatchActions(['loadGithubLinksSuccess'])
         mockDestroy.mockRejectedValueOnce(new Error('boom'))
         logic.actions.removeGithubLink('link-1')
         await expectLogic(logic).toDispatchActions(['removeGithubLinkFailure'])
         expect(logic.values.githubLinks).toHaveLength(1)
-        expect(logic.values.removingLinkId).toBeNull()
+        expect(logic.values.removingLinkIds).toEqual([])
 
         mockDestroy.mockResolvedValueOnce(undefined)
         logic.actions.removeGithubLink('link-1')

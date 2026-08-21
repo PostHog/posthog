@@ -66,7 +66,9 @@ def link_github_reference(
     Title, state, and (for shorthand input) the issue-vs-PR type come from GitHub when an integration
     in the project can see the repo; otherwise the link is stored bare, typed as an issue.
     """
-    existing = TicketGithubLink.objects.filter(ticket=ticket, repo=reference.repo, number=reference.number).first()
+    existing = TicketGithubLink.objects.filter(
+        ticket=ticket, repo__iexact=reference.repo, number=reference.number
+    ).first()
     if existing is not None:
         return existing, False
 
@@ -84,7 +86,10 @@ def link_github_reference(
             link.save()
     except IntegrityError:
         # Lost a race with an identical concurrent link: the unique constraint already holds the row.
-        return TicketGithubLink.objects.get(ticket=ticket, repo=reference.repo, number=reference.number), False
+        return (
+            TicketGithubLink.objects.get(ticket=ticket, repo__iexact=reference.repo, number=reference.number),
+            False,
+        )
     return link, True
 
 

@@ -351,6 +351,7 @@ rules:
                               |TeamConversationsTeamsConfig
                               |SigningSecret
                               |Ticket
+                              |TicketGithubLink
                               |TicketView
                               |TicketViewFavorite
                               |ZendeskImportJob
@@ -717,6 +718,7 @@ rules:
                         |TeamConversationsTeamsConfig
                         |SigningSecret
                         |Ticket
+                        |TicketGithubLink
                         |TicketView
                         |TicketViewFavorite
                         |ZendeskImportJob

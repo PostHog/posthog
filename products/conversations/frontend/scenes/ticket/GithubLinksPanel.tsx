@@ -78,7 +78,7 @@ function GithubLinkRow({
 
 export function GithubLinksPanel({ ticketId, disabledReason }: GithubLinksPanelProps): JSX.Element {
     const logic = githubLinksLogic({ ticketId })
-    const { githubLinks, githubLinksLoading, newLinkUrl, linkSubmitting, removingLinkId } = useValues(logic)
+    const { githubLinks, githubLinksLoading, newLinkUrl, linkSubmitting, removingLinkIds } = useValues(logic)
     const { setNewLinkUrl, addGithubLink, removeGithubLink } = useActions(logic)
 
     // Title and state only come back when a GitHub integration in this project can see the repo.
@@ -96,7 +96,7 @@ export function GithubLinksPanel({ ticketId, disabledReason }: GithubLinksPanelP
                     <GithubLinkRow
                         key={link.id}
                         link={link}
-                        removing={removingLinkId === link.id}
+                        removing={removingLinkIds.includes(link.id)}
                         disabledReason={disabledReason}
                         onRemove={() => removeGithubLink(link.id)}
                     />

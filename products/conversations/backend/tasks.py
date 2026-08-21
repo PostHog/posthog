@@ -32,6 +32,7 @@ from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.scoping import with_team_scope
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
@@ -39,6 +40,7 @@ from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
+from products.conversations.backend.github_link_metadata import refresh_stale_github_links
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -2095,3 +2097,21 @@ def create_github_issue(
 
     logger.info("github_issue_created", ticket_id=str(ticket.id), repo=repo, issue_number=issue_number)
     return {"ticket_id": str(ticket.id), "issue_number": issue_number}
+
+
+# One refresh per ticket per lock window: the lock outlives a normal run and expires well inside the
+# metadata staleness window, so a crashed task only delays the next refresh rather than blocking it.
+GITHUB_LINK_REFRESH_LOCK_SECONDS = 120
+
+
+@shared_task(ignore_result=True, max_retries=0)
+@with_team_scope()
+def refresh_ticket_github_links(team_id: int, ticket_id: str) -> None:
+    """Refresh the title/state of a ticket's stale GitHub links off the request path."""
+    refresh_stale_github_links(team_id, ticket_id)
+
+
+def schedule_github_link_refresh(team_id: int, ticket_id: str) -> None:
+    """Enqueue refresh_ticket_github_links unless one was scheduled for this ticket recently."""
+    if cache.add(f"conversations:github_links:refresh:{ticket_id}", True, timeout=GITHUB_LINK_REFRESH_LOCK_SECONDS):
+        cast(Any, refresh_ticket_github_links).delay(team_id=team_id, ticket_id=ticket_id)

@@ -1,15 +1,17 @@
-"""Title, state, and type of a linked GitHub issue or PR, fetched through the project's GitHub integration."""
+"""Title, state, and type of a linked GitHub issue or PR, fetched through the project's GitHub integrations."""
 
 from collections.abc import Iterable
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration, Integration
 
 from products.conversations.backend.models.ticket_github_link import (
     TicketGithubLink,
@@ -19,10 +21,14 @@ from products.conversations.backend.models.ticket_github_link import (
 
 logger = structlog.get_logger(__name__)
 
-# Links keep the title/state they were last synced with; the list endpoint refreshes anything older than
-# this, a few at a time, so a ticket page stays roughly current without hammering GitHub.
+# Links keep the title/state they were last synced with. Listing a ticket's links schedules a background
+# refresh for anything older than this, so the panel stays roughly current without GitHub calls on the
+# request path.
 METADATA_STALE_AFTER = timedelta(minutes=15)
-MAX_REFRESHES_PER_REQUEST = 5
+MAX_REFRESHES_PER_RUN = 20
+# The lookup runs inside the create request (so the title shows immediately), so it is bounded tightly:
+# one short attempt per integration, no transient retry.
+GITHUB_LOOKUP_TIMEOUT_SECONDS = 5
 
 
 @frozen
@@ -32,24 +38,26 @@ class GithubLinkMetadata:
     link_state: TicketGithubLinkState
 
 
-def fetch_github_link_metadata(
-    team_id: int, repo: str, number: int, *, github: GitHubIntegration | None = None
-) -> GithubLinkMetadata | None:
-    """Look the issue/PR up via a GitHub integration that can see ``repo``; None if none can or the call fails."""
-    github = github or find_github_integration(team_id, repo)
-    if github is None:
-        return None
+def fetch_github_link_metadata(team_id: int, repo: str, number: int) -> GithubLinkMetadata | None:
+    """Ask each GitHub integration on the team for the issue; None if none can see it or GitHub fails.
+
+    GitHub answers 404 for repositories an installation cannot access, so the lookup doubles as the
+    access probe and the next integration is tried. Any other failure (rate limit, egress budget,
+    network, unexpected payload) leaves the link without metadata rather than failing the request.
+    """
     try:
-        payload = github.get_issue(repo, number)
+        for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+            github = GitHubIntegration(integration, source="conversations", priority=Priority.NORMAL)
+            try:
+                payload = github.get_issue(repo, number, timeout=GITHUB_LOOKUP_TIMEOUT_SECONDS, retry_transient=False)
+            except GitHubIntegrationError as e:
+                if e.status_code == 404:
+                    continue
+                raise
+            return _metadata_from_issue_payload(payload)
     except Exception:
-        # Any failure (not found, rate-limited, egress budget, network) just leaves the link without metadata.
         logger.info("conversations_github_link_metadata_failed", repo=repo, number=number, exc_info=True)
-        return None
-    return _metadata_from_issue_payload(payload)
-
-
-def find_github_integration(team_id: int, repo: str) -> GitHubIntegration | None:
-    return GitHubIntegration.first_for_team_repository(team_id, repo, source="conversations", priority=Priority.NORMAL)
+    return None
 
 
 def _metadata_from_issue_payload(payload: dict) -> GithubLinkMetadata | None:
@@ -81,22 +89,28 @@ def apply_github_link_metadata(link: TicketGithubLink, metadata: GithubLinkMetad
     link.metadata_synced_at = timezone.now()
 
 
-def refresh_stale_github_links(team_id: int, links: Iterable[TicketGithubLink]) -> None:
-    """Re-fetch title/state for links whose metadata is missing or older than METADATA_STALE_AFTER.
+def is_github_link_stale(link: TicketGithubLink) -> bool:
+    return link.metadata_synced_at is None or link.metadata_synced_at < timezone.now() - METADATA_STALE_AFTER
 
-    Bounded to MAX_REFRESHES_PER_REQUEST GitHub lookups, resolving the integration once per repo.
+
+def has_stale_github_links(links: Iterable[TicketGithubLink]) -> bool:
+    return any(is_github_link_stale(link) for link in links)
+
+
+def refresh_stale_github_links(team_id: int, ticket_id: str) -> int:
+    """Re-fetch title/state for the ticket's links whose metadata is missing or older than METADATA_STALE_AFTER.
+
+    Meant for a background task: each link costs up to one GitHub call per integration. Returns the
+    number of links refreshed. The sync time is stamped even when no integration can see the repo, so a
+    link is probed at most once per staleness window.
     """
     cutoff = timezone.now() - METADATA_STALE_AFTER
-    stale = [link for link in links if link.metadata_synced_at is None or link.metadata_synced_at < cutoff]
-    if not stale:
-        return
-
-    integrations: dict[str, GitHubIntegration | None] = {}
-    for link in stale[:MAX_REFRESHES_PER_REQUEST]:
-        if link.repo not in integrations:
-            integrations[link.repo] = find_github_integration(team_id, link.repo)
-        github = integrations[link.repo]
-        # Stamp the sync time even with no usable integration so the next page view doesn't re-probe.
-        metadata = fetch_github_link_metadata(team_id, link.repo, link.number, github=github) if github else None
-        apply_github_link_metadata(link, metadata)
+    stale = list(
+        TicketGithubLink.objects.filter(ticket_id=ticket_id)
+        .filter(Q(metadata_synced_at__isnull=True) | Q(metadata_synced_at__lt=cutoff))
+        .order_by("created_at")[:MAX_REFRESHES_PER_RUN]
+    )
+    for link in stale:
+        apply_github_link_metadata(link, fetch_github_link_metadata(team_id, link.repo, link.number))
         link.save(update_fields=["title", "link_type", "link_state", "metadata_synced_at"])
+    return len(stale)
