@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { MetricsFundamentals } from './components/MetricsFundamentals'
 import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
@@ -65,6 +66,9 @@ const MetricsSceneContent = (): JSX.Element => {
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
+    // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
+    // races the has_metrics check instead of waiting on the setup prompt to resolve.
+    useMountedLogic(metricNamePickerLogic)
 
     return (
         <>

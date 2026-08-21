@@ -1818,6 +1818,8 @@ export interface TaskCreateApi {
      * @nullable
      */
     channel?: string | null
+    /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
+    naming_source?: string
     /**
      * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
      * @nullable
@@ -3306,6 +3308,7 @@ export const JsonrpcEnumApi = {
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
+ * * `side_question` - side_question
  */
 export type TaskRunCommandRequestMethodEnumApi =
     (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
@@ -3320,6 +3323,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
+    SideQuestion: 'side_question',
 } as const
 
 /**
@@ -3340,7 +3344,8 @@ export interface TaskRunCommandRequestApi {
      * * `mcp_response` - mcp_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear */
+     * * `queue_clear` - queue_clear
+     * * `side_question` - side_question */
     method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams

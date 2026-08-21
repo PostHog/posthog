@@ -416,9 +416,14 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     # Fixed message: the raw CH text formats a per-row value (e.g. geoToH3 resolution) into the error.
     69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND", user_safe="An argument is out of bounds."),
-    # 70/72 stay internal: their CH messages embed the failing data value (see code 6 note).
-    70: ErrorCodeMeta("CANNOT_CONVERT_TYPE", category=QueryErrorCategory.USER_ERROR),
+    # Fixed message: the raw CH text embeds the failing data value (see code 6 note), so a fixed
+    # string keeps that value out of the response while still returning a 400 for the bad query.
+    70: ErrorCodeMeta(
+        "CANNOT_CONVERT_TYPE",
+        user_safe="Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
+    ),
     71: ErrorCodeMeta("CANNOT_WRITE_AFTER_END_OF_BUFFER"),
+    # 72 stays internal: the CH message embeds the failing data value (see code 6 note).
     72: ErrorCodeMeta("CANNOT_PARSE_NUMBER", category=QueryErrorCategory.USER_ERROR),
     73: ErrorCodeMeta("UNKNOWN_FORMAT"),
     74: ErrorCodeMeta("CANNOT_READ_FROM_FILE_DESCRIPTOR"),

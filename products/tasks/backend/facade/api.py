@@ -256,6 +256,7 @@ __all__ = [
     "record_comment_activity",
     "record_task_activity_for_users",
     "set_task_activity_target",
+    "signal_task_run_client_activity",
     "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
@@ -408,8 +409,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "model",
         "pending_user_artifact_ids",
         "pending_user_message",
+        "pending_user_message_id",
         "pr_authorship_mode",
         "pr_base_branch",
+        "prewarmed",
         "provider",
         "reasoning_effort",
         "repositories",
@@ -1539,6 +1542,16 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
+    try:
+        run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "task_id", "state").first()
+        if run is not None:
+            run.signal_client_activity()
+    except Exception:
+        logger.warning("Failed to signal client activity for task run %s", run_id)
+
+
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
     """Run-state updates recording the Slack user currently steering a run.
 
@@ -2184,6 +2197,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
+        # is_interactive_signals_run reads its presence the same way, to tell a pipeline-started
+        # signals run from one a person started; forging it would move the run off the interactive
+        # budget and out of its per-run spend ceiling.
         "ai_stage",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
@@ -2279,6 +2295,28 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
+def _shared_slack_thread_q() -> Q:
+    """Slack tasks whose thread is not a direct message.
+
+    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
+    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
+    has today instead of silently narrowing to the thread starter.
+
+    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
+    other task short-circuits on an indexed column before touching the mapping table.
+    """
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        PRIVATE_CONVERSATION_TYPES,
+        SlackThreadTaskMapping,
+    )
+
+    private_thread = SlackThreadTaskMapping.objects.filter(
+        task_id=OuterRef("pk"),
+        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
+    )
+    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
+
+
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -2297,10 +2335,20 @@ def task_accessible_for_run_view(
 
     Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
     the OAuth token's ``sandbox_task_id`` matches this task.
+
+    Tasks from a shared Slack conversation are readable by the whole team. Such a thread is
+    multiplayer: every member of the conversation already sees the agent's replies and follows
+    the links in them, so gating those links on the one person who opened the thread makes the
+    reply unusable for everyone else. The task itself is filed in its creator's personal space,
+    so ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
+    with the creator, whose credentials the sandbox runs under.
+
+    Threads from a direct message are excluded: a DM has no audience beyond its author, so
+    there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
@@ -5259,6 +5307,9 @@ def create_task(
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    # Names the task from the pasted content while `description` stays the bare prompt. Write-only,
+    # never persisted, so it must be popped before `Task.objects.create(**validated_data)`.
+    naming_source = (validated_data.pop("naming_source", None) or "").strip() or None
     channel = validated_data.get("channel")
     if (
         channel is not None
@@ -5341,7 +5392,7 @@ def create_task(
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
             if description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(description)
+                warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -5428,8 +5479,8 @@ def create_task(
             validated_data["github_user_integration"] = github_user_integration.integration
 
     title = (validated_data.get("title") or "").strip()
-    if not title and validated_data.get("description"):
-        validated_data["title"] = generate_task_title(validated_data["description"])
+    if not title and (naming_source or validated_data.get("description")):
+        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
