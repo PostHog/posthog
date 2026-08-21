@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from pydantic import ValidationError
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -84,6 +86,14 @@ def _load_discovery_run(team_id: int, run_id: str) -> FeatureDiscoveryRun:
     return FeatureDiscoveryRun.objects.for_team(team_id).get(id=run_id)
 
 
+def _set_discovery_failure_details(team_id: int, run_id: str, failure_details: str) -> None:
+    FeatureDiscoveryRun.objects.for_team(team_id).filter(id=run_id).update(
+        status=FeatureDiscoveryRun.Status.FAILED,
+        error="Feature discovery failed. Check the repository connection and try again.",
+        failure_details=failure_details,
+    )
+
+
 @pytest.mark.asyncio
 async def test_feature_discovery_stops_when_agent_says_there_are_no_more_features() -> None:
     session = MagicMock()
@@ -110,6 +120,41 @@ async def test_feature_discovery_stops_when_agent_says_there_are_no_more_feature
     assert [feature.title for feature in result.features] == ["Session replay"]
     assert session.send_followup.await_count == 2
     assert "Only replay features" in session.send_followup.await_args_list[0].args[0]
+    session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_feature_discovery_corrects_an_invalid_feature_document() -> None:
+    invalid_document = _feature().model_dump()
+    invalid_document["code_references"][0]["contents"] = "\n".join(f"line {index}" for index in range(21))
+    with pytest.raises(ValidationError) as validation_error:
+        DiscoveredFeatureDocument.model_validate(invalid_document)
+
+    session = MagicMock()
+    session.task.id = "task-id"
+    session.task_run.id = "run-id"
+    session.send_followup = AsyncMock(
+        side_effect=[
+            validation_error.value,
+            _feature(),
+            FeatureDiscoveryContinuation(has_more=False, reason="No other feature remains."),
+        ]
+    )
+    session.end = AsyncMock()
+
+    with patch(
+        "products.signals.backend.features.discovery.MultiTurnSession.start",
+        new=AsyncMock(return_value=(session, _exploration())),
+    ):
+        result = await run_multi_turn_feature_discovery(
+            repository="PostHog/posthog",
+            focus="Only replay features",
+            context=MagicMock(),
+        )
+
+    assert [feature.title for feature in result.features] == ["Session replay"]
+    assert session.send_followup.await_count == 3
+    assert "must not exceed 20 lines" in session.send_followup.await_args_list[1].args[0]
     session.end.assert_awaited_once_with()
 
 
@@ -183,6 +228,28 @@ async def test_feature_discovery_failure_activity_marks_the_run_failed_from_asyn
     assert saved_run.status == FeatureDiscoveryRun.Status.FAILED
     assert saved_run.error == "Feature discovery failed. Check the repository connection and try again."
     assert saved_run.failure_details == "Activity task failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_feature_discovery_cleanup_preserves_the_specific_activity_failure(ateam: Team) -> None:
+    run = await database_sync_to_async(_create_discovery_run)(ateam)
+    await database_sync_to_async(_set_discovery_failure_details, thread_sensitive=False)(
+        ateam.id,
+        str(run.id),
+        "Code references must not exceed 20 lines",
+    )
+
+    await mark_feature_discovery_failed_activity(
+        FeatureDiscoveryFailedInput(
+            run_id=str(run.id),
+            team_id=ateam.id,
+            error="Activity task failed",
+        )
+    )
+
+    saved_run = await database_sync_to_async(_load_discovery_run)(ateam.id, str(run.id))
+    assert saved_run.failure_details == "Code references must not exceed 20 lines"
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db.models import Case, F, TextField, Value, When
 from django.utils import timezone
 
 import structlog
@@ -70,7 +71,11 @@ def _mark_discovery_failed(team_id: int, run_id: str, failure_details: str) -> N
         .update(
             status=FeatureDiscoveryRun.Status.FAILED,
             error=_FEATURE_DISCOVERY_FAILED_MESSAGE,
-            failure_details=failure_details[:_MAX_FAILURE_DETAILS_LENGTH],
+            failure_details=Case(
+                When(failure_details="", then=Value(failure_details[:_MAX_FAILURE_DETAILS_LENGTH])),
+                default=F("failure_details"),
+                output_field=TextField(),
+            ),
             updated_at=timezone.now(),
         )
     )

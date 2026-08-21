@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 from django.db import transaction
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
@@ -29,6 +30,8 @@ from products.tasks.backend.facade.repo_selection_types import RepoSelectionResu
 from products.tasks.backend.models import TaskRun
 
 MAX_DISCOVERED_FEATURES = 30
+_MAX_VALIDATION_ERROR_LENGTH = 4000
+_StructuredOutputT = TypeVar("_StructuredOutputT", bound=BaseModel)
 
 
 class FeatureDiscoveryExploration(BaseModel):
@@ -171,13 +174,40 @@ def build_feature_document_prompt(existing_titles: list[str], focus: str) -> str
 {scope_reminder}Do not repeat or subdivide one of these already documented features:
 {previous}
 
-The report must describe what the feature does today, not a proposed project. Ground every claim in code you inspected. Explain the end-to-end user journey and account for the wider codebase and any related repositories. The measurement plan should name concrete PostHog events, properties, insights, dashboards, flags, experiments, errors, logs, or replays that an owner could use. The owner scout playbook should tell an agent what to monitor and how to find safe optimization work over time.
+The report must describe what the feature does today, not a proposed project. Ground every claim in code you inspected. Explain the end-to-end user journey and account for the wider codebase and any related repositories. The measurement plan should name concrete PostHog events, properties, insights, dashboards, flags, experiments, errors, logs, or replays that an owner could use. The owner scout playbook should tell an agent what to monitor and how to find safe optimization work over time. Each code reference must contain at most 20 lines, and its start and end lines must match that excerpt.
 
 Respond with JSON matching this schema:
 
 <jsonschema>
 {schema}
 </jsonschema>"""
+
+
+async def _send_structured_followup(
+    session: MultiTurnSession,
+    prompt: str,
+    model: type[_StructuredOutputT],
+    *,
+    label: str,
+) -> _StructuredOutputT:
+    try:
+        return await session.send_followup(prompt, model, label=label)
+    except ValueError as error:
+        if isinstance(error, ValidationError):
+            error_details = json.dumps(
+                error.errors(include_url=False, include_context=False, include_input=False),
+                indent=2,
+            )
+        else:
+            error_details = str(error)
+        correction_prompt = f"""Your previous response did not match the required JSON schema.
+
+Correct the full response and return the complete JSON object again. Preserve valid evidence and fix every validation error below.
+
+<validation_errors>
+{error_details[:_MAX_VALIDATION_ERROR_LENGTH]}
+</validation_errors>"""
+        return await session.send_followup(correction_prompt, model, label=f"{label}_correction")
 
 
 def build_continuation_prompt(existing_titles: list[str], focus: str) -> str:
@@ -220,13 +250,15 @@ async def run_multi_turn_feature_discovery(
     try:
         if exploration.has_candidates:
             while len(features) < MAX_DISCOVERED_FEATURES:
-                feature = await session.send_followup(
+                feature = await _send_structured_followup(
+                    session,
                     build_feature_document_prompt([item.title for item in features], focus),
                     DiscoveredFeatureDocument,
                     label=f"feature_{len(features) + 1}",
                 )
                 features.append(feature)
-                continuation = await session.send_followup(
+                continuation = await _send_structured_followup(
+                    session,
                     build_continuation_prompt([item.title for item in features], focus),
                     FeatureDiscoveryContinuation,
                     label=f"more_after_feature_{len(features)}",
