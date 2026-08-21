@@ -4,9 +4,9 @@ import {
   HouseSimple,
   type IconProps,
   Lightning,
-  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
+import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import type { NavRailPane } from "@posthog/ui/features/canvas/stores/navRailStore";
 import {
@@ -63,7 +63,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     pane: "spaces",
     label: "Spaces",
     analyticsId: "spaces",
-    Icon: SquaresFourIcon,
+    Icon: SpacesIcon,
     viewTypes: [],
     onPick: showChannelList,
   },

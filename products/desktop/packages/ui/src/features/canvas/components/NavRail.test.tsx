@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -50,6 +50,7 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 }));
 
 import { useChannelPaneStore } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
@@ -61,6 +62,8 @@ describe("NavRail", () => {
     mocks.pathname = "/website/home";
     useNavRailStore.setState({ pane: "spaces" });
     useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
+    useCurrentChannelStore.setState({ currentChannelId: null });
+    useChannelPaneStore.setState({ pane: "channel" });
   });
 
   it("hands the sidebar column to Activity without leaving the current screen", async () => {
@@ -211,6 +214,21 @@ describe("NavRail", () => {
     rerender(<NavRail />);
 
     expect(useNavRailStore.getState().pane).toBe("spaces");
+  });
+
+  it("lights the last square of the Spaces mark while a space is open", () => {
+    useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
+    useChannelPaneStore.setState({ pane: "channel" });
+    const { container, rerender } = render(<NavRail />);
+    const lit = () =>
+      container.querySelectorAll('rect[fill="var(--primary)"]').length;
+
+    expect(lit()).toBe(1);
+
+    act(() => useChannelPaneStore.setState({ pane: "list" }));
+    rerender(<NavRail />);
+
+    expect(lit()).toBe(0);
   });
 
   it("counts a channel or task as part of Spaces", () => {
