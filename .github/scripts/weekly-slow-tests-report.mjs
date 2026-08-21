@@ -14,24 +14,25 @@
 import { pathToFileURL } from 'node:url'
 
 import {
+    API_KEY,
     cell,
+    DRY_RUN,
+    editWorkflowBlock,
+    GITHUB_REPOSITORY,
+    GITHUB_SERVER_URL,
     hogql,
     linkedCell,
     postToSlack,
+    PROJECT_ID,
     repoPathResolver,
     resolveOwners,
     shortName,
-} from './weekly-flaky-report.mjs'
+    SLACK_BOT_TOKEN,
+    GITHUB_REF_NAME,
+} from './weekly-report-common.mjs'
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ''
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
-const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
-
-const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com'
 const GITHUB_API_URL = process.env.GITHUB_API_URL || 'https://api.github.com'
-const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || 'PostHog/posthog'
-const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
-const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
 const TOP_N = 10
 const CANDIDATE_POOL = 30
@@ -313,10 +314,9 @@ function buildBlocks(now, rows) {
             ],
         },
     ]
-    const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
-    if (GITHUB_REPOSITORY && workflowPath) {
-        const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/${GITHUB_REF_NAME}/${workflowPath}`
-        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${editUrl}|edit this workflow>` }] })
+    const editBlock = editWorkflowBlock()
+    if (editBlock) {
+        blocks.push(editBlock)
     }
     return blocks
 }
@@ -347,7 +347,7 @@ async function resolveEditorsFor(candidates) {
 }
 
 async function main() {
-    if (!process.env.POSTHOG_PROJECT_ID || !process.env.POSTHOG_API_KEY) {
+    if (!PROJECT_ID || !API_KEY) {
         console.warn('POSTHOG_PROJECT_ID / POSTHOG_API_KEY not set - skipping report. Wire them to enable.')
         return
     }
