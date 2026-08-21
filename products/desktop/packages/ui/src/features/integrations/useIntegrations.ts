@@ -115,7 +115,11 @@ function useAllGithubRepositories(githubIntegrations: Integration[]) {
       staleTime: 5 * 60 * 1000,
       meta: AUTH_SCOPED_QUERY_META,
     })),
-    combine: combineGithubRepositories,
+    combine: (results) =>
+      combineGithubRepositories(
+        results,
+        githubIntegrations.map((integration) => integration.id),
+      ),
   });
 }
 
@@ -583,8 +587,11 @@ export function useRepositoryIntegration() {
     useIntegrationSelectors();
   const [isRefreshingRepos, setIsRefreshingRepos] = useState(false);
 
-  const { repositoryMap, isPending: reposPending } =
-    useAllGithubRepositories(githubIntegrations);
+  const {
+    repositoryMap,
+    isPending: reposPending,
+    failedIntegrationIds,
+  } = useAllGithubRepositories(githubIntegrations);
 
   const repositories = useMemo(
     () => Object.keys(repositoryMap),
@@ -628,5 +635,6 @@ export function useRepositoryIntegration() {
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
+    failedIntegrationIds,
   };
 }

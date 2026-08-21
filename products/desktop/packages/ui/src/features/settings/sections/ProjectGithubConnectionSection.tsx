@@ -158,8 +158,14 @@ function ProjectGithubIntegrationRow({
   const client = useOptionalAuthenticatedClient();
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const { repositories, getIntegrationIdForRepo, isLoadingRepos } =
-    useRepositoryIntegration();
+  const {
+    repositories,
+    getIntegrationIdForRepo,
+    isLoadingRepos,
+    failedIntegrationIds,
+  } = useRepositoryIntegration();
+
+  const hasRepoFetchFailed = failedIntegrationIds.includes(integration.id);
 
   const installationId =
     integration.config?.installation_id ?? integration.integration_id ?? "";
@@ -223,6 +229,7 @@ function ProjectGithubIntegrationRow({
         repos={repos}
         status={status}
         isLoadingRepos={isLoadingRepos}
+        hasRepoFetchFailed={hasRepoFetchFailed}
         meta={
           typeof integration.created_at === "string"
             ? `Connected ${formatRelativeTimeLong(integration.created_at)}`
