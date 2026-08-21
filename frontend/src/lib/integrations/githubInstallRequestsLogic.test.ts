@@ -122,4 +122,19 @@ describe('githubInstallRequestsLogic', () => {
         }).toDispatchActions(['loadInstallRequests', 'loadInstallRequestsSuccess'])
         expect(deletedIds).toEqual([pendingRequest.id, pendingRequest.id])
     })
+
+    it('marks a request as dismissing while its delete is in flight, then clears it', async () => {
+        results = [pendingRequest]
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstallRequestsSuccess'])
+
+        results = []
+        // The reducer applies synchronously on dispatch, before the DELETE resolves, so the button
+        // can disable itself for the duration.
+        logic.actions.dismissInstallRequest(pendingRequest.id)
+        expect(logic.values.dismissingRequestIds).toEqual([pendingRequest.id])
+
+        await expectLogic(logic).toDispatchActions(['dismissInstallRequestSuccess', 'loadInstallRequestsSuccess'])
+        expect(logic.values.dismissingRequestIds).toEqual([])
+    })
 })

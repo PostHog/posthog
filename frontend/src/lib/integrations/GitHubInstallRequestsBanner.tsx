@@ -25,7 +25,8 @@ export function GitHubInstallRequestsBanner({
     /** Alternative to `onFinishConnecting` for surfaces whose connect is a plain link. */
     finishConnectingUrl?: string
 }): JSX.Element | null {
-    const { pendingInstallRequests, approvedInstallRequests, installUrl } = useValues(githubInstallRequestsLogic)
+    const { pendingInstallRequests, approvedInstallRequests, installUrl, dismissingRequestIds } =
+        useValues(githubInstallRequestsLogic)
     const { startPolling, stopPolling, dismissInstallRequest } = useActions(githubInstallRequestsLogic)
 
     useOnMountEffect(() => {
@@ -57,7 +58,12 @@ export function GitHubInstallRequestsBanner({
                             >
                                 Finish connecting
                             </LemonButton>
-                            <LemonButton type="tertiary" size="small" onClick={() => dismissInstallRequest(request.id)}>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                loading={dismissingRequestIds.includes(request.id)}
+                                onClick={() => dismissInstallRequest(request.id)}
+                            >
                                 Dismiss
                             </LemonButton>
                         </div>
@@ -98,7 +104,12 @@ export function GitHubInstallRequestsBanner({
                                     Copy message for your org owner
                                 </LemonButton>
                             ) : null}
-                            <LemonButton type="tertiary" size="small" onClick={() => dismissInstallRequest(request.id)}>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                loading={dismissingRequestIds.includes(request.id)}
+                                onClick={() => dismissInstallRequest(request.id)}
+                            >
                                 Dismiss
                             </LemonButton>
                         </div>
