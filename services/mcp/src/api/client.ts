@@ -489,11 +489,22 @@ export class ApiClient {
                         if (experimentMatch) {
                             const experimentId = experimentMatch[1]
                             console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
-                            throw new Error(
-                                `Experiment ${experimentId} not found in this project. ` +
+                            // Carry the recovery guidance on a typed 404 so
+                            // handleToolError classifies a wrong or cross-project
+                            // experiment id as recoverable agent input (returned
+                            // for self-correction) instead of capturing it as an
+                            // engineering exception.
+                            throw new PostHogApiError({
+                                status: response.status,
+                                statusText: response.statusText,
+                                body: errorText,
+                                url,
+                                method,
+                                message:
+                                    `Experiment ${experimentId} not found in this project. ` +
                                     `If the id is correct, the experiment may belong to a different project — ` +
-                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
-                            )
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`,
+                            })
                         }
                     }
 
@@ -691,14 +702,27 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (findResponse.status === 404) {
+                        // Typed 404 so handleToolError returns this to the agent
+                        // for self-correction instead of capturing it as an
+                        // engineering exception.
                         return {
                             success: false,
-                            error: new Error(`Event definition not found: ${eventName}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: findResponse.statusText,
+                                body: await findResponse.text(),
+                                url: findUrl,
+                                method: 'GET',
+                                message: `Event definition not found: ${eventName}`,
+                            }),
                         }
                     }
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find event definition: ${findResponse.statusText}`)
+                        // buildApiError reads the response body, so a 4xx keeps its
+                        // typed classification and the API's error detail instead of
+                        // collapsing to a bare status text.
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const eventDef = (await findResponse.json()) as ApiEventDefinition
@@ -712,7 +736,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update event definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiEventDefinition
@@ -756,18 +780,31 @@ export class ApiClient {
                     const findResponse = await this.fetch(findUrl)
 
                     if (!findResponse.ok) {
-                        throw new Error(`Failed to find property definition: ${findResponse.statusText}`)
+                        // buildApiError reads the response body, so a 4xx keeps its
+                        // typed classification and the API's error detail instead of
+                        // collapsing to a bare status text.
+                        throw this.buildApiError(findResponse, await findResponse.text(), findUrl, 'GET')
                     }
 
                     const findData = (await findResponse.json()) as { results: ApiPropertyDefinition[] }
                     const propertyDef = findData.results.find((def) => def.name === propertyName)
 
                     if (!propertyDef) {
+                        // The list endpoint returns 200 with a client-side name miss,
+                        // so synthesize a typed 404 — reachable by a mistyped name or
+                        // the wrong `type` — that handleToolError returns to the agent
+                        // for self-correction instead of capturing as an exception.
+                        const message = `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
                         return {
                             success: false,
-                            error: new Error(
-                                `Property definition not found: ${propertyName} (type: ${type ?? 'event'})`
-                            ),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: message,
+                                url: findUrl,
+                                method: 'GET',
+                                message,
+                            }),
                         }
                     }
 
@@ -779,7 +816,7 @@ export class ApiClient {
                     })
 
                     if (!updateResponse.ok) {
-                        throw new Error(`Failed to update property definition: ${updateResponse.statusText}`)
+                        throw this.buildApiError(updateResponse, await updateResponse.text(), updateUrl, 'PATCH')
                     }
 
                     const responseData = (await updateResponse.json()) as ApiPropertyDefinition
@@ -1070,9 +1107,24 @@ export class ApiClient {
                     const insight = insights[0]
 
                     if (insights.length === 0 || !insight) {
+                        // The list endpoint returns HTTP 200 with an empty
+                        // `results` array for an unknown short_id, so fetchJson
+                        // never mints a typed error. Synthesize a 404
+                        // PostHogApiError so handleToolError classifies a
+                        // mistyped id as recoverable agent input (returned for
+                        // self-correction) instead of capturing it as an
+                        // engineering exception.
+                        const message = `No insight found with short_id: ${insightId}`
                         return {
                             success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: message,
+                                url,
+                                method: 'GET',
+                                message,
+                            }),
                         }
                     }
 

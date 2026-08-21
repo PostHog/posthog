@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import { AIObservabilityGetCostsSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -41,7 +42,7 @@ export const getLLMCostsHandler: ToolBase<typeof schema, Result>['handler'] = as
 
     const costsResult = await context.api.query({ projectId }).execute({ queryBody: trendsQuery })
     if (!costsResult.success) {
-        throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
+        throw wrapError(`Failed to get LLM costs: ${costsResult.error.message}`, costsResult.error)
     }
     return withPostHogUrl(context, { results: costsResult.data.results }, '/ai-observability')
 }

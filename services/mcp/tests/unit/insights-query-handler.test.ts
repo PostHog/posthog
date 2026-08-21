@@ -178,6 +178,45 @@ describe('queryHandler — link reflects overrides', () => {
     })
 })
 
+describe('queryHandler — preserves the API error cause on failure', () => {
+    // Dropping the cause here defeats the 4xx short-circuit and the 5xx recovery
+    // hint in handleToolError, filing agent typos as engineering exceptions.
+    it('carries the get failure as the thrown error cause', async () => {
+        const apiError = new Error('bad insight id')
+        const { context } = createContext()
+        ;(context.api.insights as ReturnType<typeof vi.fn>).mockReturnValue({
+            get: vi.fn().mockResolvedValue({ success: false, error: apiError }),
+            query: vi.fn(),
+        })
+
+        let caught: (Error & { cause?: unknown }) | undefined
+        try {
+            await queryHandler(context, { insightId: '42', output_format: 'json' })
+        } catch (e) {
+            caught = e as Error & { cause?: unknown }
+        }
+
+        expect(caught?.message).toMatch(/Failed to get insight: bad insight id/)
+        expect(caught?.cause).toBe(apiError)
+    })
+
+    it('carries the query failure as the thrown error cause', async () => {
+        const apiError = new Error('gateway timeout')
+        const { context, insightsQuery } = createContext()
+        insightsQuery.mockResolvedValue({ success: false, error: apiError })
+
+        let caught: (Error & { cause?: unknown }) | undefined
+        try {
+            await queryHandler(context, { insightId: '42', output_format: 'json' })
+        } catch (e) {
+            caught = e as Error & { cause?: unknown }
+        }
+
+        expect(caught?.message).toMatch(/Failed to query insight: gateway timeout/)
+        expect(caught?.cause).toBe(apiError)
+    })
+})
+
 describe('queryHandler — result shape for UI rendering', () => {
     const formatted = 'c\n1'
 

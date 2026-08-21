@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError } from '@/lib/errors'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -301,6 +302,25 @@ describe('ApiClient', () => {
             vi.unstubAllGlobals()
         })
 
+        it('returns a typed 404 PostHogApiError when the short_id list comes back empty', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'zzzz9999' })
+
+            // A plain Error here defeats handleToolError's 4xx short-circuit, so a
+            // mistyped short_id gets filed as an engineering exception.
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the empty short_id lookup to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('No insight found with short_id: zzzz9999')
+
+            vi.unstubAllGlobals()
+        })
+
         it('resolves short_id and applies overrides in a single list call', async () => {
             const { client, mockFetch } = setupClient()
             mockFetch.mockResolvedValueOnce(
@@ -320,6 +340,149 @@ describe('ApiClient', () => {
             expect(url).toContain('short_id=abc12345')
             expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
             expect(url).not.toContain('filters_override')
+
+            vi.unstubAllGlobals()
+        })
+    })
+
+    describe('experiments().get() — 404 handling', () => {
+        it('returns a typed 404 PostHogApiError carrying the recovery guidance', async () => {
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Not found.' }), { status: 404 }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client.experiments({ projectId: '1' }).get({ experimentId: 999 })
+
+            // A plain Error here defeats handleToolError's 4xx short-circuit, so a
+            // wrong or cross-project experiment id gets filed as an engineering exception.
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the experiment 404 lookup to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('Experiment 999 not found in this project')
+            expect(result.error.message).toContain('experiment-list')
+
+            vi.unstubAllGlobals()
+        })
+    })
+
+    describe('projects().updateEventDefinition() — typed failures', () => {
+        it('returns a typed 404 PostHogApiError when the event name is not found', async () => {
+            // by_name lookup 404s; the tool should get a recoverable typed error, not
+            // a plain Error that handleToolError captures as an exception.
+            const mockFetch = vi.fn().mockResolvedValueOnce(new Response('', { status: 404, statusText: 'Not Found' }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client
+                .projects()
+                .updateEventDefinition({ projectId: '1', eventName: 'nope', data: { verified: true } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the event definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('Event definition not found: nope')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('surfaces the API error detail when the update PATCH fails', async () => {
+            // The old code kept only response.statusText, so the serializer detail
+            // never reached the agent. buildApiError reads the body onto a typed error.
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(JSON.stringify({ id: 7, name: '$pageview' }), { status: 200 }))
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ detail: 'tags must be unique' }), {
+                        status: 400,
+                        statusText: 'Bad Request',
+                    })
+                )
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client
+                .projects()
+                .updateEventDefinition({ projectId: '1', eventName: '$pageview', data: { tags: ['a', 'a'] } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the event definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(400)
+            expect(result.error.message).toContain('tags must be unique')
+
+            vi.unstubAllGlobals()
+        })
+    })
+
+    describe('projects().updatePropertyDefinition() — typed failures', () => {
+        it('returns a typed 404 PostHogApiError when no property matches the name', async () => {
+            // The list endpoint returns 200 and the name miss is client-side, so the
+            // tool must get a recoverable typed error rather than a captured exception.
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client
+                .projects()
+                .updatePropertyDefinition({
+                    projectId: '1',
+                    propertyName: 'nope',
+                    type: 'event',
+                    data: { verified: true },
+                })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the property definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(404)
+            expect(result.error.message).toContain('Property definition not found: nope (type: event)')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('surfaces the API error detail when the update PATCH fails', async () => {
+            const mockFetch = vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ results: [{ id: 5, name: '$browser' }] }), { status: 200 })
+                )
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ detail: 'invalid property_type' }), {
+                        status: 400,
+                        statusText: 'Bad Request',
+                    })
+                )
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+
+            const result = await client.projects().updatePropertyDefinition({
+                projectId: '1',
+                propertyName: '$browser',
+                type: 'event',
+                data: { property_type: 'Numeric' },
+            })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected the property definition update to fail')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(400)
+            expect(result.error.message).toContain('invalid property_type')
 
             vi.unstubAllGlobals()
         })
