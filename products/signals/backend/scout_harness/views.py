@@ -40,13 +40,14 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 
 # PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
 # Authenticators are tried in order and a browser-session request authenticates on
 # the first matching class, so DRF's plain `SessionAuthentication` would let a
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
@@ -1750,10 +1751,105 @@ def _upsert_scout_config(
         context=serializer_context,
     )
     update.is_valid(raise_exception=True)
-    save_kwargs = {}
+    save_kwargs: dict[str, Any] = {}
     if not config.enabled and update.validated_data.get("enabled"):
         save_kwargs["enabled_by"] = request.user
+    # Provenance is create-only, so the update serializer does not carry it. Stamp it here for the
+    # row someone else created first, or the owning product would never find its own scout.
+    for field in ("source_product", "source_id"):
+        if tunables.get(field) and not getattr(config, field):
+            save_kwargs[field] = tunables[field]
     return update.save(**save_kwargs), False
+
+
+@frozen
+class ScoutCreationOutcome:
+    """What a scout creation produced. `created` is False when a scout of this name already existed
+    and the supplied config was applied to it instead."""
+
+    skill: LLMSkill
+    config: SignalScoutConfig
+    created: bool
+
+
+def create_scout_for_source(
+    *,
+    team: Team,
+    user: User,
+    name: str,
+    description: str,
+    body: str,
+    files: list[Any],
+    config_options: dict[str, Any],
+    request: Any,
+    serializer_context: dict[str, Any],
+    source_product: str | None = None,
+    source_id: str | None = None,
+) -> ScoutCreationOutcome:
+    """Create a scout skill and its config in one transaction, optionally recording who owns it.
+
+    `source_product` / `source_id` are trusted arguments, never request input: the caller is another
+    product's view that has already checked the caller may act on the object being named. They are
+    deliberately absent from the public create serializer, because this endpoint cannot make that
+    check for an object it knows nothing about, and a claim it cannot verify must not be storable.
+
+    Creating a scout creates an `LLMSkill` carrying the report-channel agent tools, so the caller
+    clears the skill-authoring bar here whatever route they came in by. A product that owns the
+    object checks its own access on top; it cannot stand in for this one.
+    """
+    if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
+
+    with transaction.atomic():
+        try:
+            skill = create_skill(
+                team,
+                user=user,
+                name=name,
+                description=description,
+                body=body,
+                allowed_tools=sorted(REPORT_CHANNEL_TOOLS),
+                files=files,
+            )
+            skill_created = True
+        except LLMSkillDuplicateNameConflictError:
+            existing_skill = (
+                LLMSkill.objects.select_for_update().filter(team=team, name=name, is_latest=True, deleted=False).first()
+            )
+            if existing_skill is None:
+                raise
+            if not _skill_matches_scout_definition(
+                existing_skill,
+                description=description,
+                body=body,
+                files=files,
+            ):
+                raise Conflict("A scout with this name already exists with a different definition.")
+            skill = existing_skill
+            skill_created = False
+
+        tunables = dict(config_options)
+        if source_product and source_id:
+            # Reusing a name adopts the existing config, and the source pair is what the owning
+            # product's report route trusts — so adopting an unowned scout would expose everything it
+            # filed before. A scout belongs to one object for its whole life, or to none.
+            existing_config = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=name).first()
+            if existing_config is not None and (existing_config.source_product, existing_config.source_id) != (
+                source_product,
+                source_id,
+            ):
+                raise Conflict("A scout with this name already exists and belongs elsewhere. Pick another name.")
+            tunables["source_product"] = source_product
+            tunables["source_id"] = source_id
+        config, config_created = _upsert_scout_config(
+            team_id=team.id,
+            skill_name=name,
+            tunables=tunables,
+            request=request,
+            serializer_context=serializer_context,
+        )
+
+    return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
 
 
 def _skill_matches_scout_definition(
@@ -1861,62 +1957,28 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         canonical_team = self.team.parent_team or self.team
         user = cast(User, request.user)
         self._assert_can_create_scout(user=user, canonical_team=canonical_team)
-        team_id = canonical_team.id
         validated = request.validated_data
-        name = validated["name"]
-        description = validated["description"]
-        body = validated["body"]
-        files = validated.get("files", [])
-        config_options = validated.get("config", {})
-        serializer_context = {**self.get_serializer_context(), "project_id": self.team.project_id}
-
-        with transaction.atomic():
-            try:
-                skill = create_skill(
-                    canonical_team,
-                    user=user,
-                    name=name,
-                    description=description,
-                    body=body,
-                    allowed_tools=sorted(REPORT_CHANNEL_TOOLS),
-                    files=files,
-                )
-                skill_created = True
-            except LLMSkillDuplicateNameConflictError:
-                existing_skill = (
-                    LLMSkill.objects.select_for_update()
-                    .filter(team=canonical_team, name=name, is_latest=True, deleted=False)
-                    .first()
-                )
-                if existing_skill is None:
-                    raise
-                if not _skill_matches_scout_definition(
-                    existing_skill,
-                    description=description,
-                    body=body,
-                    files=files,
-                ):
-                    raise Conflict("A scout with this name already exists with a different definition.")
-                skill = existing_skill
-                skill_created = False
-
-            config, config_created = _upsert_scout_config(
-                team_id=team_id,
-                skill_name=name,
-                tunables=config_options,
-                request=request,
-                serializer_context=serializer_context,
-            )
-
-        created = skill_created or config_created
-        skill_info = _skill_info_for(team_id, [name])
+        # No source here: this endpoint cannot check the caller's access to another product's object,
+        # so a scout created through it records no owner. A product that stands scouts up for its own
+        # objects calls `create_scout_for_source` after making that check itself.
+        outcome = create_scout_for_source(
+            team=canonical_team,
+            user=user,
+            name=validated["name"],
+            description=validated["description"],
+            body=validated["body"],
+            files=validated.get("files", []),
+            config_options=validated.get("config", {}),
+            request=request,
+            serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        )
         response = SignalScoutCreateResponseSerializer(
-            {"created": created, "skill": skill, "config": config},
-            context={"skill_info": skill_info},
+            {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
+            context={"skill_info": _skill_info_for(canonical_team.id, [validated["name"]])},
         )
         return Response(
             response.data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            status=status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK,
         )
 
 

@@ -676,7 +676,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-border border-t pt-1">
+    <div className="flex h-full min-h-0 flex-col">
       <ChannelBackRow channelId={channelId} />
 
       <div className="flex flex-col gap-px px-2 pt-2">
