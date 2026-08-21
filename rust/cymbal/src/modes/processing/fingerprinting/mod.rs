@@ -143,6 +143,7 @@ impl FingerprintVersion {
                     strip_query_strings: true,
                     strip_hashed_chunks: true,
                     basename_only: true,
+                    mask_token_segments: true,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -188,13 +189,51 @@ pub struct Normalization {
     pub strip_hashed_chunks: bool,
     // "/var/mobile/.../<device-uuid>/bundle.js" -> "bundle.js"
     pub basename_only: bool,
+    // "/verify_email/<uuid>/<token>" -> "/verify_email/*/*" — masks a whole path segment
+    // that holds an opaque id or token (verification links, signed URLs, device paths), so a
+    // per-request secret does not fork issues or land in the fingerprint in plain text.
+    pub mask_token_segments: bool,
 }
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
 
+// A build hash is a long alphanumeric run with a digit, or an all-uppercase run (esbuild's
+// alphabet can roll an all-letter token). Real identifiers in a path are almost never either.
+fn looks_like_build_hash(token: &str) -> bool {
+    token.chars().any(|c| c.is_ascii_digit()) || token.chars().all(|c| c.is_ascii_uppercase())
+}
+
+// A real file keeps a short extension (bundle.js, styles.css); a token route segment does not.
+fn has_file_extension(segment: &str) -> bool {
+    match segment.rsplit_once('.') {
+        Some((stem, ext)) => {
+            !stem.is_empty()
+                && (1..=5).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        None => false,
+    }
+}
+
+// A token segment carries a build-hash-like run but has no file extension, so masking it whole
+// removes both the volatile parts (a `token6-<hash>` prefix survives per-chunk masking) and the
+// secret itself.
+fn segment_is_token(segment: &str) -> bool {
+    if has_file_extension(segment) {
+        return false;
+    }
+    let re =
+        HASHED_CHUNK_TOKEN.get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
+    re.find_iter(segment)
+        .any(|m| looks_like_build_hash(m.as_str()))
+}
+
 impl Normalization {
     fn is_noop(&self) -> bool {
-        !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
+        !(self.strip_query_strings
+            || self.strip_hashed_chunks
+            || self.basename_only
+            || self.mask_token_segments)
     }
 
     fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -207,30 +246,31 @@ impl Normalization {
                 out.truncate(idx);
             }
         }
+        if self.mask_token_segments {
+            // Runs before `basename_only` so the token is caught whether it is the basename
+            // (a document-URL frame source) or a middle segment.
+            out = out
+                .split('/')
+                .map(|seg| if segment_is_token(seg) { "*" } else { seg })
+                .collect::<Vec<_>>()
+                .join("/");
+        }
         if self.basename_only {
             if let Some(idx) = out.rfind(['/', '\\']) {
                 out.drain(..=idx);
             }
         }
         if self.strip_hashed_chunks {
-            // Build hashes are long alphanumeric runs. Most bundler hash alphabets include
-            // digits, but esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a
-            // digit-only test misses those and mints a fresh fingerprint every time the hash
-            // happens to roll all-letter. All-uppercase is the second signal: real identifiers
-            // that end up in a path (words, camelCase names) are essentially never all-uppercase,
-            // so treat "has a digit" OR "every letter is uppercase" as a build hash. (The regex
-            // crate has no lookahead, so both checks live in the replacer.)
+            // Mask content-hashed build artifact runs (chunk-PGUQKT6S.js -> chunk-*.js). The
+            // regex crate has no lookahead, so the hash test runs in the replacer.
             let re = HASHED_CHUNK_TOKEN
                 .get_or_init(|| Regex::new(r"[A-Za-z0-9]{8,}").expect("valid regex"));
             out = re
                 .replace_all(&out, |caps: &regex::Captures| {
-                    let token = &caps[0];
-                    let looks_like_hash = token.chars().any(|c| c.is_ascii_digit())
-                        || token.chars().all(|c| c.is_ascii_uppercase());
-                    if looks_like_hash {
+                    if looks_like_build_hash(&caps[0]) {
                         "*".to_string()
                     } else {
-                        token.to_string()
+                        caps[0].to_string()
                     }
                 })
                 .into_owned();
@@ -719,6 +759,12 @@ mod test {
             (
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",
+            ),
+            // A document-URL frame source: the last path segment is a per-request token, so the
+            // basename itself is the secret. Different tokens must group as one issue.
+            (
+                "http://app.example.com/verify_email/3f0a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8/qk7m2p-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+                "http://app.example.com/verify_email/9e8d7c6b-5a49-3827-1605-f4e3d2c1b0a9/zx9w4v-1a2b3c4d5e6f70819a8b7c6d5e4f3a2b",
             ),
         ];
         for (source_a, source_b) in cases {
