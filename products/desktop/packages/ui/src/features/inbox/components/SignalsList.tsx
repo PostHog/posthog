@@ -5,7 +5,10 @@ import {
   shouldGroupSignals,
 } from "@posthog/core/inbox/signalGrouping";
 import type { Signal } from "@posthog/shared/types";
-import { SignalCard } from "@posthog/ui/features/inbox/components/detail/SignalCard";
+import {
+  SignalCard,
+  signalCardSourceLine,
+} from "@posthog/ui/features/inbox/components/detail/SignalCard";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useState } from "react";
 
@@ -31,7 +34,7 @@ export function SignalsList({ signals }: SignalsListProps) {
   return (
     <div className="flex flex-col gap-4">
       {groupReportSignals(signals).map((group) => (
-        <SignalSourceGroupSection key={group.sourceProduct} group={group} />
+        <SignalSourceGroupSection key={group.key} group={group} />
       ))}
     </div>
   );
@@ -41,7 +44,9 @@ function SignalSourceGroupSection({ group }: { group: SignalSourceGroup }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getSourceProductMeta(group.sourceProduct);
   const Icon = meta?.Icon;
-  const label = meta?.label ?? group.sourceProduct;
+  // The same "Error tracking · New issue" line the cards themselves carry, so
+  // the section header and its cards can't disagree on the source's name.
+  const label = signalCardSourceLine(group.signals[0]);
   const shown = expanded
     ? group.signals
     : group.signals.slice(0, GROUP_PREVIEW_COUNT);

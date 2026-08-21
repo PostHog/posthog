@@ -10,7 +10,10 @@ export const FLAT_SIGNALS_MAX = 4;
 export const GROUP_PREVIEW_COUNT = 2;
 
 export interface SignalSourceGroup {
+  /** Stable per-group identity: source product + source type. */
+  key: string;
   sourceProduct: string;
+  sourceType: string;
   signals: Signal[];
 }
 
@@ -19,22 +22,27 @@ export function shouldGroupSignals(signals: Signal[]): boolean {
 }
 
 /**
- * Evidence grouped by source product, in first-seen order so the grouping
- * respects the API's relevance ordering. A report with 50 error-tracking
- * exceptions reads as one section with a count instead of a wall of cards.
+ * Evidence grouped by source line (product + type), in first-seen order so
+ * the grouping respects the API's relevance ordering. A report with 50
+ * error-tracking exceptions reads as one section with a count instead of a
+ * wall of cards, and mixed types from one product ("New issue" vs
+ * "Regression") count separately.
  */
 export function groupReportSignals(signals: Signal[]): SignalSourceGroup[] {
-  const groups = new Map<string, Signal[]>();
+  const groups = new Map<string, SignalSourceGroup>();
   for (const signal of signals) {
-    const existing = groups.get(signal.source_product);
+    const key = `${signal.source_product}\u0000${signal.source_type}`;
+    const existing = groups.get(key);
     if (existing) {
-      existing.push(signal);
+      existing.signals.push(signal);
     } else {
-      groups.set(signal.source_product, [signal]);
+      groups.set(key, {
+        key,
+        sourceProduct: signal.source_product,
+        sourceType: signal.source_type,
+        signals: [signal],
+      });
     }
   }
-  return [...groups.entries()].map(([sourceProduct, grouped]) => ({
-    sourceProduct,
-    signals: grouped,
-  }));
+  return [...groups.values()];
 }

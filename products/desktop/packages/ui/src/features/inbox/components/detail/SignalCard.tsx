@@ -41,7 +41,7 @@ function prettifyScoutName(skillName: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-function signalCardSourceLine(signal: {
+export function signalCardSourceLine(signal: {
   source_product: string;
   source_type: string;
   extra?: Record<string, unknown>;
