@@ -199,6 +199,19 @@ def _add_recon_backup_row(conn: psycopg.Connection, person_id: int, uuid: str) -
         )
 
 
+def _orphan_a_distinct_id(conn: psycopg.Connection, person_id: int) -> None:
+    # Production's foreign keys are NOT VALID, so orphaned mappings predate them and a normal
+    # insert cannot make one. session_replication_role = replica disables the FK triggers for this
+    # session, which deletes the person out from under its mapping without dropping all 64
+    # per-partition constraints. Needs a superuser, which the dev and CI Postgres role is.
+    with conn.cursor() as cur:
+        cur.execute("SET session_replication_role = 'replica'")
+        try:
+            cur.execute("DELETE FROM posthog_person WHERE team_id = %s AND id = %s", (TEAM, person_id))
+        finally:
+            cur.execute("SET session_replication_role = 'origin'")
+
+
 def _count(conn: psycopg.Connection, sql: str, params: tuple = ()) -> int:
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -1079,9 +1092,29 @@ class TestPersonsDedupPlatformErrors:
 
 
 class TestPersonsDedupVerifyGate:
-    # An orphaned mapping cannot be seeded here without dropping all 64 per-partition foreign
-    # keys, so the matrix runs against the decision itself. The DB-backed wiring guard that a
-    # resolvable duplicate still fails is test_verify_fails_while_resolvable_duplicates_remain.
+    def test_an_orphaned_mapping_is_reported_without_failing_the_gate(self, persons_conn, tmp_path):
+        # repair can neither create an orphaned mapping nor remove one, so gating on it blocked
+        # the rollout on damage this command cannot fix.
+        doomed = _add_person(persons_conn, _uuid(98))
+        _add_distinct_id(persons_conn, doomed, "did-98")
+        _orphan_a_distinct_id(persons_conn, doomed)
+
+        with capture_logs() as logs:
+            _run("verify", tmp_path)
+
+        assert next(e for e in logs if e["event"] == "persons_dedup.orphaned_distinct_ids")["orphans"] == 1
+        assert next(e for e in logs if e["event"] == "persons_dedup.verify")["orphaned_distinct_ids"] == 1
+
+    def test_require_no_orphans_restores_the_stricter_gate(self, persons_conn, tmp_path):
+        doomed = _add_person(persons_conn, _uuid(99))
+        _add_distinct_id(persons_conn, doomed, "did-99")
+        _orphan_a_distinct_id(persons_conn, doomed)
+
+        with pytest.raises(CommandError, match="orphaned distinct id"):
+            _run("verify", tmp_path, require_no_orphans=True)
+
+    # The matrix runs against the decision itself, so the combinations do not each need a
+    # seeded orphan.
     @pytest.mark.parametrize(
         "resolvable,orphans,require_no_orphans,expected",
         [
@@ -1126,3 +1159,186 @@ class TestPersonsDedupReaderEndpoint:
             _run("classify", tmp_path)
 
         assert [e for e in logs if e["event"] == "persons_dedup.no_reader_configured"]
+
+
+def _spread_uuid(index: int, total: int) -> str:
+    # _uuid() returns tiny integers, which all land in the first uuid slice, so a fixture built
+    # from it would never exercise slicing. These sit in widely separated regions of the space.
+    return str(uuid_mod.UUID(int=index * ((1 << 128) // total) + 7))
+
+
+class TestPersonsDedupCensusSlicing:
+    # Slicing the uuid space must not change any answer. 1 is the unsliced fallback; the larger
+    # counts put slice boundaries between the fixture's groups.
+    SLICES = [1, 2, 3, 64]
+    SHAPES = 5
+
+    def _seed(self, conn) -> None:
+        for shape in range(self.SHAPES):
+            uuid = _spread_uuid(shape, self.SHAPES)
+            a = _add_person(conn, uuid)
+            b = _add_person(conn, uuid, is_deleted=(shape == 3))
+            if shape >= 1:
+                _add_distinct_id(conn, a, f"spread-{shape}a")
+            if shape == 2:
+                _add_distinct_id(conn, b, f"spread-{shape}b")
+            if shape == 4:
+                _add_cohort_member(conn, b)
+                _add_flag_override(conn, b, f"spread-flag-{shape}")
+                _add_recon_backup_row(conn, b, uuid)
+
+    @pytest.mark.parametrize("slices", SLICES)
+    def test_classify_reports_the_same_totals_at_any_slice_count(self, persons_conn, tmp_path, slices):
+        self._seed(persons_conn)
+
+        with capture_logs() as logs:
+            _run("classify", tmp_path, census_slices=slices)
+
+        result = next(e for e in logs if e["event"] == "persons_dedup.classify")
+        assert {key: result[key] for key in persons_dedup_command.CLASSIFY_COLUMNS} == {
+            "dup_groups": 5,
+            "all_orphaned": 1,
+            "one_referenced": 2,
+            "needs_merge": 2,
+            "groups_with_distinct_ids_on_multiple_rows": 1,
+            "blocked_groups": 2,
+            "tombstoned_members": 1,
+            "distinct_ids": 5,
+            "cohort_rows": 1,
+            "flag_overrides": 1,
+            "reconciliation_rows": 1,
+        }
+        assert result["resolvable_groups"] == 3
+
+    @pytest.mark.parametrize("slices", SLICES)
+    def test_blocked_detail_is_the_same_at_any_slice_count(self, persons_conn, tmp_path, slices):
+        # Written per slice, so a boundary between two blocked groups must not drop or duplicate
+        # either one.
+        self._seed(persons_conn)
+
+        _run("classify", tmp_path, census_slices=slices)
+
+        records = [
+            json.loads(line) for dump in tmp_path.glob("blocked_team_*.jsonl") for line in dump.read_text().splitlines()
+        ]
+        assert sorted(r["reason"] for r in records) == ["multiple_reachable_rows", "tombstoned_member"]
+        assert len({r["uuid"] for r in records}) == 2, "one record per blocked group, no duplicates"
+
+    @pytest.mark.parametrize("slices", SLICES)
+    def test_verify_counts_the_same_at_any_slice_count(self, persons_conn, tmp_path, slices):
+        self._seed(persons_conn)
+
+        with capture_logs() as logs:
+            with pytest.raises(CommandError):
+                _run("verify", tmp_path, census_slices=slices)
+
+        result = next(e for e in logs if e["event"] == "persons_dedup.verify")
+        assert result["duplicate_groups"] == 5
+        assert result["blocked_groups"] == 2
+        assert result["resolvable_groups"] == 3
+
+    @pytest.mark.parametrize("slices", SLICES)
+    def test_repair_stages_and_deletes_the_same_victims_at_any_slice_count(self, persons_conn, tmp_path, slices):
+        # Staging runs one transaction per slice, so a boundary must not leave a victim unstaged.
+        for shape in range(self.SHAPES):
+            _add_orphan_pair(persons_conn, _spread_uuid(shape, self.SHAPES), f"spread-repair-{shape}")
+        assert _persons(persons_conn) == 10
+
+        with capture_logs() as logs:
+            _run("repair", tmp_path, apply=True, census_slices=slices)
+
+        assert _persons(persons_conn) == 5, "every orphan is staged and deleted whatever the slicing"
+        assert _dup_groups(persons_conn) == 0
+        assert next(e for e in logs if e["event"] == "persons_dedup.staged")["victims"] == 5
+
+
+class TestPersonsDedupResume:
+    def test_a_run_can_resume_from_its_checkpoint_without_restaging(self, persons_conn, tmp_path, monkeypatch):
+        # An interrupted run used to lose the whole staging census. The checkpoint holds the
+        # victims still to delete, so a rerun picks up where it stopped.
+        for shape in range(4):
+            _add_orphan_pair(persons_conn, _uuid(300 + shape), f"did-300-{shape}")
+        assert _persons(persons_conn) == 8
+
+        # Stop the run after its first batch, the way a lost connection or a Ctrl-C would.
+        real_prune = persons_dedup_command.Command._prune_batch
+
+        class Stop(Exception):
+            pass
+
+        calls = {"n": 0}
+        real_write = persons_dedup_command.Command._write_checkpoint
+
+        def stop_after_second_checkpoint(self, conn, path, *, team, staged):
+            real_write(self, conn, path, team=team, staged=staged)
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise Stop()
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_write_checkpoint", stop_after_second_checkpoint)
+        with pytest.raises(Stop):
+            _run("repair", tmp_path, apply=True, batch_size=1, checkpoint_every=1)
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_prune_batch", real_prune)
+        monkeypatch.undo()
+        deleted_first = 8 - _persons(persons_conn)
+        assert deleted_first == 1, "one batch of one victim landed before the stop"
+
+        checkpoint = tmp_path / f"remaining_team_{TEAM}_repair.csv"
+        assert checkpoint.exists()
+        assert len(checkpoint.read_text().splitlines()) == 3, "the three victims still to delete"
+
+        with capture_logs() as logs:
+            _run("repair", tmp_path, apply=True, resume_from=str(checkpoint))
+
+        assert next(e for e in logs if e["event"] == "persons_dedup.resumed")["victims"] == 3
+        assert not [e for e in logs if e["event"] == "persons_dedup.step_started" and e["step"] == "stage"], (
+            "resuming must not re-run the census"
+        )
+        assert _persons(persons_conn) == 4
+        assert _dup_groups(persons_conn) == 0
+
+    def test_a_stale_checkpoint_entry_is_pruned_rather_than_deleted(self, persons_conn, tmp_path):
+        # Staging is not authoritative; the gates are. A victim that became reachable after the
+        # checkpoint was written must be dropped, not deleted.
+        victim, _survivor = _add_orphan_pair_ids(persons_conn, _uuid(310), "did-310")
+        checkpoint = tmp_path / "stale.csv"
+        checkpoint.write_text(f"{TEAM},{victim},{_uuid(310)}\n")
+
+        _add_distinct_id(persons_conn, victim, "did-310-rescued")
+
+        _run("repair", tmp_path, apply=True, resume_from=str(checkpoint))
+
+        assert _persons(persons_conn) == 2, "the rescued row must survive"
+
+    def test_a_checkpoint_for_another_team_is_refused(self, persons_conn, tmp_path):
+        # The gates only ever look at the staged set, so they cannot catch this.
+        checkpoint = tmp_path / "wrong-team.csv"
+        checkpoint.write_text(f"{TEAM + 1},999999,{_uuid(311)}\n")
+
+        with pytest.raises(CommandError, match="different team"):
+            _run("repair", tmp_path, apply=True, resume_from=str(checkpoint))
+
+    def test_resume_from_is_rejected_for_read_modes(self, persons_conn, tmp_path):
+        with pytest.raises(CommandError, match="meaningless"):
+            _run("classify", tmp_path, resume_from="/nonexistent")
+
+    def test_a_checkpoint_naming_already_deleted_victims_is_reconciled_not_pruned(self, persons_conn, tmp_path):
+        # Every prune counts against a budget meant for staging and the gate disagreeing, so a
+        # checkpoint written a few batches before the interruption must not spend it on rows whose
+        # absence is expected.
+        victim, _survivor = _add_orphan_pair_ids(persons_conn, _uuid(320), "did-320")
+        live_victim, _live_survivor = _add_orphan_pair_ids(persons_conn, _uuid(321), "did-321")
+        with persons_conn.cursor() as cur:
+            cur.execute("DELETE FROM posthog_person WHERE team_id = %s AND id = %s", (TEAM, victim))
+
+        checkpoint = tmp_path / "with-deleted.csv"
+        checkpoint.write_text(f"{TEAM},{victim},{_uuid(320)}\n{TEAM},{live_victim},{_uuid(321)}\n")
+
+        with capture_logs() as logs:
+            _run("repair", tmp_path, apply=True, resume_from=str(checkpoint))
+
+        assert next(e for e in logs if e["event"] == "persons_dedup.checkpoint_reconciled")["already_deleted"] == 1
+        assert next(e for e in logs if e["event"] == "persons_dedup.staged")["victims"] == 1
+        assert not [e for e in logs if e["event"] == "persons_dedup.batch_raced"], "no prune budget spent"
+        assert _persons(persons_conn) == 2

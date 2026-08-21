@@ -113,6 +113,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -144,12 +145,8 @@ PERSON_COLUMNS = (
 # block a delete. The personhog lifecycle and shadow tables are deliberately not consulted:
 # their ACLs are owner-only, so a subquery against them fails with permission denied for the
 # operator role.
-_MEMBERS_CTE = """
-WITH dups AS (
-    SELECT team_id, uuid FROM posthog_person
-    WHERE team_id = %(team)s
-    GROUP BY team_id, uuid HAVING count(*) > 1
-),
+_MEMBERS_CTE_TEMPLATE = """
+{dups}
 members AS (
     SELECT p.team_id, p.uuid, p.id, p.version, p.is_identified, p.created_at, p.is_deleted,
            -- n_did is what the foreign key sees, so it decides whether a row can be deleted
@@ -208,10 +205,116 @@ per_group AS (
 )
 """
 
-# Column order is load-bearing: _classify unpacks this row positionally.
-CLASSIFY_SQL = (
-    _MEMBERS_CTE
-    + """
+# Unpaged: find the duplicate groups by aggregating the team's whole slice of
+# posthog_person in one statement, holding one snapshot for as long as that takes.
+_DUPS_BY_SCAN = """
+WITH dups AS (
+    SELECT team_id, uuid FROM posthog_person
+    WHERE team_id = %(team)s
+    GROUP BY team_id, uuid HAVING count(*) > 1
+),"""
+
+# Paged: the caller already knows this page's duplicate uuids, so the group-by disappears and
+# every statement below starts from a short explicit list. PAGE_UUIDS_SQL does the scanning,
+# once, and its LIMIT is what bounds the snapshot.
+_DUPS_FROM_LIST = """
+WITH dups AS (
+    SELECT %(team)s::integer AS team_id, t.uuid
+    FROM unnest(%(uuids)s::uuid[]) AS t(uuid)
+),"""
+
+# The duplicate uuids in one slice of the uuid space. This is the only statement that scans
+# for duplicates, so paging costs no extra scanning: the slices tile the team's range once.
+#
+# Slicing the range rather than LIMITing the group count is what bounds how long a snapshot is
+# held. A LIMIT bounds only the rows returned, so on a team whose duplicates are sparse a single
+# page would scan almost the whole team to fill its quota.
+#
+# Balanced because person uuids are UUIDv5, so their leading bytes are hash output and spread
+# evenly (nodejs/src/ingestion/common/persons/person-uuid.ts). Slicing on uuid is exact because
+# posthog_person.uuid is immutable in production, so a group falls in one slice for all time.
+# Do not slice on posthog_persondistinctid.person_id, which the claim path rewrites.
+#
+# A sliced total is a sum over snapshots rather than a census at one instant. The only group it
+# can miss is one created after its slice was read, which a single-statement census misses just
+# as readily once it has started.
+SLICE_UUIDS_SQL = """
+SELECT uuid FROM posthog_person
+WHERE team_id = %(team)s AND uuid >= %(lo)s AND uuid <= %(hi)s
+GROUP BY team_id, uuid HAVING count(*) > 1
+ORDER BY uuid
+"""
+
+_UUID_SPACE = 1 << 128
+
+
+def _uuid_slices(count: int) -> Iterator[tuple[UUID, UUID]]:
+    """Contiguous, non-overlapping halves of the uuid space, covering all of it."""
+    step = _UUID_SPACE // count
+    for index in range(count):
+        lo = index * step
+        hi = _UUID_SPACE - 1 if index == count - 1 else (index + 1) * step - 1
+        yield UUID(int=lo), UUID(int=hi)
+
+
+def _sql(tail: str, *, paged: bool) -> str:
+    return _MEMBERS_CTE_TEMPLATE.format(dups=_DUPS_FROM_LIST if paged else _DUPS_BY_SCAN) + tail
+
+
+def _read_in_txn(conn: psycopg.Connection, sql: str, params: dict, *, step: str) -> Any:
+    """One statement in its own transaction with no timeout.
+
+    SET LOCAL keeps the unlimited timeout transaction-scoped, so it survives a connection whose
+    session-level SET a pooler dropped.
+    """
+
+    def read() -> Any:
+        with conn.cursor() as cur:
+            cur.execute("BEGIN")
+            cur.execute("SET LOCAL statement_timeout = 0")
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            cur.execute("COMMIT")
+        return rows
+
+    return _retry_replica_conflict(conn, step, read)
+
+
+def _census_pages(conn: psycopg.Connection, team: int, slices: int, *, pid: int) -> Iterator[dict[str, Any]]:
+    """Yield query params for each slice that holds at least one duplicate group.
+
+    slices <= 1 yields a single unpaged page, which is the fallback if slicing ever misbehaves
+    against production.
+    """
+    if slices <= 1:
+        yield {"team": team}
+        return
+    for index, (lo, hi) in enumerate(_uuid_slices(slices), start=1):
+        rows = _read_in_txn(conn, SLICE_UUIDS_SQL, {"team": team, "lo": lo, "hi": hi}, step="slice_uuids")
+        if not rows:
+            continue
+        uuids = [row[0] for row in rows]
+        logger.info("persons_dedup.slice", team_id=team, slice=index, of=slices, groups=len(uuids), pid=pid)
+        yield {"team": team, "uuids": uuids}
+
+
+# Positional, matching the SELECT list below. Slicing sums these across slices, so every
+# column has to be a count or a sum; anything order-dependent would not compose.
+CLASSIFY_COLUMNS = (
+    "dup_groups",
+    "all_orphaned",
+    "one_referenced",
+    "needs_merge",
+    "groups_with_distinct_ids_on_multiple_rows",
+    "blocked_groups",
+    "tombstoned_members",
+    "distinct_ids",
+    "cohort_rows",
+    "flag_overrides",
+    "reconciliation_rows",
+)
+
+CLASSIFY_TAIL = """
 SELECT
     count(*),
     count(*) FILTER (WHERE referenced_members = 0),
@@ -226,16 +329,12 @@ SELECT
     COALESCE(sum(recon_rows), 0)
 FROM per_group
 """
-)
 
 # Delete-only: a non-survivor that nothing at all references.
-STAGE_UNREFERENCED_SQL = (
-    _MEMBERS_CTE
-    + f"""
+_STAGE_UNREFERENCED_TAIL = f"""
 INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_deleted
 """
-)
 
 # Repair: a non-survivor owning NO distinct IDs. Unreachable by definition, so its
 # feature-flag overrides, cohort rows and reconciliation backup are dead data that go with it.
@@ -246,37 +345,29 @@ SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_delete
 # A reconciliation backup row is not a reason to skip a delete. Its restore path reads the
 # person by id and returns early when the row is gone
 # (person_property_reconciliation_restore.py:326), which the caller counts as a skip.
-STAGE_UNREACHABLE_SQL = (
-    _MEMBERS_CTE
-    + f"""
+_STAGE_UNREACHABLE_TAIL = f"""
 INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked
 WHERE rn > 1
   AND n_did = 0
   AND NOT is_deleted
 """
-)
 
 # Groups repair cannot resolve, counted the way the staging query above decides: a group
 # with two live distinct-ID owners needs a real person merge, and a group that keeps more
 # than one member after every stageable victim is removed is held by something else
 # (reconciliation backup, or a tombstone this command deliberately will not touch).
 # verify uses this to tell "dedup is incomplete" from "this is the remainder we accept".
-COUNT_BLOCKED_SQL = (
-    _MEMBERS_CTE
-    + """
+COUNT_BLOCKED_TAIL = """
 SELECT count(*), count(*) FILTER (WHERE live_owners > 1 OR members - stageable > 1)
 FROM per_group
 """
-)
 
 # Everything needed to resolve a group this command refuses, without re-deriving it: which
 # rows are in the group, which of them the product can still reach, what hangs off them, and
 # why it was refused. The merge work needs the reachable pair and the override count; the
 # reconciliation and tombstone cases need to be told apart from it.
-BLOCKED_DETAIL_SQL = (
-    _MEMBERS_CTE
-    + """,
+BLOCKED_DETAIL_TAIL = """,
 -- `ranked` is referenced more than once, so Postgres materializes it without an index.
 -- Aggregating the ids here costs one grouped pass; correlating a subquery against
 -- `ranked` per blocked group would re-scan that whole tuplestore each time.
@@ -304,7 +395,13 @@ JOIN group_ids ids ON ids.uuid = g.uuid
 WHERE g.live_owners > 1 OR g.members - g.stageable > 1
 ORDER BY g.uuid
 """
-)
+
+# Victims a previous run already deleted, dropped at load time so they never reach the gates.
+RECONCILE_CHECKPOINT_SQL = f"""
+DELETE FROM {VICTIMS_TABLE} v
+WHERE v.team_id = %(team)s
+  AND NOT EXISTS (SELECT 1 FROM posthog_person p WHERE p.team_id = v.team_id AND p.id = v.id)
+"""
 
 TAKE_BATCH_SQL = f"""
 INSERT INTO {VICTIMS_TABLE}_batch (team_id, id, uuid)
@@ -692,6 +789,22 @@ class Command(BaseCommand):
             help="give up after this many batches lost to lock contention",
         )
         parser.add_argument(
+            "--resume-from",
+            help="skip staging and load the victims still to delete from a checkpoint file",
+        )
+        parser.add_argument(
+            "--checkpoint-every",
+            type=int,
+            default=25,
+            help="rewrite the checkpoint of victims still to delete every N batches (0 disables)",
+        )
+        parser.add_argument(
+            "--census-slices",
+            type=int,
+            default=64,
+            help="split the duplicate census into this many uuid slices so no snapshot is held for the whole team (1 disables)",
+        )
+        parser.add_argument(
             "--require-no-orphans",
             action="store_true",
             help="verify: also fail when the team has orphaned distinct IDs, which repair cannot create or remove",
@@ -749,6 +862,15 @@ class Command(BaseCommand):
             if options[flag] < 0:
                 raise CommandError(f"--{flag.replace('_', '-')} cannot be negative")
 
+        if options["census_slices"] < 1:
+            raise CommandError("--census-slices must be at least 1")
+
+        if options["checkpoint_every"] < 0:
+            raise CommandError("--checkpoint-every cannot be negative")
+
+        if options["resume_from"] and mode in READ_MODES:
+            raise CommandError(f"--resume-from is meaningless for --mode {mode}; it stages nothing")
+
         # Both read modes default to the replica. The census scans the team's whole slice of
         # posthog_person, and holding that snapshot on the primary pins the xmin horizon and
         # delays vacuum on the hottest table in ingestion. Staleness is one-directional and
@@ -794,12 +916,15 @@ class Command(BaseCommand):
                 if on_replica:
                     logger.info("persons_dedup.reading_from_replica", team_id=team)
                 if mode == "classify":
-                    self._classify(conn, team, Path(options["outdir"]), pid=backend_pid)
+                    self._classify(
+                        conn, team, Path(options["outdir"]), pid=backend_pid, slices=options["census_slices"]
+                    )
                 else:
                     self._verify(
                         conn,
                         team,
                         pid=backend_pid,
+                        slices=options["census_slices"],
                         from_replica=bool(on_replica),
                         require_no_orphans=options["require_no_orphans"],
                     )
@@ -813,8 +938,8 @@ class Command(BaseCommand):
 
             _check_session_stability(conn)
 
-            stage_sql = STAGE_UNREFERENCED_SQL if mode == "delete-unreferenced" else STAGE_UNREACHABLE_SQL
-            self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode, pid=backend_pid)
+            stage_tail = _STAGE_UNREFERENCED_TAIL if mode == "delete-unreferenced" else _STAGE_UNREACHABLE_TAIL
+            self._run(conn, team, stage_tail, options, apply_changes=apply_changes, mode=mode, pid=backend_pid)
 
     BLOCKED_COLUMNS = (
         "uuid",
@@ -830,32 +955,14 @@ class Command(BaseCommand):
         "reachable_ids",
     )
 
-    def _dump_blocked(self, conn: psycopg.Connection, team: int, outdir: Path, *, pid: int) -> dict[str, int]:
-        """Write one record per group this command refuses, and return the reason tally.
+    def _append_blocked(self, team: int, path: Path, rows: list, tally: dict[str, int]) -> None:
+        """Append one record per group this command refuses, and count it by reason.
 
-        The counts alone cannot be acted on: resolving a group needs to know which rows it
-        holds, which of them are still reachable, and what hangs off them. Written next to
-        the delete backups so a run leaves everything the follow-up work needs.
+        The counts alone cannot be acted on: resolving a group needs to know which rows it holds,
+        which of them are still reachable, and what hangs off them. Written next to the delete
+        backups so a run leaves everything the follow-up work needs.
         """
-
-        def read() -> Any:
-            with conn.cursor() as cur:
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL statement_timeout = 0")
-                cur.execute(BLOCKED_DETAIL_SQL, {"team": team})
-                rows = cur.fetchall()
-                cur.execute("COMMIT")
-            return rows
-
-        with _step("blocked_detail", team_id=team, pid=pid):
-            rows = _retry_replica_conflict(conn, "blocked_detail", read)
-        if not rows:
-            return {}
-
-        outdir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        path = outdir / f"blocked_team_{team}_{stamp}.jsonl"
-        tally: dict[str, int] = {}
+        path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:
             for row in rows:
@@ -864,56 +971,52 @@ class Command(BaseCommand):
                 fh.write(json.dumps({"team_id": team, **record}, default=str) + "\n")
             fh.flush()
             os.fsync(fh.fileno())
-        logger.info("persons_dedup.blocked_detail_written", team_id=team, groups=len(rows), path=str(path))
-        return tally
 
-    def _classify(self, conn: psycopg.Connection, team: int, outdir: Path, *, pid: int) -> None:
-        # SET LOCAL is transaction-scoped, so the scan keeps its unlimited timeout even on a
-        # connection where a pooler dropped the session-level SET.
-        def read() -> Any:
-            with conn.cursor() as cur:
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL statement_timeout = 0")
-                cur.execute(CLASSIFY_SQL, {"team": team})
-                row = cur.fetchone()
-                cur.execute("COMMIT")
-            return row
+    def _classify(self, conn: psycopg.Connection, team: int, outdir: Path, *, pid: int, slices: int) -> None:
+        counts = dict.fromkeys(CLASSIFY_COLUMNS, 0)
+        tally: dict[str, int] = {}
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        blocked_path = outdir / f"blocked_team_{team}_{stamp}.jsonl"
 
-        with _step("classify", team_id=team, pid=pid):
-            row = _retry_replica_conflict(conn, "classify", read)
-        assert row is not None
-        groups, orphaned, one_ref, needs_merge, multi_did, blocked, tombstoned, dids, cohort, ff, recon = (
-            int(v) for v in row
-        )
+        with _step("classify", team_id=team, pid=pid, slices=slices):
+            for params in _census_pages(conn, team, slices, pid=pid):
+                paged = "uuids" in params
+                rows = _read_in_txn(conn, _sql(CLASSIFY_TAIL, paged=paged), params, step="classify")
+                assert rows, "the classify aggregate always returns exactly one row"
+                page = dict(zip(CLASSIFY_COLUMNS, (int(v) for v in rows[0])))
+                for name, value in page.items():
+                    counts[name] += value
+                # A count is not actionable. Resolving a refused group needs the rows it holds,
+                # which of them are reachable, and what hangs off them, so the detail is written
+                # per slice rather than re-derived later.
+                if page["blocked_groups"]:
+                    detail = _read_in_txn(conn, _sql(BLOCKED_DETAIL_TAIL, paged=paged), params, step="blocked_detail")
+                    self._append_blocked(team, blocked_path, detail, tally)
+
         logger.info(
             "persons_dedup.classify",
             team_id=team,
-            dup_groups=groups,
-            all_orphaned=orphaned,
-            one_referenced=one_ref,
-            needs_merge=needs_merge,
-            groups_with_distinct_ids_on_multiple_rows=multi_did,
             # What repair will leave behind, and therefore what a passing verify accepts.
-            blocked_groups=blocked,
-            resolvable_groups=groups - blocked,
-            tombstoned_members=tombstoned,
-            distinct_ids=dids,
-            cohort_rows=cohort,
-            flag_overrides=ff,
-            reconciliation_rows=recon,
+            resolvable_groups=counts["dup_groups"] - counts["blocked_groups"],
+            **counts,
         )
-        if multi_did:
-            logger.warning("persons_dedup.needs_real_merge", team_id=team, groups=multi_did)
-        if recon:
-            logger.warning("persons_dedup.reconciliation_backup_references", team_id=team, recon=recon)
-        if tombstoned:
-            logger.warning("persons_dedup.tombstoned_members_skipped", team_id=team, members=tombstoned)
-        if blocked:
-            # A count is not actionable. Write the per-group detail and report the split by
-            # reason, so the groups this command refuses can be resolved without re-deriving
-            # which rows they hold or why each was refused.
-            tally = self._dump_blocked(conn, team, outdir, pid=pid)
-            logger.warning("persons_dedup.blocked_by_reason", team_id=team, groups=blocked, **tally)
+        if counts["groups_with_distinct_ids_on_multiple_rows"]:
+            logger.warning(
+                "persons_dedup.needs_real_merge",
+                team_id=team,
+                groups=counts["groups_with_distinct_ids_on_multiple_rows"],
+            )
+        if counts["reconciliation_rows"]:
+            logger.warning(
+                "persons_dedup.reconciliation_backup_references", team_id=team, recon=counts["reconciliation_rows"]
+            )
+        if counts["tombstoned_members"]:
+            logger.warning(
+                "persons_dedup.tombstoned_members_skipped", team_id=team, members=counts["tombstoned_members"]
+            )
+        if counts["blocked_groups"]:
+            logger.info("persons_dedup.blocked_detail_written", team_id=team, path=str(blocked_path))
+            logger.warning("persons_dedup.blocked_by_reason", team_id=team, groups=counts["blocked_groups"], **tally)
 
     def _verify(
         self,
@@ -921,41 +1024,29 @@ class Command(BaseCommand):
         team: int,
         *,
         pid: int,
+        slices: int,
         from_replica: bool,
         require_no_orphans: bool,
     ) -> None:
-        def read_groups() -> Any:
-            with conn.cursor() as cur:
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL statement_timeout = 0")
-                # Both counts come from one statement on purpose. Read committed takes a fresh
-                # snapshot per statement, so counting the groups and the blocked subset
-                # separately lets a write land between them, and resolvable is their
-                # difference, so it could come out negative.
-                cur.execute(COUNT_BLOCKED_SQL, {"team": team})
-                row = cur.fetchone()
-                cur.execute("COMMIT")
-            return row
+        dups = 0
+        blocked = 0
+        # Both counts come from one statement per slice on purpose. Read committed takes a fresh
+        # snapshot per statement, so counting the groups and the blocked subset separately would
+        # let a write land between them, and resolvable is their difference, so it could come
+        # out negative.
+        with _step("verify_groups", team_id=team, pid=pid, slices=slices):
+            for params in _census_pages(conn, team, slices, pid=pid):
+                rows = _read_in_txn(
+                    conn, _sql(COUNT_BLOCKED_TAIL, paged="uuids" in params), params, step="verify_groups"
+                )
+                dups += int(rows[0][0])
+                blocked += int(rows[0][1])
 
-        def read_orphans() -> Any:
-            with conn.cursor() as cur:
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL statement_timeout = 0")
-                cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
-                row = cur.fetchone()
-                cur.execute("COMMIT")
-            return row
-
-        # Separate transactions: the two counts measure independent invariants and each is
-        # compared against zero on its own, so sharing a snapshot only makes the one we hold
-        # last longer.
-        with _step("verify_groups", team_id=team, pid=pid):
-            blocked_row = _retry_replica_conflict(conn, "verify_groups", read_groups)
+        # Its own transaction: this measures an independent invariant compared against zero on
+        # its own, so sharing a snapshot with the group count only makes one last longer.
         with _step("verify_orphans", team_id=team, pid=pid):
-            orphans_row = _retry_replica_conflict(conn, "verify_orphans", read_orphans)
-        dups = int(blocked_row[0]) if blocked_row else 0
-        blocked = int(blocked_row[1]) if blocked_row else 0
-        orphans = int(orphans_row[0]) if orphans_row else 0
+            orphans_rows = _read_in_txn(conn, VERIFY_ORPHANS_SQL, {"team": team}, step="verify_orphans")
+        orphans = int(orphans_rows[0][0]) if orphans_rows else 0
         resolvable = dups - blocked
         logger.info(
             "persons_dedup.verify",
@@ -985,13 +1076,15 @@ class Command(BaseCommand):
         self,
         conn: psycopg.Connection,
         team: int,
-        stage_sql: str,
+        stage_tail: str,
         options: dict,
         *,
         apply_changes: bool,
         mode: str,
         pid: int,
     ) -> None:
+        slices: int = options["census_slices"]
+        resume_from = Path(options["resume_from"]) if options["resume_from"] else None
         if not apply_changes:
             logger.info("persons_dedup.dry_run", team_id=team, mode=mode)
 
@@ -1006,15 +1099,21 @@ class Command(BaseCommand):
             )
             cur.execute(f"TRUNCATE {VICTIMS_TABLE}")
             cur.execute(f"TRUNCATE {VICTIMS_TABLE}_batch")
-            # The staging scan reads every duplicate group for the team and can run for
-            # minutes on the large ones; SET LOCAL keeps its timeout immunity
-            # transaction-scoped rather than trusting the session-level SET.
-            with _step("stage", team_id=team, mode=mode, pid=pid):
-                cur.execute("BEGIN")
-                cur.execute("SET LOCAL statement_timeout = 0")
-                cur.execute(stage_sql, {"team": team})
-                staged = cur.rowcount
-                cur.execute("COMMIT")
+            if resume_from:
+                staged = self._load_checkpoint(conn, team, resume_from)
+                logger.info("persons_dedup.resumed", team_id=team, victims=staged, source=str(resume_from))
+            else:
+                # One transaction per slice. Unsliced, this is the longest-held snapshot in the
+                # write path, and it runs on the primary, where it pins the xmin horizon for the
+                # whole census.
+                staged = 0
+                with _step("stage", team_id=team, mode=mode, pid=pid, slices=slices):
+                    for params in _census_pages(conn, team, slices, pid=pid):
+                        cur.execute("BEGIN")
+                        cur.execute("SET LOCAL statement_timeout = 0")
+                        cur.execute(_sql(stage_tail, paged="uuids" in params), params)
+                        staged += cur.rowcount
+                        cur.execute("COMMIT")
             # Temp tables get no autovacuum or autoanalyze. Without this index every
             # TAKE_BATCH full-scans and sorts the victims table, and the retired rows
             # only go dead, so the scan never gets cheaper as the run progresses. Built
@@ -1030,6 +1129,10 @@ class Command(BaseCommand):
         outdir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup_path = outdir / f"deleted_team_{team}_{mode}_{stamp}.jsonl"
+        # Stable name, rewritten in place, because only the newest one is worth resuming from.
+        checkpoint_path = outdir / f"remaining_team_{team}_{mode}.csv"
+        if apply_changes:
+            self._write_checkpoint(conn, checkpoint_path, team=team, staged=staged)
 
         deleted = 0
         checked = 0
@@ -1054,12 +1157,34 @@ class Command(BaseCommand):
             batches += 1
 
             reachable, no_survivor, wrong_survivor = _gates(conn)
-            if reachable or no_survivor or wrong_survivor:
+            # Not prunable and never a race: staging cannot produce this, so reaching it means
+            # the survivor rule and the reachability rule disagree for this data.
+            if wrong_survivor:
                 raise CommandError(
-                    f"gate failed for team {team}: {reachable} victim(s) are reachable, "
-                    f"{no_survivor} group(s) would be emptied, {wrong_survivor} group(s) would "
-                    f"lose their only reachable row. Nothing deleted."
+                    f"team {team}: {wrong_survivor} group(s) would lose their only reachable row. "
+                    f"The survivor rule is wrong for this data. {deleted} row(s) already deleted."
                 )
+            if reachable or no_survivor:
+                # A writer got here first, or the staged set came from a checkpoint written before
+                # one did. Drop those victims rather than the run, the same way the
+                # in-transaction gate does.
+                logger.warning(
+                    "persons_dedup.batch_raced",
+                    team_id=team,
+                    batch=batches,
+                    gate="pre-flight",
+                    reachable=reachable,
+                    would_empty=no_survivor,
+                )
+                pruned_total = self._absorb_raced_batch(
+                    conn,
+                    team=team,
+                    deleted=deleted,
+                    pruned_total=pruned_total,
+                    prune_budget=prune_budget,
+                    detail=f"pre-flight gate failed for team {team} (reachable {reachable}, would empty {no_survivor})",
+                )
+                continue
 
             if not apply_changes:
                 # Retire the batch and continue rather than returning: a dry run that stops
@@ -1105,27 +1230,21 @@ class Command(BaseCommand):
                             "persons_dedup.batch_raced",
                             team_id=team,
                             batch=batches,
+                            gate="in-transaction",
                             locked=locked,
                             staged=in_batch,
                             reachable=now_reachable,
                             would_empty=now_emptied,
                         )
-                        pruned = self._prune_batch(conn)
-                        pruned_total += pruned
-                        # Nothing pruned means the gate failed for a reason this does not
-                        # explain, and the next iteration would take the same batch forever.
-                        if pruned == 0:
-                            raise CommandError(
-                                f"in-transaction gate failed for team {team} "
-                                f"(locked {locked}/{in_batch}, reachable {now_reachable}, "
-                                f"would empty {now_emptied}) and no victim was prunable; rolled back"
-                            )
-                        if pruned_total > prune_budget:
-                            raise CommandError(
-                                f"team {team}: {pruned_total} victim(s) became unresolvable mid-run, "
-                                f"over the {prune_budget} budget; staging and the gate disagree. "
-                                f"{deleted} row(s) already deleted, rerun to resume"
-                            )
+                        pruned_total = self._absorb_raced_batch(
+                            conn,
+                            team=team,
+                            deleted=deleted,
+                            pruned_total=pruned_total,
+                            prune_budget=prune_budget,
+                            detail=f"in-transaction gate failed for team {team} (locked "
+                            f"{locked}/{in_batch}, reachable {now_reachable}, would empty {now_emptied})",
+                        )
                         continue
 
                     # Back up after the lock, not before it. An insert into
@@ -1194,6 +1313,8 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute(RETIRE_BATCH_SQL)
             deleted += removed
+            if options["checkpoint_every"] and batches % options["checkpoint_every"] == 0:
+                self._write_checkpoint(conn, checkpoint_path, team=team, staged=staged - deleted)
             if options["sleep_ms"] > 0:
                 time.sleep(options["sleep_ms"] / 1000.0)
             logger.info(
@@ -1221,6 +1342,85 @@ class Command(BaseCommand):
             lock_retries=lock_retries,
             backup=str(backup_path),
         )
+
+    def _write_checkpoint(self, conn: psycopg.Connection, path: Path, *, team: int, staged: int) -> None:
+        """Record the victims still to delete, so an interrupted run resumes without re-staging.
+
+        Written to a temporary file and renamed, so a crash mid-write cannot leave a truncated
+        checkpoint behind. Resuming from a stale one is safe because staging is not
+        authoritative: the gates and the prune re-verify every victim per batch, so a row that
+        has since been deleted or become reachable is dropped rather than acted on.
+        """
+        partial = path.with_suffix(path.suffix + ".partial")
+        fd = os.open(str(partial), os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            with (
+                conn.cursor() as cur,
+                cur.copy(
+                    f"COPY (SELECT team_id, id, uuid FROM {VICTIMS_TABLE} ORDER BY uuid, id) TO STDOUT (FORMAT csv)"
+                ) as copy,
+            ):
+                for block in copy:
+                    fh.write(block)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(partial, path)
+        logger.info("persons_dedup.checkpoint", team_id=team, remaining=staged, path=str(path))
+
+    def _load_checkpoint(self, conn: psycopg.Connection, team: int, path: Path) -> int:
+        """Refill the staged set from a checkpoint instead of re-running the census."""
+        with conn.cursor() as cur:
+            with (
+                open(path, "rb") as fh,
+                cur.copy(f"COPY {VICTIMS_TABLE} (team_id, id, uuid) FROM STDIN (FORMAT csv)") as copy,
+            ):
+                while block := fh.read(1 << 16):
+                    copy.write(block)
+        # A checkpoint from another team would delete rows nobody asked about, and the gates
+        # would not catch it because they only ever look at the staged set.
+        foreign = _scalar(conn, f"SELECT count(*) FROM {VICTIMS_TABLE} WHERE team_id <> %(team)s", {"team": team})
+        if foreign:
+            raise CommandError(
+                f"{path} holds {foreign} victim(s) for a different team. Refusing to run: pass the "
+                f"checkpoint written for team {team}."
+            )
+        # Drop the ones a previous run already deleted. The batch gates would prune these anyway,
+        # but every prune counts against a budget meant for staging and the gate disagreeing, so a
+        # checkpoint written a few batches before the interruption could exhaust it on rows whose
+        # absence is expected.
+        with conn.cursor() as cur:
+            cur.execute(RECONCILE_CHECKPOINT_SQL, {"team": team})
+            gone = cur.rowcount
+        if gone:
+            logger.info("persons_dedup.checkpoint_reconciled", team_id=team, already_deleted=gone)
+        return _scalar(conn, f"SELECT count(*) FROM {VICTIMS_TABLE}")
+
+    def _absorb_raced_batch(
+        self,
+        conn: psycopg.Connection,
+        *,
+        team: int,
+        deleted: int,
+        pruned_total: int,
+        prune_budget: int,
+        detail: str,
+    ) -> int:
+        """Drop the staged victims a writer made undeletable, and return the new pruned total.
+
+        Nothing prunable means the gate failed for a reason this does not explain, and retrying
+        would take the same batch forever.
+        """
+        pruned = self._prune_batch(conn)
+        pruned_total += pruned
+        if pruned == 0:
+            raise CommandError(f"{detail} and no victim was prunable; nothing further deleted")
+        if pruned_total > prune_budget:
+            raise CommandError(
+                f"team {team}: {pruned_total} victim(s) became unresolvable mid-run, over the "
+                f"{prune_budget} budget; staging and the gate disagree. {deleted} row(s) already "
+                f"deleted, rerun to resume"
+            )
+        return pruned_total
 
     def _prune_batch(self, conn: psycopg.Connection) -> int:
         with conn.cursor() as cur:
