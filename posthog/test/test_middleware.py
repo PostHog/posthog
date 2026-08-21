@@ -879,6 +879,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
+            ("metrics_explain", "metrics/explain/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):

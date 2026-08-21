@@ -1395,7 +1395,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     # POST but read-only: same reasoning for the Metrics product
     (
         "POST",
-        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize)/?$"),
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metrics/(query|samples|characterize|explain)/?$"),
     ),
     # Allow upgrading from read-only to read-write impersonation
     ("POST", "/admin/impersonation/upgrade/"),
