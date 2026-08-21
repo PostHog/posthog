@@ -1176,6 +1176,7 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -4789,6 +4790,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',

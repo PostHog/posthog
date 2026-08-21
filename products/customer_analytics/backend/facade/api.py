@@ -2684,18 +2684,108 @@ def _validate_account_table_definitions(
     return custom_property_display_types
 
 
+ACCOUNT_TABLE_TEXT_FIELDS = frozenset(
+    {
+        contracts.AccountTableField.NAME,
+        contracts.AccountTableField.EXTERNAL_ID,
+        contracts.AccountTableField.STRIPE_CUSTOMER_ID,
+        contracts.AccountTableField.HUBSPOT_DEAL_ID,
+        contracts.AccountTableField.BILLING_ID,
+        contracts.AccountTableField.SFDC_ID,
+        contracts.AccountTableField.ZENDESK_ID,
+    }
+)
+ACCOUNT_TABLE_DATETIME_FIELDS = frozenset(
+    {
+        contracts.AccountTableField.CREATED_AT,
+        contracts.AccountTableField.UPDATED_AT,
+        contracts.AccountTableField.CHURNED_AT,
+        contracts.AccountTableField.IGNORED_AT,
+    }
+)
+ACCOUNT_TABLE_DIRECT_FIELDS = {
+    contracts.AccountTableField.NAME: "name",
+    contracts.AccountTableField.EXTERNAL_ID: "external_id",
+    contracts.AccountTableField.CREATED_AT: "created_at",
+    contracts.AccountTableField.UPDATED_AT: "updated_at",
+    contracts.AccountTableField.CHURNED_AT: "churned_at",
+    contracts.AccountTableField.IGNORED_AT: "ignored_at",
+}
+
+
 def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
     if not isinstance(value, str):
-        raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+        raise InvalidAccountTableColumn("Date filters require ISO-8601 values.")
     parsed_datetime = parse_datetime(value)
     if parsed_datetime is None:
         parsed_date = parse_date(value)
         if parsed_date is None:
-            raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
+            raise InvalidAccountTableColumn("Date filters require ISO-8601 values.")
         parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
     elif timezone.is_naive(parsed_datetime):
         parsed_datetime = timezone.make_aware(parsed_datetime, UTC)
     return parsed_datetime
+
+
+def _apply_account_table_field_filter(
+    queryset: QuerySet[Account], filter_: contracts.AccountTableFieldFilter
+) -> QuerySet[Account]:
+    field = filter_.field
+    operator = filter_.operator
+    values = filter_.values
+    field_lookup = ACCOUNT_TABLE_DIRECT_FIELDS.get(field)
+    if field_lookup is None:
+        field_lookup = f"_account_table_filter_{field.value}"
+        queryset = queryset.annotate(**{field_lookup: KeyTextTransform(field.value, "_properties")})
+
+    if operator == contracts.AccountTableFieldOperator.IS_SET:
+        return queryset.filter(**{f"{field_lookup}__isnull": False})
+    if operator == contracts.AccountTableFieldOperator.IS_NOT_SET:
+        return queryset.filter(**{f"{field_lookup}__isnull": True})
+    if not values:
+        raise InvalidAccountTableColumn("Account field filters require at least one value.")
+
+    if field in ACCOUNT_TABLE_TEXT_FIELDS:
+        if operator == contracts.AccountTableFieldOperator.EXACT:
+            return queryset.filter(**{f"{field_lookup}__in": values})
+        if operator == contracts.AccountTableFieldOperator.IS_NOT:
+            return queryset.filter(Q(**{f"{field_lookup}__isnull": True}) | ~Q(**{f"{field_lookup}__in": values}))
+        if operator in {
+            contracts.AccountTableFieldOperator.CONTAINS,
+            contracts.AccountTableFieldOperator.DOES_NOT_CONTAIN,
+        }:
+            predicate = Q()
+            for value in values:
+                predicate |= Q(**{f"{field_lookup}__icontains": value})
+            if operator == contracts.AccountTableFieldOperator.DOES_NOT_CONTAIN:
+                return queryset.filter(Q(**{f"{field_lookup}__isnull": True}) | ~predicate)
+            return queryset.filter(predicate)
+        raise InvalidAccountTableColumn(f"Operator {operator.value} does not support text account fields.")
+
+    if field in ACCOUNT_TABLE_DATETIME_FIELDS:
+        if len(values) != 1:
+            raise InvalidAccountTableColumn("Date account field filters require one value.")
+        target = _coerce_datetime_filter_value(values[0])
+        if operator == contracts.AccountTableFieldOperator.DATE_EXACT:
+            target_date = target.replace(hour=0, minute=0, second=0, microsecond=0)
+            return queryset.filter(
+                **{f"{field_lookup}__gte": target_date, f"{field_lookup}__lt": target_date + timedelta(days=1)}
+            )
+        lookup = {
+            contracts.AccountTableFieldOperator.DATE_BEFORE: "lt",
+            contracts.AccountTableFieldOperator.DATE_AFTER: "gt",
+        }.get(operator)
+        if lookup is None:
+            raise InvalidAccountTableColumn(f"Operator {operator.value} does not support date account fields.")
+        return queryset.filter(**{f"{field_lookup}__{lookup}": target})
+
+    raise InvalidAccountTableColumn(f"Unsupported account table field: {field.value}")
+
+
+def _filters_account_table_field(
+    filters: tuple[contracts.AccountTableFilter, ...], field: contracts.AccountTableField
+) -> bool:
+    return any(isinstance(filter_, contracts.AccountTableFieldFilter) and filter_.field == field for filter_ in filters)
 
 
 def _coerce_custom_property_filter_values(
@@ -2837,6 +2927,8 @@ def _apply_account_table_filters(
             queryset = queryset.filter(~Exists(active_relationships))
         elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
             queryset = queryset.filter(id=filter_.account_id)
+        elif isinstance(filter_, contracts.AccountTableFieldFilter):
+            queryset = _apply_account_table_field_filter(queryset, filter_)
         elif isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
             active_values = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
@@ -2979,9 +3071,9 @@ def query_accounts_metrics(
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
-    if not include_churned:
+    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
         accounts = accounts.filter(churned_at__isnull=True)
-    if not include_ignored:
+    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
         accounts = accounts.filter(ignored_at__isnull=True)
     accounts = _apply_account_table_filters(
         accounts,
@@ -3059,9 +3151,9 @@ def query_accounts_table(
     )
 
     queryset = _accounts_queryset(team_id, user_access_control)
-    if not include_churned:
+    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
         queryset = queryset.filter(churned_at__isnull=True)
-    if not include_ignored:
+    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
         queryset = queryset.filter(ignored_at__isnull=True)
     queryset = _apply_account_table_filters(
         queryset,
