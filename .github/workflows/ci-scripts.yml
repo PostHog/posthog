@@ -23,70 +23,83 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
+            # The tests take seconds, so a full checkout of the monorepo dominated
+            # the job. Check out only the trees the suite reads: most tests are
+            # pure logic over path strings, but a few read the real repo to guard
+            # against drift — trunk-impacted-targets.test.js walks proto/, rust/,
+            # nodejs/ and the workspace manifests, and report_test_timings imports
+            # tools/owners and finds the root by owners.yaml. A new test that reads
+            # another path must add it here.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+                  sparse-checkout: |
+                      /.github/
+                      /tools/
+                      /proto/
+                      /rust/
+                      /nodejs/
+                      /posthog/personhog_client/
+                      /.semgrep/
+                      /frontend/bin/ci-report/
+                      /products/README.md
+                      /services/README.md
+                      /.nvmrc
+                      /owners.yaml
+                      /pnpm-workspace.yaml
+                      /uv.lock
+                      /tach.toml
+                      /pyproject.toml
+                  sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
 
-            - name: Setup Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: pyproject.toml
-
-            # defusedxml + opentelemetry + tools/owners are report_test_timings.py's script deps.
+            # The preinstalled python3 runs these standalone tests, so no
+            # setup-python step. defusedxml + opentelemetry + tools/owners are
+            # report_test_timings.py's script deps.
             - name: Install pytest
-              run: python -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
+              run: python3 -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
             # root conftest.py, whose autouse fixtures import the posthog package
-            # (and thus Django) — not installed in this lightweight job. These tests
-            # are standalone and need no conftest fixtures beyond pytest's tmp_path.
-            - name: Schema-usage scanner tests (Python)
-              run: python -m pytest .github/scripts/test_schema_usage_scan.py -v -c /dev/null -p no:cacheprovider --noconftest
+            # (and thus Django) — not installed in this lightweight job. The
+            # existence filter drops a file an unrebased PR predates, rather than
+            # failing on it.
+            - name: Python script tests
+              run: |
+                  set -euo pipefail
+                  files=(
+                      .github/scripts/test_schema_usage_scan.py
+                      .github/scripts/test_report_test_timings.py
+                      .github/scripts/test_report_workflow_run_traces.py
+                  )
+                  present=()
+                  for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
+                  python3 -m pytest "${present[@]}" -v -c /dev/null -p no:cacheprovider --noconftest
 
-            - name: Test-timings reporter tests (Python)
-              run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
-
-            # hashFiles guard so an unrebased PR predating this script doesn't fail here.
-            - name: Workflow-run trace reporter tests (Python)
-              if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}
-              run: python -m pytest .github/scripts/test_report_workflow_run_traces.py -v -c /dev/null -p no:cacheprovider --noconftest
-
-            # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
-            - name: Schema-impact tests (Node)
-              run: node --test .github/scripts/schema-impact.test.js
-
-            - name: Master CI alerts tests (Node)
-              run: node --test .github/scripts/ci-alerts-devex.test.js
-
-            - name: Rate-limit monitor tests (Node)
-              run: node --test .github/scripts/monitor-github-rate-limit.test.js
-
-            - name: PR title labeler tests (Node)
-              run: node --test .github/scripts/label-pr-from-title.test.js
-
-            - name: Auto-assign reviewers tests (Node)
-              run: node --test .github/scripts/assign-reviewers.test.js
-
-            - name: CI report section tests (Node)
-              run: node --test .github/scripts/post-ci-sections.test.mjs
-
-            - name: Weekly flaky report tests (Node)
-              if: ${{ hashFiles('.github/scripts/weekly-flaky-report.test.mjs') != '' }}
-              run: node --test .github/scripts/weekly-flaky-report.test.mjs
-
-            - name: CLI npm installer patch tests (Node)
-              if: ${{ hashFiles('.github/scripts/patch-cli-npm-installer.test.mjs') != '' }}
-              run: node --test .github/scripts/patch-cli-npm-installer.test.mjs
-
-            - name: Turbo-discover dependent-cascade tests (Node)
-              run: node --test .github/scripts/turbo-discover-cascade.test.js
-
-            - name: Selected Django shards tests (Node)
-              run: node --test .github/scripts/selected-django-shards.test.js
-
-            - name: Trunk impacted-targets tests (Node)
-              run: node --test .github/scripts/trunk-impacted-targets.test.js
+            # schema-impact.test.js shells out to schema_usage_scan.py via the same
+            # preinstalled python3. The existence filter drops a file an unrebased
+            # PR predates, rather than failing on it.
+            - name: Node script tests
+              run: |
+                  set -euo pipefail
+                  files=(
+                      .github/scripts/schema-impact.test.js
+                      .github/scripts/ci-alerts-devex.test.js
+                      .github/scripts/monitor-github-rate-limit.test.js
+                      .github/scripts/label-pr-from-title.test.js
+                      .github/scripts/assign-reviewers.test.js
+                      .github/scripts/post-ci-sections.test.mjs
+                      .github/scripts/weekly-flaky-report.test.mjs
+                      .github/scripts/patch-cli-npm-installer.test.mjs
+                      .github/scripts/turbo-discover-cascade.test.js
+                      .github/scripts/selected-django-shards.test.js
+                      .github/scripts/trunk-impacted-targets.test.js
+                  )
+                  present=()
+                  for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
+                  node --test "${present[@]}"
