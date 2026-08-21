@@ -116,8 +116,10 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
 # The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
 # starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
-# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
-# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
+# on top, so a pathological run can still reach this cap. The sweep also uses it as the refresh's
+# schedule_to_close_timeout, so a transient blip retries within the window while a pathological slow run
+# fills it in one attempt. Either way the worst case is one skipped daily refresh swallowed by the
+# sweep, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion

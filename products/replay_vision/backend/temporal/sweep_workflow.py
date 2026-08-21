@@ -91,6 +91,10 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     refresh_prompt_suggestion_activity,
                     RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
                     start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
+                    # schedule_to_close bounds the whole retry chain to one attempt's worth of time: a fast
+                    # blip (DNS) retries within it, but a slow LLM run fills it in one attempt and can't stack
+                    # three 5-minute attempts into the sweep's 15-minute budget ahead of the session scan.
+                    schedule_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
                     retry_policy=common.RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
