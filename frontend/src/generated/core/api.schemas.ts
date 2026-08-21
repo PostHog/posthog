@@ -4672,8 +4672,8 @@ export interface UserPushTokenUnregisterRequestApi {
 }
 
 /**
- * Request body for POST /api/users/verify_email/. Documentation only; the action validates
- * manually because token and code follow an either-or rule serializer fields can't express.
+ * Request body for POST /api/users/verify_email/. Documentation only. The action validates
+ * manually because serializer fields cannot express the token-or-code rule.
  */
 export interface VerifyEmailRequestApi {
     /** UUID of the user whose email is being verified. */

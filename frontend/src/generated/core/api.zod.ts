@@ -1974,5 +1974,5 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Request body for POST \/api\/users\/verify_email\/. Documentation only; the action validates\nmanually because token and code follow an either-or rule serializer fields can't express."
+        'Request body for POST \/api\/users\/verify_email\/. Documentation only. The action validates\nmanually because serializer fields cannot express the token-or-code rule.'
     )
