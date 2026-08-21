@@ -41706,13 +41706,13 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsRetentionRow {
       breakdownValue: string;
-      /** Start of the acquisition period, in the team's timezone. */
+      /** Start of the cohort's period, in the team's timezone. */
       cohortDate: string;
       /** 0-based position of this cohort from the range start. */
       cohortIndex: number;
-      /** Persons whose first session fell in this period with this breakdown value. Not derivable from values[0]: with a conversion-goal return event, period 0 counts converters, not arrivals. */
+      /** Persons who started a cohort in this period with this breakdown value. Not derivable from values[0]: with a conversion-goal return event, period 0 counts converters, not starters. */
       cohortSize: number;
-      /** One per column, index = periods since acquisition. Always intervalCount long. */
+      /** One per column, index = periods since the cohort started. Always intervalCount long. */
       values: MarketingAnalyticsRetentionCell[];
     }
 
@@ -41721,6 +41721,14 @@ export namespace Schemas {
 
     export const MarketingAnalyticsRetentionReturningEvent = {
       Activity: 'activity',
+      ConversionGoal: 'conversion_goal',
+    } as const;
+
+    export type MarketingAnalyticsRetentionStartEvent = typeof MarketingAnalyticsRetentionStartEvent[keyof typeof MarketingAnalyticsRetentionStartEvent];
+
+
+    export const MarketingAnalyticsRetentionStartEvent = {
+      Arrival: 'arrival',
       ConversionGoal: 'conversion_goal',
     } as const;
 
@@ -41748,6 +41756,9 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
       returningEvent: MarketingAnalyticsRetentionReturningEvent;
+      /** Set only for conversion_goal starts, for the header copy. */
+      startConversionGoalName?: string | null;
+      startEvent: MarketingAnalyticsRetentionStartEvent;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -41791,6 +41802,10 @@ export namespace Schemas {
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
       /** What counts as coming back. Defaults to activity. */
       returningEvent?: MarketingAnalyticsRetentionReturningEvent | null;
+      /** conversion_goal_id of the goal that starts a cohort. Required when startEvent is conversion_goal. */
+      startConversionGoalId?: string | null;
+      /** What puts a person in a cohort, and which period they land in. Defaults to arrival. Persons are always acquired within the date range, whichever this is, so a person who converted in the range but arrived before it is not counted. */
+      startEvent?: MarketingAnalyticsRetentionStartEvent | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -69055,6 +69070,9 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
       returningEvent: MarketingAnalyticsRetentionReturningEvent;
+      /** Set only for conversion_goal starts, for the header copy. */
+      startConversionGoalName?: string | null;
+      startEvent: MarketingAnalyticsRetentionStartEvent;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
