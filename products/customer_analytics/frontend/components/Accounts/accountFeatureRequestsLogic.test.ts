@@ -78,7 +78,7 @@ describe('accountFeatureRequestsLogic', () => {
         logic.unmount()
     })
 
-    it('paginates linked requests on the server', async () => {
+    it('paginates linked requests and searches from the first page', async () => {
         const requests = Array.from({ length: 21 }, (_, index) => ({
             ...existingRequest,
             id: `request-${index + 1}`,
@@ -106,6 +106,19 @@ describe('accountFeatureRequestsLogic', () => {
         expect(listSpy).toHaveBeenCalledWith(
             String(MOCK_DEFAULT_TEAM.id),
             expect.objectContaining({ account_ids: ['account-2'], limit: 20, offset: 20 })
+        )
+
+        await expectLogic(logic, () => logic.actions.setAccountRequestsSearch('scheduled')).toFinishAllListeners()
+
+        expect(logic.values.accountRequestsPage).toBe(1)
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({
+                account_ids: ['account-2'],
+                limit: 20,
+                offset: 0,
+                search: 'scheduled',
+            })
         )
         logic.unmount()
     })
