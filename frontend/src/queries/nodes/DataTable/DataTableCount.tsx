@@ -20,11 +20,13 @@ export function DataTableCount(): JSX.Element | null {
     }
 
     const entityType = getEntityType(query)
-    const displayFilteredCount = filteredCount !== null ? filteredCount : 0
 
-    const text = hasActiveFilters
-        ? `${pluralize(displayFilteredCount, entityType.singular, entityType.plural)} matched out of ${totalCount.toLocaleString()}`
-        : `Total count: ${pluralize(totalCount, entityType.singular, entityType.plural)}`
+    // A null filtered count means the count query failed or has no result, not zero matches.
+    // Fall back to the total count so we never show "0 matched" while the real number is unknown.
+    const text =
+        hasActiveFilters && filteredCount !== null
+            ? `${pluralize(filteredCount, entityType.singular, entityType.plural)} matched out of ${totalCount.toLocaleString()}`
+            : `Total count: ${pluralize(totalCount, entityType.singular, entityType.plural)}`
 
     return <span className="text-small">{text}</span>
 }
