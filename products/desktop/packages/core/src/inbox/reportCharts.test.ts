@@ -147,6 +147,39 @@ describe("reportCharts", () => {
     });
   });
 
+  it("drops lifecycle statuses the saved insight has toggled off", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          {
+            label: "new",
+            status: "new",
+            days: ["2026-08-01", "2026-08-02"],
+            data: [5, 8],
+          },
+          {
+            label: "dormant",
+            status: "dormant",
+            days: ["2026-08-01", "2026-08-02"],
+            data: [-3, -6],
+          },
+        ],
+      },
+      runPlan({
+        kind: "InsightVizNode",
+        source: {
+          kind: "LifecycleQuery",
+          lifecycleFilter: { toggledLifecycles: ["new"] },
+        },
+      }),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      render: "bar",
+      series: [{ label: "new", data: [5, 8] }],
+    });
+  });
+
   it("shapes a steps funnel into one bar per step", () => {
     const data = shapeReportChartData(
       {

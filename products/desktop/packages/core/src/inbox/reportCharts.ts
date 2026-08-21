@@ -334,7 +334,25 @@ function shapeTrendsResponse(
   plan: Extract<ReportChartPlan, { kind: "run" }>,
 ): ReportChartData {
   const results = Array.isArray(response.results) ? response.results : [];
-  const seriesResults = results.filter(isRecord);
+  let seriesResults = results.filter(isRecord);
+  // The backend returns all four lifecycle statuses regardless of the saved
+  // insight's display filter; the web renderer drops the untoggled ones
+  // client-side, so this chart has to as well.
+  if (plan.source.kind === "LifecycleQuery") {
+    const lifecycleFilter = isRecord(plan.source.lifecycleFilter)
+      ? plan.source.lifecycleFilter
+      : null;
+    const toggled = Array.isArray(lifecycleFilter?.toggledLifecycles)
+      ? lifecycleFilter.toggledLifecycles.filter(
+          (status): status is string => typeof status === "string",
+        )
+      : null;
+    if (toggled) {
+      seriesResults = seriesResults.filter((result) =>
+        toggled.includes(String(result.status)),
+      );
+    }
+  }
   if (seriesResults.length === 0) return { type: "empty" };
 
   if (plan.render === "number" || plan.render === "table") {
