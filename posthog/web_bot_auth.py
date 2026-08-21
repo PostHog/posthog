@@ -19,8 +19,10 @@ _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
 _CACHE_MAX_AGE_SECONDS = 240
 
-# A request-controlled authority would let another site proxy this route. The returned directory
-# would verify for that site but contain our public key.
+# Covering @authority prevents cross-authority signature replay. Keep its value constant so this
+# endpoint cannot act as a confused deputy and sign a directory for a requester-controlled domain.
+# Otherwise, another site could proxy this route and receive a directory that verifies for its
+# domain but contains our public key.
 #
 # PostHog normally hosts public identity metadata on the root posthog.com domain. Web Bot Auth is an
 # exception because its directory response needs a cryptographic signature with creation and
