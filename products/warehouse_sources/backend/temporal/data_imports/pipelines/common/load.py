@@ -265,6 +265,45 @@ async def _seed_cdc_companion_from_snapshot(
     )
 
 
+async def _repair_duplicate_primary_keys(
+    schema: ExternalDataSchema,
+    delta_table_ref: "DeltaTableRef",
+    resource: "Optional[SourceResponse]",
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Collapse primary-key duplicates left behind when this run built the table through appends.
+
+    Only a first sync or a rebuild writes that way, so the probe is scoped to those runs instead
+    of charging a key scan to every sync. SCD2 companion tables are excluded because they keep
+    several rows per key by design, and non-merge sync types are excluded because repeated keys
+    there come from the source rather than from how the run wrote.
+
+    Best-effort: this run's rows are already durable, so a failure to deduplicate them must not
+    fail the sync. The duplicates stay visible in the log and can be repaired offline.
+    """
+    if is_cdc_companion or not delta_table_ref.is_first_sync:
+        return
+    if not (schema.is_incremental or schema.is_webhook or schema.is_xmin):
+        return
+
+    resource_keys = list(resource.primary_keys) if resource is not None and resource.primary_keys else []
+    primary_keys = schema.primary_key_columns or resource_keys
+    if not primary_keys:
+        return
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.dedupe import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        repair_duplicate_primary_keys,
+    )
+
+    try:
+        with POST_LOAD_DURATION_SECONDS.labels(operation="repair_duplicate_primary_keys").time():
+            await repair_duplicate_primary_keys(delta_table_ref, primary_keys, logger)
+    except Exception as e:
+        capture_exception(e)
+        logger.exception("Failed to repair duplicate primary keys", exc_info=e)
+
+
 async def _run_delta_maintenance(
     schema: ExternalDataSchema,
     delta_table_ref: "DeltaTableRef",
@@ -650,6 +689,10 @@ async def run_post_load_operations(
         await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
         await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
         return None
+
+    # Ahead of maintenance so compaction folds the rewritten files, and ahead of the publish
+    # below so the queryable folder never serves a generation that still holds the duplicates.
+    await _repair_duplicate_primary_keys(schema, delta_table_ref, resource, is_cdc_companion, logger)
 
     await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 

@@ -24,6 +24,7 @@ _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelin
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+_DEDUPE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.dedupe"
 _JOB_CREATED_AT = datetime(2026, 8, 19, 11, 0, tzinfo=UTC)
 
 
@@ -34,6 +35,7 @@ def _make_schema(
     partition_count: int | None = 7,
     cdc_table_mode: str = "consolidated",
     initial_sync_complete: bool = True,
+    primary_key_columns: list[str] | None = None,
 ) -> MagicMock:
     config = sync_type_config if sync_type_config is not None else {}
     schema = MagicMock()
@@ -47,13 +49,20 @@ def _make_schema(
     schema.partition_count = partition_count
     schema.cdc_table_mode = cdc_table_mode
     schema.initial_sync_complete = initial_sync_complete
+    schema.primary_key_columns = primary_key_columns
+    # Set explicitly so the duplicate-key gate reads real booleans rather than truthy mock
+    # attributes, which would make every schema look merge-keyed.
+    schema.is_incremental = not is_cdc
+    schema.is_webhook = False
+    schema.is_xmin = False
     return schema
 
 
-def _make_helper(*, file_uris: list[str] | None = None) -> MagicMock:
+def _make_helper(*, file_uris: list[str] | None = None, is_first_sync: bool = False) -> MagicMock:
     return MagicMock(
         get_delta_table=AsyncMock(return_value=MagicMock()),
         get_file_uris=AsyncMock(return_value=file_uris or []),
+        is_first_sync=is_first_sync,
     )
 
 
@@ -97,6 +106,76 @@ async def _run_post_load(
             cdc_write_mode=cdc_write_mode,
         )
     return run_scheduled, compact_table, prepare_s3
+
+
+class TestRunPostLoadDuplicatePrimaryKeys:
+    """Post-load only probes for duplicate primary keys on the runs that can create them; the
+    probe and repair themselves are covered in core/delta/test/test_dedupe.py."""
+
+    @staticmethod
+    async def _run(schema: MagicMock, helper: MagicMock, *, cdc_write_mode: str | None = None) -> AsyncMock:
+        repair = AsyncMock(return_value=0)
+        with patch(f"{_DEDUPE_MODULE}.repair_duplicate_primary_keys", repair):
+            await _run_post_load(schema, helper, cdc_write_mode=cdc_write_mode)
+        return repair
+
+    @pytest.mark.asyncio
+    async def test_first_sync_of_a_keyed_schema_is_repaired(self):
+        # A first sync writes chunk 0 with an overwrite and the rest with appends, which do no key
+        # matching, so a key spanning chunks lands once per chunk and nothing else ever removes it.
+        schema = _make_schema(is_cdc=False, primary_key_columns=["id"])
+
+        repair = await self._run(schema, _make_helper(is_first_sync=True))
+
+        repair.assert_awaited_once()
+        assert repair.await_args is not None
+        assert repair.await_args.args[1] == ["id"]
+
+    @parameterized.expand(
+        [
+            # Steady state never takes the append path, and a key scan on every sync would charge
+            # the whole fleet for a defect only first syncs and rebuilds can produce.
+            ("steady_state", {"is_first_sync": False}, {}, None),
+            # SCD2 companions keep several rows per key on purpose, so deduplicating them is data loss.
+            ("cdc_companion", {"is_first_sync": True}, {}, "scd2_append"),
+            # Without a key there is nothing to collapse on.
+            ("no_primary_keys", {"is_first_sync": True}, {"primary_key_columns": None}, None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_runs_that_cannot_duplicate_are_not_scanned(
+        self, _name: str, helper_kwargs: dict, schema_kwargs: dict, cdc_write_mode: str | None
+    ) -> None:
+        schema = _make_schema(is_cdc=False, **{"primary_key_columns": ["id"], **schema_kwargs})
+
+        repair = await self._run(schema, _make_helper(**helper_kwargs), cdc_write_mode=cdc_write_mode)
+
+        repair.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_non_merge_sync_types_are_not_scanned(self):
+        # A full refresh legitimately appends every chunk, so repeated keys there come from the
+        # source and collapsing them would silently change what the customer asked to sync.
+        schema = _make_schema(is_cdc=False, primary_key_columns=["id"])
+        schema.is_incremental = False
+
+        repair = await self._run(schema, _make_helper(is_first_sync=True))
+
+        repair.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_repair_does_not_fail_the_sync(self):
+        # The run's rows are already durable at this point; duplicates can be repaired offline.
+        schema = _make_schema(is_cdc=False, primary_key_columns=["id"])
+        repair = AsyncMock(side_effect=RuntimeError("delta blew up"))
+
+        with (
+            patch(f"{_DEDUPE_MODULE}.repair_duplicate_primary_keys", repair),
+            patch(f"{_LOAD_MODULE}.capture_exception") as capture,
+        ):
+            await _run_post_load(schema, _make_helper(is_first_sync=True))
+
+        capture.assert_called_once()
 
 
 class TestRunPostLoadDeltaMaintenance:

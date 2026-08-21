@@ -420,6 +420,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             resource_name=export_signal.resource_name,
             job=job,
             logger=logger,
+            is_first_sync=export_signal.is_first_ever_sync,
         )
 
         delta_table = await delta_table_ref.get_delta_table()
