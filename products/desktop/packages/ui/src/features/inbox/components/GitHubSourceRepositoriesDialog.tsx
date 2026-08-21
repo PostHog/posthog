@@ -108,6 +108,12 @@ export function GitHubSourceRepositoriesDialog({
   const unchanged =
     repos.length === initialRepoSet.size &&
     repos.every((repo) => initialRepoSet.has(repo));
+  // A save reconciles the repositories first, then switches their issues schemas on in a second
+  // step. If that step fails, the repositories PATCH has already landed, so once the source
+  // refetches the list is unchanged yet some schemas are still off. Keep Save usable in that
+  // case so a retry can finish enabling them.
+  const hasSchemasToEnable =
+    githubIssuesSchemasToEnable(repos, source).length > 0;
 
   return (
     <Dialog
@@ -160,7 +166,11 @@ export function GitHubSourceRepositoriesDialog({
             variant="primary"
             onClick={() => save.mutate()}
             loading={save.isPending}
-            disabled={save.isPending || repos.length === 0 || unchanged}
+            disabled={
+              save.isPending ||
+              repos.length === 0 ||
+              (unchanged && !hasSchemasToEnable)
+            }
           >
             Save
           </Button>
