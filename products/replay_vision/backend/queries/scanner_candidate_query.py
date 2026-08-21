@@ -65,12 +65,12 @@ SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
-# How many sessions one tick pulls from the replay table before asking the events table about them.
-# The `$session_id` bloom filter stops discriminating once the list gets long: measured against
-# production scanners, a few hundred to a couple of thousand ids prune 4-15x, while ~8k ids prune
-# under 2x. Sized at the top of that band, since a page that is too small pays the events scan's
-# fixed cost again for no extra reach.
-CANDIDATE_SCAN_LIMIT = 2_000
+# Correlating only pays while the id list stays short. A bloom filter answers "might this granule
+# hold any of these values", so with N probes a granule survives with probability ~1-(1-p)^N and
+# pruning decays exponentially. Measured against a production 4h window: 1 id prunes 98.5% of
+# granules, 20 prunes 49%, 50 prunes 24%, and 300 prunes 0.2%. Past this many candidates the second
+# query reads what the single query would have read, on top of it, so the tick takes the plain path.
+CORRELATION_MAX_SESSIONS = 100
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
@@ -326,20 +326,31 @@ def run_correlated_batch(
     sessions the tick can dispatch. Listing the sessions up front lets the `$session_id` bloom filter
     prune the scan, which is where the saving comes from.
     """
+
+    def single_query() -> CandidateBatch:
+        plain = build()
+        plain.limit = ast.Constant(value=dispatch_limit)
+        rows = execute(plain, match_query_type)
+        return build_candidate_batch(rows, rows, dispatch_limit, dispatch_limit)
+
     query = build()
     predicates = session_in_predicates(query)
     if not predicates:
         # No events subquery to correlate against, so splitting would only cost a second round trip.
-        query.limit = ast.Constant(value=dispatch_limit)
-        considered = execute(query, match_query_type)
-        return build_candidate_batch(considered, considered, dispatch_limit, dispatch_limit)
+        return single_query()
 
     for predicate in predicates:
         _drop_event_filter(predicate)
-    query.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    # One over the ceiling, so a window that holds too many to correlate is recognised without
+    # reading the rest of them.
+    query.limit = ast.Constant(value=CORRELATION_MAX_SESSIONS + 1)
     considered = execute(query, scan_query_type)
     if not considered:
         return CandidateBatch(matched=[])
+    if len(considered) > CORRELATION_MAX_SESSIONS:
+        # Too many ids for the bloom filter to prune on, so correlating would read the whole window
+        # again. The scan above is the only cost of finding that out.
+        return single_query()
 
     matching = build()
     session_ids = [c.session_id for c in considered]
@@ -349,9 +360,9 @@ def run_correlated_batch(
     # through a non-event branch, which the subquery restriction never sees; without this the match
     # set could run past the page the keyset is computed from.
     _restrict_outer_to_sessions(matching, session_ids)
-    matching.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    matching.limit = ast.Constant(value=CORRELATION_MAX_SESSIONS)
     matched = execute(matching, match_query_type)
-    return build_candidate_batch(considered, matched, dispatch_limit, CANDIDATE_SCAN_LIMIT)
+    return build_candidate_batch(considered, matched, dispatch_limit, CORRELATION_MAX_SESSIONS + 1)
 
 
 def session_in_predicates(query: ast.SelectQuery) -> list[ast.CompareOperation]:
