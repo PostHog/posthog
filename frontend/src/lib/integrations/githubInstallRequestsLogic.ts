@@ -29,10 +29,10 @@ export interface githubInstallRequestsLogicActions {
     dismissInstallRequest: (id: string) => {
         id: string
     }
-    dismissInstallRequestSuccess: (id: string) => {
+    dismissInstallRequestFailure: (id: string) => {
         id: string
     }
-    dismissInstallRequestFailure: (id: string) => {
+    dismissInstallRequestSuccess: (id: string) => {
         id: string
     }
     loadInstallRequests: () => any
