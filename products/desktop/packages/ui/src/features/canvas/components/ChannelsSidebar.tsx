@@ -8,6 +8,7 @@ import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSi
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
+import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
@@ -47,6 +48,7 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
+import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
 /**
@@ -191,6 +193,7 @@ export function ChannelsSidebar() {
   // slide to there's only the list.
   const { showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
+  const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;
 
@@ -237,6 +240,8 @@ export function ChannelsSidebar() {
                 selectedId={selectedActivityId}
                 onActivate={selectActivityItem}
               />
+            ) : feedId ? (
+              <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
             ) : (
               <ChannelPanes
                 channelId={currentChannelId}
