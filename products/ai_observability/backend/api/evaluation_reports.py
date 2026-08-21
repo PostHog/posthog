@@ -13,15 +13,23 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    get_authenticator_scopes,
+    is_service_auth,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportGenerationStatus,
     normalize_metrics_payload,
@@ -603,9 +611,18 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     """CRUD for evaluation report configurations + report run history."""
 
     scope_object = "evaluation"
-    permission_classes = [EvaluationReportAccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            EvaluationReportAccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
