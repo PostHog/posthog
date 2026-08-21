@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.destination_configs import (
@@ -32,6 +33,8 @@ from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+_otel = OtelInstrumentFactory("alerts")
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10.0
 
@@ -248,6 +251,7 @@ def _report_unreadable_destination_configs(
             row_counts_by_template[template_id] = row_counts_by_template.get(template_id, 0) + 1
     for template_id, count in row_counts_by_template.items():
         ALERT_DESTINATION_UNREADABLE_CONFIGS.labels(template_id=template_id).inc(count)
+        _otel.record_counter_twin(ALERT_DESTINATION_UNREADABLE_CONFIGS, count, {"template_id": template_id})
     if row_counts_by_template:
         logger.warning(
             "Alert destination config could not be read",
