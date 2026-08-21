@@ -109,10 +109,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    fetched = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
-    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
-    saturated = len(fetched) == limit
+    batch = candidate_query.run_batch(limit)
+    fetched = batch.matched
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
@@ -184,10 +182,10 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=saturated,
+        saturated=batch.saturated,
         swept_through=candidate_query.settle_cutoff,
-        keyset_end=fetched[-1].session_end if fetched else None,
-        keyset_session_id=fetched[-1].session_id if fetched else "",
+        keyset_end=batch.keyset_end,
+        keyset_session_id=batch.keyset_session_id,
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],

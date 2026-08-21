@@ -9,8 +9,7 @@ from posthog.clickhouse.workload import Workload
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
-    EXCLUDED_SESSIONS_QUERY_TYPE,
-    SWEEP_CANDIDATE_QUERY_TYPE,
+    FAST_SWEEP_QUERY_TYPES,
 )
 from products.replay_vision.backend.temporal.constants import DEEP_SPEND_WINDOW_DAYS
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -22,8 +21,9 @@ from products.replay_vision.backend.temporal.read_meter_types import MeterScanne
 _FULL_HOURS_RESCANNED = 2
 
 # Metered positively rather than by subtraction: a backfill runs under the same scanner id, so
-# anything not named here is not charged to the frequent sweep's cadence.
-_FAST_QUERY_TYPES = [SWEEP_CANDIDATE_QUERY_TYPE, EXCLUDED_SESSIONS_QUERY_TYPE]
+# anything not named here is not charged to the frequent sweep's cadence. The list is owned by the
+# query module, so a new sweep query cannot be added without joining the meter's set.
+_FAST_QUERY_TYPES = FAST_SWEEP_QUERY_TYPES
 
 _READ_BYTES_BY_SCANNER_HOUR_SQL = """
 SELECT

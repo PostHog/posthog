@@ -46,13 +46,31 @@ BACKFILL_CANDIDATE_QUERY_TYPE = "ReplayVisionBackfillCandidateQuery"
 BACKFILL_COUNT_QUERY_TYPE = "ReplayVisionBackfillCountQuery"
 DEEP_SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionDeepSweepCandidateQuery"
 SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionScannerCandidateQuery"
+SWEEP_CANDIDATE_SCAN_QUERY_TYPE = "ReplayVisionScannerCandidateScanQuery"
 EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionExcludedSessionsQuery"
 BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionBackfillExcludedSessionsQuery"
+
+# Every tag the frequent sweep emits. The read meter charges its throttle on exactly this set, so a
+# new sweep query that is not listed here spends unmetered and the scanner never throttles for it.
+FAST_SWEEP_QUERY_TYPES = [
+    SWEEP_CANDIDATE_QUERY_TYPE,
+    SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
+    EXCLUDED_SESSIONS_QUERY_TYPE,
+]
 
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
+# Guards the predicate walk against a pathological filter tree.
+_MAX_PREDICATE_DEPTH = 8
+
 DEFAULT_CANDIDATE_LIMIT = 5_000
+# How many sessions one tick pulls from the replay table before asking the events table about them.
+# The `$session_id` bloom filter stops discriminating once the list gets long: measured against
+# production scanners, a few hundred to a couple of thousand ids prune 4-15x, while ~8k ids prune
+# under 2x. Sized at the top of that band, since a page that is too small pays the events scan's
+# fixed cost again for no extra reach.
+CANDIDATE_SCAN_LIMIT = 2_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
@@ -137,6 +155,21 @@ class CandidateSession:
     session_end: dt.datetime
 
 
+@dataclass(frozen=True)
+class CandidateBatch:
+    """What one sweep tick considered and what it will dispatch.
+
+    `keyset_end`/`keyset_session_id` mark the last session the tick *considered*, matched or not, so
+    the watermark moves over ground actually covered rather than over the dispatch list. Advancing it
+    past sessions that were fetched but never evaluated would drop them for good.
+    """
+
+    matched: list[CandidateSession]
+    keyset_end: dt.datetime | None = None
+    keyset_session_id: str = ""
+    saturated: bool = False
+
+
 class ScannerCandidateQuery:
     def __init__(
         self,
@@ -218,10 +251,45 @@ class ScannerCandidateQuery:
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
+        return self._execute(self.get_query(), SWEEP_CANDIDATE_QUERY_TYPE)
+
+    @tracer.start_as_current_span("ScannerCandidateQuery.run_batch")
+    def run_batch(self, dispatch_limit: int) -> CandidateBatch:
+        """One tick's work: which sessions to dispatch, and how far the walk got.
+
+        Asking the events table "which sessions matched anywhere in the lookback" makes it scan the
+        team's whole event volume for that window, then throws nearly all of it away against the few
+        hundred sessions the tick can actually dispatch. Naming those sessions up front instead lets
+        the `$session_id` bloom filter prune the scan, which is where the saving comes from.
+        """
+        query = self.get_query()
+        predicates = session_in_predicates(query)
+        if not predicates:
+            # No events subquery to correlate against, so the split would only cost a second round trip.
+            query.limit = ast.Constant(value=dispatch_limit)
+            considered = self._execute(query, SWEEP_CANDIDATE_QUERY_TYPE)
+            return build_candidate_batch(considered, considered, dispatch_limit, dispatch_limit)
+
+        for predicate in predicates:
+            _drop_event_filter(predicate)
+        query.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+        considered = self._execute(query, SWEEP_CANDIDATE_SCAN_QUERY_TYPE)
+        if not considered:
+            return CandidateBatch(matched=[])
+
+        matching = self.get_query()
+        session_ids = [c.session_id for c in considered]
+        for predicate in session_in_predicates(matching):
+            _restrict_to_sessions(predicate, session_ids)
+        matching.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+        matched = self._execute(matching, SWEEP_CANDIDATE_QUERY_TYPE)
+        return build_candidate_batch(considered, matched, dispatch_limit, CANDIDATE_SCAN_LIMIT)
+
+    def _execute(self, query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
         rows = execute_candidate_query(
-            self.get_query(),
+            query,
             team=self._team,
-            query_type=SWEEP_CANDIDATE_QUERY_TYPE,
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
             scanner_id=self._scanner_id,
         )
@@ -263,6 +331,81 @@ class ScannerCandidateQuery:
 
     def _sampling_predicate(self) -> ast.Expr | None:
         return sampling_predicate(self._sampling_rate, self._sampling_salt)
+
+
+def session_in_predicates(query: ast.SelectQuery) -> list[ast.CompareOperation]:
+    """Every `session_id in (events subquery)` predicate the compiled query carries.
+
+    A scanner with test-account filters or event entities compiles to more than one. Restricting only
+    the first leaves the others scanning the whole events window, which costs the entire saving while
+    still returning the right sessions - a silent performance regression, not a visible failure.
+    """
+    inner = query.select_from.table if query.select_from else None
+    if not isinstance(inner, ast.SelectQuery):
+        return []
+    return _collect_session_in(inner.where)
+
+
+def _collect_session_in(node: ast.Expr | None, depth: int = 0) -> list[ast.CompareOperation]:
+    if node is None or depth > _MAX_PREDICATE_DEPTH:
+        return []
+    found: list[ast.CompareOperation] = []
+    for expr in getattr(node, "exprs", None) or []:
+        if _is_session_in(expr):
+            found.append(expr)
+        else:
+            found.extend(_collect_session_in(expr, depth + 1))
+    return found
+
+
+def _is_session_in(expr: ast.Expr) -> bool:
+    return (
+        isinstance(expr, ast.CompareOperation)
+        and expr.op in (ast.CompareOperationOp.GlobalIn, ast.CompareOperationOp.In)
+        and isinstance(expr.left, ast.Field)
+        and expr.left.chain[-1] == "session_id"
+        and isinstance(expr.right, ast.SelectQuery)
+    )
+
+
+def _drop_event_filter(predicate: ast.CompareOperation) -> None:
+    """Turn the predicate into a tautology; this pass wants every session in the window."""
+    predicate.op = ast.CompareOperationOp.Eq
+    predicate.left = ast.Constant(value=1)
+    predicate.right = ast.Constant(value=1)
+
+
+def _restrict_to_sessions(predicate: ast.CompareOperation, session_ids: list[str]) -> None:
+    subquery = predicate.right
+    assert isinstance(subquery, ast.SelectQuery)
+    selected = subquery.select[0]
+    session_expr = selected.expr if isinstance(selected, ast.Alias) else selected
+    restriction = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=session_expr, right=ast.Constant(value=session_ids)
+    )
+    subquery.where = ast.And(exprs=[subquery.where, restriction]) if subquery.where else restriction
+
+
+def build_candidate_batch(
+    considered: list[CandidateSession], matched: list[CandidateSession], dispatch_limit: int, scan_limit: int
+) -> CandidateBatch:
+    if len(matched) > dispatch_limit:
+        # More matches than there is room to dispatch, so the walk stops at the last one that fits:
+        # everything past it is re-considered next tick rather than skipped.
+        matched = matched[:dispatch_limit]
+        last = matched[-1]
+        return CandidateBatch(
+            matched=matched, keyset_end=last.session_end, keyset_session_id=last.session_id, saturated=True
+        )
+    if not considered:
+        return CandidateBatch(matched=matched)
+    last = considered[-1]
+    return CandidateBatch(
+        matched=matched,
+        keyset_end=last.session_end,
+        keyset_session_id=last.session_id,
+        saturated=len(considered) >= scan_limit,
+    )
 
 
 def keyset_order_by(ascending: bool) -> list[ast.OrderExpr]:
