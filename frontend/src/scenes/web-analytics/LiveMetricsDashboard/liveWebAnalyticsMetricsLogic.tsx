@@ -741,6 +741,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     actions.setIsRefreshing(false)
                 }
                 cache.hasInitialized = true
+                // A filter change that arrived mid-load was queued rather than dropped:
+                // this load captured the old filters, so run one more with the new ones.
+                if (!signal.aborted && cache.reloadQueuedDuringInit) {
+                    cache.reloadQueuedDuringInit = false
+                    resetStreamStateAndReload(cache, actions)
+                }
             }
         },
         scheduleReload: async (_, breakpoint) => {
@@ -842,13 +848,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     subscriptions(({ actions, cache }) => {
         const reloadForFilterChange = (): void => {
             if (!cache.hasInitialized) {
+                cache.reloadQueuedDuringInit = true
                 return
             }
-            cache.batch = []
-            cache.geoBatch = []
-            actions.clearRecentEvents()
-            actions.clearFilteredLiveUsers()
-            actions.scheduleReload()
+            resetStreamStateAndReload(cache, actions)
         }
         return {
             liveFilters: reloadForFilterChange,
@@ -909,6 +912,25 @@ interface FlushActions {
 
 const stopFlushInterval = (cache: FlushCache): void => {
     cache.disposables.dispose('flushInterval')
+}
+
+interface ReloadActions {
+    clearRecentEvents: () => void
+    clearFilteredLiveUsers: () => void
+    scheduleReload: () => void
+}
+
+// Drops buffered stream state and schedules a fresh backfill; the window is
+// rebuilt from scratch whenever the filters feeding it change.
+const resetStreamStateAndReload = (
+    cache: { batch: LiveEvent[]; geoBatch: LiveGeoEvent[] },
+    actions: ReloadActions
+): void => {
+    cache.batch = []
+    cache.geoBatch = []
+    actions.clearRecentEvents()
+    actions.clearFilteredLiveUsers()
+    actions.scheduleReload()
 }
 
 // Drives the "Users online" count so users drop off within ~5s of leaving the 60s window

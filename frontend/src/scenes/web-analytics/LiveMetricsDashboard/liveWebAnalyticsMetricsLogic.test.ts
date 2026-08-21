@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -63,5 +64,26 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         )
 
         expect(logic.values.topPaths).toEqual([{ path: '/classes/928q3hr9paw8hfe', views: 1 }])
+    })
+
+    it('queues a reload for a path cleaning change that lands during the initial load', async () => {
+        // Rebuild the logic against a gated query mock so the initial load stays in flight.
+        logic.unmount()
+        let openGate: () => void = () => {}
+        const gate = new Promise<void>((resolve) => {
+            openGate = resolve
+        })
+        jest.spyOn(api, 'query').mockImplementation(async () => {
+            await gate
+            return { results: [] } as any
+        })
+        logic = liveWebAnalyticsMetricsLogic()
+        logic.mount()
+
+        // The in-flight load captured the old setting; this change must not be dropped.
+        webAnalyticsLogic.actions.setIsPathCleaningEnabled(!webAnalyticsLogic.values.isPathCleaningEnabled)
+        openGate()
+
+        await expectLogic(logic).toDispatchActions(['scheduleReload', 'loadInitialData'])
     })
 })
