@@ -326,6 +326,51 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("renders negated criteria as their negative meaning", () => {
+    const sections = cohortCriteriaSection({
+      properties: {
+        type: "AND",
+        values: [
+          {
+            type: "AND",
+            values: [
+              {
+                type: "behavioral",
+                value: "performed_event",
+                key: "checkout",
+                negation: true,
+              },
+              {
+                type: "cohort",
+                value: "Power users",
+                negation: true,
+              },
+              {
+                type: "person",
+                key: "email",
+                operator: "icontains",
+                value: "@example.com",
+                negation: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(sections).toEqual([
+      {
+        title: "Membership criteria",
+        fields: [
+          {
+            label: "Criteria",
+            value:
+              "Did not complete checkout and Is not in cohort Power users and email does not contain @example.com",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("returns no criteria section for a static or malformed cohort", () => {
     expect(cohortCriteriaSection(undefined)).toEqual([]);
     expect(cohortCriteriaSection({ properties: { values: "junk" } })).toEqual(

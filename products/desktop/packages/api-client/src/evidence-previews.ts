@@ -818,6 +818,21 @@ const PROPERTY_OPERATOR_LABELS: Record<string, string> = {
   is_not_set: "is not set",
 };
 
+const NEGATED_PROPERTY_OPERATOR_LABELS: Record<string, string> = {
+  exact: "is not",
+  is_not: "is",
+  icontains: "does not contain",
+  not_icontains: "contains",
+  regex: "does not match",
+  not_regex: "matches",
+  gt: "is at most",
+  gte: "is less than",
+  lt: "is at least",
+  lte: "is greater than",
+  is_set: "is not set",
+  is_not_set: "is set",
+};
+
 const COUNT_OPERATOR_LABELS: Record<string, string> = {
   gte: "at least",
   lte: "at most",
@@ -833,8 +848,10 @@ function describeBehavioralCriterion(criterion: QueryRecord): string | null {
     typeof criterion.time_value === "number" && criterion.time_interval
       ? ` in the last ${criterion.time_value} ${String(criterion.time_interval)}${criterion.time_value === 1 ? "" : "s"}`
       : "";
+  const negated = criterion.negation === true;
   const kind = String(criterion.value ?? "");
-  if (kind === "performed_event") return `Completed ${event}${window}`;
+  if (kind === "performed_event")
+    return `${negated ? "Did not complete" : "Completed"} ${event}${window}`;
   if (kind === "performed_event_multiple") {
     const times = asCount(criterion.operator_value);
     const operator = COUNT_OPERATOR_LABELS[String(criterion.operator)] ?? "";
@@ -850,7 +867,8 @@ function describeBehavioralCriterion(criterion: QueryRecord): string | null {
     return `Completed ${event} regularly${window}`;
   if (kind === "performed_event_sequence") {
     const then = conciseValue(criterion.seq_event);
-    return `Completed ${event}${then ? ` then ${then}` : " in a sequence"}${window}`;
+    const verb = negated ? "Did not complete" : "Completed";
+    return `${verb} ${event}${then ? ` then ${then}` : " in a sequence"}${window}`;
   }
   if (kind === "stopped_performing_event") return `Stopped doing ${event}`;
   if (kind === "restarted_performing_event")
@@ -867,19 +885,27 @@ function asCount(value: unknown): number | null {
 function describeCohortCriterion(criterion: QueryRecord): string | null {
   const type = String(criterion.type ?? "");
   if (type === "behavioral") return describeBehavioralCriterion(criterion);
+  const negated = criterion.negation === true;
   if (type === "cohort")
-    return `Is in cohort ${conciseValue(criterion.value) ?? "?"}`;
-  if (type === "static-cohort") return "Is in a static cohort";
+    return `Is ${negated ? "not " : ""}in cohort ${conciseValue(criterion.value) ?? "?"}`;
+  if (type === "static-cohort")
+    return `Is ${negated ? "not " : ""}in a static cohort`;
   if (type === "person" || type === "event" || type === "group") {
     const key = conciseValue(criterion.key);
     if (!key) return null;
+    const rawOperator = String(criterion.operator ?? "");
+    const labels = negated
+      ? NEGATED_PROPERTY_OPERATOR_LABELS
+      : PROPERTY_OPERATOR_LABELS;
     const operator =
-      PROPERTY_OPERATOR_LABELS[String(criterion.operator)] ??
+      labels[rawOperator] ??
       (criterion.operator
-        ? humanizeStatus(String(criterion.operator)).toLowerCase()
-        : "is");
+        ? `${negated ? "not " : ""}${humanizeStatus(rawOperator).toLowerCase()}`
+        : negated
+          ? "is not"
+          : "is");
     const value = conciseValue(criterion.value);
-    const needsValue = !String(criterion.operator ?? "").includes("is_set");
+    const needsValue = !rawOperator.includes("is_set");
     return `${key} ${operator}${needsValue && value ? ` ${value}` : ""}`;
   }
   return null;
