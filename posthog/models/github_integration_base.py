@@ -5,6 +5,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import json
 import time
 import uuid
 from collections.abc import Iterable, Mapping
@@ -15,7 +16,8 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Count
+from django.db.models import Count, F, Func, JSONField, Value
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import jwt
@@ -126,6 +128,21 @@ class GitHubIntegrationError(Exception):
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
+
+
+def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
+    """Postgres ``column || patch``: a top-level key merge performed by the database.
+
+    Lets a writer that owns a few keys of a shared JSON column update them without reading the
+    column first, so keys it never looks at survive a concurrent write either way round.
+    """
+    return Func(
+        F(column),
+        Cast(Value(json.dumps(patch)), output_field=JSONField()),
+        template="%(expressions)s",
+        arg_joiner=" || ",
+        output_field=JSONField(),
+    )
 
 
 def _github_repo_optional_fields(repo: dict) -> dict:
@@ -626,18 +643,19 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 exc_info=True,
             )
-        # `config` is one JSON column, so writing a snapshot taken before the request above would drop
-        # anything a concurrent token refresh or installation webhook committed during it. Re-read the
-        # stored config and lay only the two keys this method owns on top.
-        try:
-            self.integration.refresh_from_db(fields=["config"])
-        except self.integration.DoesNotExist:
-            return False
-        config = {**self.integration.config, ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
+        patch: dict[str, Any] = {ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
         if healed_account is not None:
-            config["account"] = healed_account
-        self.integration.config = config
-        self.integration.save(update_fields=["config"])
+            patch["account"] = healed_account
+        # `config` is one JSON column, so reading it here and writing the whole column back would drop
+        # anything a concurrent token refresh or installation webhook commits in between — a window a
+        # re-read narrows but never closes. Let Postgres merge the two keys this method owns into the
+        # stored value instead, so every other key survives whichever write lands last.
+        updated = (
+            type(self.integration).objects.filter(pk=self.integration.pk).update(config=_jsonb_merge("config", patch))
+        )
+        if not updated:
+            return False
+        self.integration.config = {**self.integration.config, **patch}
         return healed_account is not None
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:

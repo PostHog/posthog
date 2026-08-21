@@ -8,6 +8,8 @@ appears once instead of at every reading call site."""
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from rest_framework.exceptions import NotFound, PermissionDenied
+
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -77,3 +79,25 @@ def selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None
     """
     configured = (selection or {}).get("scanner_ids") or []
     return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
+
+
+def scanner_for_recording_derived_read(
+    viewset: Any, scanner_id_kwarg: str = "parent_lookup_scanner_id"
+) -> ReplayScanner:
+    """The scanner named in a nested route's URL, once the caller may read what it produced.
+
+    Observations and the scout reports written from them are both recording-derived, so both inherit
+    the scanner's own RBAC *and* require session_recording read. Shared so that bar has one
+    definition: a viewset that gates on only half of it leaks recording content.
+    """
+    try:
+        scanner_id = uuid.UUID(viewset.kwargs[scanner_id_kwarg])
+    except (KeyError, ValueError):
+        raise NotFound()
+    scanner = scanner_for_reading_observations(viewset.team_id, scanner_id)
+    if scanner is None:
+        raise NotFound()
+    viewset.check_object_permissions(viewset.request, scanner)
+    if not viewset.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise PermissionDenied("Reading replay observations requires session_recording read access.")
+    return scanner

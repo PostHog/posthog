@@ -200,6 +200,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    "products.workflows",
 ]
 layer = "modules"
 
