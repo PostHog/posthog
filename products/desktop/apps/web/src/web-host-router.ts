@@ -152,6 +152,13 @@ const agentStubRouter = router({
         auth.getState().currentProjectId ?? undefined,
       );
     }),
+  // Unreachable in practice: the UI gates "/btw" on sessionSupportsSideQuestion,
+  // which is false for cloud sessions. Present so SessionTrpc stays satisfied.
+  sideQuestion: publicProcedure
+    .input(z.object({ sessionId: z.string(), question: z.string() }))
+    .mutation(() => {
+      throw new Error("Side questions require a local session");
+    }),
   // Model/mode/effort options for the task-input preview + cloud run creation
   // (a cloud run requires a model). Real: fetched from the CORS-open PostHog LLM
   // gateway, same logic the desktop main process runs (see web-agent-config.ts).

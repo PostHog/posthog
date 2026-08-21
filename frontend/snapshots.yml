@@ -5799,7 +5799,7 @@ snapshots:
     scenes-app-customer-analytics-accounts--row-expanded-feature-requests--dark:
         hash: v1.k794b7964.3550178b721e91fc806f841754bba3a3fdd2e0fdd2a8674cb2af773fd7ddad49.zXeWz2rgJxGeGlCJpmfj7fgjIGOw3P7UEZsRf7iaoGs
     scenes-app-customer-analytics-accounts--row-expanded-feature-requests--light:
-        hash: v1.k794b7964.7834a6d05cb251553b3862de12152cb10f46e39ae247f3aea8790c4b8f32390c.ZgnlU9dDtcjD2PYGpqDfxi66rARzxeG18fNFn0_dpys
+        hash: v1.k794b7964.3dacbc6067e557b821633b151997b677019a310783816e533ba94461d2cca19f.v3CvTYMJ73R0QZ_kDc7aX64QokGJmYxBZzlBNaqJhYQ
     scenes-app-customer-analytics-accounts--row-expanded-links-disabled--dark:
         hash: v1.k794b7964.385a63b277ab9041131f99759cf602d06443de6cc4e41333603d1187d64b6954.sQ8rSdSRp6Hbyvu_itGLdKOfbKjxjMSO_rxHaY4nP_0
     scenes-app-customer-analytics-accounts--row-expanded-links-disabled--light:
@@ -5829,9 +5829,9 @@ snapshots:
     scenes-app-customer-analytics-dashboard--feature-request-details--light:
         hash: v1.k794b7964.8cd0d06dbe8fa12d819f9324d191d3ec9a0741b51acf19ac6490b99aecc1dda7.k0bCKYz1oUdVTINzDzlFA4ZUmefNVOBoQx7Y3KADYxI
     scenes-app-customer-analytics-dashboard--feature-requests--dark:
-        hash: v1.k794b7964.678601de25c8530baa9bd4e94dc67731a7844beae1e6b59a47662824cba7a3e6.EjmdN0pXmKKifMocgNRlncMyliK4qEZlj2AqJ3LhclM
+        hash: v1.k794b7964.7be52019660fbab890fc0f3f1b211da1f47f1ce3517bf8ab17ff878e7207ed10.0WoT72thDYV6wPco9Qz69ZH6Ct7X_s0Q7ZZAVRHuHLc
     scenes-app-customer-analytics-dashboard--feature-requests--light:
-        hash: v1.k794b7964.87acabcc5f63d80410f42f07ed172a86f4113743b89949eea8436994216a674a.Oc_4HP6VqrlgLwYSOjuJjJp-MgKBKDLHUx-wCjL9vwQ
+        hash: v1.k794b7964.fef6240d6f3c9a2226a5057828a0aa305e7484c6c9af2740b2591128113e4799.FN-fTAAIJzAnLUVPWxgiOLCfVGh6eoDxZT0Mimp80DI
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--dark:
         hash: v1.k794b7964.731394bccab76141d6dc494f99dd56cc85e18b3f787977f8edd5c1a50c5564c8.9z2bNOo-dAM0tEyxcqStccQSV7X6iHbKnJdqAgvNapU
     scenes-app-customer-analytics-dashboard--gated-with-feature-toggle--light:
