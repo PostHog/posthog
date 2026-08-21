@@ -906,7 +906,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.loadAlerts()
                     }
                 } catch (error) {
-                    lemonToast.error("Couldn't unsnooze alert. Try again.")
+                    lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {
                         action: 'clear alert snooze',
                         alertId: values.alertForm.id,
