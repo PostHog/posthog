@@ -18,7 +18,6 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
@@ -871,21 +870,10 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.clickhouse.client import sync_execute
-        from posthog.queries.person_query import PersonQuery
-
-        filter = Filter(data={"full": "true"})
-        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+        from posthog.hogql.query import execute_hogql_query
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
-            return sync_execute(
-                f"""
-                SELECT count(1) FROM (
-                    {person_query}
-                )
-            """,
-                {**person_query_params, **filter.hogql_context.values},
-            )[0][0]
+            return execute_hogql_query("SELECT count() FROM persons", team=self).results[0][0]
 
     @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
