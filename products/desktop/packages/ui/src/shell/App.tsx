@@ -3,9 +3,17 @@ import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
+import { useAuthUiStateStore } from "@posthog/ui/features/auth/authUiStateStore";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
-import { InviteCodeScreen } from "@posthog/ui/features/auth/components/InviteCodeScreen";
+import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/DesktopAccessScreen";
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
+import {
+  useLogoutMutation,
+  useRedeemInviteCodeMutation,
+  useRetryDesktopAccessMutation,
+  useSelectProjectMutation,
+  useSwitchOrgMutation,
+} from "@posthog/ui/features/auth/useAuthMutations";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
@@ -51,7 +59,23 @@ function App({ devToolbar }: AppProps) {
     (state) => state.hasCompletedOnboarding,
   );
   const isAuthenticated = authState.status === "authenticated";
-  const hasCodeAccess = authState.hasCodeAccess;
+  const desktopAccess = authState.desktopAccess;
+  const inviteCode = useAuthUiStateStore((state) => state.inviteCode);
+  const setInviteCode = useAuthUiStateStore((state) => state.setInviteCode);
+  const resetInviteCode = useAuthUiStateStore((state) => state.resetInviteCode);
+  const selectProjectMutation = useSelectProjectMutation();
+  const switchOrgMutation = useSwitchOrgMutation();
+  const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
+  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
+  const logoutMutation = useLogoutMutation();
+  const desktopAccessIsCurrent =
+    desktopAccess.projectId === authState.currentProjectId;
+  const hasDesktopAccess =
+    desktopAccessIsCurrent && desktopAccess.status === "allowed";
+  const switchError =
+    selectProjectMutation.isError || switchOrgMutation.isError
+      ? "Couldn't switch your selection. Try again."
+      : null;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
   // (AnalyticsBootContribution / InboxDemoDevContribution), started by
   // boot at boot.
@@ -60,21 +84,25 @@ function App({ devToolbar }: AppProps) {
   // CONTRIBUTIONs (WorkspaceEventsContribution / FocusEventsContribution
   // / AgentEventsContribution), started by boot at boot.
 
-  const needsInviteCode =
-    isAuthenticated && hasCodeAccess === false && hasCompletedOnboarding;
+  const isBlockedByAccessPolicy =
+    isAuthenticated &&
+    desktopAccessIsCurrent &&
+    ["blocked", "error"].includes(desktopAccess.status) &&
+    hasCompletedOnboarding;
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const consent = useOrgConsent(isAuthenticated && hasCodeAccess === true);
+  const consent = useOrgConsent(isAuthenticated && hasDesktopAccess);
   const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasCodeAccess === true &&
+    hasDesktopAccess &&
     consent.status === "resolved" &&
     !consent.satisfied;
   const isCheckingAccess =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    (hasCodeAccess === null ||
-      (hasCodeAccess === true && consent.status === "loading"));
+    (!desktopAccessIsCurrent ||
+      ["unchecked", "checking"].includes(desktopAccess.status) ||
+      (hasDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
   useConsentAnalytics(
@@ -93,8 +121,7 @@ function App({ devToolbar }: AppProps) {
     isBootstrapped &&
     isAuthenticated &&
     hasCompletedOnboarding &&
-    !isCheckingAccess &&
-    !needsInviteCode &&
+    hasDesktopAccess &&
     consent.status === "resolved" &&
     consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
@@ -170,7 +197,6 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
-  // Rendering: onboarding (includes auth + invite code gate) → main app
   const renderContent = () => {
     if (!hasCompletedOnboarding) {
       return (
@@ -194,14 +220,43 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (needsInviteCode) {
+    if (isBlockedByAccessPolicy) {
       return (
         <motion.div
-          key="invite-code"
+          key="desktop-access"
           initial={{ opacity: 1 }}
           className="h-full"
         >
-          <InviteCodeScreen />
+          <DesktopAccessScreen
+            access={desktopAccess}
+            orgProjectsMap={authState.orgProjectsMap}
+            currentOrgId={authState.currentOrgId}
+            currentProjectId={authState.currentProjectId}
+            isSwitching={
+              selectProjectMutation.isPending || switchOrgMutation.isPending
+            }
+            isRetrying={retryDesktopAccessMutation.isPending}
+            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
+            isLoggingOut={logoutMutation.isPending}
+            inviteCode={inviteCode}
+            switchError={switchError}
+            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
+            onSelectOrganization={(organizationId) =>
+              switchOrgMutation.mutate(organizationId)
+            }
+            onSelectProject={(projectId) =>
+              selectProjectMutation.mutate(projectId)
+            }
+            onInviteCodeChange={setInviteCode}
+            onRedeemInviteCode={() =>
+              redeemInviteCodeMutation.mutate(inviteCode.trim(), {
+                onSuccess: resetInviteCode,
+              })
+            }
+            onRetry={() => retryDesktopAccessMutation.mutate()}
+            onLogout={() => logoutMutation.mutate()}
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.talkToHuman)}
+          />
         </motion.div>
       );
     }

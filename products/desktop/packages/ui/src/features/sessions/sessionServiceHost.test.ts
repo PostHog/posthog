@@ -160,7 +160,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -525,7 +525,7 @@ describe("SessionService", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({
@@ -694,7 +694,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: "org-2",
         currentProjectId: 456,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 456, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       const second = service.getCloudAttachmentPreviewUrl(
@@ -905,7 +905,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -965,7 +965,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: null,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue(null);
@@ -1001,7 +1001,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 
@@ -1034,7 +1034,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: true,
+          desktopAccess: { projectId: 123, status: "allowed", reason: null },
           needsScopeReauth: false,
         });
 
@@ -6921,7 +6921,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -7196,7 +7196,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: 123,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
 
@@ -7295,7 +7295,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 
