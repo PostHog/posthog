@@ -7,6 +7,8 @@ import parserRecipeCreate from './aiObservability/parserRecipeCreate'
 import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
+// Desktop (surfaces clickable actions in PostHog Desktop)
+import taskShowActions from './desktop/taskShowActions'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
@@ -113,6 +115,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
     'loops-review': loopsReview,
+
+    // Desktop
+    'task-show-actions': taskShowActions,
 
     // Feedback
     'agent-feedback': submitFeedback,

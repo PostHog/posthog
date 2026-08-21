@@ -8,11 +8,17 @@ import {
   McpAppsServiceEvent,
   mcpAppsSubscriptionInput,
   mcpUiResourceSchema,
+  openActionInput,
   openLinkInput,
   proxyResourceReadInput,
   proxyToolCallInput,
 } from "@posthog/core/mcp-apps/schemas";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import {
+  DEEP_LINK_SERVICE,
+  type IDeepLinkRegistry,
+} from "@posthog/platform/deep-link";
+import { buildActionUrl } from "@posthog/shared";
 
 export const mcpAppsRouter = router({
   getUiResource: publicProcedure
@@ -70,6 +76,18 @@ export const mcpAppsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.container.get<McpAppsService>(MCP_APPS_SERVICE).openLink(input.url),
     ),
+
+  // A card is sandboxed HTML any MCP server can supply, so it sends the verb it
+  // wants, never a URL. The host builds the link for the scheme its own build
+  // registered — dev builds answer to posthog-code-dev — and dispatches it
+  // through the handler OS-delivered links take.
+  openAction: publicProcedure
+    .input(openActionInput)
+    .mutation(({ ctx, input }) => {
+      const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
+      const url = buildActionUrl(input.action, deepLinks.getProtocol());
+      return url ? deepLinks.handleUrl(url) : false;
+    }),
 
   onToolInput: publicProcedure
     .input(mcpAppsSubscriptionInput)

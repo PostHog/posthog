@@ -27,6 +27,7 @@ export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
 export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
 export const SURVEY_STATS_RESOURCE_URI = 'ui://posthog/survey-stats.html'
+export const TASK_SHOW_ACTIONS_RESOURCE_URI = 'ui://posthog/task-show-actions.html'
 export const TRACE_SPAN_RESOURCE_URI = 'ui://posthog/trace-span.html'
 export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
 export const VISION_OBSERVATION_LIST_RESOURCE_URI = 'ui://posthog/vision-observation-list.html'
@@ -62,6 +63,7 @@ export type UiAppKey =
     | 'survey-global-stats'
     | 'survey-list'
     | 'survey-stats'
+    | 'task-show-actions'
     | 'trace-span'
     | 'trace-span-list'
     | 'vision-observation-list'
@@ -97,6 +99,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
+    'task-show-actions': TASK_SHOW_ACTIONS_RESOURCE_URI,
     'trace-span': TRACE_SPAN_RESOURCE_URI,
     'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
     'vision-observation-list': VISION_OBSERVATION_LIST_RESOURCE_URI,
@@ -308,6 +311,12 @@ export const UI_APPS: Array<{
         uri: SURVEY_STATS_RESOURCE_URI,
         description: 'Survey Stats detail view',
         appDir: 'generated/survey-stats',
+    },
+    {
+        name: 'PostHog Actions',
+        uri: TASK_SHOW_ACTIONS_RESOURCE_URI,
+        description: 'Card of buttons that open a PostHog Desktop action the agent offered.',
+        appDir: 'task-show-actions',
     },
     {
         name: 'PostHog Trace Span',

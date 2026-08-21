@@ -1,0 +1,89 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actions": {
+            "description": "One to four actions, in the order they should appear.",
+            "items": {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "kind": {
+                                "const": "compose",
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Button text. Short and in sentence case, naming what the button does.",
+                                "maxLength": 60,
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "prompt": {
+                                "description": "Text to prefill the new-task composer with. The user reads it and sends it themselves, so nothing runs on click.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "repo": {
+                                "description": "Repository slug to preselect, e.g. `posthog/posthog`. Omit when the task has no repository.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "label", "prompt"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "channel_id": {
+                                "description": "Id of the channel whose feed to open. Resolve it with channel-list.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "kind": {
+                                "const": "open_space",
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Button text. Short and in sentence case, naming what the button does.",
+                                "maxLength": 60,
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "label", "channel_id"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "canvas_id": {
+                                "description": "Id of the canvas to open. Required.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "channel_id": {
+                                "description": "Id of the channel the canvas lives in. Required.",
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "kind": {
+                                "const": "open_canvas",
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Button text. Short and in sentence case, naming what the button does.",
+                                "maxLength": 60,
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "label", "channel_id", "canvas_id"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["actions"],
+    "type": "object"
+}

@@ -107,6 +107,7 @@ export function McpAppHost({
     trpc.mcpApps.proxyResourceRead.mutationOptions(),
   );
   const openLinkMut = useMutation(trpc.mcpApps.openLink.mutationOptions());
+  const openActionMut = useMutation(trpc.mcpApps.openAction.mutationOptions());
 
   const { sendWhenReady } = useAppBridge({
     iframeEl,
@@ -131,6 +132,7 @@ export function McpAppHost({
       uri: string;
     }) => Promise<ReadResourceResult>,
     openLink: openLinkMut.mutateAsync,
+    openAction: openActionMut.mutateAsync,
   });
 
   const sentResultForCallRef = useRef<string | null>(null);

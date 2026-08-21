@@ -149,6 +149,32 @@ export const openLinkInput = z.object({
   url: z.string(),
 });
 
+/**
+ * A deep-link action a card asks the host to take. The card is sandboxed HTML
+ * any MCP server can supply, so it sends the verb and the verb's own fields and
+ * never a URL — the host builds the link for its own build's scheme.
+ */
+export const mcpAppActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("compose"),
+    prompt: z.string(),
+    repo: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("open_space"),
+    channel_id: z.string(),
+  }),
+  z.object({
+    kind: z.literal("open_canvas"),
+    channel_id: z.string(),
+    canvas_id: z.string(),
+  }),
+]);
+
+export const openActionInput = z.object({
+  action: mcpAppActionSchema,
+});
+
 export const mcpAppsSubscriptionInput = z.object({
   toolKey: z.string(),
 });

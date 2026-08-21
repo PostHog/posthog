@@ -126,3 +126,72 @@ export type NewTaskLinkPayload =
       issueRepo: string;
       issueNumber: number;
     } & NewTaskSharedParams);
+
+/**
+ * An action an MCP App card offers the user, as the card sends it to the host.
+ *
+ * A card is sandboxed HTML that any MCP server can supply, so it never hands the
+ * host a URL. It sends the verb and the verb's own fields, and the host builds
+ * the link with {@link buildActionUrl} using the scheme its own build registered.
+ */
+export interface McpAppComposeAction {
+  kind: "compose";
+  prompt: string;
+  repo?: string;
+}
+
+export interface McpAppOpenSpaceAction {
+  kind: "open_space";
+  channel_id: string;
+}
+
+export interface McpAppOpenCanvasAction {
+  kind: "open_canvas";
+  channel_id: string;
+  canvas_id: string;
+}
+
+export type McpAppAction =
+  | McpAppComposeAction
+  | McpAppOpenSpaceAction
+  | McpAppOpenCanvasAction;
+
+/** Percent-encode a required piece of a link, or null when it is missing or blank. */
+function encodeRequired(value: string | undefined): string | null {
+  return value && value.trim().length > 0 ? encodeURIComponent(value) : null;
+}
+
+/**
+ * The link an action fires, or null when the action is missing a piece the link
+ * needs. A partial link would land the user somewhere they didn't ask for, so
+ * the caller drops the action instead.
+ */
+export function buildActionUrl(
+  action: McpAppAction,
+  scheme: string,
+): string | null {
+  switch (action.kind) {
+    case "compose": {
+      const prompt = encodeRequired(action.prompt);
+      if (!prompt) {
+        return null;
+      }
+      const repo = encodeRequired(action.repo);
+      const query = repo ? `prompt=${prompt}&repo=${repo}` : `prompt=${prompt}`;
+      return `${scheme}://new?${query}`;
+    }
+    case "open_space": {
+      const channelId = encodeRequired(action.channel_id);
+      return channelId ? `${scheme}://channel/${channelId}` : null;
+    }
+    case "open_canvas": {
+      const channelId = encodeRequired(action.channel_id);
+      const canvasId = encodeRequired(action.canvas_id);
+      return channelId && canvasId
+        ? `${scheme}://canvas/${channelId}/${canvasId}`
+        : null;
+    }
+    default:
+      return null;
+  }
+}

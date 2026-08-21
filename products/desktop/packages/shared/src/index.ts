@@ -104,6 +104,7 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  buildActionUrl,
   buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,
@@ -113,6 +114,10 @@ export {
   type GitHubIssueRef,
   getDeeplinkProtocol,
   isPostHogCodeDeeplink,
+  type McpAppAction,
+  type McpAppComposeAction,
+  type McpAppOpenCanvasAction,
+  type McpAppOpenSpaceAction,
   type NewTaskLinkPayload,
   type NewTaskSharedParams,
   parseGitHubIssueUrl,
