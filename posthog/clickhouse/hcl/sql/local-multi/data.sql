@@ -896,6 +896,27 @@ CREATE TABLE posthog.sharded_app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -2890,6 +2911,27 @@ CREATE TABLE posthog.app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+CREATE TABLE posthog.billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', sipHash64(team_id));
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,

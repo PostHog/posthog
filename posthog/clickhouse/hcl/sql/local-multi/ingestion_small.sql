@@ -14,6 +14,24 @@ CREATE TABLE posthog.kafka_app_metrics (
   error_type String,
   error_details String CODEC(ZSTD(3))
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'group1\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_app_metrics\'';
+CREATE TABLE posthog.kafka_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String)
+) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_billing_usage_records\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_billing_usage_records\'';
 CREATE TABLE posthog.kafka_duplicate_events (
   team_id Int64,
   distinct_id String,
@@ -293,6 +311,27 @@ CREATE TABLE posthog.writable_app_metrics (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics', rand());
+CREATE TABLE posthog.writable_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  mode Enum8('delta'=1, 'snapshot'=2),
+  unit LowCardinality(String),
+  quantity Int64,
+  version UInt64,
+  event_timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  source_ref String,
+  user_id String,
+  variant String,
+  dimensions Map(LowCardinality(String), String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', sipHash64(team_id));
 CREATE TABLE posthog.writable_duplicate_events (
   team_id Int64,
   distinct_id String,
@@ -518,6 +557,27 @@ CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics 
   _offset,
   _partition
 FROM posthog.kafka_app_metrics;
+CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), mode Enum8('delta'=1, 'snapshot'=2), unit LowCardinality(String), quantity Int64, version UInt64, event_timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), source_ref String, user_id String, variant String, dimensions Map(LowCardinality(String), String), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+  schema_version,
+  record_id,
+  producer_id,
+  team_id,
+  organization_id,
+  usage_key,
+  mode,
+  unit,
+  quantity,
+  version,
+  event_timestamp,
+  inserted_at,
+  source_ref,
+  user_id,
+  variant,
+  dimensions,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_billing_usage_records;
 CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplicate_events (team_id Int64, distinct_id String, event String, source_uuid UUID, duplicate_uuid UUID, similarity_score Float64, dedup_type LowCardinality(String), is_confirmed UInt8, reason Nullable(String), version String, different_property_count UInt32, properties_similarity Float64, source_message String, duplicate_message String, distinct_fields Array(Tuple(field_name String, original_value String, new_value String)), inserted_at DateTime64(3, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   distinct_id,
