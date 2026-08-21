@@ -1403,7 +1403,7 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        if self._agent_server_is_healthy():
+        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
             if wait_for_health:
                 self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")

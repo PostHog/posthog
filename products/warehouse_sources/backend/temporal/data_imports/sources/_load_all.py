@@ -217,6 +217,7 @@ from .canny.source import CannySource
 from .canvas_lms.source import CanvasLmsSource
 from .capsule_crm.source import CapsuleCRMSource
 from .captain_data.source import CaptainDataSource
+from .capterra.source import CapterraSource
 from .captivate.source import CaptivateSource
 from .care_quality_commission.source import CareQualityCommissionSource
 from .cart_com.source import CartComSource
@@ -525,6 +526,7 @@ from .google_forms.source import GoogleFormsSource
 from .google_merchant_center.source import GoogleMerchantCenterSource
 from .google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 from .google_play_console.source import GooglePlayConsoleSource
+from .google_postmaster_tools.source import GooglePostmasterToolsSource
 from .google_search_console.source import GoogleSearchConsoleSource
 from .google_sheets.source import GoogleSheetsSource
 from .google_tasks.source import GoogleTasksSource
@@ -537,6 +539,7 @@ from .greenhouse.source import GreenhouseSource
 from .greythr.source import GreytHrSource
 from .gridly.source import GridlySource
 from .groq.source import GroqSource
+from .growi.source import GrowiSource
 from .growthbook.source import GrowthBookSource
 from .guardian.source import GuardianSource
 from .guesty.source import GuestySource

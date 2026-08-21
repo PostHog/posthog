@@ -404,6 +404,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # reason a run ended stays machine-readable without abusing error_message.
         self._completion_timeout_marker: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
         self._end_of_turn_received: Optional[bool] = None
         self._last_agent_heartbeat_at: Optional[datetime] = None
@@ -485,6 +486,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 self._task_completed
                 or self._sandbox_gone
                 or self._heartbeat_received
+                or self._client_activity_received
                 or self._has_dispatchable_followup()
                 or len(self._pending_permission_responses) > 0
             )
@@ -1145,6 +1147,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 extra={"run_id": self.context.run_id},
                             )
                             self._heartbeat_received = False
+                            self._client_activity_received = False
+                            continue
+
+                        if self._client_activity_received and not self._task_completed:
+                            workflow.logger.info(
+                                "Client activity received, resetting inactivity timer",
+                                extra={"run_id": self.context.run_id},
+                            )
+                            self._client_activity_received = False
                             continue
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
@@ -1439,6 +1450,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             or self._pending_followups
             or self._pending_permission_responses
             or self._heartbeat_received
+            or self._client_activity_received
             or self._current_slack_relay_workflow_id is not None
         ):
             return False
@@ -2553,6 +2565,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
+
+    @temporalio.workflow.signal
+    async def client_activity(self) -> None:
+        self._client_activity_received = True
+        self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
     async def agent_state_changed(self, agent_active: bool) -> None:
