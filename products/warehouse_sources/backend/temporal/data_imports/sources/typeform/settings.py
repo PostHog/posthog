@@ -79,6 +79,10 @@ TYPEFORM_ENDPOINTS: dict[str, TypeformEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "form_id"},
+            # Not "warehouse": the child spends one request per form, while the `forms` listing
+            # costs one request per `page_size` forms. A Delta read saves too little of the run
+            # to pay for the fallback path it adds.
+            parent_source="api",
         ),
     ),
 }
