@@ -45,58 +45,58 @@ The lane checks every occurrence of a query parameter, including an occurrence w
 
 Query parameters:
 
-| Parameter              | Domain        | Notes                                                            |
-|------------------------|---------------|------------------------------------------------------------------|
-| `__cld_token__`        |               | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) access token |
-| `__token__`            |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
-| `access_token`         |               |                                                                  |
-| `api_key`              |               |                                                                  |
-| `apikey`               |               |                                                                  |
-| `auth_token`           |               |                                                                  |
-| `authorization`        |               |                                                                  |
-| `AWSAccessKeyId`       |               | AWS Signature Version 2 credential                               |
-| `Credential`           |               |                                                                  |
-| `GoogleAccessId`       |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 2 credential |
-| `hdnea`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
-| `hdntl`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
-| `hdnts`                |               | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token |
-| `id_token`             |               |                                                                  |
-| `ik-s`                 |               | [ImageKit](https://imagekit.io/docs/media-delivery-basic-security) signature |
-| `jsessionid`           |               | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token |
-| `OSSAccessKeyId`       |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) credential |
-| `phpsessid`            |               |                                                                  |
-| `q-ak`                 |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) credential |
-| `q-signature`          |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) signature |
-| `s=<32-char token>`    |               | [Imgix](https://github.com/imgix/imgix-blueprint#securing-urls)   |
-| `security-token`       |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential |
-| `session_token`        |               |                                                                  |
-| `sessionid`            |               |                                                                  |
-| `sig`                  |               | Includes [Azure SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) and [Cloudflare Images](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) signatures |
-| `Signature`            |               | Includes AWS, [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html), and [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) signatures |
-| `SignedHeaders`        |               | Signed URL header list                                            |
-| `token`                |               | Includes [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) query tokens |
-| `X-Amz-Credential`     |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) credential |
-| `X-Amz-Security-Token` |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) temporary credential |
-| `X-Amz-Signature`      |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signature |
-| `X-Amz-SignedHeaders`  |               | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signed header list |
-| `X-Cos-Security-Token` |               | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) temporary credential |
-| `X-Goog-Credential`    |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 credential |
-| `X-Goog-Signature`     |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signature |
-| `X-Goog-SignedHeaders` |               | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signed header list |
-| `x-oss-credential`     |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 credential |
-| `x-oss-security-token` |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential |
-| `x-oss-signature`      |               | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 signature |
+| Parameter              | Domain | Notes                                                                                                                                                                                                                                                                    |
+| ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `__cld_token__`        |        | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) access token                                                                                                                                                                                  |
+| `__token__`            |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `access_token`         |        |                                                                                                                                                                                                                                                                          |
+| `api_key`              |        |                                                                                                                                                                                                                                                                          |
+| `apikey`               |        |                                                                                                                                                                                                                                                                          |
+| `auth_token`           |        |                                                                                                                                                                                                                                                                          |
+| `authorization`        |        |                                                                                                                                                                                                                                                                          |
+| `AWSAccessKeyId`       |        | AWS Signature Version 2 credential                                                                                                                                                                                                                                       |
+| `Credential`           |        |                                                                                                                                                                                                                                                                          |
+| `GoogleAccessId`       |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 2 credential                                                                                                                                             |
+| `hdnea`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `hdntl`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `hdnts`                |        | [Akamai](https://techdocs.akamai.com/adaptive-media-delivery/docs/generate-a-token-and-apply-it-to-content) token                                                                                                                                                        |
+| `id_token`             |        |                                                                                                                                                                                                                                                                          |
+| `ik-s`                 |        | [ImageKit](https://imagekit.io/docs/media-delivery-basic-security) signature                                                                                                                                                                                             |
+| `jsessionid`           |        | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token                                                                                                                                                             |
+| `OSSAccessKeyId`       |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) credential                                                                                                                                                            |
+| `phpsessid`            |        |                                                                                                                                                                                                                                                                          |
+| `q-ak`                 |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) credential                                                                                                                                                                                           |
+| `q-signature`          |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) signature                                                                                                                                                                                            |
+| `s=<32-char token>`    |        | [Imgix](https://github.com/imgix/imgix-blueprint#securing-urls)                                                                                                                                                                                                          |
+| `security-token`       |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
+| `session_token`        |        |                                                                                                                                                                                                                                                                          |
+| `sessionid`            |        |                                                                                                                                                                                                                                                                          |
+| `sig`                  |        | Includes [Azure SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) and [Cloudflare Images](https://developers.cloudflare.com/images/optimization/hosted-images/serve-private-images/) signatures                                        |
+| `Signature`            |        | Includes AWS, [CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html), and [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) signatures |
+| `SignedHeaders`        |        | Signed URL header list                                                                                                                                                                                                                                                   |
+| `token`                |        | Includes [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) query tokens                                                                                                                               |
+| `X-Amz-Credential`     |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) credential                                                                                                                                            |
+| `X-Amz-Security-Token` |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) temporary credential                                                                                                                                  |
+| `X-Amz-Signature`      |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signature                                                                                                                                             |
+| `X-Amz-SignedHeaders`  |        | [AWS Signature Version 4](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html) signed header list                                                                                                                                    |
+| `X-Cos-Security-Token` |        | [Tencent COS](https://cloud.tencent.com/document/product/436/68284) temporary credential                                                                                                                                                                                 |
+| `X-Goog-Credential`    |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 credential                                                                                                                                             |
+| `X-Goog-Signature`     |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signature                                                                                                                                              |
+| `X-Goog-SignedHeaders` |        | [Google Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signed-urls) Signature Version 4 signed header list                                                                                                                                     |
+| `x-oss-credential`     |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 credential                                                                                                                                        |
+| `x-oss-security-token` |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) temporary credential                                                                                                                                                  |
+| `x-oss-signature`      |        | [Alibaba OSS](https://www.alibabacloud.com/help/en/oss/developer-reference/add-signatures-to-urls) Signature Version 4 signature                                                                                                                                         |
 
 Path patterns:
 
-| Pattern                                            | Domain                                     | Notes                    |
-|----------------------------------------------------|--------------------------------------------|--------------------------|
-| `/bcdn_token=<token>[&<field>=<value>...]/`       |                                            | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token in the first path segment |
-| `/p/<token>/n/`                                   | `objectstorage.*.oraclecloud.com`           | [Oracle pre-authenticated request](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) |
-| `/s--<token>--/`                                  |                                            | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) signature |
-| `/storage/v1/object/sign/`                        |                                            | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed object |
-| `/storage/v1/render/image/sign/`                  |                                            | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed image |
-| `;jsessionid=<token>` within any path segment     |                                            | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token |
+| Pattern                                       | Domain                            | Notes                                                                                                                                                                                                |
+| --------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/bcdn_token=<token>[&<field>=<value>...]/`   |                                   | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token in the first path segment                                                 |
+| `/p/<token>/n/`                               | `objectstorage.*.oraclecloud.com` | [Oracle pre-authenticated request](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) |
+| `/s--<token>--/`                              |                                   | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) signature                                                                                                                 |
+| `/storage/v1/object/sign/`                    |                                   | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed object                                                                                                                     |
+| `/storage/v1/render/image/sign/`              |                                   | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed image                                                                                                                      |
+| `;jsessionid=<token>` within any path segment |                                   | [Jakarta Servlet](https://jakarta.ee/specifications/servlet/6.1/jakarta-servlet-spec-6.1.html) session token                                                                                         |
 
 **1.3** It's preferable if upstream systems run the subset of these checks that they are easily able to, to reduce load on the system
 
@@ -122,7 +122,7 @@ Path patterns:
 **2.6** This is the complete list of opt-out signals used by this lane:
 
 | Signal            | Where it arrives                                | It refuses when                  |
-|-------------------|-------------------------------------------------|----------------------------------|
+| ----------------- | ----------------------------------------------- | -------------------------------- |
 | `X-Robots-Tag`    | Response header                                 | It carries `noai` or `noimageai` |
 | `Content-Usage`   | Response header, and a rule in robots.txt       | Its dictionary sets `train-ai=n` |
 | `Content-Signal`  | A rule in robots.txt                            | It sets `ai-train=no`            |
@@ -242,7 +242,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 **5.10** These are the limits in the system:
 
 | Constant                                | Scope                                             | Value      |
-|-----------------------------------------|---------------------------------------------------|------------|
+| --------------------------------------- | ------------------------------------------------- | ---------- |
 | Requests in flight                      | pod                                               | 300        |
 | Requests in flight per origin           | origin                                            | 6          |
 | Requests per second per origin          | origin                                            | 1, burst 5 |
@@ -257,13 +257,13 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.11** State is stored as follows:
 
-| State                                                                                                  | Key                     | Location                                                        |
-|--------------------------------------------------------------------------------------------------------|-------------------------|-----------------------------------------------------------------|
-| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin                  | Memory on the pod that owns the origin's Kafka partition        |
-| robots.txt and tdmrep.json results                                                                    | Origin and file type    | DynamoDB, with an optional hot cache in pod memory               |
-| URL crawl history and HTTP cache metadata                                                              | Global canonical URL    | DynamoDB                                                        |
-| Original ref, current URL, remaining image hops, and earliest retry time                               | One URL job             | Kafka record                                                    |
-| Top-N metric labels                                                                                    | Registrable/provider domain | Bounded pod memory                                           |
+| State                                                                                                 | Key                         | Location                                                 |
+| ----------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------- |
+| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin                      | Memory on the pod that owns the origin's Kafka partition |
+| robots.txt and tdmrep.json results                                                                    | Origin and file type        | DynamoDB, with an optional hot cache in pod memory       |
+| URL crawl history and HTTP cache metadata                                                             | Global canonical URL        | DynamoDB                                                 |
+| Original ref, current URL, remaining image hops, and earliest retry time                              | One URL job                 | Kafka record                                             |
+| Top-N metric labels                                                                                   | Registrable/provider domain | Bounded pod memory                                       |
 
 **5.12** No request-control state uses the registrable domain or provider domain as its key.
 
@@ -379,19 +379,19 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 ```json
 {
-    "v": 1,
-    "jobs": [
-        {
-            "originalRef": "imageurl:<hash>",
-            "currentUrl": "https://images.example.com/image.png",
-            "remainingHops": 10,
-            "notBeforeMs": 0,
-            "firstSeenAtMs": 1787241600000,
-            "fetchCount": 0,
-            "republishCount": 0,
-            "lastRepublishReason": null
-        }
-    ]
+  "v": 1,
+  "jobs": [
+    {
+      "originalRef": "imageurl:<hash>",
+      "currentUrl": "https://images.example.com/image.png",
+      "remainingHops": 10,
+      "notBeforeMs": 0,
+      "firstSeenAtMs": 1787241600000,
+      "fetchCount": 0,
+      "republishCount": 0,
+      "lastRepublishReason": null
+    }
+  ]
 }
 ```
 
@@ -479,7 +479,7 @@ After parsing and before final serialization, the implementation removes every o
 **14.2** The lane never sends cookies, and ignores cookies that are set by the response
 
 **14.3** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
- the userinfo of a URL, cookies, and known credential query parameters
+the userinfo of a URL, cookies, and known credential query parameters
 
 **14.4** The lane never sends a `Referer`
 
@@ -496,7 +496,7 @@ After parsing and before final serialization, the implementation removes every o
 **14.10** The lane accepts these media types and refuses every other one:
 
 | `Content-Type` | Format |
-|----------------|--------|
+| -------------- | ------ |
 | `image/png`    | PNG    |
 | `image/jpeg`   | JPEG   |
 | `image/gif`    | GIF    |
@@ -576,10 +576,10 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.4** The record has these Kafka headers:
 
-| Header             | Value                                                                                                  |
-|--------------------|--------------------------------------------------------------------------------------------------------|
-| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters       |
-| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase    |
+| Header             | Value                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters     |
+| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase |
 
 **17.5** The fetcher omits `content-encoding` when the response has no content coding or specifies `identity`. The scrubber treats a missing header as `identity`.
 
@@ -603,29 +603,29 @@ ai_research_session_replay_image_fetch_retry_1h
 
 ## External specifications
 
-| Specification                                                                                                            | What it governs here                                                                                                                                                 |
-|--------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Specification                                                                                                            | What it governs here                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Section 3. The response classes, the cache guidance, the redirect count, the 500 KiB parse limit, a line that does not parse, and how a product token matches a group |
-| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/), W3C Community Group Final Report        | Requirements 2.6, 2.10, and section 3. A Community Group report, which is not a W3C Standard                                                                      |
-| [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 2.7. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
-| [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                             |
+| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/), W3C Community Group Final Report        | Requirements 2.6, 2.10, and section 3. A Community Group report, which is not a W3C Standard                                                                          |
+| [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 2.7. The PLUS Data Mining property, and the values that refuse AI training                                                                                |
+| [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                              |
 | [Content Signals](https://contentsignals.org/)                                                                           | Requirement 2.6. The `Content-Signal` robots.txt rule and the `ai-train` category                                                                                     |
-| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 4.2 to 4.3 and 4.7 to 4.11. The signatures, covered components, parameters, and the directory response                                                |
-| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 4.2, 4.4, and 4.7 to 4.11. Cloudflare's verification rules and legacy `Signature-Agent` format                                                        |
-| [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 4.2 to 4.3 and 4.7 to 4.11. Web Bot Auth. An active individual submission                                                                             |
-| [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 4.3. The key directory, and the rule that a reader ignores a member it does not understand                                                               |
-| [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 4.8. The `kid`, computed over the required members only                                                                                                  |
-| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Requirement 2.6. The `Content-Usage` dictionary                                                                                                                     |
-| [draft-ietf-aipref-vocab](https://datatracker.ietf.org/doc/draft-ietf-aipref-vocab/)                                     | Requirement 2.6. The `train-ai` preference and how conflicting or invalid preferences are resolved                                                                  |
-| [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Requirement 2.6. The `Content-Usage` response field and robots.txt rule                                                                                              |
-| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Requirements 7.5 and 14.17. `Retry-After` and repeated field lines                                                                                                   |
-| [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html), HTTP Caching                                                    | Section 12. Freshness lifetime, current age, cache directives, and conditional revalidation                                                                          |
-| [RFC 8246](https://www.rfc-editor.org/rfc/rfc8246.html), HTTP Immutable Responses                                       | Requirement 12.9. The effect of `immutable` during and after a response's freshness lifetime                                                                         |
+| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 4.2 to 4.3 and 4.7 to 4.11. The signatures, covered components, parameters, and the directory response                                                   |
+| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 4.2, 4.4, and 4.7 to 4.11. Cloudflare's verification rules and legacy `Signature-Agent` format                                                           |
+| [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 4.2 to 4.3 and 4.7 to 4.11. Web Bot Auth. An active individual submission                                                                                |
+| [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 4.3. The key directory, and the rule that a reader ignores a member it does not understand                                                                |
+| [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 4.8. The `kid`, computed over the required members only                                                                                                   |
+| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Requirement 2.6. The `Content-Usage` dictionary                                                                                                                       |
+| [draft-ietf-aipref-vocab](https://datatracker.ietf.org/doc/draft-ietf-aipref-vocab/)                                     | Requirement 2.6. The `train-ai` preference and how conflicting or invalid preferences are resolved                                                                    |
+| [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Requirement 2.6. The `Content-Usage` response field and robots.txt rule                                                                                               |
+| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Requirements 7.5 and 14.17. `Retry-After` and repeated field lines                                                                                                    |
+| [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html), HTTP Caching                                                    | Section 12. Freshness lifetime, current age, cache directives, and conditional revalidation                                                                           |
+| [RFC 8246](https://www.rfc-editor.org/rfc/rfc8246.html), HTTP Immutable Responses                                        | Requirement 12.9. The effect of `immutable` during and after a response's freshness lifetime                                                                          |
 | [DynamoDB BatchGetItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html)            | Requirement 15.6. Bulk reads, the 100-item request limit, and unprocessed keys                                                                                        |
 | [DynamoDB BatchWriteItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchWriteItem.html)        | Requirement 15.6. Bulk writes, the 25-item request limit, and unprocessed items                                                                                       |
-| [Google robots.txt behavior](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)                    | Requirements 3.16 and 3.17. The places where PostHog follows or is more conservative than Google                                                                     |
+| [Google robots.txt behavior](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)                     | Requirements 3.16 and 3.17. The places where PostHog follows or is more conservative than Google                                                                      |
 | [Smokescreen](https://github.com/stripe/smokescreen)                                                                     | Section 6. The outbound proxy that enforces the production network boundary                                                                                           |
-| [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and provider domains used for Kafka ownership and bounded metrics                                                                                      |
+| [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and provider domains used for Kafka ownership and bounded metrics                                                                                     |
 
 `noai` and `noimageai` in requirement 2.6 have no specification. They are a convention that art hosting
 platforms adopted, and `X-Robots-Tag` is the transport.
