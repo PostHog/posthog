@@ -78,13 +78,44 @@ describe('accountTrackRulesLogic', () => {
             validation_errors: [],
         })
 
-        await expectLogic(logic, () => logic.actions.loadPreview()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.previewDraft()).toFinishAllListeners()
+        expect(mockPreview).toHaveBeenCalledWith(String(logic.values.currentTeamId), CONFIG)
+        expect(logic.values.previewMatchesDraft).toBe(true)
         expect(logic.values.previewIsCurrent).toBe(true)
         expect(logic.values.canRun).toBe(true)
 
         logic.actions.setEnabled(false)
 
         expect(logic.values.hasUnsavedChanges).toBe(true)
+        expect(logic.values.previewMatchesDraft).toBe(false)
+        expect(logic.values.previewIsCurrent).toBe(false)
+        expect(logic.values.canRun).toBe(false)
+    })
+
+    it('previews a valid unsaved draft without making it runnable', async () => {
+        mockPreview.mockResolvedValue({
+            config_version: 3,
+            eligible_active: 10,
+            skipped_churned: 1,
+            tracked: 8,
+            ignored: 2,
+            newly_ignored: 1,
+            restored: 1,
+            tracked_samples: [],
+            ignored_samples: [],
+            preview_token: 'signed-draft-preview',
+            validation_errors: [],
+        })
+        logic.actions.setEnabled(false)
+
+        await expectLogic(logic, () => logic.actions.previewDraft()).toFinishAllListeners()
+
+        expect(mockPreview).toHaveBeenCalledWith(String(logic.values.currentTeamId), {
+            ...CONFIG,
+            enabled: false,
+        })
+        expect(logic.values.canPreview).toBe(true)
+        expect(logic.values.previewMatchesDraft).toBe(true)
         expect(logic.values.previewIsCurrent).toBe(false)
         expect(logic.values.canRun).toBe(false)
     })
@@ -111,5 +142,6 @@ describe('accountTrackRulesLogic', () => {
 
         expect(logic.values.hasUnsavedChanges).toBe(true)
         expect(logic.values.canSave).toBe(false)
+        expect(logic.values.canPreview).toBe(false)
     })
 })

@@ -409,9 +409,13 @@ def validate_preview_token(team_id: int, config: contracts.AccountTrackRulesConf
         raise AccountTrackRulePreviewError("Preview this Track Rules version again before running it.")
 
 
-def preview_account_track_rules(team_id: int) -> contracts.AccountTrackRulePreview:
-    row, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(team_id=team_id)
-    parsed = parse_account_track_rules(team_id, row.account_track_rules)
+def preview_account_track_rules(
+    team_id: int, raw_config: dict[str, Any] | None = None
+) -> contracts.AccountTrackRulePreview:
+    if raw_config is None:
+        row, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(team_id=team_id)
+        raw_config = row.account_track_rules
+    parsed = parse_account_track_rules(team_id, raw_config)
     active = Account.objects.for_team(team_id).filter(churned_at__isnull=True)
     matching = matching_accounts_queryset(active, team_id=team_id, parsed=parsed)
     nonmatching = active.exclude(id__in=Subquery(matching.order_by().values("id")))

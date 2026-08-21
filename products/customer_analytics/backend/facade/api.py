@@ -3708,8 +3708,10 @@ def update_account_track_rules(
     )
 
 
-def preview_account_track_rules(team_id: int) -> contracts.AccountTrackRulePreview:
-    return _account_track_rules_logic.preview_account_track_rules(team_id)
+def preview_account_track_rules(
+    team_id: int, raw_config: dict[str, Any] | None = None
+) -> contracts.AccountTrackRulePreview:
+    return _account_track_rules_logic.preview_account_track_rules(team_id, raw_config)
 
 
 def list_account_track_rule_runs(

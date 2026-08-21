@@ -502,8 +502,48 @@ class TestAccountTrackRuleAPI(AccountTrackRulesTestMixin, APIBaseTest):
             account.refresh_from_db()
             assert account.ignored_at == initial_states[account.id]
 
+        saved_config = response.json()
+        assert saved_config["groups"][0]["conditions"][0]["field"] == {
+            "kind": "custom_property",
+            "definition_id": str(definition.id),
+        }
+        echoed_payload = json.loads(json.dumps(saved_config))
+        echoed_payload["groups"][0]["conditions"][0]["field"]["field"] = None
+        echoed_payload["groups"][0]["conditions"][1]["field"]["definition_id"] = None
+        echoed_response = self.client.put(self.url, echoed_payload, format="json")
+        assert echoed_response.status_code == status.HTTP_200_OK, echoed_response.json()
+        assert echoed_response.json()["version"] == 1
+
         stale_response = self.client.put(self.url, config, format="json")
         assert stale_response.status_code == status.HTTP_409_CONFLICT
+
+    def test_preview_accepts_an_unsaved_draft_without_persisting_it(self, _flag) -> None:
+        definition, _, _, unmatched, _, _ = self.create_rule_fixtures()
+        saved_config = track_rules_config(version=3, definition_id=str(definition.id))
+        self.save_config(saved_config)
+        draft_config = {
+            "schema_version": 1,
+            "version": 3,
+            "enabled": True,
+            "groups": [
+                {
+                    "conditions": [
+                        {
+                            "field": {"kind": "account_field", "field": "name"},
+                            "operator": "exact",
+                            "values": ["Unmatched"],
+                        }
+                    ]
+                }
+            ],
+        }
+
+        response = self.client.post(f"{self.url}/preview", draft_config, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tracked"] == 1
+        assert response.json()["tracked_samples"] == [{"id": str(unmatched.id), "name": "Unmatched"}]
+        assert TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules == saved_config
 
     def test_api_token_scopes_separate_reads_from_writes(self, _flag) -> None:
         read_token = self._token(["customer_analytics:read"])

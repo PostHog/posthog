@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonCard,
     LemonDivider,
@@ -95,16 +94,18 @@ export function AccountTrackRules(): JSX.Element {
         draft,
         hasUnsavedChanges,
         canSave,
+        canPreview,
         saveResponseLoading,
         previewResponse,
         previewResponseLoading,
+        previewMatchesDraft,
         previewIsCurrent,
         runs,
         runsLoading,
         canRun,
         currentRunLoading,
     } = useValues(accountTrackRulesLogic)
-    const { setEnabled, addGroup, updateGroup, removeGroup, saveConfig, loadPreview, startRun, loadRuns } =
+    const { setEnabled, addGroup, updateGroup, removeGroup, saveConfig, previewDraft, startRun, loadRuns } =
         useActions(accountTrackRulesLogic)
     const { customPropertyTaxonomicOptions, customPropertyDefinitionsById, customPropertyDefinitionsLoading } =
         useValues(accountsColumnConfigLogic)
@@ -209,12 +210,6 @@ export function AccountTrackRules(): JSX.Element {
                 </LemonButton>
             </div>
 
-            {previewResponse && !previewIsCurrent && (
-                <LemonBanner type="warning">
-                    The last preview is stale. Save and preview the current version.
-                </LemonBanner>
-            )}
-
             <div className="flex flex-wrap gap-2">
                 <LemonButton
                     type="primary"
@@ -233,12 +228,10 @@ export function AccountTrackRules(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     type="secondary"
-                    onClick={loadPreview}
+                    onClick={previewDraft}
                     loading={previewResponseLoading}
                     disabledReason={
-                        restrictionReason ||
-                        (hasUnsavedChanges ? 'Save this draft before previewing it' : undefined) ||
-                        (!config?.groups.length ? 'Add and save at least one group' : undefined)
+                        restrictionReason || (!canPreview ? 'Add at least one condition to every group' : undefined)
                     }
                 >
                     Preview
@@ -251,18 +244,20 @@ export function AccountTrackRules(): JSX.Element {
                         restrictionReason ||
                         (!config?.enabled
                             ? 'Enable and save Track Rules before running them'
-                            : !previewIsCurrent
-                              ? 'Preview the current saved version first'
-                              : !canRun
-                                ? 'Another run is in progress'
-                                : undefined)
+                            : hasUnsavedChanges
+                              ? 'Save this draft before running it'
+                              : !previewIsCurrent
+                                ? 'Preview the current saved version first'
+                                : !canRun
+                                  ? 'Another run is in progress'
+                                  : undefined)
                     }
                 >
                     Run now
                 </LemonButton>
             </div>
 
-            {previewResponse && <PreviewResult preview={previewResponse} current={previewIsCurrent} />}
+            {previewResponse && <PreviewResult preview={previewResponse} current={previewMatchesDraft} />}
 
             <LemonDivider />
             <div className="flex items-center justify-between">

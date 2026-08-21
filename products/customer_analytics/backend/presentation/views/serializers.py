@@ -75,8 +75,16 @@ from products.customer_analytics.backend.facade.contracts import (
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=[kind.value for kind in AccountTrackRuleFieldKind])
-    field = serializers.ChoiceField(choices=[field.value for field in AccountTableField], required=False)
-    definition_id = serializers.UUIDField(required=False)
+    field = serializers.ChoiceField(
+        choices=[field.value for field in AccountTableField], required=False, allow_null=True
+    )
+    definition_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def to_internal_value(self, data):
+        return {key: value for key, value in super().to_internal_value(data).items() if value is not None}
+
+    def to_representation(self, instance):
+        return {key: value for key, value in super().to_representation(instance).items() if value is not None}
 
 
 class AccountTrackRuleConditionSerializer(serializers.Serializer):

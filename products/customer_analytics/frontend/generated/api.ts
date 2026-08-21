@@ -331,11 +331,14 @@ export const getAccountTrackRulesPreviewCreateUrl = (projectId: string) => {
 
 export const accountTrackRulesPreviewCreate = async (
     projectId: string,
+    accountTrackRulesConfigApi: AccountTrackRulesConfigApi,
     options?: RequestInit
 ): Promise<AccountTrackRulePreviewApi> => {
     return apiMutator<AccountTrackRulePreviewApi>(getAccountTrackRulesPreviewCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRulesConfigApi),
     })
 }
 

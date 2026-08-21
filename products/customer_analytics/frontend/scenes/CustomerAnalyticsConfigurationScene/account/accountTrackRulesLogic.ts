@@ -44,8 +44,11 @@ export interface accountTrackRulesLogicValues {
     draft: AccountTrackRulesConfigApi
     hasUnsavedChanges: boolean
     canSave: boolean
+    canPreview: boolean
     previewResponse: AccountTrackRulePreviewApi | null
     previewResponseLoading: boolean
+    previewedDraft: AccountTrackRulesConfigApi | null
+    previewMatchesDraft: boolean
     previewIsCurrent: boolean
     runs: AccountTrackRuleRunViewApi[]
     runsLoading: boolean
@@ -63,11 +66,13 @@ export interface accountTrackRulesLogicActions {
     saveConfig: () => { value: true }
     saveConfigSuccess: (saveResponse: AccountTrackRulesConfigApi) => { saveResponse: AccountTrackRulesConfigApi }
     saveConfigFailure: (error: unknown) => { error: unknown }
+    previewDraft: () => { value: true }
     loadPreview: () => { value: true }
     loadPreviewSuccess: (previewResponse: AccountTrackRulePreviewApi) => {
         previewResponse: AccountTrackRulePreviewApi
     }
     loadPreviewFailure: (error: unknown) => { error: unknown }
+    setPreviewedDraft: (config: AccountTrackRulesConfigApi) => { config: AccountTrackRulesConfigApi }
     loadRuns: () => { value: true }
     loadRunsSuccess: (runs: AccountTrackRuleRunViewApi[]) => { runs: AccountTrackRuleRunViewApi[] }
     loadRunsFailure: (error: unknown) => { error: unknown }
@@ -92,6 +97,8 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
 
     actions({
         setDraft: (config: AccountTrackRulesConfigApi) => ({ config }),
+        setPreviewedDraft: (config: AccountTrackRulesConfigApi) => ({ config }),
+        previewDraft: true,
         setEnabled: (enabled: boolean) => ({ enabled }),
         addGroup: true,
         updateGroup: (index: number, group: AccountTrackRuleGroupApi) => ({ index, group }),
@@ -113,6 +120,12 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                     ...state,
                     groups: state.groups.filter((_, groupIndex) => groupIndex !== index),
                 }),
+            },
+        ],
+        previewedDraft: [
+            null as AccountTrackRulesConfigApi | null,
+            {
+                setPreviewedDraft: (_, { config }) => config,
             },
         ],
     }),
@@ -158,7 +171,7 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                         throw new Error('No project selected')
                     }
                     try {
-                        return await accountTrackRulesPreviewCreate(String(values.currentTeamId))
+                        return await accountTrackRulesPreviewCreate(String(values.currentTeamId), values.draft)
                     } catch (error) {
                         captureUnexpectedApiError(error, 'accountTrackRulesLogic.loadPreview')
                         throw error
@@ -218,17 +231,32 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                 (!draft.enabled || draft.groups.length > 0) &&
                 draft.groups.every((group) => group.conditions.length > 0),
         ],
-        previewIsCurrent: [
-            (s) => [s.previewResponse, s.config, s.hasUnsavedChanges],
+        canPreview: [
+            (s) => [s.draft],
+            (draft: AccountTrackRulesConfigApi): boolean =>
+                draft.groups.length > 0 && draft.groups.every((group) => group.conditions.length > 0),
+        ],
+        previewMatchesDraft: [
+            (s) => [s.previewResponse, s.previewedDraft, s.draft],
             (
                 previewResponse: AccountTrackRulePreviewApi | null,
-                config: AccountTrackRulesConfigApi | null,
-                hasUnsavedChanges: boolean
+                previewedDraft: AccountTrackRulesConfigApi | null,
+                draft: AccountTrackRulesConfigApi
             ): boolean =>
-                !!previewResponse &&
+                !!previewResponse && !!previewedDraft && JSON.stringify(previewedDraft) === JSON.stringify(draft),
+        ],
+        previewIsCurrent: [
+            (s) => [s.previewMatchesDraft, s.config, s.hasUnsavedChanges, s.previewResponse],
+            (
+                previewMatchesDraft: boolean,
+                config: AccountTrackRulesConfigApi | null,
+                hasUnsavedChanges: boolean,
+                previewResponse: AccountTrackRulePreviewApi | null
+            ): boolean =>
+                previewMatchesDraft &&
                 !!config &&
                 !hasUnsavedChanges &&
-                previewResponse.config_version === config.version,
+                previewResponse?.config_version === config.version,
         ],
         canRun: [
             (s) => [s.config, s.previewIsCurrent, s.currentRunLoading, s.currentRun, s.runs],
@@ -274,6 +302,10 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
                     ? 'Track Rules changed since this page loaded. Reload and try again.'
                     : 'Could not save Track Rules. Check every condition and try again.'
             )
+        },
+        previewDraft: () => {
+            actions.setPreviewedDraft(structuredClone(values.draft))
+            actions.loadPreview()
         },
         loadPreviewFailure: ({ error }) => {
             lemonToast.error(

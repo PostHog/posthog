@@ -148,6 +148,7 @@ export const Preview: Story = {
     render: () => <App />,
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Enabled'))
         await userEvent.click(await canvas.findByRole('button', { name: 'Preview' }))
         await canvas.findByText('Preview results')
         await userEvent.click(await canvas.findByRole('button', { name: 'Excluded' }))

@@ -295,7 +295,7 @@ class AccountTrackRuleViewSet(
         return Response(AccountTrackRulesConfigSerializer(instance=config).data)
 
     @extend_schema(
-        request=None,
+        request=AccountTrackRulesConfigSerializer,
         responses={200: AccountTrackRulePreviewSerializer},
     )
     @action(
@@ -306,8 +306,13 @@ class AccountTrackRuleViewSet(
         throttle_classes=[AccountTrackRuleThrottle],
     )
     def preview(self, request: Request, *args, **kwargs) -> Response:
+        raw_config = None
+        if request.data:
+            serializer = AccountTrackRulesConfigSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            raw_config = dict(serializer.validated_data)
         try:
-            preview = api.preview_account_track_rules(self.team_id)
+            preview = api.preview_account_track_rules(self.team_id, raw_config)
         except api.AccountTrackRuleValidationError as error:
             self._report_usage(request, "account track rules preview failed", failure_type="validation")
             raise ValidationError({"validation_errors": error.errors})

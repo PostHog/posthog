@@ -250,8 +250,9 @@ export const AccountTrackRuleFieldFieldEnumApi = {
 
 export interface AccountTrackRuleFieldApi {
     kind: AccountTrackRuleFieldKindEnumApi
-    field?: AccountTrackRuleFieldFieldEnumApi
-    definition_id?: string
+    field?: AccountTrackRuleFieldFieldEnumApi | null
+    /** @nullable */
+    definition_id?: string | null
 }
 
 export interface AccountTrackRuleConditionApi {
