@@ -77,6 +77,9 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     # Forking a reply forks the discussion it belongs to, not the single message —
     # "sidebar off this" always means the thread.
     source_thread_ts = message.get("thread_ts") or message.get("ts")
+    # The reply the menu hangs off. The thread is read up to here, so the fork carries
+    # the discussion as it stood when the reader forked it.
+    source_message_ts = message.get("ts") or source_thread_ts
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
     response_url = payload.get("response_url")
@@ -230,6 +233,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         PendingFork(
             source_channel=source_channel,
             source_thread_ts=source_thread_ts,
+            source_message_ts=source_message_ts,
             repository=fork_repository,
             task_id=source_task_id,
             is_ext_shared=is_ext_shared,

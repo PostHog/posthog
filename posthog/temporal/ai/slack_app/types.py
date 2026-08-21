@@ -62,6 +62,9 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # the two pairs coincide and the fork branch is invisible.
     fork_source_channel: str | None = None
     fork_source_thread_ts: str | None = None
+    # The message the reader forked from. The context block stops here: what was said
+    # in the thread afterwards is not what they were looking at when they forked.
+    fork_source_message_ts: str | None = None
     # Repository carried over from the forked thread's own task, when it had one: the
     # fork is about that thread, so it belongs on the repo the thread was already
     # about. `None` means "run the normal cascade".

@@ -32,6 +32,8 @@ class PendingFork(BaseModel):
 
     source_channel: str
     source_thread_ts: str
+    # Where in the thread the reader forked. The context block stops here.
+    source_message_ts: str | None = None
     repository: str | None = None
     # Set when the forked thread was already being worked on. Points the fork at that
     # task's own history — prior runs, session logs, artifacts — which holds far more

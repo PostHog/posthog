@@ -1801,6 +1801,7 @@ def _handle_assistant_dm_message(
             "is_ext_shared_channel": pending.is_ext_shared,
             "fork_source_channel": pending.source_channel,
             "fork_source_thread_ts": pending.source_thread_ts,
+            "fork_source_message_ts": pending.source_message_ts,
             "fork_repository": pending.repository,
             "fork_source_task_id": pending.task_id,
         }
@@ -3293,6 +3294,7 @@ def _start_mention_workflow(
     is_ext_shared_channel: bool = False,
     fork_source_channel: str | None = None,
     fork_source_thread_ts: str | None = None,
+    fork_source_message_ts: str | None = None,
     fork_repository: str | None = None,
     fork_source_task_id: str | None = None,
 ) -> str:
@@ -3328,6 +3330,7 @@ def _start_mention_workflow(
         is_ext_shared_channel=is_ext_shared_channel,
         fork_source_channel=fork_source_channel,
         fork_source_thread_ts=fork_source_thread_ts,
+        fork_source_message_ts=fork_source_message_ts,
         fork_repository=fork_repository,
         fork_source_task_id=fork_source_task_id,
     )

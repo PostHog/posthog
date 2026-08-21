@@ -22,6 +22,7 @@ without one.
 import re
 import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -309,14 +310,38 @@ def post_slack_thread_reply(
 _MISSING_THREAD_ERRORS = frozenset({"thread_not_found", "message_not_found"})
 
 
+def messages_at_or_before(messages: list[dict[str, str]], bound_ts: str) -> list[dict[str, str]]:
+    """Messages posted at or before ``bound_ts``.
+
+    Slack `ts` values are decimal strings, compared as Decimals rather than floats so
+    precision can't drop a message that sits on the bound. A message without a parseable
+    `ts` is dropped: callers use this to answer "what had been said by then", and a
+    message that can't be placed in time can't be part of that answer.
+    """
+
+    def at_or_before(ts: str) -> bool:
+        try:
+            return Decimal(ts) <= Decimal(bound_ts)
+        except InvalidOperation:
+            return False
+
+    return [message for message in messages if at_or_before(message.get("ts", ""))]
+
+
 def collect_thread_messages(
     slack: SlackIntegration,
     integration: Integration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
+    until_ts: str | None = None,
 ) -> list[dict[str, str]]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
+
+    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
+    at a point in time: what was said afterwards was not what they were looking at.
+    Unbounded by default, which is what the mention path wants — it is answering the
+    thread as it stands.
 
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
@@ -334,6 +359,8 @@ def collect_thread_messages(
         logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
+    if until_ts:
+        raw_messages = messages_at_or_before(raw_messages, until_ts)
 
     user_cache: dict[str, str] = {}
 
