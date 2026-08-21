@@ -270,5 +270,13 @@ class DigestRun(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     posted_at = models.DateTimeField(null=True)
 
+    class Meta(ProductTeamModel.Meta):
+        indexes = [
+            # Two reads key off (team, audience): "has this audience ever posted", which decides how
+            # far back its claim reaches, and the API's history listing. Without it both scan a table
+            # that grows by one row per audience per weekday and never shrinks.
+            models.Index(fields=["team_id", "audience_key"], name="stamphog_digest_run_audience"),
+        ]
+
     def __str__(self) -> str:
         return f"digest {self.audience_key} -> {self.slack_channel_name or self.slack_channel_id} ({self.status})"

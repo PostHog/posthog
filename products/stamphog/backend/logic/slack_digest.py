@@ -173,7 +173,8 @@ def _join_channel(slack: SlackIntegration, destination: Destination) -> str | No
     """Join the channel so the retried post lands. Returns Slack's error code when it refused.
 
     A channel resolved by name match is one the app was never invited to, which is the normal state
-    for an auto-provisioned row, so joining is what saves every team a manual ``/invite``. Tried
+    for a destination nobody set up by hand, so joining is what saves every team a manual
+    ``/invite``. Tried
     rather than gated on the scope: ``conversations.join`` needs ``channels:join``, and whether an
     install granted it is not something the person who set up the digest can see or change. Slack
     answers ``missing_scope`` in under a second, and the caller turns that into an error naming the
@@ -194,17 +195,15 @@ def _join_channel(slack: SlackIntegration, destination: Destination) -> str | No
     return None
 
 
-def post_digest(
-    team_id: int, slack_integration_id: int, destination: Destination, summary: DigestSummary
-) -> str | None:
+def post_digest(team_id: int, destination: Destination, summary: DigestSummary) -> str | None:
     """Post the digest to its destination. Returns the lead message ts, or None.
 
     Two messages: the lead in the channel, then the per-change lines in a thread under it. Only the
     lead decides success, because the ts it returns is what the caller writes as proof-of-post.
     """
-    integration = Integration.objects.filter(id=slack_integration_id, team_id=team_id, kind="slack").first()
+    integration = Integration.objects.filter(id=destination.slack_integration_id, team_id=team_id, kind="slack").first()
     if integration is None:
-        raise DigestSlackError(f"No slack integration {slack_integration_id} for team {team_id}")
+        raise DigestSlackError(f"No slack integration {destination.slack_integration_id} for team {team_id}")
 
     slack = SlackIntegration(integration)
     lead_blocks = _lead_blocks(summary)

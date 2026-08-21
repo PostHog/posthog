@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const StamphogDigestRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod

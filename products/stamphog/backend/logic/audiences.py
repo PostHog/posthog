@@ -14,7 +14,7 @@ therefore reaches nobody: that is an ownership gap, and ``hogli owners:unowned``
 fixed.
 
 Digest grouping and channel routing key off the opaque audience string alone (see
-models.DigestChannel).
+logic/channel_resolution.py).
 """
 
 from __future__ import annotations
@@ -35,15 +35,20 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# The engine reports owning teams as GitHub handles; audience keys are bare slugs, matching what
-# the author cascade produces and what channel resolution looks up.
+# The engine reports owning teams as GitHub handles; audience keys are bare slugs, which is what
+# channel resolution looks up in a repository's teams: registry.
 _TEAM_HANDLE_PREFIX = "@"
+
+# Namespace for the audience a repository gets by declaring its own digest channel, kept distinct
+# from the team slugs that share the key space. Read back by logic/channel_resolution.py, which
+# routes it straight to the declared channel.
+REPO_AUDIENCE_PREFIX = "repo:"
 
 # Ownership is resolved from owners.yaml in the PR-HEAD checkout — unlike .stamphog/*, those files
 # are not replaced with default-branch copies, so an owner string is attacker-controlled. A slug is
 # only ever a GitHub team name, so anything else is rejected rather than sanitized. This is what
-# keeps a crafted owner out of the reserved "repo:" namespace, whose channel auto-enables and skips
-# the shared-channel guard.
+# keeps a crafted owner out of the reserved "repo:" namespace, which skips the shared-channel guard
+# on the grounds that a repo maintainer chose that channel for their own repository.
 _TEAM_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -67,10 +72,7 @@ class ResolvedAudience:
 
 
 def _repository_audience_key(repo_config: StamphogRepoConfig) -> str:
-    # The pending distributed owners.yaml resolver (PR #68872, contact.slack) is a channel-
-    # resolution clue, not an audience_key source — it slots into logic/channel_resolution.py to
-    # correct which Slack channel a "repo:" fallback lands in, not this cascade.
-    return f"repo:{repo_config.repository}"
+    return f"{REPO_AUDIENCE_PREFIX}{repo_config.repository}"
 
 
 def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
@@ -109,7 +111,6 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
 
 def resolve_audiences(
     repo_config: StamphogRepoConfig,
-    pr_payload: dict[str, Any],
     gate_result: dict[str, Any] | None = None,
 ) -> list[ResolvedAudience]:
     """Every audience a merged PR belongs to. Empty when nobody owns it and no repo claimed it.
@@ -120,10 +121,6 @@ def resolve_audiences(
     A repo-declared audience sits alongside the owning teams rather than replacing them, so a
     shared repo still tells each team about its own area while a standalone repo gets the single
     feed it asked for.
-
-    ``pr_payload`` is unused now that the author's team no longer forms an audience. It stays in
-    the signature because both callers hold the payload, and a routing input read off the PR
-    itself is a plausible near-term addition.
     """
     audiences = []
     digest_config = load_repo_digest_config(repo_config)

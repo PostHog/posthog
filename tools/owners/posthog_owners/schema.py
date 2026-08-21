@@ -117,9 +117,10 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
     A slug is registered only when it declares at least one channel, so membership of the
     returned mapping means "this repo answered for that team" and nothing else.
     """
+    known_keys = ", ".join(sorted(_TEAMS_ENTRY_KEYS))
     registry: dict[str, TeamEntry] = {}
     if not isinstance(value, dict):
-        errors.append("'teams' must be a mapping of team slug to {slack: ...}")
+        errors.append(f"'teams' must be a mapping of team slug to a mapping of {{{known_keys}}}")
         return registry
     for slug, entry in value.items():
         where = f"teams['{slug}']"
@@ -130,17 +131,13 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
             errors.append(f"{where}: registry keys are team slugs, not @handles")
             continue
         if not isinstance(entry, dict):
-            errors.append(f"{where}: entry must be a mapping with a 'slack' key")
+            errors.append(f"{where}: entry must be a mapping with a {known_keys} key")
             continue
-        for key in entry:
-            if key not in _TEAMS_ENTRY_KEYS:
-                errors.append(f"{where}: unknown field '{key}'")
         declared: dict[str, str | bool] = {}
-        for key in _TEAMS_ENTRY_KEYS:
-            if key not in entry:
-                continue
-            raw = entry[key]
-            if _is_valid_slack(raw):
+        for key, raw in entry.items():
+            if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
+                errors.append(f"{where}: unknown field '{key}'")
+            elif _is_valid_slack(raw):
                 declared[key] = raw
             else:
                 errors.append(f"{where}: '{key}' must be a string starting with '#' or false")

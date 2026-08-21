@@ -1621,7 +1621,6 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
     repo_config = _repo_config(team.id)
     approved_head = "sha-merged"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", live_head))
-    stamphog_chain.recorder.teams_by_login["devex-dev"] = ["team-devex"]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev", merged_at=timezone.now()
     )

@@ -28,32 +28,30 @@ between them (see tasks/digest.py). No merge is posted twice, and no declaration
 
 from __future__ import annotations
 
-from typing import cast
-
 from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import TeamEntry, team_channel, teams_registry
+from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from posthog_owners.schema import TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
+from .audiences import REPO_AUDIENCE_PREFIX
 from .digest_config import load_repo_digest_config
 from .github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
 
-REPO_AUDIENCE_PREFIX = "repo:"
-
 # The distributed-ownership registry lives only in the repo-root file (posthog_owners.schema).
 _OWNERS_FILE_PATH = "owners.yaml"
 
-# The registry answers "where does automation post", which falls back to the team's own channel
-# when a team never separates the two. See posthog_owners.resolver.team_channel.
-_CHANNEL_PURPOSE = "notifications"
+# The digest is automation, so it asks the registry where automation posts rather than where the
+# team's people are. That falls back to the people channel when a team never separates the two.
+_CHANNEL_PURPOSE: Purpose = "notifications"
 
 # Slack channel flags that mark a channel as shared beyond this workspace. Routing maps a GitHub
 # team slug onto a Slack channel by name or by a registry entry, so a shared channel matching that
@@ -77,14 +75,18 @@ class RoutingUnavailable(Exception):
 @frozen
 class SlackChannel:
     channel_id: str
-    name: str
     shared: bool
 
 
 @frozen
 class Destination:
-    """Where one audience's merges from one repository go."""
+    """Where one audience's merges from one repository go, and the workspace they go to.
 
+    The integration rides along because a destination without it cannot be posted to, and the run
+    row does not store it. Hashable, so the claim can group its merges by destination.
+    """
+
+    slack_integration_id: int
     channel_id: str
     channel_name: str
     source: ChannelResolutionSource
@@ -103,6 +105,10 @@ class RoutingContext:
     # Repository -> that repo's root registry. A repo carrying no registry maps to an empty mapping,
     # which is what makes it inherit rather than answer (see _registry_answer).
     registry_by_repo: dict[str, dict[str, TeamEntry]]
+    # What a repo carrying no registry falls back to: the first non-empty one in repository order.
+    # Resolved once here rather than searched per pull request, so the inherited answer is both a
+    # lookup and reproducible when more than one repo declares the same slug.
+    inherited_registry: dict[str, TeamEntry]
     # Repository -> the channel name it declared under digest: in .stamphog/policy.yml.
     declared_repo_channel: dict[str, str]
     channels_by_name: dict[str, SlackChannel]
@@ -144,27 +150,31 @@ def _fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
     shared flag rides along rather than filtering here, because the repo-declared path is allowed
     to name a shared channel and the other paths are not.
     """
-    authed_user = cast(str, (integration.config or {}).get("authed_user", {}).get("id") or "")
-    channels = SlackIntegration(integration).list_channels(
-        should_include_private_channels=False, authed_user=authed_user
-    )
     return {
-        channel["name"]: SlackChannel(
-            channel_id=channel["id"], name=channel["name"], shared=_is_shared_channel(channel)
-        )
-        for channel in channels
+        channel["name"]: SlackChannel(channel_id=channel["id"], shared=_is_shared_channel(channel))
+        for channel in SlackIntegration(integration).list_public_channels()
     }
 
 
-def _read_registry(repo_config: StamphogRepoConfig) -> dict[str, TeamEntry]:
-    """One repo's root registry. Empty when it carries none; raises when the fetch failed."""
+def _read_repo_routing(repo_config: StamphogRepoConfig) -> tuple[dict[str, TeamEntry], str | None]:
+    """One repo's routing config: its root registry, and the digest channel it declared.
+
+    Both reads answer to one failure contract. A transient fetch failure for either file raises
+    RoutingUnavailable rather than reading as "this repo declares nothing", which is the silent
+    reroute that class exists to prevent. An absent file is not a failure: a repo carrying no
+    owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
+    """
     try:
         raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
             repo_config.repository, _OWNERS_FILE_PATH
         )
+        digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:
-        raise RoutingUnavailable(f"could not read {_OWNERS_FILE_PATH} for {repo_config.repository}: {e}") from e
-    return teams_registry(raw) if raw is not None else {}
+        raise RoutingUnavailable(f"could not read routing config for {repo_config.repository}: {e}") from e
+
+    registry = teams_registry(raw) if raw is not None else {}
+    declared = digest_config.channel if digest_config is not None and digest_config.channel else None
+    return registry, declared
 
 
 def build_routing_context(team_id: int) -> RoutingContext | None:
@@ -180,11 +190,10 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
     registry_by_repo: dict[str, dict[str, TeamEntry]] = {}
     declared_repo_channel: dict[str, str] = {}
     for repo_config in _candidate_repo_configs(team_id):
-        registry_by_repo[repo_config.repository] = _read_registry(repo_config)
-        if repo_config.digest_enabled:
-            digest_config = load_repo_digest_config(repo_config)
-            if digest_config is not None and digest_config.channel:
-                declared_repo_channel[repo_config.repository] = digest_config.channel.removeprefix("#")
+        registry, declared_channel = _read_repo_routing(repo_config)
+        registry_by_repo[repo_config.repository] = registry
+        if declared_channel is not None:
+            declared_repo_channel[repo_config.repository] = declared_channel
 
     try:
         channels_by_name = _fetch_channel_map(integration)
@@ -194,46 +203,24 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
     return RoutingContext(
         slack_integration_id=integration.id,
         registry_by_repo=registry_by_repo,
+        # _candidate_repo_configs orders by repository, so this is the first carrier in that order.
+        inherited_registry=next((registry for registry in registry_by_repo.values() if registry), {}),
         declared_repo_channel=declared_repo_channel,
         channels_by_name=channels_by_name,
     )
 
 
-@frozen
-class _RegistryAnswer:
-    """What one registry says about a slug: a channel, silence, or "use the derived name"."""
-
-    channel_name: str | None = None
-    silenced: bool = False
-
-
-_DERIVED = _RegistryAnswer()
-
-
-def _read_registry_entry(slug: str, registry: dict[str, TeamEntry]) -> _RegistryAnswer:
-    declared = team_channel(slug, registry, _CHANNEL_PURPOSE)
-    if not declared.declared:
-        return _DERIVED
-    if declared.channel is None:
-        return _RegistryAnswer(silenced=True)
-    return _RegistryAnswer(channel_name=declared.channel.removeprefix("#"))
-
-
-def _registry_answer(context: RoutingContext, slug: str, repository: str) -> _RegistryAnswer:
+def _registry_answer(context: RoutingContext, slug: str, repository: str) -> TeamChannel:
     """What the closest registry says about this slug, for merges that came from ``repository``.
 
-    An empty mapping means the repository carries no registry, not that it carries an empty one.
-    The distinction only matters for a root file with a ``teams:`` block holding nothing, which no
-    repository has a reason to write.
+    A repository holding a registry answers from it and never inherits, which is what makes it
+    answer by omission: ``team_channel`` reports an absent slug as undeclared, and the caller
+    reads that as "the derived name is right". An empty mapping means the repository carries no
+    registry, not that it carries an empty one. The distinction only matters for a root file with
+    a ``teams:`` block holding nothing, which no repository has a reason to write.
     """
-    local = context.registry_by_repo.get(repository)
-    if local:
-        return _read_registry_entry(slug, local)
-
-    for other_repository, registry in sorted(context.registry_by_repo.items()):
-        if other_repository != repository and registry:
-            return _read_registry_entry(slug, registry)
-    return _DERIVED
+    registry = context.registry_by_repo.get(repository) or context.inherited_registry
+    return team_channel(slug, registry, _CHANNEL_PURPOSE)
 
 
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
@@ -252,28 +239,35 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
         return _match(context, channel_name, ChannelResolutionSource.STAMPHOG_CONFIG, allow_shared=True)
 
     answer = _registry_answer(context, audience_key, repository)
-    if answer.silenced:
-        logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
-        return None
-    if answer.channel_name is not None:
+    if answer.declared:
+        if answer.channel is None:
+            logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
+            return None
         # A registry entry can name a channel for a team the declaring repo does not own, so the
         # shared-channel guard stays on: an externally shared match here leaves the workspace.
-        return _match(context, answer.channel_name, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
+        return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
 
+    # The derived #<slug>, which is the name a registry entry exists to override.
     return _match(context, audience_key, ChannelResolutionSource.SLACK_NAME_MATCH, allow_shared=False)
 
 
 def _match(
     context: RoutingContext, channel_name: str, source: ChannelResolutionSource, *, allow_shared: bool
 ) -> Destination | None:
-    channel = context.channels_by_name.get(channel_name)
+    name = channel_name.removeprefix("#")
+    channel = context.channels_by_name.get(name)
     if channel is None:
         # A declared channel that is not there is a dead end, never a reason to retry the slug: the
         # slug is exactly the wrong name the declaration was written to correct.
         if source != ChannelResolutionSource.SLACK_NAME_MATCH:
-            logger.info("stamphog_routing_declared_channel_not_found", channel_name=channel_name, source=source)
+            logger.info("stamphog_routing_declared_channel_not_found", channel_name=name, source=source)
         return None
     if channel.shared and not allow_shared:
-        logger.info("stamphog_routing_shared_channel_skipped", channel_name=channel_name, source=source)
+        logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
         return None
-    return Destination(channel_id=channel.channel_id, channel_name=channel.name, source=source)
+    return Destination(
+        slack_integration_id=context.slack_integration_id,
+        channel_id=channel.channel_id,
+        channel_name=name,
+        source=source,
+    )

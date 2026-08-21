@@ -12,8 +12,6 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.models.integration import Integration
-
 from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
@@ -599,42 +597,3 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
         attrs["digest_enabled"] = False
         return attrs
-
-
-class DigestChannelWriteSerializer(serializers.Serializer):
-    """Input shape for creating/updating a digest channel (see the repo-config write serializer)."""
-
-    audience_key = serializers.CharField(
-        help_text=(
-            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
-            "after creation — it anchors the audience and its opt-out tombstone."
-        )
-    )
-    slack_integration_id = serializers.IntegerField(
-        help_text="ID of the team's Slack integration used to post the digest."
-    )
-    slack_channel_id = serializers.CharField(help_text="Slack channel ID to post the digest to, e.g. 'C012AB3CD'.")
-    slack_channel_name = serializers.CharField(
-        required=False, allow_blank=True, help_text="Human-readable Slack channel name, for display only."
-    )
-    enabled = serializers.BooleanField(
-        required=False, help_text="Whether this channel is included in the daily digest fan-out."
-    )
-
-    def __init__(self, *args, partial_update: bool = False, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        if partial_update:
-            # audience_key is the bucket this channel is bound to. Editing it on an existing row
-            # re-points the channel at a different audience — and can effectively re-open an audience a
-            # human opted out of, since the disabled tombstone row keying off the old audience_key would
-            # no longer match. Create-only, so it is dropped on update.
-            self.fields.pop("audience_key")
-
-    def validate_slack_integration_id(self, value: int) -> int:
-        # The integration must belong to the requesting team and be a Slack integration — otherwise a
-        # team could point a digest at another team's Slack workspace.
-        team_id = self.context["team_id"]
-        exists = Integration.objects.filter(id=value, team_id=team_id, kind="slack").exists()
-        if not exists:
-            raise serializers.ValidationError("No Slack integration with this ID exists for this team.")
-        return value

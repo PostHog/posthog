@@ -67,7 +67,8 @@ class DigestRunStatus(StrEnum):
 class ChannelResolutionSource(StrEnum):
     # Why a digest run went to the channel it went to.
     # No longer produced: routing comes from the repositories, so nobody sets a destination by hand.
-    # Retained because removing a member rewrites the choices list on every model that uses it.
+    # Retained because migration 0001 names this member as a field default, and a migration reads
+    # the live enum, so deleting it makes the whole migration chain fail to load.
     MANUAL = "manual"
     # No declaration anywhere, so the slug matched a same-named Slack channel.
     SLACK_NAME_MATCH = "slack_name_match"

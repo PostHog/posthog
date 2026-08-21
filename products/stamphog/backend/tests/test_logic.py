@@ -608,7 +608,7 @@ class ResolveAudiencesTests(SimpleTestCase):
         # channel path skips the shared-channel guard.
         repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
         with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
-            audiences = resolve_audiences(repo_config, {}, self._gate_result(teams))
+            audiences = resolve_audiences(repo_config, self._gate_result(teams))
         assert [(a.key, a.reason) for a in audiences] == expected
 
     def test_repo_declared_channel_still_collects_owner_audiences(self) -> None:
@@ -620,7 +620,7 @@ class ResolveAudiencesTests(SimpleTestCase):
             "products.stamphog.backend.logic.audiences.load_repo_digest_config",
             return_value=RepoDigestConfig(channel="eng-merges"),
         ):
-            audiences = resolve_audiences(repo_config, {}, self._gate_result(["@PostHog/team-replay"]))
+            audiences = resolve_audiences(repo_config, self._gate_result(["@PostHog/team-replay"]))
         assert [(a.key, a.reason) for a in audiences] == [
             ("repo:PostHog/posthog", AudienceReason.REPO_DECLARED),
             ("team-replay", AudienceReason.OWNED),
@@ -655,7 +655,7 @@ class OwnedFilePromptTests(SimpleTestCase):
             }
         }
         with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
-            resolved = resolve_audiences(repo_config, {}, gate_result)
+            resolved = resolve_audiences(repo_config, gate_result)
         # Mapped into rows the way the capture activity does, because the seam under test is the one
         # between a stored audience row and the prompt, not the resolver's own return type.
         audiences = [
@@ -682,7 +682,7 @@ class OwnedFileCountTests(SimpleTestCase):
             }
         }
         with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
-            owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
+            owned = next(a for a in resolve_audiences(repo_config, gate_result) if a.key == "team-replay")
         assert len(owned.owned_files) == 10
         assert owned.owned_file_count == 200
 

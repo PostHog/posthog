@@ -45,7 +45,7 @@ export const getStamphogDigestRunsListUrl = (projectId: string, params?: Stampho
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsList = async (
     projectId: string,
@@ -63,7 +63,7 @@ export const getStamphogDigestRunsRetrieveUrl = (projectId: string, id: string) 
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsRetrieve = async (
     projectId: string,

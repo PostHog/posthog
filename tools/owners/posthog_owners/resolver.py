@@ -12,7 +12,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from .matcher import compile_pattern, normalize_path
 from .schema import UNSET, OwnersFile, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
@@ -34,29 +34,29 @@ class TeamChannel:
     declared: bool
 
 
-# Which keys answer for a purpose, in order. "notifications" falls back to "slack" so a team that
-# never separates automation from people keeps one channel and one entry.
-_PURPOSE_KEYS: dict[str, tuple[str, ...]] = {
-    "slack": ("slack",),
-    "notifications": ("notifications", "slack"),
-}
-DEFAULT_PURPOSE = "slack"
+# What a caller wants a channel for. Spelled out as a type rather than taken as a bare string, so
+# a purpose this package has never heard of is a type error at the call site instead of silently
+# resolving to the channel where people are.
+Purpose = Literal["slack", "notifications"]
+DEFAULT_PURPOSE: Purpose = "slack"
 
 
-def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: str = DEFAULT_PURPOSE) -> TeamChannel:
+def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = DEFAULT_PURPOSE) -> TeamChannel:
     """The Slack channel for a team slug and a purpose, else the derived ``#<slug>``.
 
-    ``purpose`` is "slack" (where people are) or "notifications" (where automation posts). A
-    per-producer form, so a team can silence one bot without silencing all of them, is an additive
-    change here later: it widens what a key may hold, and callers keep the call they already make.
+    ``purpose`` is "slack" (where people are) or "notifications" (where automation posts).
+    "notifications" falls back to "slack", so a team that never separates automation from people
+    keeps one channel and one entry. A per-producer form, so a team can silence one bot without
+    silencing all of them, is an additive change here later: it widens what a key may hold, and
+    callers keep the call they already make.
 
     A declared ``false`` means the team has no channel for that purpose, which is different from
     having no entry. The first is an answer and stops the lookup; the second falls through.
     """
     entry = teams.get(slug)
     if entry is not None:
-        for key in _PURPOSE_KEYS.get(purpose, _PURPOSE_KEYS[DEFAULT_PURPOSE]):
-            value = getattr(entry, key)
+        candidates = (entry.notifications, entry.slack) if purpose == "notifications" else (entry.slack,)
+        for value in candidates:
             if value is not None:
                 # Schema only admits `false`; any bool means "no channel".
                 return TeamChannel(channel=value if isinstance(value, str) else None, declared=True)
@@ -261,7 +261,7 @@ class OwnersResolver:
         return self._build_resolution(norm, merged)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
-        """The root file's ``teams:`` Slack registry (team slug -> channel or False),
+        """The root file's ``teams:`` Slack registry (team slug -> its declared channels),
         loaded once. Empty when there is no root file or it declares none."""
         if self._teams_cache is None:
             root = self._load_dir_file("")
