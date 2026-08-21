@@ -14,20 +14,21 @@ clear, no jargon.
 - **Use the labels the customer sees in the UI, never internal field names or reason enums.** Common
   mappings:
 
-  | Internal / code term                   | What the customer sees                                                                   |
-  | -------------------------------------- | ---------------------------------------------------------------------------------------- |
-  | release condition / `filters.groups[]` | a **release condition**                                                                  |
-  | `rollout_percentage`                   | the **rollout percentage**                                                               |
-  | `no_condition_match`                   | **none of your release conditions matched this user**                                    |
-  | `out_of_rollout_bound`                 | the user is **outside the rolled-out percentage**                                        |
-  | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group                 |
-  | `super_condition_value`                | the user's **early access feature** enrollment decided it                                |
-  | `holdout_condition_value`              | the user is in the **holdout**                                                           |
-  | `missing_dependency`                   | this flag **depends on another flag** that isn't available                               |
-  | `disabled`                             | the flag is **turned off** in your project                                               |
-  | `flag_not_found`                       | resolve the cause first: either **turned off**, or **not available to that kind of SDK** |
-  | multivariate `variant`                 | a **variant**                                                                            |
-  | `$feature_flag_called`                 | the flag being **called / evaluated** in your app                                        |
+  | Internal / code term                   | What the customer sees                                                                                                              |
+  | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+  | release condition / `filters.groups[]` | a **release condition**                                                                                                             |
+  | `rollout_percentage`                   | the **rollout percentage**                                                                                                          |
+  | `no_condition_match`                   | **none of your release conditions matched this user**                                                                               |
+  | `out_of_rollout_bound`                 | the user is **outside the rolled-out percentage**                                                                                   |
+  | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group                                                            |
+  | `super_condition_value`                | the user's **early access feature** enrollment decided it                                                                           |
+  | `holdout_condition_value`              | the user is in the **holdout**                                                                                                      |
+  | `missing_dependency`                   | this flag **depends on another flag** that isn't available                                                                          |
+  | `disabled`                             | the flag is **turned off** in your project                                                                                          |
+  | `flag_not_found`                       | resolve the cause first: **turned off**, **not available to that kind of SDK**, or PostHog **couldn't tell** which kind was calling |
+  | `evaluation_runtime`                   | the flag's **Client-side only** / **Server-side only** / **Both client and server** setting                                         |
+  | multivariate `variant`                 | a **variant**                                                                                                                       |
+  | `$feature_flag_called`                 | the flag being **called / evaluated** in your app                                                                                   |
 
 - **Link the flag by ID for the right instance** (US vs EU — match the customer's):
   `https://<us|eu>.posthog.com/project/<id>/feature_flags/<flag_id>`.
@@ -116,4 +117,39 @@ Once the call includes the organization, that user will match the organization's
 and get the flag.
 
 Happy to take another look once the change is out if the value doesn't move.
+```
+
+## Worked example — "it returns false with no conditions, but the testing tab says true"
+
+Use when the flag is restricted by evaluation runtime and the customer's caller isn't being classified
+as that runtime. It has to account for the testing tab disagreeing, since that's usually the customer's
+main piece of evidence and ignoring it reads as not having understood the ticket. Lead with the config
+change, which is immediate, and treat the SDK upgrade as the durable fix.
+
+```text
+Hi Robin,
+
+Thanks for the extra detail. It helped narrow this down. The flag itself is set up correctly. What's
+going wrong is that PostHog isn't recognizing what kind of app is asking for it.
+
+**The problem:** this flag is set to "Server-side only", so PostHog only returns it to calls it can
+identify as coming from a server. The version of posthog-node you're on doesn't identify itself when
+it asks for flags, so PostHog can't tell whether the call came from a browser or a server, and it
+leaves the flag out of the response. Your code sees no value for it and falls back to false. That's
+also why the testing tab disagrees: it evaluates the flag directly instead of replaying your app's
+call, so it sees a server-side request and shows true.
+
+**The fix:**
+1. **Change the flag's evaluation runtime to "Both client and server".** This applies to the next
+   call and needs no deploy on your side. If the flag doesn't need the restriction, this is all you
+   need.
+2. **Upgrade posthog-node when you get a chance.** Current versions identify themselves on the flag
+   request, so "Server-side only" will behave the way you'd expect. Worth doing regardless, because
+   any flag you restrict by runtime will hit this until then.
+
+Once you switch the flag to "Both client and server", your next call should return true.
+
+Here's the flag: https://eu.posthog.com/project/1234/feature_flags/5678
+
+We're always here if you need a follow-up.
 ```
