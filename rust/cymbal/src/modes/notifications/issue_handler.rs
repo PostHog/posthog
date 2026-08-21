@@ -17,22 +17,17 @@ pub async fn handle_issue_created(
         .properties()
         .contains_key("$sentry_event_id");
 
-    let decision = context.issue_created_limiter.decide(team_id).await;
-    if decision.is_limited() {
+    if !context.issue_created_limiter.admit(team_id).await {
         // The issue itself was still created, so keep counting it. Only the
         // workflow, and with it the embedding and the alert, was cut.
         capture_issue_created(team_id, issue_id, sentry_integration, true);
         return Ok(());
     }
 
-    let start = context
+    context
         .issue_lifecycle_workflow_starters
         .start_created(&notification)
         .await?;
-    context
-        .issue_created_limiter
-        .settle(team_id, decision, start)
-        .await;
 
     capture_issue_created(team_id, issue_id, sentry_integration, false);
     Ok(())
@@ -58,6 +53,5 @@ pub async fn handle_issue_spiking(
     context
         .issue_lifecycle_workflow_starters
         .start_spiking(&notification)
-        .await?;
-    Ok(())
+        .await
 }

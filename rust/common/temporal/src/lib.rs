@@ -36,35 +36,45 @@ pub struct TemporalClientConfig {
     pub server_root_ca_cert: Option<String>,
     pub payload_encryption_key: String,
     pub identity: String,
+    /// Connect without TLS. Only the local dev stack serves plaintext gRPC.
+    pub insecure: bool,
 }
 
 impl TemporalClientConfig {
-    /// mTLS settings, or `None` for a plaintext connection.
+    /// mTLS settings, or `None` when the caller asked for a plaintext connection.
     ///
-    /// Temporal Cloud requires a client certificate. The Temporal in the local
-    /// dev stack serves plaintext gRPC and has no certificate to offer, which is
-    /// also how the Python workers connect to it. An empty cert and key therefore
-    /// mean "connect in the clear" rather than "misconfigured". Supplying only
-    /// one of the pair is a real mistake, so it is still rejected.
+    /// Temporal Cloud requires a client certificate, so a missing one stays an
+    /// error. The Temporal in the local dev stack serves plaintext gRPC and has
+    /// no certificate to offer, which is also how the Python workers reach it —
+    /// `insecure` is how a caller says so out loud. Inferring it from an empty
+    /// cert instead would turn a credential mount that renders empty into a
+    /// silent TLS downgrade rather than a boot failure.
     fn tls_options(&self) -> Result<Option<TlsOptions>, TemporalClientError> {
-        match (self.client_cert.is_empty(), self.client_key.is_empty()) {
-            (true, true) => Ok(None),
-            (true, false) => Err(TemporalClientError::MissingConfig("TEMPORAL_CLIENT_CERT")),
-            (false, true) => Err(TemporalClientError::MissingConfig("TEMPORAL_CLIENT_KEY")),
-            (false, false) => Ok(Some(TlsOptions {
-                server_root_ca_cert: self
-                    .server_root_ca_cert
-                    .as_ref()
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.as_bytes().to_vec()),
-                domain: Some(self.host.clone()),
-                client_tls_options: Some(ClientTlsOptions {
-                    client_cert: self.client_cert.as_bytes().to_vec(),
-                    client_private_key: self.client_key.as_bytes().to_vec(),
-                }),
-                server_cert_verifier: None,
-            })),
+        if self.insecure {
+            if !self.client_cert.is_empty() || !self.client_key.is_empty() {
+                return Err(TemporalClientError::ConflictingConfig(
+                    "TEMPORAL_INSECURE is set alongside a client certificate",
+                ));
+            }
+            return Ok(None);
         }
+
+        require_config("TEMPORAL_CLIENT_CERT", &self.client_cert)?;
+        require_config("TEMPORAL_CLIENT_KEY", &self.client_key)?;
+
+        Ok(Some(TlsOptions {
+            server_root_ca_cert: self
+                .server_root_ca_cert
+                .as_ref()
+                .filter(|value| !value.is_empty())
+                .map(|value| value.as_bytes().to_vec()),
+            domain: Some(self.host.clone()),
+            client_tls_options: Some(ClientTlsOptions {
+                client_cert: self.client_cert.as_bytes().to_vec(),
+                client_private_key: self.client_key.as_bytes().to_vec(),
+            }),
+            server_cert_verifier: None,
+        }))
     }
 }
 
@@ -115,6 +125,8 @@ pub enum StartWorkflowOutcome {
 pub enum TemporalClientError {
     #[error("missing Temporal client configuration: {0}")]
     MissingConfig(&'static str),
+    #[error("conflicting Temporal client configuration: {0}")]
+    ConflictingConfig(&'static str),
     #[error("invalid Temporal target: {0}")]
     InvalidTarget(#[from] url::ParseError),
     #[error("invalid Temporal payload encryption key: {0}")]
@@ -342,7 +354,7 @@ mod tests {
         name: &'a str,
     }
 
-    fn config(client_cert: &str, client_key: &str) -> TemporalClientConfig {
+    fn config(client_cert: &str, client_key: &str, insecure: bool) -> TemporalClientConfig {
         TemporalClientConfig {
             host: "temporal".to_string(),
             port: 7233,
@@ -352,24 +364,40 @@ mod tests {
             server_root_ca_cert: None,
             payload_encryption_key: "key".to_string(),
             identity: "test".to_string(),
+            insecure,
         }
     }
 
     #[test]
-    fn tls_is_used_only_when_both_halves_of_the_keypair_are_present() {
-        assert!(config("", "").tls_options().unwrap().is_none());
-        assert!(config("cert", "key").tls_options().unwrap().is_some());
+    fn tls_is_required_unless_the_caller_asked_for_plaintext() {
+        assert!(config("cert", "key", false)
+            .tls_options()
+            .unwrap()
+            .is_some());
+        assert!(config("", "", true).tls_options().unwrap().is_none());
 
+        // An empty credential must fail closed. A secret that renders empty is
+        // the case this protects: without it, TLS would be dropped silently.
         for (cert, key, missing) in [
+            ("", "", "TEMPORAL_CLIENT_CERT"),
             ("cert", "", "TEMPORAL_CLIENT_KEY"),
             ("", "key", "TEMPORAL_CLIENT_CERT"),
         ] {
-            let error = config(cert, key).tls_options().unwrap_err();
+            let error = config(cert, key, false).tls_options().unwrap_err();
             assert!(
                 matches!(error, TemporalClientError::MissingConfig(name) if name == missing),
                 "expected {missing}, got {error}"
             );
         }
+    }
+
+    #[test]
+    fn plaintext_alongside_a_certificate_is_rejected() {
+        let error = config("cert", "key", true).tls_options().unwrap_err();
+        assert!(
+            matches!(error, TemporalClientError::ConflictingConfig(_)),
+            "expected a conflict, got {error}"
+        );
     }
 
     fn options() -> StartWorkflowOptions {

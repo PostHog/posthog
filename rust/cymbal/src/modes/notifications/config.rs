@@ -46,6 +46,12 @@ pub struct NotificationsConfig {
     #[envconfig(from = "TEMPORAL_CLIENT_KEY", default = "")]
     pub temporal_client_key: String,
 
+    /// Connect to Temporal without TLS. Only the local dev stack serves
+    /// plaintext gRPC; Temporal Cloud requires a client certificate, so leaving
+    /// this off keeps a missing certificate a boot failure.
+    #[envconfig(from = "TEMPORAL_INSECURE", default = "false")]
+    pub temporal_insecure: bool,
+
     #[envconfig(from = "TEMPORAL_SECRET_KEY", default = "")]
     pub temporal_secret_key: String,
 

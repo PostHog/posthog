@@ -9,14 +9,6 @@ use crate::core::error::UnhandledError;
 use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking};
 use crate::modes::notifications::config::NotificationsConfig;
 
-/// Whether this call created the workflow run, or found one Temporal had already
-/// started for the same workflow id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkflowStart {
-    Started,
-    AlreadyRunning,
-}
-
 #[derive(Clone, Copy)]
 struct WorkflowDefinition {
     name: &'static str,
@@ -56,6 +48,7 @@ impl IssueLifecycleWorkflowStarters {
             server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
+            insecure: config.temporal_insecure,
         })
         .await
         .map_err(|error| UnhandledError::Other(error.to_string()))?;
@@ -66,10 +59,7 @@ impl IssueLifecycleWorkflowStarters {
         })
     }
 
-    pub async fn start_created(
-        &self,
-        notification: &IssueCreated,
-    ) -> Result<WorkflowStart, UnhandledError> {
+    pub async fn start_created(&self, notification: &IssueCreated) -> Result<(), UnhandledError> {
         self.start(
             notification.meta.notification_id,
             &IssueCreatedWorkflowInput::from(notification),
@@ -78,10 +68,7 @@ impl IssueLifecycleWorkflowStarters {
         .await
     }
 
-    pub async fn start_reopened(
-        &self,
-        notification: &IssueReopened,
-    ) -> Result<WorkflowStart, UnhandledError> {
+    pub async fn start_reopened(&self, notification: &IssueReopened) -> Result<(), UnhandledError> {
         self.start(
             notification.meta.notification_id,
             &IssueReopenedWorkflowInput::from(notification),
@@ -90,10 +77,7 @@ impl IssueLifecycleWorkflowStarters {
         .await
     }
 
-    pub async fn start_spiking(
-        &self,
-        notification: &IssueSpiking,
-    ) -> Result<WorkflowStart, UnhandledError> {
+    pub async fn start_spiking(&self, notification: &IssueSpiking) -> Result<(), UnhandledError> {
         self.start(
             notification.meta.notification_id,
             &IssueSpikingWorkflowInput::from(notification),
@@ -107,17 +91,17 @@ impl IssueLifecycleWorkflowStarters {
         notification_id: Uuid,
         input: &T,
         workflow: WorkflowDefinition,
-    ) -> Result<WorkflowStart, UnhandledError> {
+    ) -> Result<(), UnhandledError> {
         let options = start_options(notification_id, &self.task_queue, workflow);
         match self.client.start_workflow(input, &options).await {
             Ok(StartWorkflowOutcome::Started { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "started").increment(1);
-                Ok(WorkflowStart::Started)
+                Ok(())
             }
             Ok(StartWorkflowOutcome::Existing { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "already_started")
                     .increment(1);
-                Ok(WorkflowStart::AlreadyRunning)
+                Ok(())
             }
             Err(error) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "error").increment(1);

@@ -169,5 +169,7 @@ pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
 
 // Per-team cap on issue-created workflow starts, applied in notifications mode.
+// `outcome` is either `admitted` or `limited` and never both, so the two series
+// sum to the notifications the limiter judged.
 pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
 pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";

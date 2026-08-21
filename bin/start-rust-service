@@ -189,7 +189,9 @@ case "$RS_SVC" in
     export TEMPORAL_PORT="${TEMPORAL_PORT:-7233}"
     export TEMPORAL_NAMESPACE="${TEMPORAL_NAMESPACE:-default}"
     # The local Temporal serves plaintext gRPC, so there is no client certificate
-    # to present and TEMPORAL_CLIENT_CERT/KEY stay unset.
+    # to present. TEMPORAL_INSECURE says so explicitly: without it, an unset
+    # TEMPORAL_CLIENT_CERT is a boot failure, which is what production wants.
+    export TEMPORAL_INSECURE="${TEMPORAL_INSECURE:-true}"
     #
     # Django derives its Fernet key by left-padding a short SECRET_KEY with NUL
     # bytes (posthog/temporal/common/codec.py, _resize_key), and the local default
@@ -204,10 +206,13 @@ case "$RS_SVC" in
       )"
     fi
     export TEMPORAL_SECRET_KEY
-    # Per-team cap on issue-created workflow starts. Deliberately low locally, so
-    # the limit is exercised rather than merely present.
+    # Per-team cap on issue-created workflow starts. Setting the Redis URL is what
+    # turns the limiter on, so the local path runs the same code production will.
+    # The cap matches the production default: a lower one would silently stop
+    # new-issue alerts partway through an ordinary local test. Lower it here to
+    # exercise the limit itself.
     export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL:-$DEFAULT_REDIS}"
-    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR:-10}"
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR:-1000}"
     ;;
 
   embedding-worker)

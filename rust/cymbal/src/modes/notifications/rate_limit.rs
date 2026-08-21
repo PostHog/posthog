@@ -20,30 +20,10 @@ use crate::core::metric_consts::{
     ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN, ISSUE_CREATED_RATE_LIMIT_OUTCOMES,
 };
 use crate::modes::notifications::config::NotificationsConfig;
-use crate::modes::notifications::temporal::WorkflowStart;
 use crate::modes::notifications::token_bucket::TokenBucket;
 
-/// What the handler should do with one notification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
-    /// A token was spent. Start the workflow, then hand the outcome to
-    /// [`IssueCreatedRateLimiter::settle`].
-    Admitted,
-    /// The team is out of budget. Start no workflow.
-    Limited,
-    /// No token was spent, because the limit is off or Redis failed. Start the
-    /// workflow and never refund.
-    Uncharged,
-}
-
-impl Decision {
-    pub fn is_limited(self) -> bool {
-        self == Decision::Limited
-    }
-}
-
 pub struct IssueCreatedRateLimiter {
-    /// `None` disables the limit: every notification comes back `Uncharged`.
+    /// `None` disables the limit: every notification is admitted.
     bucket: Option<TokenBucket>,
 }
 
@@ -64,7 +44,7 @@ impl IssueCreatedRateLimiter {
         // A Redis that is configured but unreachable is fatal on purpose. The
         // limiter exists to protect shared Temporal and embedding capacity, so a
         // pod that cannot enforce it must not come up and quietly run without it.
-        // Runtime failures are different: `decide` fails open, because a limiter
+        // Runtime failures are different: `admit` fails open, because a limiter
         // outage must not silence alerts for pods that are already serving.
         let client = RedisClient::with_config(
             config.notifications_rate_limit_redis_url.clone(),
@@ -90,50 +70,34 @@ impl IssueCreatedRateLimiter {
         })
     }
 
-    /// Charge one token for a team, and say what the handler should do next.
-    /// Redis failures fail open: a limiter outage must not silence alerts.
-    pub async fn decide(&self, team_id: i32) -> Decision {
+    /// Charge one token for a team. `false` means the team is out of budget, so
+    /// the notification starts no workflow. A Redis failure admits: a limiter
+    /// outage must not silence alerts.
+    pub async fn admit(&self, team_id: i32) -> bool {
         let Some(bucket) = self.bucket.as_ref() else {
-            return Decision::Uncharged;
+            return true;
         };
 
         match bucket.charge(team_id).await {
             Ok(true) => {
                 record("admitted");
-                Decision::Admitted
+                true
             }
             Ok(false) => {
                 record("limited");
-                Decision::Limited
+                false
             }
             Err(e) => {
                 warn!("issue-created rate limiter failed open for team {team_id}: {e}");
                 metrics::counter!(ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN).increment(1);
-                Decision::Uncharged
+                true
             }
-        }
-    }
-
-    /// Give the token back when Temporal reports the workflow already exists.
-    /// The consumer replays a batch after a restart, and `start_workflow` is
-    /// idempotent on the workflow id, so a replay does no work and must cost
-    /// nothing. This is what keeps the charge idempotent.
-    pub async fn settle(&self, team_id: i32, decision: Decision, start: WorkflowStart) {
-        if decision != Decision::Admitted || start != WorkflowStart::AlreadyRunning {
-            return;
-        }
-        let Some(bucket) = self.bucket.as_ref() else {
-            return;
-        };
-
-        match bucket.refund(team_id).await {
-            Ok(()) => record("refunded"),
-            // A lost refund costs the team one token out of its hourly budget.
-            Err(e) => warn!("issue-created rate limiter refund failed for team {team_id}: {e}"),
         }
     }
 }
 
+/// Count one decision. `outcome` is `admitted` or `limited` and never both, so
+/// the series can be summed for a denominator.
 fn record(outcome: &'static str) {
     metrics::counter!(ISSUE_CREATED_RATE_LIMIT_OUTCOMES, "outcome" => outcome).increment(1);
 }
@@ -146,52 +110,32 @@ fn optional_millis(millis: u64) -> Option<std::time::Duration> {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use common_redis::CustomRedisError;
-    use std::sync::Mutex;
-
-    use crate::modes::notifications::token_bucket::LuaRunner;
+    use common_redis::{CustomRedisError, ScriptRunner};
 
     /// A `ScriptRunner` that never touches Redis: it returns a canned reply, or
-    /// an error, and records the scripts it was asked to run.
+    /// an error.
     struct FakeRunner {
         reply: Option<Vec<i64>>,
-        calls: Mutex<Vec<String>>,
     }
 
     impl FakeRunner {
         fn returning(reply: Vec<i64>) -> Arc<Self> {
-            Arc::new(Self {
-                reply: Some(reply),
-                calls: Mutex::new(Vec::new()),
-            })
+            Arc::new(Self { reply: Some(reply) })
         }
 
         fn failing() -> Arc<Self> {
-            Arc::new(Self {
-                reply: None,
-                calls: Mutex::new(Vec::new()),
-            })
-        }
-
-        fn refunds(&self) -> usize {
-            self.calls
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|script| script.contains("math.min(tokens + 1, max)"))
-                .count()
+            Arc::new(Self { reply: None })
         }
     }
 
     #[async_trait]
-    impl LuaRunner for FakeRunner {
+    impl ScriptRunner for FakeRunner {
         async fn eval_int_vec(
             &self,
-            script: &str,
+            _script: &str,
             _keys: Vec<String>,
             _args: Vec<String>,
         ) -> Result<Vec<i64>, CustomRedisError> {
-            self.calls.lock().unwrap().push(script.to_string());
             self.reply.clone().ok_or(CustomRedisError::Timeout)
         }
     }
@@ -207,41 +151,21 @@ mod tests {
         }
     }
 
-    fn disabled_limiter() -> IssueCreatedRateLimiter {
-        IssueCreatedRateLimiter { bucket: None }
-    }
-
     #[tokio::test]
     async fn a_denied_charge_limits_the_notification() {
         let limiter = limiter_with(FakeRunner::returning(vec![0]));
-        assert_eq!(limiter.decide(42).await, Decision::Limited);
+        assert!(!limiter.admit(42).await);
     }
 
     #[tokio::test]
     async fn a_redis_error_fails_open() {
         let limiter = limiter_with(FakeRunner::failing());
-        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
+        assert!(limiter.admit(42).await);
     }
 
     #[tokio::test]
-    async fn a_disabled_limiter_charges_nothing() {
-        let limiter = disabled_limiter();
-        assert_eq!(limiter.decide(42).await, Decision::Uncharged);
-    }
-
-    #[tokio::test]
-    async fn only_an_already_running_workflow_refunds() {
-        let cases = [
-            (Decision::Admitted, WorkflowStart::AlreadyRunning, 1),
-            (Decision::Admitted, WorkflowStart::Started, 0),
-            (Decision::Uncharged, WorkflowStart::AlreadyRunning, 0),
-        ];
-
-        for (decision, start, expected_refunds) in cases {
-            let runner = FakeRunner::returning(vec![1]);
-            let limiter = limiter_with(runner.clone());
-            limiter.settle(42, decision, start).await;
-            assert_eq!(runner.refunds(), expected_refunds, "{decision:?} {start:?}");
-        }
+    async fn a_disabled_limiter_admits_everything() {
+        let limiter = IssueCreatedRateLimiter { bucket: None };
+        assert!(limiter.admit(42).await);
     }
 }

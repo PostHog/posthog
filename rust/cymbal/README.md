@@ -29,12 +29,10 @@ alerts.
 The gate sits in the consumer rather than in processing mode, because the
 consumer is what starts the workflows. The Kafka payload carries no decision, so
 a replayed notification is judged the same way every time. `start_workflow` is
-idempotent on the workflow id, so a replay starts nothing and Temporal answers
-`Existing`. The handler then refunds the token, which is what keeps the charge
-idempotent across a consumer restart.
+idempotent on the workflow id, so a replay starts nothing.
 
 A Redis failure while the consumer is running fails open: the notification is
-admitted and `cymbal_notifications_rate_limit_fail_open` goes up, because a
+admitted and `cymbal_issue_created_rate_limit_fail_open` goes up, because a
 limiter outage must not silence alerts. A Redis that is configured but
 unreachable at startup is fatal instead, so a pod cannot come up and quietly run
 without the limit it was told to enforce.
@@ -51,8 +49,11 @@ are named for what is actually capped. Only issue-created is charged.
 
 The limit covers every team once the Redis URL is set. To size it before it cuts
 anything, set `PER_HOUR` far above real traffic, watch
-`cymbal_notifications_rate_limit_outcomes`, then lower it. Clearing the Redis URL
+`cymbal_issue_created_rate_limit_outcomes`, then lower it. Clearing the Redis URL
 switches the limit off again.
+
+That counter carries an `outcome` label of `admitted` or `limited`, never both,
+so the two series sum to the notifications the limiter judged.
 
 The bucket lives in
 [`src/modes/notifications/token_bucket.rs`](src/modes/notifications/token_bucket.rs).

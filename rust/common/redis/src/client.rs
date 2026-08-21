@@ -313,6 +313,32 @@ impl RedisClient {
     }
 }
 
+/// The single Redis operation a Lua-script primitive needs: run a script and
+/// decode its integer-array reply. Behind a trait so callers can be unit-tested
+/// against an in-memory fake -- including a failing one, to prove a limiter
+/// fails open. Production uses the real [`RedisClient`].
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+}
+
 #[async_trait]
 impl Client for RedisClient {
     async fn heal(&self) {
