@@ -86,6 +86,11 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus token-segment masking: a path segment holding an opaque id or token
+    // (verify-email links, signed URLs, device paths) is replaced whole with `*`, so a
+    // per-request secret never forks issues or enters the fingerprint. Added as a new version
+    // rather than folded into V2 so existing V2 issue mappings stay addressable.
+    V3,
 }
 
 impl FingerprintVersion {
@@ -93,15 +98,17 @@ impl FingerprintVersion {
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
         // Each legacy twin sits immediately below its canonical version, so the
-        // newest-first selection walk prefers V2, then V2's legacy order, then
-        // V1, then V1's — an event matching both a V2-era legacy row and an
-        // older V1 row stays on the newer issue. The last entry (the new-issue
-        // fallback) must never be a legacy version.
+        // newest-first selection walk prefers V3, then V2, then V2's legacy order,
+        // then V1, then V1's — an event matching both a V2-era legacy row and an
+        // older V1 row stays on the newer issue. V3 has no legacy twin: it was added
+        // after wire-order normalization, so no issue was ever keyed under a pre-flip
+        // V3 order. The last entry (the new-issue fallback) must never be a legacy version.
         &[
             FingerprintVersion::V1Legacy,
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +118,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -130,28 +138,33 @@ impl FingerprintVersion {
     pub fn strategy(&self) -> FingerprintStrategy {
         match self {
             FingerprintVersion::V1 | FingerprintVersion::V1Legacy => FingerprintStrategy::default(),
-            FingerprintVersion::V2 | FingerprintVersion::V2Legacy => FingerprintStrategy {
-                frame_selection: FrameSelection::AllFrames,
-                // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
-                // chain order — current SDKs put the root cause last, the legacy python SDK put
-                // it first — so keying on one end regroups differently per SDK version. Stays
-                // `All` until ordering is normalized across SDKs.
-                chain_selection: ChainSelection::All,
-                unresolved_include_line: false,
-                unresolved_include_column: false,
-                normalize: Normalization {
-                    strip_query_strings: true,
-                    strip_hashed_chunks: true,
-                    basename_only: true,
-                    mask_token_segments: true,
-                },
-                message_normalize: MessageNormalization {
-                    mask_quoted: true,
-                    mask_hex_ids: true,
-                    mask_numbers: true,
-                    truncate: Some(200),
-                },
-            },
+            FingerprintVersion::V2 | FingerprintVersion::V2Legacy | FingerprintVersion::V3 => {
+                // V3 additionally masks opaque token path segments; V2 stays byte-identical to
+                // its historical output so existing V2 issues stay addressable.
+                let mask_token_segments = matches!(self, FingerprintVersion::V3);
+                FingerprintStrategy {
+                    frame_selection: FrameSelection::AllFrames,
+                    // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
+                    // chain order — current SDKs put the root cause last, the legacy python SDK put
+                    // it first — so keying on one end regroups differently per SDK version. Stays
+                    // `All` until ordering is normalized across SDKs.
+                    chain_selection: ChainSelection::All,
+                    unresolved_include_line: false,
+                    unresolved_include_column: false,
+                    normalize: Normalization {
+                        strip_query_strings: true,
+                        strip_hashed_chunks: true,
+                        basename_only: true,
+                        mask_token_segments,
+                    },
+                    message_normalize: MessageNormalization {
+                        mask_quoted: true,
+                        mask_hex_ids: true,
+                        mask_numbers: true,
+                        truncate: Some(200),
+                    },
+                }
+            }
         }
     }
 }
@@ -760,12 +773,6 @@ mod test {
                 "/data/app/8CC63366-D88D/bundle.js",
                 "/data/app/A4CD3A3C-8BE6/bundle.js",
             ),
-            // A document-URL frame source: the last path segment is a per-request token, so the
-            // basename itself is the secret. Different tokens must group as one issue.
-            (
-                "http://app.example.com/verify_email/3f0a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8/qk7m2p-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
-                "http://app.example.com/verify_email/9e8d7c6b-5a49-3827-1605-f4e3d2c1b0a9/zx9w4v-1a2b3c4d5e6f70819a8b7c6d5e4f3a2b",
-            ),
         ];
         for (source_a, source_b) in cases {
             let with_source = |source: &str| {
@@ -793,6 +800,39 @@ mod test {
                 "V2 should merge {source_a} vs {source_b}"
             );
         }
+    }
+
+    #[test]
+    fn v3_masks_token_path_segments() {
+        // A document-URL frame source can put a per-request token in a path segment (here the
+        // basename). V2 keeps it — different tokens fork issues and the secret enters the
+        // fingerprint — while V3 replaces the whole segment with `*`, grouping them as one issue.
+        let source_a = "http://app.example.com/verify_email/3f0a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8/qk7m2p-0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+        let source_b = "http://app.example.com/verify_email/9e8d7c6b-5a49-3827-1605-f4e3d2c1b0a9/zx9w4v-1a2b3c4d5e6f70819a8b7c6d5e4f3a2b";
+        let with_source = |source: &str| {
+            vec![exception(
+                "Error",
+                "boom",
+                resolved_stack(vec![frame(
+                    "foo",
+                    Some(source),
+                    Some("foo"),
+                    true,
+                    true,
+                    Some(1),
+                )]),
+            )]
+        };
+        assert_ne!(
+            value(FingerprintVersion::V2, with_source(source_a)),
+            value(FingerprintVersion::V2, with_source(source_b)),
+            "V2 keeps the token, so it splits the two URLs"
+        );
+        assert_eq!(
+            value(FingerprintVersion::V3, with_source(source_a)),
+            value(FingerprintVersion::V3, with_source(source_b)),
+            "V3 masks the token, so it merges the two URLs"
+        );
     }
 
     #[test]
