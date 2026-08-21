@@ -328,15 +328,25 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     external = _EXTERNAL_COMPANION_SKILL_DIRS if skills_dir is None else ()
     if not base.is_dir():
         return ()
-    discovered: list[CanonicalSkill] = []
-    by_name: dict[str, Path] = {}
-    candidates = [(entry, entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)) for entry in sorted(base.iterdir())]
-    candidates.extend((entry, False) for entry in external)
-    for entry, is_scout in candidates:
+    candidates: list[tuple[Path, bool]] = []
+    for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
-        if not is_scout and entry.name not in _COMPANION_SKILL_DIRS and entry not in external:
+        is_scout = entry.name.startswith(SIGNALS_SCOUT_SKILL_PREFIX)
+        if is_scout or entry.name in _COMPANION_SKILL_DIRS:
+            candidates.append((entry, is_scout))
+    for entry in external:
+        if not (entry / "SKILL.md").is_file():
+            # Warn rather than raise: `canonical_skill_names` turns a parse error into an empty
+            # fleet, so a moved directory in another product would make every scout read as
+            # custom. The fleet lock in the tests is what fails loud on this.
+            logger.warning("discover_canonical_skills: external companion skill missing at %s", entry)
             continue
+        candidates.append((entry, False))
+
+    discovered: list[CanonicalSkill] = []
+    by_name: dict[str, Path] = {}
+    for entry, is_scout in candidates:
         if not (entry / "SKILL.md").is_file():
             continue
         skill = _parse_canonical_skill(entry, is_scout=is_scout)
