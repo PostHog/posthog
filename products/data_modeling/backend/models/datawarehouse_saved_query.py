@@ -395,7 +395,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.deleted_name = self.name
         self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
 
