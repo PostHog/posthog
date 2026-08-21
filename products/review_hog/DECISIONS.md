@@ -198,6 +198,40 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
+
+Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
+agent — the ask was a picker beside those buttons that reuses what the team already has. Design settled by a
+grilled Q&A (copy-vs-reference was the root call, recorded with its consequences in
+[ADR 0002](./adr/0002-adopt-existing-skills-by-copy.md)): **adopt = duplicate the source under the kind's
+prefix + activate, verbatim** (no agent adaptation; the picker's body preview does the judgment work, and the
+fixed output schema means a foreign body can never break the pipeline format). Mechanics, all existing
+endpoints — the skills product's `duplicate` (strips `seeded_by`, adopter becomes author, so author-only
+visibility and the sync's seeded-rows-only reconcile hold untouched) then the kind's config PATCH
+(perspectives `enabled`, single-active kinds `active`, swapping the current selection; the confirm step names
+the swap). Two client calls over a new atomic endpoint on purpose: the one partial-failure mode (copied but
+not switched on) is harmless — the card exists, a toast says to flip it.
+
+- **Picker scope:** one searchable list, two groups — teammates' same-kind `review-hog-*` customs first
+  (adoptable precisely because the config surface hides them: the fork makes them yours), then every other
+  team skill (cross-kind review skills included — a validation bar adopted as resolution criteria is
+  legitimate). Community store deliberately out of scope (phase 2, own trust surface).
+- **Naming:** confirm step with the prefix fixed and an editable slug, prefilled from the source name (any
+  review-hog kind prefix stripped so cross-kind adoption doesn't double-prefix), client-side mirror of the
+  name rules for inline errors; the server stays authoritative on conflicts.
+- **Component layering:** the generic piece (`SkillPicker` — controlled groups, client-side search, lazy body
+  preview) lives in `frontend/src/lib/components/SkillPicker/` per the no-cross-product-component-imports
+  rule (the grill's products/skills pick adjusted to the sanctioned shared layer); ReviewHog's
+  `AdoptSkillModal` owns the groups, the confirm step, and the adopt orchestration in
+  `reviewHogSettingsLogic`.
+- **Skills-product fix along the way:** `duplicate_skill` now derives `category` from the new name exactly
+  like the create paths (was deliberately empty), so adopted skills group under the Skills page's Code review
+  tab like agent-authored ones — also fixes the manual duplicate-into-prefix path.
+- Tests: jest — adopt orchestration per kind (duplicate name + activation body), copy-failure keeps the modal
+  open with no activation fired, activation-failure still reloads the kind's cards, picker grouping, slug
+  prefill/validation (pure); BE — duplicate category derivation parameterized (new-name prefix wins, source
+  category never copied).
+
 ### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
 
 The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`

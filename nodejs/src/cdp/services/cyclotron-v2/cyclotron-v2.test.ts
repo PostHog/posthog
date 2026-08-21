@@ -1010,6 +1010,21 @@ describe('Cyclotron V2', () => {
             expect(jobs[0].queueName).toBe(QUEUE)
         })
 
+        // Guards against the reschedule options schema silently stripping `priority`
+        // (zod .parse drops unknown keys), which would break the email queue's
+        // class assignment on the hogflow → email reschedule path.
+        it.each([
+            [{ priority: 10 }, 10],
+            [{}, 1],
+        ])('reschedule with options %o leaves the row at priority %i', async (options, expected) => {
+            const { id, job } = await seedAndDequeue({ priority: 1 })
+
+            await job.reschedule(options)
+
+            const res = await assertPool.query('SELECT priority FROM cyclotron_jobs WHERE id = $1', [id])
+            expect(res.rows[0].priority).toBe(expected)
+        })
+
         describe('bulkCreateAndCheckIn', () => {
             it('atomically inserts new children and reschedules self', async () => {
                 const { id: parentId, job } = await seedAndDequeue()
