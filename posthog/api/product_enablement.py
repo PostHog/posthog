@@ -69,6 +69,10 @@ def _enable_conversations(team: Team, touched: set[str]) -> str:
     return "enabled"
 
 
+# Companion defaults the server writes only when the field is unset: they pin a conservative floor
+# rather than express a caller's choice, so they never require admin even where the Team API gates them.
+SERVER_DEFAULT_FIELDS: frozenset[str] = frozenset({"session_recording_masking_config", "conversations_settings"})
+
 RECIPES: dict[str, Recipe] = {
     "session_replay": _enable_session_replay,
     "error_tracking": _enable_error_tracking,
@@ -114,9 +118,9 @@ class ProductEnablementViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             product: RECIPES[product](team, touched) for product in dict.fromkeys(serializer.validated_data["products"])
         }
 
-        # conversations + replay masking are admin-only on the normal Team-update API; replicate that
-        # gate so this endpoint can't be a bypass (error_tracking + the replay opt-in stay member-safe).
-        admin_fields = touched & TEAM_CONFIG_ADMIN_FIELDS_SET
+        # conversations is admin-only on the normal Team-update API; replicate that gate so this endpoint
+        # can't be a bypass (error_tracking + the replay opt-in stay member-safe).
+        admin_fields = (touched - SERVER_DEFAULT_FIELDS) & TEAM_CONFIG_ADMIN_FIELDS_SET
         if admin_fields:
             level = self.user_permissions.team(team).effective_membership_level
             if level is None or level < OrganizationMembership.Level.ADMIN:
