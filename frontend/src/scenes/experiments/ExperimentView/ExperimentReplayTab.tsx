@@ -17,6 +17,7 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -184,6 +185,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
+        linkedScanners,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -247,22 +249,43 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
-            {scannerCrossSellEnabled && (
-                <LemonBanner
-                    type="info"
-                    className="mb-2"
-                    dismissKey="experiment-replay-vision-scanner-cross-sell"
-                    action={{
-                        children: 'Set up a scanner',
-                        to: scannerSetupUrl,
-                        onClick: () => scannerCrossSellClicked(),
-                        'data-attr': 'experiment-recordings-scanner-cross-sell',
-                    }}
-                >
-                    Replay vision can watch new recordings from this experiment for you. Scanners check each session and
-                    report what they find.
-                </LemonBanner>
-            )}
+            {scannerCrossSellEnabled &&
+                (linkedScanners.length > 0 ? (
+                    <LemonBanner
+                        type="info"
+                        className="mb-2"
+                        action={{
+                            children: 'Add another',
+                            to: scannerSetupUrl,
+                            onClick: () => scannerCrossSellClicked(),
+                            'data-attr': 'experiment-recordings-scanner-add-another',
+                        }}
+                    >
+                        {pluralize(linkedScanners.length, 'scanner')} {linkedScanners.length === 1 ? 'is' : 'are'}{' '}
+                        watching recordings from this experiment:{' '}
+                        {linkedScanners.map((scanner, index) => (
+                            <Fragment key={scanner.id}>
+                                {index > 0 && ', '}
+                                <Link to={urls.replayVision(scanner.id)}>{scanner.name}</Link>
+                            </Fragment>
+                        ))}
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner
+                        type="info"
+                        className="mb-2"
+                        dismissKey="experiment-replay-vision-scanner-cross-sell"
+                        action={{
+                            children: 'Set up a scanner',
+                            to: scannerSetupUrl,
+                            onClick: () => scannerCrossSellClicked(),
+                            'data-attr': 'experiment-recordings-scanner-cross-sell',
+                        }}
+                    >
+                        Replay vision can watch new recordings from this experiment for you. Scanners check each session
+                        and report what they find.
+                    </LemonBanner>
+                ))}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
