@@ -74,6 +74,13 @@ class AutoresearchPipelineAdmin(admin.ModelAdmin):
     def get_queryset(self, request: HttpRequest) -> QuerySet[AutoresearchPipeline]:
         return AutoresearchPipeline.objects.unscoped()
 
+    def get_readonly_fields(self, request: HttpRequest, obj: AutoresearchPipeline | None = None) -> tuple[str, ...]:
+        # Children copy team from the pipeline when they are written, so moving a populated
+        # pipeline to another team would strand its history under the old one.
+        if obj is not None:
+            return (*self.readonly_fields, "team")
+        return self.readonly_fields
+
 
 class AutoresearchIterationInline(admin.TabularInline):
     model = AutoresearchIteration
@@ -229,6 +236,9 @@ class AutoresearchIterationAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request: HttpRequest, obj: AutoresearchIteration | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: AutoresearchIteration | None = None) -> bool:
         return False
 
     # Admin has no ambient team scope and _default_manager here is the fail-closed

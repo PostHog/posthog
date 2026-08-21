@@ -1,4 +1,5 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -93,6 +94,11 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
     fills it from the parent so a caller cannot file a row under the wrong tenant.
     """
 
+    if TYPE_CHECKING:
+        # Subclasses declare the concrete `pipeline` foreign key, so Django does not put
+        # it on the abstract base, but the guards below need its id.
+        pipeline_id: UUID
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, related_name="autoresearch_%(class)ss", db_constraint=False
@@ -100,6 +106,19 @@ class PipelineScopedModel(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         abstract = True
+
+    def _reject_foreign_relation(self, field_name: str) -> None:
+        """Refuse a related row owned by a different pipeline.
+
+        These foreign keys are set independently of `pipeline`, so a mismatch attributes
+        one pipeline's history to another and lets a correctly scoped row traverse into
+        another tenant's data.
+        """
+        related = getattr(self, field_name, None)
+        if related is not None and related.pipeline_id != self.pipeline_id:
+            raise ValidationError(
+                f"{type(self).__name__}.{field_name} belongs to pipeline {related.pipeline_id}, not {self.pipeline_id}."
+            )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # RelatedObjectDoesNotExist subclasses AttributeError, so an unset pipeline reads as None.
@@ -177,6 +196,10 @@ class AutoresearchModel(PipelineScopedModel):
                 name="autoresearch_one_champion_per_pipeline",
             )
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self._reject_foreign_relation("source_training_run")
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.role} model for pipeline {self.pipeline_id}"
@@ -261,6 +284,8 @@ class AutoresearchIteration(PipelineScopedModel):
         training_run = getattr(self, "training_run", None)
         if training_run is not None:
             self.pipeline_id = training_run.pipeline_id
+        # Checked after the pipeline is settled, so it compares against the training run's.
+        self._reject_foreign_relation("parent_suggestion")
         super().save(*args, **kwargs)
 
 
@@ -356,7 +381,5 @@ class AutoresearchRun(PipelineScopedModel):
         # Reject rather than derive: pipeline is the run's own identity, so a mismatch
         # means the caller picked the wrong model, and silently repointing the run would
         # attribute one pipeline's scores to another.
-        model = getattr(self, "model", None)
-        if model is not None and model.pipeline_id != self.pipeline_id:
-            raise ValidationError(f"Model {model.pk} belongs to pipeline {model.pipeline_id}, not {self.pipeline_id}.")
+        self._reject_foreign_relation("model")
         super().save(*args, **kwargs)

@@ -10,6 +10,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 
@@ -92,14 +93,43 @@ class TestChampionInvariants(ScopedTest):
         self._make_model(AutoresearchModel.Role.CHALLENGER)
         assert AutoresearchModel.objects.for_team(self.team.pk).count() == 2
 
-    def test_a_run_rejects_a_model_owned_by_another_pipeline(self) -> None:
-        other_pipeline = AutoresearchPipeline.objects.create(
+
+class TestForeignPipelineRelationsAreRejected(ScopedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, name="Test", target_event="$pageview", horizon_days=7
+        )
+        self.other = AutoresearchPipeline.objects.create(
             team=self.team, name="Other", target_event="$pageview", horizon_days=7
         )
-        foreign_model = AutoresearchModel.objects.create(
-            pipeline=other_pipeline, role=AutoresearchModel.Role.CHAMPION, recipe_hash="abc", model_recipe={}
+
+    def test_run_rejects_a_model_from_another_pipeline(self) -> None:
+        foreign = AutoresearchModel.objects.create(
+            pipeline=self.other, role=AutoresearchModel.Role.CHAMPION, recipe_hash="abc", model_recipe={}
         )
         with self.assertRaises(ValidationError):
             AutoresearchRun.objects.create(
-                pipeline=self.pipeline, model=foreign_model, run_type=AutoresearchRun.RunType.INFERENCE
+                pipeline=self.pipeline, model=foreign, run_type=AutoresearchRun.RunType.INFERENCE
+            )
+
+    def test_model_rejects_a_source_training_run_from_another_pipeline(self) -> None:
+        foreign = AutoresearchTrainingRun.objects.create(pipeline=self.other)
+        with self.assertRaises(ValidationError):
+            AutoresearchModel.objects.create(
+                pipeline=self.pipeline, recipe_hash="abc", model_recipe={}, source_training_run=foreign
+            )
+
+    def test_iteration_rejects_a_parent_suggestion_from_another_pipeline(self) -> None:
+        foreign = AutoresearchSuggestion.objects.create(pipeline=self.other, prompt="try this")
+        training_run = AutoresearchTrainingRun.objects.create(pipeline=self.pipeline)
+        with self.assertRaises(ValidationError):
+            AutoresearchIteration.objects.create(
+                training_run=training_run,
+                pipeline=self.pipeline,
+                iteration_number=1,
+                recipe_hash="abc",
+                recipe_snapshot={},
+                status=AutoresearchIteration.Status.KEPT,
+                parent_suggestion=foreign,
             )
