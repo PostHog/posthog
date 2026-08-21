@@ -834,6 +834,173 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Create a scout that watches this scanner, recorded as belonging to it.
+ */
+export const visionScannersScoutsCreateBodyNameMax = 64
+
+export const visionScannersScoutsCreateBodyDescriptionMax = 4096
+
+export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
+export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
+
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
+
+export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
+
+export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
+
+export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
+
+export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
+
+export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyNameMax)
+            .describe(
+                'Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.'
+            ),
+        description: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyDescriptionMax)
+            .describe('Short description of the signal or behavior this scout investigates.'),
+        body: zod
+            .string()
+            .describe(
+                'Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here.'
+            ),
+        config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether this scout runs on its schedule. Defaults to true.'),
+                emit: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.'
+                    ),
+                run_interval_minutes: zod
+                    .number()
+                    .min(visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin)
+                    .max(visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax)
+                    .optional()
+                    .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+                output_destinations: zod
+                    .object({
+                        slack: zod
+                            .union([
+                                zod.object({
+                                    integration_id: zod
+                                        .number()
+                                        .min(1)
+                                        .describe(
+                                            "ID of the Slack integration whose bot posts this scout's findings and reports."
+                                        ),
+                                    channel: zod
+                                        .string()
+                                        .max(
+                                            visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax
+                                        )
+                                        .nullish()
+                                        .describe(
+                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                        ),
+                                    thread_reports: zod
+                                        .boolean()
+                                        .default(
+                                            visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
+                                        )
+                                        .describe(
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                        webhook: zod
+                            .union([
+                                zod.object({
+                                    hog_function_id: zod
+                                        .string()
+                                        .describe(
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
+                            ),
+                    })
+                    .optional()
+                    .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                network_access: zod
+                    .enum(['trusted', 'full'])
+                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .optional()
+                    .describe(
+                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                    ),
+                auto_pause_exempt: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+                    ),
+                run_cron_schedule: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax)
+                    .nullish()
+                    .describe(
+                        "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+                    ),
+                model: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOneModelMax)
+                    .nullish()
+                    .describe(
+                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                    ),
+                tags: zod
+                    .array(zod.string())
+                    .max(visionScannersScoutsCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
+                mcp_gateway_server_ids: zod
+                    .array(zod.uuid())
+                    .max(visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax)
+                    .optional()
+                    .describe(
+                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+            })
+            .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
+            .optional()
+            .describe(
+                'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+    })
+    .describe(
+        "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
+    )
+
+/**
  * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
  */
 export const visionScannersDraftCreateBodyGoalMax = 2000
