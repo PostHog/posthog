@@ -302,6 +302,8 @@ describe('workflowLogic email step "from" validation', () => {
         ['a person property is fully addressed', '<p>Hi {{ person.properties.first_name }}</p>'],
         ['a special merge tag is used', '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a></p>'],
         ['the template assigns the variable itself', "<p>{% assign greeting = 'Hi' %}{{ greeting }}</p>"],
+        ['the runtime "now" global feeds a footer year', '<p>&copy; {{ now | date: "%Y" }} Acme</p>'],
+        ['a Liquid literal keyword is output', '<p>{{ nil }}{{ true }}{{ blank }}</p>'],
     ])('does not flag the body when %s', async (_name, html) => {
         useMocks({
             get: {

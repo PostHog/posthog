@@ -118,17 +118,24 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'slack-message'])
 
-// Top-level Liquid references that resolve on their own. The special merge tags plus the
-// templating globals - anything else bare (e.g. `{{ first_name }}`) points at nothing and sends
-// empty. Person data must be addressed as `person.properties.first_name`.
+// Liquid literal keywords render on their own - `{{ true }}`, `{{ nil }}`, `{{ blank }}` etc. are
+// valid output, not undefined variables.
+const LIQUID_LITERAL_KEYWORDS = ['true', 'false', 'nil', 'null', 'empty', 'blank']
+
+// Top-level Liquid references that resolve on their own: the special merge tags, the literal
+// keywords, and the templating globals the runtime injects (including `now`, the current time).
+// Anything else bare (e.g. `{{ first_name }}`) points at nothing and sends empty, so person data
+// must be addressed as `person.properties.first_name`.
 const KNOWN_BARE_LIQUID_REFERENCES = new Set<string>([
     ...SPECIAL_MERGE_TAGS,
+    ...LIQUID_LITERAL_KEYWORDS,
     'event',
     'person',
     'groups',
     'inputs',
     'source',
     'project',
+    'now',
 ])
 
 // Liquid parses `{{ first_name }}` as valid, then renders it empty because no such variable
