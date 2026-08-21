@@ -35,8 +35,8 @@ class GongRetryableError(Exception):
 
 @dataclasses.dataclass
 class GongResumeConfig:
-    # ISO-8601 start of the next `calls` date window to fetch. Only the windowed `calls`
-    # endpoint persists resume state; cursors are deliberately not cached (Gong expires
+    # ISO-8601 start of the next date window to fetch. Only the windowed, call-date-filtered
+    # endpoints persist resume state; cursors are deliberately not cached (Gong expires
     # them quickly), so on resume we restart the in-progress window from scratch and let
     # primary-key merge semantics dedupe any re-yielded rows.
     window_start: Optional[str] = None
@@ -244,35 +244,112 @@ def _iter_windowed_rows(
 
     while window_start < end:
         window_end = min(window_start + timedelta(days=MAX_WINDOW_DAYS), end)
-        cursor: str | None = None
 
-        while True:
-            if config.uses_extensive:
-                data = fetch_page(
-                    _build_url(config.path, {}),
-                    json_body=_extensive_body(window_start, window_end, cursor),
-                )
-                rows = [_flatten_extensive_call(row) for row in data.get(config.response_key, [])]
-            else:
-                params: dict[str, Any] = {
-                    "fromDateTime": _format_datetime(window_start),
-                    "toDateTime": _format_datetime(window_end),
-                }
-                if cursor:
-                    params["cursor"] = cursor
-
-                data = fetch_page(_build_url(config.path, params))
-                rows = data.get(config.response_key, [])
-
-            if rows:
-                yield rows
-
-            cursor = data.get("records", {}).get("cursor")
-            if not cursor:
-                break
+        if config.uses_call_id_batches:
+            yield from _iter_transcript_rows(config, fetch_page, window_start, window_end)
+        else:
+            yield from _iter_call_rows(config, fetch_page, window_start, window_end)
 
         window_start = window_end
         resumable_source_manager.save_state(GongResumeConfig(window_start=_format_datetime(window_start)))
+
+
+def _iter_call_rows(
+    config: GongEndpointConfig, fetch_page, window_start: datetime, window_end: datetime
+) -> Iterator[Any]:
+    """Cursor-paginate one date window of `/v2/calls`, or of its extensive POST form."""
+    cursor: str | None = None
+
+    while True:
+        if config.uses_extensive:
+            data = fetch_page(
+                _build_url(config.path, {}),
+                json_body=_extensive_body(window_start, window_end, cursor),
+            )
+            rows = [_flatten_extensive_call(row) for row in data.get(config.response_key, [])]
+        else:
+            params: dict[str, Any] = {
+                "fromDateTime": _format_datetime(window_start),
+                "toDateTime": _format_datetime(window_end),
+            }
+            if cursor:
+                params["cursor"] = cursor
+
+            data = fetch_page(_build_url(config.path, params))
+            rows = data.get(config.response_key, [])
+
+        if rows:
+            yield rows
+
+        cursor = data.get("records", {}).get("cursor")
+        if not cursor:
+            break
+
+
+def _iter_transcript_rows(
+    config: GongEndpointConfig, fetch_page, window_start: datetime, window_end: datetime
+) -> Iterator[Any]:
+    """Yield one date window of transcripts, each stamped with the start time of its call.
+
+    Walks the `/v2/calls` list for the window and asks for the transcripts of one page of call ids
+    at a time. That keeps the `callIds` filter bounded to a page, and gives every transcript the
+    `started` of the call it belongs to — `POST /v2/calls/transcript` returns no date of its own.
+    """
+    calls_config = GONG_ENDPOINTS["calls"]
+    cursor: str | None = None
+
+    while True:
+        params: dict[str, Any] = {
+            "fromDateTime": _format_datetime(window_start),
+            "toDateTime": _format_datetime(window_end),
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        calls_page = fetch_page(_build_url(calls_config.path, params))
+
+        started_by_call_id = {
+            call["id"]: call.get("started") for call in calls_page.get(calls_config.response_key, []) if call.get("id")
+        }
+        if started_by_call_id:
+            yield from _iter_transcripts_for_calls(config, fetch_page, window_start, window_end, started_by_call_id)
+
+        cursor = calls_page.get("records", {}).get("cursor")
+        if not cursor:
+            break
+
+
+def _iter_transcripts_for_calls(
+    config: GongEndpointConfig,
+    fetch_page,
+    window_start: datetime,
+    window_end: datetime,
+    started_by_call_id: dict[str, Any],
+) -> Iterator[Any]:
+    cursor: str | None = None
+
+    while True:
+        body: dict[str, Any] = {
+            "filter": {
+                "fromDateTime": _format_datetime(window_start),
+                "toDateTime": _format_datetime(window_end),
+                "callIds": list(started_by_call_id),
+            }
+        }
+        if cursor:
+            body["cursor"] = cursor
+
+        data = fetch_page(_build_url(config.path, {}), json_body=body)
+
+        rows = [
+            {**row, "started": started_by_call_id.get(row.get("callId"))} for row in data.get(config.response_key, [])
+        ]
+        if rows:
+            yield rows
+
+        cursor = data.get("records", {}).get("cursor")
+        if not cursor:
+            break
 
 
 def gong_source(
@@ -305,4 +382,5 @@ def gong_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        chunk_size=config.chunk_size,
     )
