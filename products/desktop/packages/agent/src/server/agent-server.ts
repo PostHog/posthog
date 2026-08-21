@@ -35,10 +35,7 @@ import {
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
-import {
-  PRODUCT_ENGINEER_PROMPT_VERSION,
-  prependProductEngineerPrompt,
-} from "@posthog/shared/product-engineer-prompt";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
@@ -4391,7 +4388,6 @@ ${commonInstructions}
         ? JSON.stringify(repositories)
         : null,
       task_runtime_adapter: runtimeAdapter,
-      product_engineer_prompt_version: PRODUCT_ENGINEER_PROMPT_VERSION,
       task_sandbox_environment_id: sandboxEnvironmentId,
       task_snapshot_kind: snapshotKind,
       task_prewarmed: prewarmed,

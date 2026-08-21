@@ -1,4 +1,3 @@
-import { PRODUCT_ENGINEER_PROMPT_VERSION } from "@posthog/shared/product-engineer-prompt";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
@@ -235,8 +234,6 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_repositories":
         '["posthog/posthog","posthog/posthog-js"]',
       "x-posthog-property-task_runtime_adapter": "claude",
-      "x-posthog-property-product_engineer_prompt_version":
-        PRODUCT_ENGINEER_PROMPT_VERSION,
       "x-posthog-property-task_sandbox_environment_id": "environment-123",
       "x-posthog-property-task_snapshot_kind": "filesystem",
       "x-posthog-property-task_prewarmed": "false",
@@ -276,7 +273,6 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_title: Fix the bug",
         'x-posthog-property-task_repositories: ["posthog/posthog","posthog/posthog-js"]',
         "x-posthog-property-task_runtime_adapter: claude",
-        `x-posthog-property-product_engineer_prompt_version: ${PRODUCT_ENGINEER_PROMPT_VERSION}`,
         "x-posthog-property-task_sandbox_environment_id: environment-123",
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
@@ -324,7 +320,6 @@ describe("AgentServer.configureEnvironment", () => {
 
     expect(env.anthropicCustomHeaders).toBe(
       "x-posthog-property-task_internal: false\n" +
-        `x-posthog-property-product_engineer_prompt_version: ${PRODUCT_ENGINEER_PROMPT_VERSION}\n` +
         "x-posthog-property-task_execution_environment: cloud\n" +
         "X-PostHog-Project-Id: 1",
     );
