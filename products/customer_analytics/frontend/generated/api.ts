@@ -23,6 +23,7 @@ import type {
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
+    AccountsSupportTicketMessagesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -71,6 +72,7 @@ import type {
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
+    PaginatedAccountSupportTicketMessageListApi,
     PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
@@ -709,6 +711,43 @@ export const accountsSupportTicketsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAccountsSupportTicketMessagesListUrl = (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/`
+}
+
+export const accountsSupportTicketMessagesList = async (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountSupportTicketMessageListApi> => {
+    return apiMutator<PaginatedAccountSupportTicketMessageListApi>(
+        getAccountsSupportTicketMessagesListUrl(projectId, id, ticketId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {

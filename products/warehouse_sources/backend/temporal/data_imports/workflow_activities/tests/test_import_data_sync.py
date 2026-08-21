@@ -476,14 +476,22 @@ async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
     logger.aexception.assert_not_awaited()
 
 
+@parameterized.expand(
+    [
+        # Raised in shared pipeline code (delta merge) when a keyless table syncs incrementally.
+        ("primary_key", "Primary key required for incremental syncs"),
+        # Raised by botocore when the object storage endpoint hostname is one it rejects (e.g. an
+        # underscore in a self-hosted OBJECT_STORAGE_ENDPOINT). Deterministic for the deployment, so
+        # it must stop retrying instead of looping the activity's budget and reporting every attempt.
+        ("invalid_endpoint", "Invalid endpoint: http://posthog_objectstorage:19000"),
+    ]
+)
 @pytest.mark.asyncio
-async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
-    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
-    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
-    # this in-activity handler for every source, not just those that duplicate the message into their
-    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
-    # budget and reports on every attempt.
-    error = Exception("Primary key required for incremental syncs")
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in(_name: str, message: str):
+    # These messages are raised in shared pipeline code, not any one source, and live in the shared
+    # Any_Source_Errors dict. Each must be non-retryable in this in-activity handler for every source,
+    # not just those that duplicate the message into their own get_non_retryable_errors.
+    error = Exception(message)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()

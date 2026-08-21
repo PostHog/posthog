@@ -113,14 +113,45 @@ describe("startup location", () => {
     expect(removeItem).not.toHaveBeenCalled();
   });
 
+  it("ignores a hand-off primed by a different account", async () => {
+    // A logout or account switch between priming and consuming would otherwise hand the
+    // next account the previous project's channels.
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
+        channels: [personal, general],
+        personal_created: false,
+        general_created: false,
+      }),
+      startOnboardingSession: vi.fn().mockResolvedValue(true),
+    };
+    primeStartupProvision(
+      "someone-else",
+      Promise.resolve({
+        channels: [personal, general],
+        personal_created: true,
+        general_created: true,
+      }),
+    );
+
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/website/general-id",
+      firstRun: null,
+    });
+    expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
+  });
+
   it("consumes a primed provisioning result exactly once", async () => {
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = { provisionDefaultTaskChannels: vi.fn() };
-    primeStartupProvision({
-      channels: [personal, general],
-      personal_created: true,
-      general_created: false,
-    });
+    primeStartupProvision(
+      "project",
+      Promise.resolve({
+        channels: [personal, general],
+        personal_created: true,
+        general_created: false,
+      }),
+    );
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
       href: "/website/general-id",

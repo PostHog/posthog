@@ -641,6 +641,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       isLocalOnlyCommand,
       commandName: command,
       broadcast: () => this.broadcastUserMessage(params),
+      pendingInput: userMessage,
       settled: false,
       resolve: () => {},
       reject: () => {},
@@ -651,9 +652,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
 
     this.session.turnQueue.push(turn);
-    this.session.input.push(userMessage);
+    this.dispatchQueuedInput(this.session);
     this.ensureConsumer(params.sessionId);
     return response;
+  }
+
+  private dispatchQueuedInput(session: Session): void {
+    if (session.queryClosed) {
+      return;
+    }
+    if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    const head = session.turnQueue.find((turn) => !turn.settled);
+    if (!head?.pendingInput) {
+      return;
+    }
+    const input = head.pendingInput;
+    head.pendingInput = undefined;
+    session.input.push(input);
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -856,6 +873,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      this.dispatchQueuedInput(session);
       turn.resolve(result);
     };
 
@@ -874,6 +892,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
+      this.dispatchQueuedInput(session);
       turn.reject(error);
     };
 
@@ -1106,6 +1125,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 head.settled = true;
                 declinePendingSteers(head);
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
+                this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
                 break;
               }
@@ -1586,8 +1606,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     session.cancelled = true;
 
-    // Settle not-yet-echoed turns immediately; the SDK still runs their
-    // pushed messages, so count the echo-less results they owe as orphans.
+    // Settle not-yet-echoed turns immediately; the SDK still runs the messages
+    // already pushed, so count the echo-less results those owe as orphans.
     for (const turn of [...session.turnQueue]) {
       if (turn === session.activeTurn || turn.settled) {
         continue;
@@ -1595,7 +1615,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.settled = true;
       declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
-      session.pendingOrphanResults += 1;
+      if (!turn.pendingInput) {
+        session.pendingOrphanResults += 1;
+      }
+      turn.pendingInput = undefined;
       turn.resolve(this.cancelledResponse());
     }
 
@@ -1909,13 +1932,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.taskState.clear();
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
-    // Nothing from before the boundary should be able to reach the fresh
-    // session: reset the plan/notification state ExitPlanMode falls back
-    // to when its tool input omits an explicit plan, so a stale (possibly
-    // repo-injected) pre-clear plan can't resurface after approval.
+    // Nothing from before the boundary should reach the fresh session.
     session.notificationHistory.length = 0;
     session.lastPlanFilePath = undefined;
-    session.lastPlanContent = undefined;
     this.fileContentCache = {};
 
     // Only broadcast (and thus persist) the "/clear" prompt once the new
@@ -2390,6 +2409,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
+      // A new planning cycle must not resolve against the prior cycle's plan
+      // file. Left set, an ExitPlanMode before this cycle's first plan write
+      // reads the old file, which passes validation and gets approved.
+      this.session.lastPlanFilePath = undefined;
     }
     try {
       await this.session.query.setPermissionMode(
@@ -2945,6 +2968,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
+          // Same reason as applySessionMode: a new cycle must not inherit the
+          // prior cycle's plan file.
+          this.session.lastPlanFilePath = undefined;
         }
       }
       await this.updateConfigOption("mode", newMode);
