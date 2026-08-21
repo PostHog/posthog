@@ -3918,9 +3918,7 @@ function MarkdownNotebookEditor({
             id: makeEmptyParagraph(`comment-${nodes[firstSelectedIndex].id}`).id,
             type: 'component',
             tagName: 'Comment',
-            // `showFilters` opens the edit panel so the composer renders; without it the shell
-            // routes a fresh thread to the read-only view branch and there is nowhere to type.
-            props: { ref: refId, replies: [], showFilters: true },
+            props: { ref: refId, replies: [] },
         }
         const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
             let updatedNode = node
@@ -3949,6 +3947,9 @@ function MarkdownNotebookEditor({
         })
 
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
         window.getSelection()?.removeAllRanges()
@@ -4060,11 +4061,12 @@ function MarkdownNotebookEditor({
             id: makeEmptyParagraph(`comment-${nodeId}`).id,
             type: 'component',
             tagName: 'Comment',
-            // `showFilters` opens the edit panel so the composer renders; without it the shell
-            // routes a fresh thread to the read-only view branch and there is nowhere to type.
-            props: { replies: [], showFilters: true },
+            props: { replies: [] },
         }
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         commitDocument({
             ...currentDocument,
             nodes: [...nodes.slice(0, insertIndex), commentNode, ...nodes.slice(insertIndex)],

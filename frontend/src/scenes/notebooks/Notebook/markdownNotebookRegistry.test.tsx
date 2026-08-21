@@ -6,9 +6,12 @@ import {
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
-import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
+import {
+    type ComponentPanelVisibility,
+    getInsertedComponentPanelVisibility,
+} from 'lib/components/MarkdownNotebook/componentPanels'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
-import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
+import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
@@ -111,19 +114,21 @@ describe('markdownNotebookRegistry', () => {
         })
     })
 
-    describe('discussion comment insertion', () => {
-        const renderCommentShell = (props: NotebookComponentProps): ReturnType<typeof render> => {
+    describe('discussion comment composer', () => {
+        const renderCommentShell = (componentPanels: ComponentPanelVisibility): ReturnType<typeof render> => {
+            // No `showFilters` in props: composer visibility is driven by the transient panel
+            // state, so the open state never has to be written into the shared document markdown.
             const node: NotebookComponentBlockNode = {
                 id: 'comment-node',
                 type: 'component',
                 tagName: 'Comment',
-                props,
+                props: { replies: [] },
             }
             return render(
                 <NotebookComponentShell
                     node={node}
                     mode="edit"
-                    componentPanels={getInsertedComponentPanelVisibility(node)}
+                    componentPanels={componentPanels}
                     persistComponentPanelVisibility={false}
                     isSelected={false}
                     registry={NOTEBOOK_MARKDOWN_REGISTRY}
@@ -140,14 +145,14 @@ describe('markdownNotebookRegistry', () => {
             )
         }
 
-        // A freshly inserted thread carries `showFilters: true`, so the shell routes it to the
-        // edit panel and its composer renders. Drop that prop and the shell falls back to the
-        // read-only view branch, which is the bug that left users with nowhere to type.
+        // The edit panel is what makes the composer editable, so a thread renders its composer
+        // when that panel is open and the read-only view branch (no composer) when it is closed.
+        // Insertion opens the panel transiently, so the composer never depends on a persisted prop.
         it.each([
-            ['carries showFilters and renders the composer', { replies: [], showFilters: true }, true],
-            ['omits showFilters and renders no composer', { replies: [] }, false],
-        ])('%s', (_label, props, expectComposer) => {
-            const { container } = renderCommentShell(props)
+            ['renders the composer when the edit panel is open', { filters: true, results: true }, true],
+            ['renders no composer when the edit panel is closed', { filters: false, results: true }, false],
+        ])('%s', (_label, componentPanels, expectComposer) => {
+            const { container } = renderCommentShell(componentPanels)
             const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
             expect(composer !== null).toBe(expectComposer)
         })
