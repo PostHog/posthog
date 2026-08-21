@@ -190,6 +190,9 @@ export function createJoinedIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    // The persons store below writes persons, so a spread key on this lane
+                    // would create concurrent writes to the same person row.
+                    personProcessingWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.

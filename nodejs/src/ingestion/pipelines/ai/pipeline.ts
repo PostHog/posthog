@@ -149,6 +149,10 @@ export function createAiIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    // The person step below also only reads persons (createFetchPersonChunkStep),
+                    // same as error tracking, so this could likely also be false. Kept at true to
+                    // preserve existing AI-lane behavior; not part of this change's scope.
+                    personProcessingWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
