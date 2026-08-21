@@ -3,12 +3,8 @@
 from django.conf import settings
 from django.db import migrations, models
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
-
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("ee", "0059_scimprovisioneduser_unique_config"),
         ("posthog", "1303_taggeditem_replay_scanner_unique_constraint"),
@@ -29,14 +25,6 @@ class Migration(migrations.Migration):
                 choices=[("terraform", "Terraform")],
                 max_length=32,
                 null=True,
-            ),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="accesscontrol",
-            index=models.Index(
-                condition=models.Q(("managed_by__isnull", False)),
-                fields=["team"],
-                name="access_control_managed_by_team",
             ),
         ),
     ]
