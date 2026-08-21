@@ -12,7 +12,7 @@ from typing import Any, Protocol, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Prefetch, QuerySet
+from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -28,11 +28,14 @@ from products.conversations.backend.channel_summary_ids import build_channel_sum
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
+    ConversationMessageSender as ConversationMessageSender,
+    ConversationMessageSummary as ConversationMessageSummary,
     EmailThreadAccountLinkInput as EmailThreadAccountLinkInput,
     EmailThreadAddress as EmailThreadAddress,
     EmailThreadForAccountMatching as EmailThreadForAccountMatching,
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportChannel as SupportChannel,
+    SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
 from products.conversations.backend.models import (
@@ -55,8 +58,20 @@ from products.conversations.backend.support_slack_channels import (
 logger = structlog.get_logger(__name__)
 
 
+class _TicketAccessControl(Protocol):
+    def filter_queryset_by_access_level(self, queryset: QuerySet[Ticket]) -> QuerySet[Ticket]: ...
+
+
 class _EmailThreadWithFacadePrefetch(Protocol):
     facade_participants: list[EmailThreadParticipant]
+    facade_first_message_direction: str | None
+    facade_first_message_sender_email: str | None
+    facade_first_message_sender_name: str | None
+    facade_first_message_sent_at: datetime | None
+    facade_last_message_direction: str | None
+    facade_last_message_sender_email: str | None
+    facade_last_message_sender_name: str | None
+    facade_last_message_sent_at: datetime | None
 
 
 class GoogleAccountEmailSyncError(Exception):
@@ -248,7 +263,85 @@ def trigger_immediate_channel_summary(
     return True
 
 
-def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:
+def _get_first_string(context: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = context.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> ConversationMessageSummary | None:
+    if comment is None:
+        return None
+
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    author_type = context.get("author_type")
+    is_outbound = bool(comment.created_by_id and author_type != "customer") or author_type in {
+        "AI",
+        "human",
+        "support",
+    }
+    context_name = _get_first_string(
+        context,
+        (
+            "author_name",
+            "author_email",
+            "slack_author_name",
+            "teams_author_name",
+            "teams_author_email",
+            "email_from_name",
+            "slack_author_email",
+            "email_from",
+        ),
+    )
+    context_email = _get_first_string(
+        context,
+        ("author_email", "slack_author_email", "teams_author_email", "email_from"),
+    )
+    sender_name: str | None
+    sender_email: str | None
+
+    if is_outbound:
+        if comment.created_by is not None:
+            sender_name = comment.created_by.get_full_name() or comment.created_by.email
+            sender_email = comment.created_by.email
+        else:
+            sender_name = context_name or context_email or ("AI" if author_type == "AI" else "Support")
+            sender_email = context_email
+        sender = ConversationMessageSender(
+            name=sender_name or sender_email or "Support",
+            email=sender_email,
+            person_id=None,
+            distinct_id=None,
+        )
+    else:
+        traits = ticket.anonymous_traits or {}
+        trait_email = traits.get("email") if isinstance(traits.get("email"), str) else None
+        trait_name = traits.get("name") if isinstance(traits.get("name"), str) else None
+        sender_email = context_email or trait_email
+        sender_name = context_name or trait_name
+        sender = ConversationMessageSender(
+            name=sender_name or sender_email or "Customer",
+            email=sender_email,
+            person_id=None,
+            distinct_id=ticket.distinct_id,
+        )
+
+    return ConversationMessageSummary(
+        sender=sender,
+        sent_at=comment.created_at,
+        direction="outbound" if is_outbound else "inbound",
+    )
+
+
+def list_account_tickets(
+    team_id: int,
+    organization_id: str,
+    user_access_control: _TicketAccessControl,
+    *,
+    limit: int = 50,
+) -> list[TicketSummary]:
     """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
 
     ``organization_id`` is the customer's group key (a customer-analytics account's
@@ -256,9 +349,24 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
     """
     if not organization_id:
         return []
-    tickets = Ticket.objects.filter(team_id=team_id, organization_id=organization_id).order_by(
-        F("last_message_at").desc(nulls_last=True)
-    )[:limit]
+    tickets = list(
+        user_access_control.filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=team_id, organization_id=organization_id)
+        ).order_by(F("last_message_at").desc(nulls_last=True))[:limit]
+    )
+    latest_comments = {
+        comment.item_id: comment
+        for comment in Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id__in=[str(ticket.id) for ticket in tickets],
+            deleted=False,
+        )
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .select_related("created_by")
+        .order_by("item_id", "-created_at", "-id")
+        .distinct("item_id")
+    }
     return [
         TicketSummary(
             id=str(ticket.id),
@@ -266,10 +374,61 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
             status=ticket.status,
             last_message_at=ticket.last_message_at,
             last_message_text=ticket.last_message_text,
+            last_message=_support_ticket_last_message(ticket, latest_comments.get(str(ticket.id))),
             deep_link=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+            created_at=ticket.created_at,
+            started_by=(ticket.anonymous_traits or {}).get("name")
+            or (ticket.anonymous_traits or {}).get("email")
+            or "Customer",
+            distinct_id=ticket.distinct_id,
         )
         for ticket in tickets
     ]
+
+
+def list_account_ticket_messages(
+    team_id: int,
+    organization_id: str,
+    ticket_id: str,
+    user_access_control: _TicketAccessControl,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[SupportTicketMessage], int] | None:
+    ticket = user_access_control.filter_queryset_by_access_level(
+        Ticket.objects.filter(team_id=team_id, organization_id=organization_id, id=ticket_id)
+    ).first()
+    if ticket is None:
+        return None
+
+    comments = (
+        Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            deleted=False,
+        )
+        .select_related("created_by")
+        .order_by("created_at", "id")
+    )
+    count = comments.count()
+    messages = []
+    for comment in comments[offset : offset + limit]:
+        summary = _support_ticket_last_message(ticket, comment)
+        if summary is None:
+            continue
+        context = comment.item_context if isinstance(comment.item_context, dict) else {}
+        messages.append(
+            SupportTicketMessage(
+                id=str(comment.id),
+                content=comment.content or "",
+                author_name=summary.sender.name,
+                direction=summary.direction,
+                is_private=context.get("is_private") is True,
+                created_at=comment.created_at,
+            )
+        )
+    return messages, count
 
 
 def resolve_group_keys_by_email(
@@ -350,21 +509,62 @@ def _email_thread_participant_summary(
         email=participant.email,
         display_name=participant.display_name,
         kind=participant.kind,
+        person_id=str(participant.person_id) if participant.person_id else None,
+    )
+
+
+def _email_message_summary(
+    sender_email: str | None,
+    sender_name: str | None,
+    sent_at: datetime | None,
+    direction: str | None,
+    participant_by_email: dict[str, EmailThreadParticipantSummary],
+) -> ConversationMessageSummary | None:
+    if not sender_email or not sent_at or not direction:
+        return None
+    participant = participant_by_email.get(sender_email.lower())
+    return ConversationMessageSummary(
+        sender=ConversationMessageSender(
+            name=sender_name or sender_email,
+            email=sender_email,
+            person_id=participant.person_id if participant else None,
+            distinct_id=None,
+        ),
+        sent_at=sent_at,
+        direction=direction,
     )
 
 
 def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSummary:
     prefetched_thread = cast(_EmailThreadWithFacadePrefetch, thread)
+    participants = [
+        _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
+    ]
+    participant_by_email = {participant.email.lower(): participant for participant in participants}
+    first_message = _email_message_summary(
+        prefetched_thread.facade_first_message_sender_email,
+        prefetched_thread.facade_first_message_sender_name,
+        prefetched_thread.facade_first_message_sent_at,
+        prefetched_thread.facade_first_message_direction,
+        participant_by_email,
+    )
+    last_message = _email_message_summary(
+        prefetched_thread.facade_last_message_sender_email,
+        prefetched_thread.facade_last_message_sender_name,
+        prefetched_thread.facade_last_message_sent_at,
+        prefetched_thread.facade_last_message_direction,
+        participant_by_email,
+    )
     return AccountEmailThreadSummary(
         id=str(thread.id),
         subject=thread.subject,
         preview=thread.preview,
         first_message_at=thread.first_message_at,
+        first_message=first_message,
         last_message_at=thread.last_message_at,
+        last_message=last_message,
         message_count=thread.message_count,
-        participants=[
-            _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
-        ],
+        participants=participants,
     )
 
 
@@ -376,9 +576,25 @@ def list_account_email_threads(
     limit: int = 50,
 ) -> tuple[list[AccountEmailThreadSummary], int]:
     participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    first_message = (
+        EmailThreadMessage.objects.for_team(team_id).filter(thread_id=OuterRef("pk")).order_by("sent_at", "id")
+    )
+    latest_message = (
+        EmailThreadMessage.objects.for_team(team_id).filter(thread_id=OuterRef("pk")).order_by("-sent_at", "-id")
+    )
     threads = (
         EmailThread.objects.for_team(team_id)
         .filter(account_links__team_id=team_id, account_links__account_id=account_id)
+        .annotate(
+            facade_first_message_direction=Subquery(first_message.values("direction")[:1]),
+            facade_first_message_sender_email=Subquery(first_message.values("sender_email")[:1]),
+            facade_first_message_sender_name=Subquery(first_message.values("sender_name")[:1]),
+            facade_first_message_sent_at=Subquery(first_message.values("sent_at")[:1]),
+            facade_last_message_direction=Subquery(latest_message.values("direction")[:1]),
+            facade_last_message_sender_email=Subquery(latest_message.values("sender_email")[:1]),
+            facade_last_message_sender_name=Subquery(latest_message.values("sender_name")[:1]),
+            facade_last_message_sent_at=Subquery(latest_message.values("sent_at")[:1]),
+        )
         .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
         .order_by(F("last_message_at").desc(nulls_last=True), "-id")
     )
