@@ -56,8 +56,8 @@ import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
-    pickResponseFields,
     omitResponseFields,
+    pickResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
     type WithInformationalResponse,
@@ -146,6 +146,24 @@ const experimentCalculateRunningTime = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const ExperimentCleanupTaskSchema = ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
+})
+
+const experimentCleanupTask = (): ToolBase<typeof ExperimentCleanupTaskSchema, Schemas.ExperimentFlagCleanupTask> => ({
+    name: 'experiment-cleanup-task',
+    schema: ExperimentCleanupTaskSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCleanupTaskSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentFlagCleanupTask>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/flag_cleanup_task/`,
+        })
+        const filtered = omitResponseFields(result, ['can_view_task']) as typeof result
+        return filtered
     },
 })
 
@@ -458,24 +476,6 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
     })
-
-const ExperimentCleanupTaskSchema = ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
-})
-
-const experimentCleanupTask = (): ToolBase<typeof ExperimentCleanupTaskSchema, Schemas.ExperimentFlagCleanupTask> => ({
-    name: 'experiment-cleanup-task',
-    schema: ExperimentCleanupTaskSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentCleanupTaskSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentFlagCleanupTask>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/flag_cleanup_task/`,
-        })
-        const filtered = omitResponseFields(result, ['can_view_task']) as typeof result
-        return filtered
-    },
-})
 
 const ExperimentFreezeExposureSchema = ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
@@ -1326,13 +1326,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
+    'experiment-cleanup-task': experimentCleanupTask,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-create-from-prompt': experimentCreateFromPrompt,
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
-    'experiment-cleanup-task': experimentCleanupTask,
     'experiment-freeze-exposure': experimentFreezeExposure,
     'experiment-get': experimentGet,
     'experiment-holdouts-create': experimentHoldoutsCreate,
