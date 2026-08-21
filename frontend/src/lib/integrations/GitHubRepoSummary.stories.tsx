@@ -20,6 +20,8 @@ type Story = StoryObj<typeof GitHubRepoSummary>
 
 export const Loading: Story = {
     args: { loading: true },
+    // The spinner never stops in this story, so the runner must not wait it out.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const NoRepositories: Story = {}
