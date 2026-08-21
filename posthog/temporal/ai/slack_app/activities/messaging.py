@@ -14,7 +14,7 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -62,13 +62,8 @@ def post_posthog_code_repo_picker_activity(
     guidance: str,
     allow_no_repo: bool,
     user_id: int,
-    ephemeral: bool = False,
 ) -> None:
-    """Post the repository picker block.
-
-    ``ephemeral`` is set by the command workflow, where the picker is part of a command that
-    concerns only its caller. A task's picker stays visible in the thread it belongs to.
-    """
+    """Post the repository picker block in the Slack thread."""
     inputs = coerce_mention_workflow_inputs(inputs)
 
     from products.slack_app.backend.api import _post_repo_picker_message
@@ -93,7 +88,6 @@ def post_posthog_code_repo_picker_activity(
         action_id="posthog_code_repo_select",
         workflow_id=workflow_id,
         allow_no_repo=allow_no_repo,
-        ephemeral=ephemeral,
     )
 
 
@@ -105,7 +99,6 @@ def _post_connect_personal_github_prompt(
     settings_url: str,
     user_id: int,
     team_id: int,
-    slack_user_id: str,
     reconnect: bool = False,
 ) -> None:
     """Post the single-button prompt for a task held on an unusable personal GitHub install.
@@ -126,24 +119,25 @@ def _post_connect_personal_github_prompt(
             "the pull request as you. Connect it, then mention me again."
         )
         button_text = "Connect GitHub"
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": button_text, "emoji": True},
-                    "url": settings_url,
-                    "style": "primary",
-                }
-            ],
-        },
-    ]
-    # Only the person being asked to connect can act on the button, and the command that
-    # triggered it was theirs alone. The command workflow is this activity's sole caller.
-    post_slack_ephemeral(
-        slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text, blocks=blocks
+    post_slack_thread_reply(
+        slack.client,
+        channel=channel,
+        thread_ts=thread_ts,
+        text=text,
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": button_text, "emoji": True},
+                        "url": settings_url,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
     )
     logger.info(
         "slack_app_task_blocked_no_personal_github",
@@ -202,13 +196,6 @@ def block_posthog_code_task_if_no_personal_github_activity(
     ).exists()
     slack = SlackIntegration(integration)
     settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
-    slack_user_id = inputs.event.get("user")
-    if not isinstance(slack_user_id, str) or not slack_user_id:
-        # The prompt is addressed to a person; without one there is nobody to ask. Still block,
-        # since the task cannot run either way.
-        logger.warning("slack_app_github_prompt_missing_actor", user_id=user_id, channel=channel)
-        return True
-
     _post_connect_personal_github_prompt(
         slack,
         channel=channel,
@@ -216,7 +203,6 @@ def block_posthog_code_task_if_no_personal_github_activity(
         settings_url=settings_url,
         user_id=user_id,
         team_id=integration.team_id,
-        slack_user_id=slack_user_id,
         reconnect=has_stale_github,
     )
     return True
@@ -225,7 +211,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 @activity.defn
 @close_db_connections
 def post_posthog_code_picker_timeout_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, ephemeral: bool = False
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -256,13 +242,12 @@ def post_posthog_code_picker_timeout_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    text = "Repository selection expired. Please mention PostHog again to retry."
-    # Goes wherever the picker it is expiring went.
-    if ephemeral and isinstance(slack_user_id, str) and slack_user_id:
-        post_slack_ephemeral(slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
-        return
-
-    post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text)
+    post_slack_thread_reply(
+        slack.client,
+        channel=channel,
+        thread_ts=thread_ts,
+        text="Repository selection expired. Please mention PostHog again to retry.",
+    )
 
 
 @activity.defn

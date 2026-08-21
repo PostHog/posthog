@@ -416,53 +416,6 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         else:
             assert pending_picker is None
 
-    @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration")
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_ephemeral_picker_followup_confirms_to_the_selecting_user(
-        self, mock_sync_connect, mock_asyncio_run, mock_slack_cls, mock_get_repos
-    ):
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        mock_get_repos.return_value = ["posthog/posthog"]
-        mock_slack_cls.return_value.missing_scopes.return_value = frozenset()
-
-        from products.slack_app.backend.api import (
-            ROUTE_HANDLED_LOCALLY,
-            _set_pending_repo_picker,
-            route_posthog_code_event_to_relevant_region,
-        )
-
-        # An ephemeral picker stores no message_ts, because chat.update cannot address one.
-        _set_pending_repo_picker(
-            integration_id=self.posthog_code_integration.id,
-            channel="C001",
-            thread_ts="1234.5678",
-            slack_user_id="U123",
-            user_id=self.user.id,
-            workflow_id="posthog-code-mention-T12345:pending",
-            context_token="ctx-1",
-            message_ts=None,
-        )
-        event = {
-            "type": "app_mention",
-            "channel": "C001",
-            "thread_ts": "1234.5678",
-            "user": "U123",
-            "text": "posthog/posthog",
-            "ts": "1234.9999",
-        }
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_asyncio_run.assert_called_once()
-        mock_slack_cls.return_value.client.chat_update.assert_not_called()
-        confirmation = mock_slack_cls.return_value.client.chat_postEphemeral.call_args.kwargs
-        assert confirmation["user"] == "U123"
-        assert "posthog/posthog" in confirmation["text"]
-
     @parameterized.expand(
         [
             ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}, "ignored:edit", {}),

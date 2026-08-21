@@ -83,8 +83,9 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         event = inputs.event
         channel = event.get("channel")
         # A command posted at channel root is answered at channel root. Falling back to the
-        # message's own ``ts`` would open a thread under it, burying the picker where only
-        # someone already reading that thread would find it.
+        # message's own ``ts`` would open a thread under it, putting the answer where only
+        # someone already reading that thread would find it. A command sent inside a thread
+        # still keeps its answer there.
         thread_ts = event.get("thread_ts") or ""
         slack_user_id = event.get("user")
         if not isinstance(channel, str) or not isinstance(thread_ts, str) or not isinstance(slack_user_id, str):
@@ -126,7 +127,6 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
                 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
                 False,
                 user_id,
-                True,
             ],
             start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -140,7 +140,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         except TimeoutError:
             await workflow.execute_activity(
                 post_posthog_code_picker_timeout_activity,
-                args=[picker_inputs, channel, thread_ts, True],
+                args=[picker_inputs, channel, thread_ts],
                 start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )

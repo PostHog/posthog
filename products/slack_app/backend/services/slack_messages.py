@@ -319,9 +319,9 @@ def post_slack_ephemeral(
 ) -> Any:
     """Post a reply only ``user`` can see.
 
-    The counterpart funnel to ``post_slack_thread_reply``, for answers that concern one person:
-    command output, and prompts asking them to choose. No deleted-prompt check applies, because an
-    ephemeral answer reaches nobody but its reader.
+    The counterpart funnel to ``post_slack_thread_reply``, for answers that concern one person,
+    which today means command output. No deleted-prompt check applies, because an ephemeral answer
+    reaches nobody but its reader.
 
     ``thread_ts`` places the reply, and a falsy one is omitted rather than sent empty, which posts
     at channel root. Slack rejects an empty ``thread_ts`` instead of reading it as "no anchor".

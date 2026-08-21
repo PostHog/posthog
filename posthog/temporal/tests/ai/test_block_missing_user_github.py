@@ -41,12 +41,10 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         )
 
         assert blocked is True
-        mock_slack.client.chat_postEphemeral.assert_called_once()
-        kwargs = mock_slack.client.chat_postEphemeral.call_args.kwargs
+        mock_slack.client.chat_postMessage.assert_called_once()
+        kwargs = mock_slack.client.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C123"
         assert kwargs["thread_ts"] == "1234.5678"
-        # Only the person who has to connect GitHub sees the prompt.
-        assert kwargs["user"] == "U_ALICE"
         assert "haven't connected" in kwargs["text"]
 
         action_block = next(b for b in kwargs["blocks"] if b.get("type") == "actions")
@@ -79,7 +77,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         )
 
         assert blocked is False
-        mock_slack.client.chat_postEphemeral.assert_not_called()
+        mock_slack.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_stale_personal_github_blocks_with_reconnect_wording(self, mock_slack_cls):
@@ -92,7 +90,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         )
 
         assert blocked is True
-        kwargs = mock_slack.client.chat_postEphemeral.call_args.kwargs
+        kwargs = mock_slack.client.chat_postMessage.call_args.kwargs
         assert "expired" in kwargs["text"]
         action_block = next(b for b in kwargs["blocks"] if b.get("type") == "actions")
         assert action_block["elements"][0]["text"]["text"] == "Reconnect GitHub"
@@ -114,7 +112,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         )
 
         assert blocked is True
-        mock_slack.client.chat_postEphemeral.assert_called_once()
+        mock_slack.client.chat_postMessage.assert_called_once()
 
     @patch("posthog.temporal.ai.slack_app.activities.messaging.SlackIntegration")
     def test_another_users_github_integration_does_not_count(self, mock_slack_cls):
@@ -134,4 +132,4 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         )
 
         assert blocked is True
-        mock_slack.client.chat_postEphemeral.assert_called_once()
+        mock_slack.client.chat_postMessage.assert_called_once()
