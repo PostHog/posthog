@@ -49,8 +49,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 
 // The sidebar's children each mount their own query stack; this suite is about
 // the shell's own decisions, so they're stubbed out.
-vi.mock("@posthog/ui/features/canvas/components/ChannelNav", () => ({
-  ChannelNav: () => null,
+vi.mock("@posthog/ui/features/canvas/components/ActivityFeedList", () => ({
+  ActivityFeedList: () => <div data-testid="activity-feed" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelSidebar", () => ({
   ChannelSidebar: ({ channelId }: { channelId: string }) => (
@@ -94,11 +94,14 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { ChannelRouteSync } from "./ChannelRouteSync";
 import { ChannelsSidebar } from "./ChannelsSidebar";
 
+// The same pair the shell mounts: the column's contents follow the scoped space.
 function renderSidebar() {
   return render(
     <Theme>
+      <ChannelRouteSync />
       <ChannelsSidebar />
     </Theme>,
   );
@@ -198,6 +201,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ME.id;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -227,6 +231,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = undefined;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -234,6 +239,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ENG.id;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -383,6 +389,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -391,6 +398,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -453,12 +461,14 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );

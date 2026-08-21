@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1081,6 +1081,52 @@ export const CanvasesSourceRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Read this historical source version instead of the head (for version browsing).'),
 })
+
+/**
+ * Read the canvas's runtime key-value state (the ph.state store).
+ *
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
+ */
+export const CanvasesStateRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesStateRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
+})
+
+/**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const CanvasesStateSetParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesStateSetBodyKeyMax = 200
+
+export const CanvasesStateSetBody = /* @__PURE__ */ zod
+    .object({
+        scope: zod
+            .enum(['user', 'shared'])
+            .describe('\* `user` - user\n\* `shared` - shared')
+            .describe(
+                'Scope to write into; the canvas must declare it in capabilities.posthog.state.\n\n\* `user` - user\n\* `shared` - shared'
+            ),
+        key: zod.string().max(canvasesStateSetBodyKeyMax).describe('Key to write, unique within its scope.'),
+        value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
+    })
+    .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
 
 /**
  * Validate a candidate source project without publishing it. Side-effect free.

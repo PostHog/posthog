@@ -93,6 +93,9 @@ vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
     sel({ setEditing: vi.fn() }),
   useIsDashboardEditing: () => false,
 }));
+vi.mock("@posthog/ui/features/canvas/components/ActivityDetailPane", () => ({
+  ActivityDetailPane: () => <div data-testid="activity-detail" />,
+}));
 vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
   NewCanvasMenu: () => null,
 }));
