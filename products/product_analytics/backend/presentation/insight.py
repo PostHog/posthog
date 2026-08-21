@@ -168,7 +168,6 @@ from products.dashboards.backend.facade.enums import PrivilegeLevel, Restriction
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     map_stale_to_latest,
-    plan_test_account_filter_update,
     recent_viewers_by_insight,
     recently_viewed_insights,
     record_insight_view,
@@ -176,6 +175,7 @@ from products.product_analytics.backend.facade.api import (
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.test_account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
