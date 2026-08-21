@@ -52,7 +52,6 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     placeholder="123456"
                     inputMode="numeric"
                     autoComplete="one-time-code"
-                    maxLength={6}
                     size="large"
                     fullWidth
                     data-attr="email-change-verification-code"
