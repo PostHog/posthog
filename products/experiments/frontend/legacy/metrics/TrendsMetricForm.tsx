@@ -18,9 +18,9 @@ import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { SelectableCard } from '../../components/SelectableCard'
-import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../constants'
-import { experimentLogic } from '../../experimentLogic'
+import { SelectableCard } from '../../../../../frontend/src/scenes/experiments/components/SelectableCard'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../../../../../frontend/src/scenes/experiments/constants'
+import { experimentLogic } from '../../../../../frontend/src/scenes/experiments/experimentLogic'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =

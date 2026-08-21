@@ -12,6 +12,8 @@ import {
     ExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
 } from '~/queries/schema/schema-general'
+import { Experiment } from '~/types'
+
 import {
     LegacyExperimentHeader,
     LegacyExperimentInfo,
@@ -21,16 +23,25 @@ import {
     LegacySummaryTable,
     LegacyResultsQuery,
     LegacyExploreButton,
-} from '~/scenes/experiments/legacy'
-import { Experiment } from '~/types'
+} from 'products/experiments/frontend/legacy'
 
-import { experimentLogic } from '../experimentLogic'
-import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
-import { DistributionModal, DistributionTable } from '../ExperimentView/DistributionTable'
-import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
-import { LoadingState } from '../ExperimentView/LoadingState'
-import { PageHeaderCustom } from '../ExperimentView/PageHeader'
-import { ReleaseConditionsModal, ReleaseConditionsTable } from '../ExperimentView/ReleaseConditionsTable'
+import { experimentLogic } from '../../../../frontend/src/scenes/experiments/experimentLogic'
+import {
+    DEFAULT_EXPERIMENT_TAB,
+    type ExperimentTab,
+    experimentSceneLogic,
+} from '../../../../frontend/src/scenes/experiments/experimentSceneLogic'
+import {
+    DistributionModal,
+    DistributionTable,
+} from '../../../../frontend/src/scenes/experiments/ExperimentView/DistributionTable'
+import { ExperimentWarningBanner } from '../../../../frontend/src/scenes/experiments/ExperimentView/ExperimentWarningBanners'
+import { LoadingState } from '../../../../frontend/src/scenes/experiments/ExperimentView/LoadingState'
+import { PageHeaderCustom } from '../../../../frontend/src/scenes/experiments/ExperimentView/PageHeader'
+import {
+    ReleaseConditionsModal,
+    ReleaseConditionsTable,
+} from '../../../../frontend/src/scenes/experiments/ExperimentView/ReleaseConditionsTable'
 
 const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
     if (experiment.metrics.length) {

@@ -9,7 +9,7 @@ import {
     getIsSecondaryMetricSignificant,
     getSignificanceDetails,
     legacyExperimentLogic,
-} from '~/scenes/experiments/legacy'
+} from 'products/experiments/frontend/legacy'
 
 interface LegacySignificanceHighlightProps {
     displayOrder?: number

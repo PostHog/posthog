@@ -13,17 +13,18 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { LegacyExperimentDates, legacyExperimentLogic } from '~/scenes/experiments/legacy'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
+import { LegacyExperimentDates, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
+
+import { CONCLUSION_DISPLAY_CONFIG } from '../../../../frontend/src/scenes/experiments/constants'
 import {
     getExperimentStatus,
     isExperimentPaused,
     isSingleVariantShipped,
     getShippedVariantKey,
-} from '../experimentsLogic'
-import { StatusTag } from '../ExperimentView/StatusTag'
+} from '../../../../frontend/src/scenes/experiments/experimentsLogic'
+import { StatusTag } from '../../../../frontend/src/scenes/experiments/ExperimentView/StatusTag'
 
 /**
  * @deprecated

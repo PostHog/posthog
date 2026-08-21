@@ -18,8 +18,8 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { Experiment } from '~/types'
 
-import type { ExperimentIdType } from '../../../types'
-import { modalsLogic } from '../modalsLogic'
+import { modalsLogic } from '../../../../frontend/src/scenes/experiments/modalsLogic'
+import type { ExperimentIdType } from '../../../../frontend/src/types'
 
 export interface LegacyExperimentLogicProps {
     experiment: Experiment

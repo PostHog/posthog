@@ -10,6 +10,9 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
+import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
+
 import {
     legacyCalculateDelta,
     legacyConversionRateForVariant,
@@ -22,9 +25,7 @@ import {
     getTabularExperimentResults,
     getExperimentMathAggregationForTrends,
     legacyExperimentLogic,
-} from '~/scenes/experiments/legacy'
-import { getViewRecordingFiltersLegacy } from '~/scenes/experiments/utils'
-import { FilterLogicalOperator, InsightType, RecordingUniversalFilters, TrendExperimentVariant } from '~/types'
+} from 'products/experiments/frontend/legacy'
 
 /**
  * @deprecated
