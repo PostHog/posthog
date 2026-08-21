@@ -7,8 +7,15 @@ import {
 } from "@phosphor-icons/react";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
-import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import type { NavRailPane } from "@posthog/ui/features/canvas/stores/navRailStore";
+import {
+  getRailPane,
+  type NavRailPane,
+} from "@posthog/ui/features/canvas/railPane";
+import {
+  keepListForRoute,
+  showChannelList,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -22,12 +29,13 @@ import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
+  navigateToCanvas,
+  navigateToChannel,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
-import type { AppViewType } from "@posthog/ui/router/useAppView";
 import type { ComponentType } from "react";
 
 export interface RailCounts {
@@ -41,13 +49,34 @@ export interface RailDestination {
   label: string;
   analyticsId: SidebarNavItem;
   Icon: ComponentType<IconProps>;
-  viewTypes: readonly AppViewType[];
-  onPick?: (ctx: { inWebsiteTree: boolean }) => void;
+  /** Every pick routes. The rail's selected state is read back off the route,
+   *  so a destination that changed nothing in the URL could never be left. */
+  onPick: () => void;
   customizableId?: CustomizableNavItemId;
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
   enabled?: (flags: { loops: boolean }) => boolean;
+}
+
+/**
+ * Show the space tree. Which space you are in is unchanged — browsing the list
+ * is view state — but the destinations that own the whole screen have no column
+ * to put it in, so leaving one is part of the pick.
+ */
+export function showSpaces(): void {
+  showChannelList();
+  if (getRailPane() === "spaces") return;
+
+  const channelId = useCurrentChannelStore.getState().currentChannelId;
+  if (!channelId) {
+    navigateToCanvas();
+    return;
+  }
+  // Arriving at a space pulls the slider to that space. This pick asked for the
+  // list, so latch it across the navigation it is about to make.
+  keepListForRoute(channelId);
+  navigateToChannel(channelId);
 }
 
 export const RAIL_DESTINATIONS: readonly RailDestination[] = [
@@ -56,7 +85,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Home",
     analyticsId: "home",
     Icon: HouseSimple,
-    viewTypes: ["home"],
     onPick: navigateToHome,
   },
   {
@@ -64,8 +92,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Spaces",
     analyticsId: "spaces",
     Icon: SpacesIcon,
-    viewTypes: [],
-    onPick: showChannelList,
+    onPick: showSpaces,
   },
   {
     pane: "activity",
@@ -73,10 +100,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Activity",
     analyticsId: "activity",
     Icon: BellIcon,
-    viewTypes: ["activity"],
-    onPick: ({ inWebsiteTree }) => {
-      if (!inWebsiteTree) navigateToActivity();
-    },
+    onPick: navigateToActivity,
     count: (counts) => counts.activity,
   },
   {
@@ -85,7 +109,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Inbox",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
-    viewTypes: ["inbox"],
     onPick: navigateToInbox,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
@@ -96,7 +119,6 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Command Center",
     analyticsId: "command_center",
     Icon: Lightning,
-    viewTypes: ["command-center"],
     onPick: navigateToWebsiteCommandCenter,
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
@@ -107,22 +129,10 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Loops",
     analyticsId: "loops",
     Icon: LoopIcon,
-    viewTypes: ["loops"],
     onPick: () => navigateToLoops(),
     enabled: (flags) => flags.loops,
   },
 ];
-
-const PANE_BY_VIEW_TYPE = new Map<AppViewType, NavRailPane>(
-  RAIL_DESTINATIONS.flatMap((destination) =>
-    destination.viewTypes.map((viewType) => [viewType, destination.pane]),
-  ),
-);
-
-/** Which destination a route belongs to. Unclaimed routes belong to Spaces. */
-export function paneForView(viewType: AppViewType): NavRailPane {
-  return PANE_BY_VIEW_TYPE.get(viewType) ?? "spaces";
-}
 
 // Deliberately not the shared `orderedNavItems`: its adjacency rule pins
 // Activity below Inbox, and the rail puts Activity first.
