@@ -97,6 +97,10 @@ export function GitHubIntegrationSection({
     };
   });
 
+  // A row GitHub has removed still counts toward hasGithubIntegration, but it can't grant code
+  // access — so the connected tick needs a genuinely available installation, not just any row.
+  const hasConnectedIntegration = summaries.some((entry) => !entry.unavailable);
+
   const statusLine = hasGithubIntegration ? (
     <div className="flex flex-col gap-0.5">
       {summaries.map((entry) => (
@@ -166,7 +170,7 @@ export function GitHubIntegrationSection({
           <Spinner />
         ) : (
           <div className="flex shrink-0 items-center gap-2">
-            {hasGithubIntegration ? (
+            {hasConnectedIntegration ? (
               <CheckCircleIcon
                 size={16}
                 weight="fill"
