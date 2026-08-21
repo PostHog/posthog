@@ -48,7 +48,7 @@ def substitute_params(query: str, params: dict[str, Any]) -> str:
         raise ValueError("Parameters are expected in dict form")
 
     escaped = escape_params(params)
-    return query % escaped
+    return _format_query(query, escaped)
 
 
 def escape_params(params: dict[str, Any]) -> dict[str, str]:
@@ -121,4 +121,24 @@ def substitute_params_for_display(query: str, params: dict[str, Any]) -> str:
         else:
             escaped[key] = escape_param_for_clickhouse(value)
 
-    return query % escaped
+    return _format_query(query, escaped)
+
+
+def _format_query(query: str, escaped: dict[str, str]) -> str:
+    """
+    Render the query with its escaped parameters through Python's `%` operator.
+
+    The `%` operator reads every literal `%` in the query as the start of a
+    format specifier. A pattern such as `LIKE '%foo%'` or a `formatDateTime`
+    mask therefore raises a cryptic `ValueError`. Turn that error into a message
+    that names the query and the fix: double each literal `%` to `%%`.
+    """
+    try:
+        return query % escaped
+    except ValueError as err:
+        raise ValueError(
+            f"Failed to substitute parameters into ClickHouse query: {err}. "
+            "A literal '%' in the query is read as a format specifier. "
+            "Double each literal '%' to '%%' (for example 'LIKE '%%foo%%''). "
+            f"Query: {query}"
+        ) from err
