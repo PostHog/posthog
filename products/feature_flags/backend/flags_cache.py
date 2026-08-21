@@ -1083,6 +1083,16 @@ def get_team_primary_flags_writer(team_id: int) -> str:
         # other SoftTimeLimitExceeded guards in the verifier.
         raise
     except Exception:
+        # Mirror _route_to_kafka's evaluation-failure logging so a broken
+        # attribution client is diagnosable in Sentry, because otherwise it only
+        # shows up as a rise in writer="unknown" that cannot be told apart from a
+        # cold local flag cache (which returns None below and is expected at boot).
+        logger.warning(
+            "flags_cache_writer_attribution_flag_evaluation_failed",
+            team_id=team_id,
+            flag=KAFKA_ROUTING_FLAG,
+            exc_info=True,
+        )
         return "unknown"
     if result is None:
         return "unknown"
