@@ -183,3 +183,70 @@ async fn recovers_when_the_pooled_backend_was_terminated(
     sidecar.close().await;
     pool.close().await;
 }
+
+/// The inverse of the poisoning tests, and the one they cannot catch: a probe that discards
+/// *every* connection still changes the backend PID and still lets writes succeed, so it passes
+/// all of them. In production that is a TCP and TLS handshake per acquire against the writer.
+#[sqlx::test]
+async fn a_healthy_pool_keeps_one_connection_across_many_acquires(
+    pool_opts: PgPoolOptions,
+    connect_opts: PgConnectOptions,
+) {
+    let guard = WriterGuard::new(WriterGuardConfig::default());
+    let pool = install_writer_guard(single_connection_pool(pool_opts), &guard)
+        .connect_with(connect_opts)
+        .await
+        .expect("connect failed");
+
+    let first = backend_pid(&pool).await;
+    for i in 0..8 {
+        assert_eq!(
+            backend_pid(&pool).await,
+            first,
+            "acquire {i} got a different backend; the guard is churning healthy connections"
+        );
+    }
+
+    pool.close().await;
+}
+
+/// Once the cap is spent the guard stops discarding, so the caller gets the reader and the write
+/// is refused. That is the documented behavior for a cluster that accepts no writes: fail fast
+/// with a classifiable error and let the alert fire, rather than churn connections.
+#[sqlx::test]
+async fn a_spent_cap_surfaces_25006_rather_than_churning(
+    pool_opts: PgPoolOptions,
+    connect_opts: PgConnectOptions,
+) {
+    let guard = WriterGuard::new(WriterGuardConfig {
+        max_rejections_per_window: 0,
+        ..Default::default()
+    });
+    let pool = install_writer_guard(single_connection_pool(pool_opts), &guard)
+        .connect_with(connect_opts)
+        .await
+        .expect("connect failed");
+
+    sqlx::query("CREATE TABLE guard_probe (id int primary key)")
+        .execute(&pool)
+        .await
+        .expect("setup failed");
+
+    let poisoned_pid = poison_the_pooled_connection(&pool).await;
+
+    let err = sqlx::query("INSERT INTO guard_probe (id) VALUES (1)")
+        .execute(&pool)
+        .await
+        .expect_err("the write should be refused, not silently retried");
+    assert!(
+        common_database::is_read_only_error(&err),
+        "expected SQLSTATE 25006, got {err:?}"
+    );
+    assert_eq!(
+        backend_pid(&pool).await,
+        poisoned_pid,
+        "a spent cap must keep the connection instead of churning it"
+    );
+
+    pool.close().await;
+}

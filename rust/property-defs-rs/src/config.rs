@@ -16,8 +16,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
-    // Backstop only; the writer guard is what detects a failover. Overrides sqlx's 30 minute
-    // default, which bounds how long a stranded connection could refuse writes. Jitter puts the
+    // Backstop only; the writer guard is what detects a failover. Kept because the guard's
+    // `before_acquire` hook never sees a freshly opened connection, so recycling still bounds a
+    // connection the guard cannot reach. Overrides sqlx's 30 minute default. Jitter puts the
     // effective lifetime in `base..=base + base/5`, so 300 here means 300-360s.
     #[envconfig(default = "300")]
     pub pg_max_lifetime_secs: u64,

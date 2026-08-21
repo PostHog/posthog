@@ -12,7 +12,8 @@ use std::{
 
 use sqlx::postgres::PgPoolOptions;
 
-/// Writability probes, labeled `result`: `clean` or `read_only` (connection discarded).
+/// Writability probes, labeled `result`: `clean`, `read_only` (connection discarded), or
+/// `unknown` (the GUC answered something other than `on`/`off`, treated as writable).
 /// A nonzero `read_only` rate means this pool reached a reader; there is no background rate.
 pub const DB_WRITER_PROBE_COUNTER: &str = "db_writer_probe_total";
 
@@ -65,6 +66,10 @@ impl WriterGuard {
 
     fn record_clean(&self) {
         self.probe_counter("clean").increment(1);
+    }
+
+    fn record_unknown(&self) {
+        self.probe_counter("unknown").increment(1);
     }
 
     /// Records a probe that found a reader. Returns whether to discard the connection, which is
@@ -145,6 +150,14 @@ pub fn install_writer_guard(options: PgPoolOptions, guard: &WriterGuard) -> PgPo
                     return Ok(!guard.record_read_only(Instant::now()));
                 }
 
+                // Postgres only ever reports `on` or `off` here, so anything else means an
+                // assumption broke. Keep the connection — failing writes over a parse surprise
+                // is worse than a stale reader — but count it so it is not silent.
+                if !read_only.eq_ignore_ascii_case("off") {
+                    guard.record_unknown();
+                    return Ok(true);
+                }
+
                 guard.record_clean();
                 Ok(true)
             })
@@ -161,6 +174,31 @@ mod tests {
             rejection_window: Duration::from_secs(60),
             pool_name: None,
         })
+    }
+
+    /// A clean probe must not consume rejection budget: if it did, ordinary healthy traffic
+    /// would exhaust the cap and the guard would stop discarding real readers.
+    #[test]
+    fn a_clean_probe_never_consumes_rejection_budget() {
+        let g = guard(); // cap of 2 per 60s
+        let t0 = Instant::now();
+
+        for _ in 0..100 {
+            g.record_clean();
+        }
+        {
+            let state = g.lock();
+            assert!(
+                state.window_started.is_none(),
+                "clean probes opened a window"
+            );
+            assert_eq!(state.rejections_in_window, 0);
+        }
+
+        // The full cap is still available to real readers.
+        assert!(g.record_read_only(t0));
+        assert!(g.record_read_only(t0));
+        assert!(!g.record_read_only(t0));
     }
 
     #[test]
