@@ -47,7 +47,6 @@ def handle_posthog_code_rules_command_activity(
         integration,
         channel=channel,
         thread_ts=thread_ts,
-        trigger_ts=inputs.event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,
@@ -192,9 +191,6 @@ def handle_posthog_code_slack_mention_command_activity(
         target,
         channel=channel,
         thread_ts=thread_ts,
-        # The command message itself, which a top-level reply is answering even though it
-        # is deliberately placed at channel root. A slash command creates no message.
-        trigger_ts=event.get("ts") or "",
         slack_user_id=slack_user_id,
         slack_workspace_id=inputs.slack_team_id,
         user_id=user_id,

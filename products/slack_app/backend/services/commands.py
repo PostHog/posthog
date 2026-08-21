@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
-
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
@@ -11,8 +9,7 @@ if TYPE_CHECKING:
 MENTION_COMMAND_PREFIX = "@PostHog"
 
 MENTION_HELP_REDIRECT = (
-    "Run `/posthog help` to see the available commands. To start a task, mention me with a "
-    "description of the work, then reply in the thread to follow up."
+    "Run `/posthog help` to see the available commands. To start a task, mention me with a description of the work."
 )
 
 
@@ -23,29 +20,22 @@ def _reply(
     thread_ts: str,
     slack_user_id: str,
     text: str,
-    trigger_ts: str = "",
-    command_prefix: str,
 ) -> None:
-    """Answer a command on the surface that invoked it.
+    """Answer a command privately to whoever ran it.
 
-    A slash command is visible only to the person who ran it, so a public reply would appear in
-    the channel with nothing prompting it. Answering ephemerally keeps the exchange between the
-    bot and the caller. A mention is already public, so its reply threads under the message that
-    asked, where everyone reading the mention can follow it.
+    Commands configure the app rather than produce work: routing rules, project defaults, the
+    help listing. The answer concerns the caller alone, so the whole surface replies ephemerally
+    on both entry points, which is what ``project_*`` already did. On the slash surface nobody
+    else saw the question either, so a public answer would arrive with nothing prompting it.
 
-    The ``project_*`` handlers below bypass this and stay ephemeral on both surfaces, because
-    they name projects and organizations the rest of the channel has no reason to see.
+    A command run outside a thread has no anchor, and an empty ``thread_ts`` is not one, so it
+    is omitted to place the reply at channel root.
     """
-    if command_prefix != MENTION_COMMAND_PREFIX:
-        # A slash command run outside a thread has no anchor, and an empty ``thread_ts`` is not
-        # one. Omitting it places the reply at channel root, matching post_slack_thread_reply.
-        if thread_ts:
-            slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
-        else:
-            slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, text=text)
+    if thread_ts:
+        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
         return
 
-    post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts, text=text)
+    slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, text=text)
 
 
 def _handle_help(
@@ -55,7 +45,6 @@ def _handle_help(
     thread_ts: str,
     slack_user_id: str,
     *,
-    trigger_ts: str = "",
     command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
@@ -68,8 +57,6 @@ def _handle_help(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text=MENTION_HELP_REDIRECT,
         )
         return
@@ -101,8 +88,6 @@ def _handle_help(
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
-        trigger_ts=trigger_ts,
-        command_prefix=command_prefix,
         text="\n".join(lines),
     )
 
@@ -114,7 +99,6 @@ def _handle_rules_list(
     thread_ts: str,
     slack_user_id: str,
     *,
-    trigger_ts: str = "",
     command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -126,8 +110,6 @@ def _handle_rules_list(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text=(
                 f'No routing rules configured. Add one with `{command_prefix} rules add "description" '
                 "[org/repo]`. Omit the repo to pick from a list."
@@ -141,8 +123,6 @@ def _handle_rules_list(
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
-        trigger_ts=trigger_ts,
-        command_prefix=command_prefix,
         text="*Routing rules:*\n" + "\n".join(lines),
     )
 
@@ -156,9 +136,6 @@ def _handle_rules_add(
     rule_text: str,
     repository: str,
     slack_user_id: str,
-    *,
-    trigger_ts: str = "",
-    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -171,8 +148,6 @@ def _handle_rules_add(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text="No connected GitHub repositories found for your account.",
         )
         return
@@ -184,8 +159,6 @@ def _handle_rules_add(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text=f"Repository `{repository}` is not connected to this project.",
         )
         return
@@ -209,8 +182,6 @@ def _handle_rules_add(
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
-        trigger_ts=trigger_ts,
-        command_prefix=command_prefix,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
     )
 
@@ -223,7 +194,6 @@ def _handle_rules_remove(
     rule_numbers: list[int] | None,
     slack_user_id: str,
     *,
-    trigger_ts: str = "",
     command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -234,8 +204,6 @@ def _handle_rules_remove(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text=f"Please provide valid rule number(s). Use `{command_prefix} rules list` to see current rules.",
         )
         return
@@ -248,8 +216,6 @@ def _handle_rules_remove(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
-            trigger_ts=trigger_ts,
-            command_prefix=command_prefix,
             text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `{command_prefix} rules list` to see them.",
         )
         return
@@ -267,8 +233,6 @@ def _handle_rules_remove(
         channel=channel,
         thread_ts=thread_ts,
         slack_user_id=slack_user_id,
-        trigger_ts=trigger_ts,
-        command_prefix=command_prefix,
         text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
     )
 
@@ -543,7 +507,6 @@ def dispatch_rules_command(
     slack: SlackIntegration,
     integration: Integration,
     *,
-    trigger_ts: str = "",
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -562,13 +525,12 @@ def dispatch_rules_command(
 
     ``command_prefix`` is the entry-point token surfaced in user-facing help and
     error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
-    surface. Defaults preserve the mention copy for existing callers. It also
-    selects where every reply lands, via ``_reply``.
+    surface. Defaults preserve the mention copy for existing callers.
+
+    Every reply goes out ephemerally through ``_reply``, on both surfaces.
     """
     if command.action == "help":
-        _handle_help(
-            slack, integration, channel, thread_ts, slack_user_id, trigger_ts=trigger_ts, command_prefix=command_prefix
-        )
+        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
     elif command.action == "list":
         _handle_rules_list(
             slack,
@@ -576,7 +538,6 @@ def dispatch_rules_command(
             channel,
             thread_ts,
             slack_user_id,
-            trigger_ts=trigger_ts,
             command_prefix=command_prefix,
         )
     elif command.action == "add":
@@ -586,8 +547,6 @@ def dispatch_rules_command(
                 channel=channel,
                 thread_ts=thread_ts,
                 slack_user_id=slack_user_id,
-                trigger_ts=trigger_ts,
-                command_prefix=command_prefix,
                 text=f'Please specify the repo inline: `{command_prefix} rules add "description" org/repo`.',
             )
         else:
@@ -600,8 +559,6 @@ def dispatch_rules_command(
                 command.rule_text or "",
                 command.repository,
                 slack_user_id,
-                trigger_ts=trigger_ts,
-                command_prefix=command_prefix,
             )
     elif command.action == "remove":
         _handle_rules_remove(
@@ -611,7 +568,6 @@ def dispatch_rules_command(
             thread_ts,
             command.rule_numbers,
             slack_user_id,
-            trigger_ts=trigger_ts,
             command_prefix=command_prefix,
         )
     elif command.action == "project_show":

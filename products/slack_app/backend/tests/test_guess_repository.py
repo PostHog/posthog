@@ -463,7 +463,7 @@ class TestHandleRulesCommandActivity:
         )
 
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -483,7 +483,7 @@ class TestHandleRulesCommandActivity:
 
         # The mention is still consumed as a command rather than becoming a task.
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert msg.kwargs["text"] == MENTION_HELP_REDIRECT
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -509,7 +509,7 @@ class TestHandleRulesCommandActivity:
         )
 
         assert result.status == "handled"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "JS SDK bugs" in msg.kwargs["text"]
         assert "Backend issues" in msg.kwargs["text"]
 
@@ -535,7 +535,7 @@ class TestHandleRulesCommandActivity:
         rule = RepoRoutingRule.objects.get(team=self.team)
         assert rule.rule_text == "JS SDK bugs"
         assert rule.repository == "posthog/posthog-js"
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "Added rule" in msg.kwargs["text"]
 
     def test_add_without_repo_returns_needs_picker(self):
@@ -570,7 +570,7 @@ class TestHandleRulesCommandActivity:
 
         assert result.status == "handled"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 0
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "not connected" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -615,7 +615,7 @@ class TestHandleRulesCommandActivity:
 
         assert result.status == "handled"
         assert RepoRoutingRule.objects.filter(team=self.team).count() == 1
-        msg = mock_slack.client.chat_postMessage.call_args
+        msg = mock_slack.client.chat_postEphemeral.call_args
         assert "does not exist" in msg.kwargs["text"]
 
     def test_non_command_returns_not_a_command(self):

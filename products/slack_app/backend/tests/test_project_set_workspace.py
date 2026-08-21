@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -125,10 +127,7 @@ class TestHandleHelp:
 
     def _help_text(self, command_prefix: str = SLASH_COMMAND_PREFIX) -> str:
         _handle_help(self.slack, self.integration, "C1", "111.1", "U1", command_prefix=command_prefix)
-        poster = (
-            self.slack.client.chat_postMessage if command_prefix == "@PostHog" else self.slack.client.chat_postEphemeral
-        )
-        return poster.call_args.kwargs["text"]
+        return self.slack.client.chat_postEphemeral.call_args.kwargs["text"]
 
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
     def test_admin_sees_workspace_line(self, mock_info):
@@ -155,10 +154,11 @@ class TestHandleHelp:
         assert "`@PostHog <task description>`" in text
         assert "reply in an active thread" in text
 
+    @parameterized.expand([("slash", SLASH_COMMAND_PREFIX), ("mention", "@PostHog")])
     @patch("products.slack_app.backend.services.slack_user_info.get_slack_user_info")
-    def test_slash_help_is_ephemeral_to_the_caller(self, mock_info):
+    def test_help_is_ephemeral_to_the_caller(self, _name, command_prefix, mock_info):
         mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
-        self._help_text()
+        self._help_text(command_prefix=command_prefix)
         assert self.slack.client.chat_postMessage.call_count == 0
         assert self.slack.client.chat_postEphemeral.call_args.kwargs["user"] == "U1"
 
