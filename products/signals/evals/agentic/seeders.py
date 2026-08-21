@@ -47,7 +47,7 @@ def seed_repository_catalog(context: CustomPromptSandboxContext) -> dict[str, ob
         kind="github",
         integration_id=f"eval-{context.team_id}",
         config={"installation_id": f"eval-{context.team_id}"},
-        sensitive_config={},
+        sensitive_config={"access_token": "signals-eval-public-repositories"},
         repository_cache=repositories,
         repository_cache_updated_at=timezone.now(),
     )
