@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
