@@ -676,7 +676,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         available_filters = self.field_discovery.get_available_filters(queryset)
         return Response(available_filters)
 
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
     def export(self, request, **kwargs):
         export_format = request.data.get("format", "csv")
 

@@ -497,7 +497,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
     @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
     def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
         token = self._create_oauth_token()
-        token.scope = "activity_log:write"
+        token.scope = "activity_log:read"
         token.save(update_fields=["scope"])
 
         response = self.client.post(
