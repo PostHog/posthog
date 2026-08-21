@@ -100,6 +100,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
+    _is_statement_timeout_error,
     _is_unsupported_function_error,
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
@@ -7527,6 +7528,25 @@ class TestIsUnsupportedStatementTimeoutError:
         assert _is_unsupported_statement_timeout_error(error) is expected
 
 
+class TestIsStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), True),
+            # A recovery conflict is also QueryCanceled but a different message entirely.
+            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
+            # The engine-rejects-the-SET case is a different exception type, not a cancellation.
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                False,
+            ),
+            (psycopg.OperationalError("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_statement_timeout(self, error, expected):
+        assert _is_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -7554,6 +7574,19 @@ class TestRlsActiveFromConnErrorHandling:
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_statement_timeout_error_is_not_captured(self):
+        # This lookup runs under the same 30s SET LOCAL statement_timeout guard as the sibling
+        # PK/xmin/index best-effort probes, which already degrade quietly when it fires (see
+        # _xmin_capable_tables_from_conn). Hitting it here is the guard working as intended, not a
+        # bug — must not flood error tracking.
+        conn = self._conn_raising(psycopg.errors.QueryCanceled("canceling statement due to statement timeout"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
