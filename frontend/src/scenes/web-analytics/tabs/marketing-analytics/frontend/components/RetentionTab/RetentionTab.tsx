@@ -125,7 +125,9 @@ export function RetentionTab(): JSX.Element {
                                 />
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-secondary">Coming back means</span>
+                                {/* Not "coming back means": under a goal the columns count conversions, which
+                                    for a one-time goal is a different question than whether someone returned. */}
+                                <span className="text-secondary">Columns show</span>
                                 <LemonSelect
                                     size="small"
                                     value={returningEvent}
@@ -133,11 +135,11 @@ export function RetentionTab(): JSX.Element {
                                     options={[
                                         {
                                             value: MarketingAnalyticsRetentionReturningEvent.Activity,
-                                            label: 'Any visit',
+                                            label: 'Return visits',
                                         },
                                         {
                                             value: MarketingAnalyticsRetentionReturningEvent.ConversionGoal,
-                                            label: 'Converting',
+                                            label: 'Conversions',
                                             disabledReason: attributableGoals.length
                                                 ? undefined
                                                 : 'Add a conversion goal based on an event or action in marketing settings first.',

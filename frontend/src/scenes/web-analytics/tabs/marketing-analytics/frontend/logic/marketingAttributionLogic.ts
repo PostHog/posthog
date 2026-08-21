@@ -224,7 +224,14 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
         ],
     }),
     selectors({
-        attributableGoals: [(s) => [s.conversion_goals], attributableConversionGoals],
+        attributableGoals: [
+            (s) => [s.conversion_goals],
+            // Annotated rather than passing `attributableConversionGoals` straight through: typegen
+            // cannot infer a bare imported function's return, and silently drops the selector from the
+            // generated values when it can't.
+            (conversion_goals: ConversionGoalFilter[]): ConversionGoalFilter[] =>
+                attributableConversionGoals(conversion_goals),
+        ],
         selectedGoalId: [
             (s) => [s.conversionGoalId, s.attributableGoals],
             (conversionGoalId: string | null, attributableGoals: ConversionGoalFilter[]): string | null => {

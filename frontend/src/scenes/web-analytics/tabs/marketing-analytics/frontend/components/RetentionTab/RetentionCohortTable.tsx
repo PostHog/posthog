@@ -15,6 +15,7 @@ import {
     MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsRetentionQuery,
     MarketingAnalyticsRetentionQueryResponse,
+    MarketingAnalyticsRetentionReturningEvent,
     MarketingAnalyticsRetentionRow,
 } from '~/queries/schema/schema-general'
 
@@ -72,6 +73,17 @@ export function RetentionCohortTable({
     // Both caps change what the table covers, so neither can stay silent: without this the tab shows a
     // narrower range than the date filter says, and an "Other" row of unknown size.
     const caveats: string[] = []
+    // Under a goal the columns read as a retention curve but aren't one, and for a goal someone can
+    // only complete once they are closer to a breakdown of when each person converted.
+    if (retentionResponse?.returningEvent === MarketingAnalyticsRetentionReturningEvent.ConversionGoal) {
+        caveats.push(
+            `Each column counts people from the cohort who ${
+                retentionResponse.conversionGoalName
+                    ? `completed "${retentionResponse.conversionGoalName}"`
+                    : 'converted'
+            } in that period, not people who visited again. For a goal someone can only complete once, like a signup, each person appears in a single column.`
+        )
+    }
     if (retentionResponse?.truncatedCohorts) {
         caveats.push(
             `The ${humanFriendlyNumber(retentionResponse.truncatedCohorts)} earliest periods in your date range aren't included. Narrow the range, or group by a longer period, to see them.`

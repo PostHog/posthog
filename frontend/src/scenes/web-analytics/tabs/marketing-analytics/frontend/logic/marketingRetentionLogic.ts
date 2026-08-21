@@ -20,7 +20,7 @@ import { attributableConversionGoals } from './marketingBreakdown'
  */
 export const MARKETING_ANALYTICS_RETENTION_COLLECTION_ID = 'marketing-analytics-retention'
 
-export const DEFAULT_TOTAL_INTERVALS = 8
+export const DEFAULT_TOTAL_INTERVALS: number = 8
 
 export const RETENTION_INTERVAL_LABELS: Record<MarketingAnalyticsRetentionInterval, string> = {
     [MarketingAnalyticsRetentionInterval.Day]: 'Daily',
@@ -168,7 +168,14 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
         optionsOpen: [false, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
     }),
     selectors({
-        attributableGoals: [(s) => [s.conversion_goals], attributableConversionGoals],
+        attributableGoals: [
+            (s) => [s.conversion_goals],
+            // Annotated rather than passing `attributableConversionGoals` straight through: typegen
+            // cannot infer a bare imported function's return, and silently drops the selector from the
+            // generated values when it can't.
+            (conversion_goals: ConversionGoalFilter[]): ConversionGoalFilter[] =>
+                attributableConversionGoals(conversion_goals),
+        ],
         selectedGoalId: [
             (s) => [s.conversionGoalId, s.attributableGoals],
             (conversionGoalId: string | null, attributableGoals: ConversionGoalFilter[]): string | null => {
