@@ -185,6 +185,16 @@ interface ToastError {
 // appearing if dismiss() is called synchronously after creation in the same tick.
 const cancelledIds = new Set<number | string>()
 
+// When each visible auto-closing error toast appeared, so a scene change can clear ones left
+// over from a previous page. Only auto-closing errors are tracked: success, info, and loading
+// toasts can carry meaning across navigation (for example an export that is still running), and
+// errors pinned open with autoClose:false are deliberate persistent prompts that must survive it.
+const errorToastShownAt = new Map<number | string, number>()
+
+// Errors raised in the same tick as a navigation stay this long, so an error about the
+// page we are leaving is not wiped the instant the next scene mounts.
+const STALE_ERROR_TOAST_GRACE_MS = 1000
+
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
@@ -275,9 +285,22 @@ export const lemonToast = {
                 />,
                 {
                     icon: <IconErrorOutline />,
+                    // Error toasts auto-close even while the tab is in the background, so an error
+                    // raised just before the window loses focus does not stay up indefinitely. Only
+                    // errors opt out here: other toast types keep pausing on focus loss so an
+                    // actionable toast (for example a delete's Undo button) waits for the user to
+                    // come back rather than expiring in a background tab.
+                    pauseOnFocusLoss: false,
                     ...options,
                 }
             )
+            // An error pinned open with autoClose:false is a deliberate persistent prompt (e.g. a
+            // re-auth or verified-domain block whose only exit is its logout button). Not tracking
+            // it keeps a scene change from sweeping it, which would strand the user with a failing
+            // session and, where the caller latches a "shown" flag, no way to raise it again.
+            if (options.autoClose !== false) {
+                errorToastShownAt.set(id, Date.now())
+            }
         })
         return id
     },
@@ -353,7 +376,25 @@ export const lemonToast = {
         // queueMicrotask deferral), mark the ID as cancelled so the microtask skips it.
         if (id) {
             cancelledIds.add(id)
+            errorToastShownAt.delete(id)
+        } else {
+            errorToastShownAt.clear()
         }
         toast.dismiss(id)
+    },
+    // Clear error toasts left over from a previous page. Called on scene change so a red
+    // "failure" toast does not follow the user onto an unrelated page.
+    dismissStaleErrors(): void {
+        const now = Date.now()
+        for (const [id, shownAt] of errorToastShownAt) {
+            if (!toast.isActive(id)) {
+                errorToastShownAt.delete(id)
+                continue
+            }
+            if (now - shownAt >= STALE_ERROR_TOAST_GRACE_MS) {
+                toast.dismiss(id)
+                errorToastShownAt.delete(id)
+            }
+        }
     },
 }
