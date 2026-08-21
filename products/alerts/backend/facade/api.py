@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -15,7 +15,6 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.destination_configs import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
@@ -33,6 +32,7 @@ from products.alerts.backend.destinations import (
 from products.alerts.backend.email_notifications import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +68,20 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def serialize_insight_alerts(alerts: Collection[AlertConfiguration], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Render an insight's alerts for the insight API response.
+
+    The insight API prefetches the alerts so the render costs no extra query, then hands them
+    back here — the alert JSON shape is this product's to define, not product_analytics'.
+    ``context`` is the calling serializer's DRF context.
+    """
+    # Deferred so the facade does not pull DRF onto its import path.
+    from products.alerts.backend.presentation.views.alert import AlertSerializer  # noqa: PLC0415
+
+    # `many=True` yields a ReturnList; the DRF stubs type `.data` as ReturnDict either way.
+    return cast(list[dict[str, Any]], AlertSerializer(alerts, many=True, context=context).data)
 
 
 def snooze_alert_from_slack(
@@ -169,6 +183,7 @@ __all__ = [
     "create_alert_destination_hog_functions",
     "get_alert_team_id",
     "insight_ids_with_alerts",
+    "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",

@@ -143,15 +143,15 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import (
+from products.alerts.backend.facade.api import serialize_insight_alerts
+from products.alerts.backend.facade.models import AlertConfiguration
+from products.cohorts.backend.facade.models import Cohort
+from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
     record_dashboard_cache_outcome,
 )
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.models import Dashboard, DashboardTile
 from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 from products.product_analytics.backend.presentation.insight_metadata import (
@@ -1155,9 +1155,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from products.alerts.backend.api.alert import AlertSerializer
-
-        return AlertSerializer(alerts, many=True, context=self.context).data
+        return serialize_insight_alerts(alerts, self.context)
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
     def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
