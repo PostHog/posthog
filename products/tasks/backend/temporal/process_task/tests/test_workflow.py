@@ -2470,6 +2470,7 @@ class TestContinueAsNew:
                 ),
             ),
             ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
+            ("client_activity_pending", lambda wf: setattr(wf, "_client_activity_received", True)),
             ("slack_relay_active", lambda wf: setattr(wf, "_current_slack_relay_workflow_id", "relay-1")),
         ]
     )

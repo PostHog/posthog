@@ -83,6 +83,19 @@ def _task_ownership_version(state: dict | None) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _has_pending_user_input(state: dict[str, Any]) -> bool:
+    return bool(state.get("pending_user_message") or state.get("pending_user_artifact_ids"))
+
+
+def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = False) -> None:
+    if not _has_pending_user_input(state):
+        return
+    existing = state.get("pending_user_message_id")
+    if not refresh and isinstance(existing, str) and existing:
+        return
+    state["pending_user_message_id"] = str(uuid.uuid4())
+
+
 class TaskOwnershipChangedError(RuntimeError):
     pass
 
@@ -586,9 +599,8 @@ class Task(DeletedMetaFields, models.Model):
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
             is_resume = bool(resume_from_run_id)
-            has_pending = bool(
-                (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
-            )
+            has_pending = _has_pending_user_input(extra_state or {})
+            stamp_pending_user_message_id(state)
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
@@ -2112,8 +2124,13 @@ class TaskRun(models.Model):
         def _mutator(state: dict[str, Any]) -> None:
             for key in remove_keys or []:
                 state.pop(key, None)
-            if updates:
-                state.update(updates)
+            if not updates:
+                return
+            state.update(updates)
+            if "pending_user_message_id" in updates:
+                return
+            if "pending_user_message" in updates or "pending_user_artifact_ids" in updates:
+                stamp_pending_user_message_id(state, refresh=True)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -2199,6 +2216,26 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
+    def signal_client_activity(self) -> None:
+        from products.tasks.backend.redis import get_tasks_cache
+
+        cache_key = f"tasks:task_run:client_activity:{self.id}"
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
+            return
+
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
+        except Exception as e:
+            logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
 
     @property
     def log_url(self) -> str:

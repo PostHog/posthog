@@ -60,6 +60,7 @@ export type Turn = {
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
+  pendingInput?: SDKUserMessage;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
