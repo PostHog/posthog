@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
@@ -24,6 +25,7 @@ from posthog.clickhouse.materialized_column_types import (
     TablesWithMaterializedColumns,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
@@ -40,6 +42,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 DEFAULT_TABLE_COLUMN: Literal["properties"] = "properties"
+
+# Failures that mean ClickHouse cannot answer the metadata query right now, rather than a wrong
+# result. `ClickHouseAtCapacity` is concurrency pressure; the rest are connection-level (refused
+# connection, timeout, dropped socket, closed stream). On any of these `_get_all` degrades instead
+# of failing the HogQL query that triggered the lookup.
+TRANSIENT_METADATA_ERRORS = (ClickHouseAtCapacity, NetworkError, SocketTimeoutError, OSError, EOFError)
 
 SHORT_TABLE_COLUMN_NAME = {
     "properties": "p",
@@ -101,9 +109,10 @@ class MaterializedColumn:
         # every schema mutation invalidates the key explicitly, so a random bypass would cause
         # non-deterministic extra system.columns queries that break assertNumQueries / snapshot tests.
         refresh_cache = not TEST and random.random() < 0.002  # we run around 50 of those queries per minute
-        if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
-            cache_key = get_materialized_columns_cache_key(table)
+        use_cache = table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE
+        cache_key = get_materialized_columns_cache_key(table)
 
+        if use_cache and not refresh_cache:
             try:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
@@ -112,6 +121,38 @@ class MaterializedColumn:
                 # If cache fails, continue to query ClickHouse
                 pass
 
+        try:
+            result = MaterializedColumn._query_all(table)
+        except TRANSIENT_METADATA_ERRORS:
+            # This is a lightweight schema-introspection query, but it shares ClickHouse's connection
+            # and query-concurrency budget with real analytics queries. When ClickHouse is unreachable
+            # or at capacity it must not fail HogQL query preparation - degrade gracefully instead:
+            # reuse the last cached result (even if stale), or fall back to no materialized columns so
+            # the query still runs via JSON extraction rather than dying before it executes.
+            if use_cache:
+                try:
+                    stale_result = cache.get(cache_key)
+                except Exception:
+                    stale_result = None
+                if stale_result is not None:
+                    return stale_result
+            logger.warning(
+                "Could not fetch materialized columns for table %s; falling back to no materialized columns",
+                table,
+            )
+            return []
+
+        if use_cache:
+            try:
+                cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
+            except Exception:
+                # If cache set fails, log but don't fail the request
+                logger.warning("Failed to cache materialized columns for table %s", table)
+
+        return result
+
+    @staticmethod
+    def _query_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
         # Get the data table name for index lookups (indexes are on data table, not distributed table)
         table_info = tables.get(table)
         data_table = table_info.data_table if table_info else table
@@ -124,7 +165,7 @@ class MaterializedColumn:
             # Query columns and their indexes using multiple LEFT JOINs
             # Returns index names as an array, parsed in Python to set boolean flags
             # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
-            result = sync_execute(
+            return sync_execute(
                 """
                 SELECT
                     c.name,
@@ -157,15 +198,6 @@ class MaterializedColumn:
                 {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
                 ch_user=ClickHouseUser.HOGQL,
             )
-
-        if table in MATERIALIZATION_VALID_TABLES and MATERIALIZED_COLUMNS_USE_CACHE:
-            try:
-                cache.set(cache_key, result, MATERIALIZED_COLUMNS_CACHE_TIMEOUT)
-            except Exception:
-                # If cache set fails, log but don't fail the request
-                logger.warning("Failed to cache materialized columns for table %s", table)
-
-        return result
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
