@@ -20,8 +20,12 @@ Feature enrollment powers the early access feature (EAF) system.
 When a person opts in through the UI, PostHog sets a person property like `$feature_enrollment/my-feature` to the value `"true"` (stored as a string, not a boolean).
 
 PostHog enables enrollment only for features in **active stages**: Alpha, Beta, and General Availability.
-The Concept stage lets people register interest, but does not enable enrollment.
-The linked flag stays disabled for opted-in people until the feature moves to an active stage.
+The Concept stage lets people register interest, but does not enable enrollment: PostHog does not set `feature_enrollment` on the flag, so opted-in people are not served through the enrollment shortcut.
+
+Concept turns off the enrollment shortcut, not the flag's normal release-condition evaluation.
+A flag auto-created for the feature starts at `rollout_percentage: 0`, so it serves nobody until the feature reaches an active stage.
+A flag you link yourself keeps its own release conditions, and those still run: a linked flag already rolled out to everyone keeps matching people while the feature sits in Concept.
+Demoting a feature back to Concept clears the enrollment marker but leaves the release conditions in place, so a flag previously rolled out to all stays at 100%.
 
 Example flow:
 
@@ -32,7 +36,9 @@ Example flow:
 5. On the next `/flags` call, the matcher sees the property and the person gets the feature.
 6. The matcher never checks the release conditions for this person.
 
-If the feature were in Concept stage instead, steps 3-4 would still happen (the person can register interest), but step 2 would not. Enrollment would stay off, so the flag would stay disabled.
+If the feature were in Concept stage instead, steps 3-4 would still happen (the person can register interest), but step 2 would not.
+The enrollment shortcut would stay off, so enrollment would not serve the flag to opted-in people.
+The flag's normal release conditions still apply: an auto-created flag sits at `rollout_percentage: 0` and serves nobody, but a linked flag keeps evaluating its own conditions.
 
 ## How it is stored
 
