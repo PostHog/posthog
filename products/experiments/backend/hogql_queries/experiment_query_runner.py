@@ -544,20 +544,11 @@ class ExperimentQueryRunner(QueryRunner):
 
         breakdowns = self._get_breakdowns_for_builder()
         breakdown_injector: MetricBreakdownInjector | None = None
-        # Metric types migrated to the metric-event breakdown injector. Others fall back to the
-        # old BreakdownInjector until they migrate (then BreakdownInjector is deleted).
-        migrated_metric = isinstance(
-            self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRetentionMetric
-        )
-        # Data warehouse sources aren't supported by the injector yet: funnels route through the
-        # legacy builder that drops the injected columns, and DW mean metrics select from the
-        # warehouse table where event/person/session breakdown chains don't resolve.
-        if (
-            breakdowns
-            and migrated_metric
-            and not self.is_data_warehouse_query
-            and self._metric_event_breakdowns_enabled()
-        ):
+        # Every experiment metric type now uses the metric-event breakdown injector, except data
+        # warehouse sources: DW funnels route through the legacy builder that drops the injected
+        # columns, and DW mean/ratio select from the warehouse table where event/person/session
+        # breakdown chains don't resolve. Gate DW out until the injector supports it.
+        if breakdowns and not self.is_data_warehouse_query and self._metric_event_breakdowns_enabled():
             breakdown_injector = MetricBreakdownInjector(breakdowns, self.metric)
 
         builder = ExperimentQueryBuilder(
