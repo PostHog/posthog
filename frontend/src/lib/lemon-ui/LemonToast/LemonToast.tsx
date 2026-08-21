@@ -1,11 +1,13 @@
 import posthog from 'posthog-js'
+import { useRef } from 'react'
 import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
-import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconCopy, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils/strings'
+import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -86,10 +88,57 @@ export function ToastActionButton({
     )
 }
 
+/**
+ * The outcome is reported here rather than through `lib/utils/copyToClipboard`, which would make this
+ * module and that one require each other. Both sides share the clipboard mechanics through
+ * `writeToClipboard`, so the plain-HTTP fallback the toolbar depends on stays in one place.
+ *
+ * The notice is an info toast because an error or warning would carry a copy button of its own, and
+ * clicking it would fail the same way.
+ */
+async function copyMessage(text: string): Promise<void> {
+    const outcome = await writeToClipboard(text)
+    if (outcome === 'copied') {
+        lemonToast.info('Copied message to clipboard', { icon: <IconCopy /> })
+        return
+    }
+    lemonToast.info('Could not reach the clipboard. Select the message and copy it manually.')
+}
+
+function ToastCopyButton({ getMessageText }: { getMessageText: () => string }): JSX.Element {
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            noPadding
+            // `.Toastify__toast-body button` sets a 0.75rem side margin sized for the action button,
+            // which costs the message a line of wrapping at the toast's fixed 26rem width.
+            className="shrink-0 !mx-2"
+            icon={<IconCopy />}
+            tooltip="Copy message"
+            onClick={() => void copyMessage(getMessageText())}
+            data-attr="toast-copy-button"
+        />
+    )
+}
+
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
+    const messageRef = useRef<HTMLSpanElement>(null)
+
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
-            <span className="grow overflow-hidden text-ellipsis">{message}</span>
+            <span ref={messageRef} className="grow min-w-0 overflow-hidden text-ellipsis">
+                {message}
+            </span>
+            {/* Only on the types whose text people take elsewhere, so confirmations keep their full width. */}
+            {(type === 'error' || type === 'warning') && (
+                // innerText breaks at block boundaries, so a message that renders the incident note under
+                // itself copies as two lines. textContent would run them together, and is the fallback
+                // only because jsdom does not implement innerText.
+                <ToastCopyButton
+                    getMessageText={() => messageRef.current?.innerText ?? messageRef.current?.textContent ?? ''}
+                />
+            )}
             {button && <ToastActionButton button={button} toastId={id} />}
         </div>
     )

@@ -22,10 +22,14 @@ import {
   type SpaceTaskPage,
   spaceTreeTasksQueryRoot,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
+
+type TaskFeedResults = { tasks: Task[]; isComplete: boolean };
 
 export function useUpdateTask() {
   const queryClient = useQueryClient();
@@ -52,6 +56,33 @@ export function useUpdateTask() {
         queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
         queryClient.invalidateQueries({ queryKey: spaceTreeTasksQueryRoot });
         queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
+        queryClient.invalidateQueries({ queryKey: taskFeedResultsQueryRoot });
+      },
+    },
+  );
+}
+
+/**
+ * Hand a task off to a colleague: the backend makes them the owner, moves a
+ * private-space task into the recipient's private space, and announces the
+ * handoff in the task's thread. The next refresh may drop the task from the
+ * requester's own lists, so nothing here is seeded optimistically.
+ */
+export function useHandoffTask() {
+  const queryClient = useQueryClient();
+
+  return useAuthenticatedMutation(
+    (client, { taskId, userId }: { taskId: string; userId: number }) =>
+      client.handoffTask(taskId, userId),
+    {
+      onSuccess: (_, { taskId }) => {
+        queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+        queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+        queryClient.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+        queryClient.invalidateQueries({ queryKey: channelFeedQueryRoot });
+        // A recipient's private channel may be created by the handoff, and the
+        // task's channel can change (private space moves to the recipient's).
+        queryClient.invalidateQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
       },
     },
   );
@@ -84,6 +115,7 @@ export function useRenameTask() {
           channelFeedQueryRoot,
           taskKeys.allSummaries(),
           spaceTreeTasksQueryRoot,
+          taskFeedResultsQueryRoot,
           taskKeys.detail(taskId),
         ].map((queryKey) => queryClient.cancelQueries({ queryKey })),
       );
@@ -94,6 +126,10 @@ export function useRenameTask() {
       const previousChannelFeedQueries = queryClient.getQueriesData<Task[]>({
         queryKey: channelFeedQueryRoot,
       });
+      const previousTaskFeedQueries =
+        queryClient.getQueriesData<TaskFeedResults>({
+          queryKey: taskFeedResultsQueryRoot,
+        });
       const previousSummaryQueries = queryClient.getQueriesData<
         Schemas.TaskSummary[]
       >({
@@ -123,6 +159,17 @@ export function useRenameTask() {
         { queryKey: spaceTreeTasksQueryRoot },
         (old) => applyRenameToPage(old, taskId, newTitle),
       );
+      queryClient.setQueriesData<TaskFeedResults>(
+        { queryKey: taskFeedResultsQueryRoot },
+        (old) =>
+          old
+            ? {
+                ...old,
+                tasks:
+                  applyRenameToList(old.tasks, taskId, newTitle) ?? old.tasks,
+              }
+            : old,
+      );
 
       if (previousDetail) {
         queryClient.setQueryData<Task>(
@@ -148,10 +195,20 @@ export function useRenameTask() {
         const spaceTreeTitles = queryClient
           .getQueriesData<SpaceTaskPage>({ queryKey: spaceTreeTasksQueryRoot })
           .map(([, page]) => getTaskTitle(page?.tasks, taskId));
+        const taskFeedTitles = queryClient
+          .getQueriesData<TaskFeedResults>({
+            queryKey: taskFeedResultsQueryRoot,
+          })
+          .map(([, result]) => getTaskTitle(result?.tasks, taskId));
         const rollbackSession = shouldRollbackSessionTitle({
           detailTitle: queryClient.getQueryData<Task>(taskKeys.detail(taskId))
             ?.title,
-          listTitles: [...listTitles, ...channelFeedTitles, ...spaceTreeTitles],
+          listTitles: [
+            ...listTitles,
+            ...channelFeedTitles,
+            ...spaceTreeTitles,
+            ...taskFeedTitles,
+          ],
           newTitle,
         });
 
@@ -178,6 +235,24 @@ export function useRenameTask() {
             queryKey,
             (current) =>
               rollbackPageData<SpaceTaskPage>(current, data, taskId, newTitle),
+          );
+        }
+        for (const [queryKey, data] of previousTaskFeedQueries) {
+          queryClient.setQueryData<TaskFeedResults | undefined>(
+            queryKey,
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    tasks:
+                      rollbackListData(
+                        current.tasks,
+                        data?.tasks ?? [],
+                        taskId,
+                        newTitle,
+                      ) ?? current.tasks,
+                  }
+                : current,
           );
         }
         if (previousDetail) {

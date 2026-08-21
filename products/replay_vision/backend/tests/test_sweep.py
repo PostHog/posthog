@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -54,6 +56,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     ON_DEMAND_RESERVED_SCANNER_SLOTS,
     ON_DEMAND_RESERVED_TEAM_SLOTS,
+    PRIMING_LOOKBACK,
+    PRIMING_SCAN_SESSIONS,
     SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
@@ -105,6 +109,8 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
         "model": ScannerModel.GEMINI_3_7_FLASH,
+        # Primed by default so only the priming-specific tests exercise the one-off pass.
+        "primed_at": timezone.now(),
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -762,6 +768,97 @@ class TestFindScannerCandidatesActivity:
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert exc_info.value.non_retryable is True
+
+    def test_priming_pass_runs_once_for_a_never_swept_scanner(self) -> None:
+        scanner = _make_scanner(primed_at=None)
+        primed = [
+            CandidateSession(session_id="prime-a", session_end=dt.datetime(2026, 5, 1, 9, 0, tzinfo=dt.UTC)),
+            CandidateSession(session_id="prime-b", session_end=dt.datetime(2026, 5, 1, 8, 0, tzinfo=dt.UTC)),
+        ]
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            MockFast.return_value.run.return_value = []
+            MockWindowed.return_value.run.return_value = primed
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert [c.session_id for c in result.priming_candidates] == ["prime-a", "prime-b"]
+        windowed_kwargs = MockWindowed.call_args.kwargs
+        # Priming ignores the scanner's sampling rate (examples now) and stays behind the fast walk.
+        assert windowed_kwargs["sampling_rate"] == 1.0
+        assert windowed_kwargs["candidate_limit"] == PRIMING_SCAN_SESSIONS
+        assert windowed_kwargs["window_end"] == scanner.last_swept_at
+        scanner.refresh_from_db()
+        assert scanner.primed_at is not None
+
+        # One-shot: the next tick must not prime again.
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            MockFast.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+
+    def test_priming_defers_when_the_fast_batch_spends_the_whole_headroom(self) -> None:
+        # Priming shares the tick's in-flight budget; without headroom it must wait for a later tick
+        # (and stay armed), never dispatch past the caps.
+        scanner = _make_scanner(primed_at=None)
+        fast = [
+            CandidateSession(session_id=f"sess-{i}", session_end=dt.datetime(2026, 5, 1, 10, i, tzinfo=dt.UTC))
+            for i in range(2)
+        ]
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            MockFast.return_value.run.return_value = fast
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+        scanner.refresh_from_db()
+        assert scanner.primed_at is None
+
+    def test_priming_skipped_but_marked_when_watermark_covers_the_window(self) -> None:
+        # A scanner that sat unswept for over the priming lookback has nothing behind the fast walk to
+        # prime from; the pass must still be marked done so it never re-arms.
+        scanner = _make_scanner(primed_at=None, last_swept_at=timezone.now() - PRIMING_LOOKBACK * 2)
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            MockFast.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+        scanner.refresh_from_db()
+        assert scanner.primed_at is not None
 
 
 # advance_scanner_watermark_activity

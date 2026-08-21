@@ -47,6 +47,8 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
         name: "project-bluebird",
         channel_type: "public",
         starred: false,
+        repositories: ["PostHog/posthog"],
+        github_integration: 7,
       },
     ],
   }),
@@ -126,11 +128,17 @@ describe("WebsiteNewTask context panel", () => {
     );
   });
 
-  it("uses the standard repository and branch selectors", () => {
+  it("passes the space's repository defaults so cloud tasks can span repos", () => {
     useFolderInstructions.mockReturnValue({ data: undefined });
     renderNewTask();
 
-    expect(taskInputProps.mock.lastCall?.[0]).not.toHaveProperty("allowNoRepo");
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        allowNoRepo: true,
+        channelRepositories: ["PostHog/posthog"],
+        channelGithubIntegration: 7,
+      }),
+    );
   });
 
   it("opens the context panel and tracks view_context when the chip is clicked", async () => {
