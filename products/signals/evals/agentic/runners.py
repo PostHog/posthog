@@ -183,7 +183,10 @@ async def run_implementation(
         task_id = str(session.task.id)
         task_run_id = str(session.task_run.id)
     finally:
-        await session.end()
+        # Shield cleanup so the workflow-completion signal still lands if the per-case deadline
+        # cancels this await. session.end() only catches Exception, so a bare CancelledError here
+        # would leave the sandbox workflow running and the TaskRun stuck IN_PROGRESS.
+        await asyncio.shield(session.end())
     raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
     diff = parse_agent_artifacts(raw_log, duration_seconds=0, agent_finished=True).git_diff
     return ImplementationOutput(
