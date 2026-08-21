@@ -30,6 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -477,6 +478,9 @@ def _stream_rows_as_arrow_batches(
     query: sql.Composed,
     chunk_size: int,
     arrow_schema: pa.Schema,
+    *,
+    primary_keys: list[str] | None = None,
+    binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
     """Yield one Arrow table per `chunk_size` rows, reading rows straight off the wire.
 
@@ -488,7 +492,12 @@ def _stream_rows_as_arrow_batches(
     pending: list[Any] = []
 
     def to_arrow(rows: list[Any]) -> pa.Table:
-        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        return table_from_iterator(
+            (dict(zip(column_names, row)) for row in rows),
+            arrow_schema,
+            primary_keys=primary_keys,
+            binary_reporter=binary_reporter,
+        )
 
     for row in cursor.stream(query, size=_libpq_rows_per_chunk()):
         if not column_names:
@@ -508,6 +517,9 @@ def _fetch_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
+    *,
+    primary_keys: list[str] | None = None,
+    binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
     """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`.
 
@@ -521,7 +533,12 @@ def _fetch_arrow_batches(
     page_size = fetch_size or chunk_size
 
     def to_arrow(rows: list[Any]) -> pa.Table:
-        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+        return table_from_iterator(
+            (dict(zip(column_names, row)) for row in rows),
+            arrow_schema,
+            primary_keys=primary_keys,
+            binary_reporter=binary_reporter,
+        )
 
     pending: list[Any] = []
     while True:
@@ -547,6 +564,8 @@ def _stream_arrow_batches(
     arrow_schema: pa.Schema,
     cursor_name: str,
     logger: FilteringBoundLogger,
+    *,
+    primary_keys: list[str] | None = None,
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
 
@@ -569,10 +588,18 @@ def _stream_arrow_batches(
     re-emit rows the pipeline has already consumed, so later errors propagate.
     """
     yielded = False
+    binary_reporter = BinaryColumnReporter(logger)
 
     try:
         with connection.cursor() as stream_cursor:
-            for batch in _stream_rows_as_arrow_batches(stream_cursor, query, chunk_size, arrow_schema):
+            for batch in _stream_rows_as_arrow_batches(
+                stream_cursor,
+                query,
+                chunk_size,
+                arrow_schema,
+                primary_keys=primary_keys,
+                binary_reporter=binary_reporter,
+            ):
                 yielded = True
                 yield batch
         return
@@ -592,7 +619,14 @@ def _stream_arrow_batches(
             # first), so this never masks the original failure with a CLOSE error.
             with connection.cursor(name=cursor_name) as server_cursor:
                 server_cursor.execute(query)
-                for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema, fetch_size):
+                for batch in _fetch_arrow_batches(
+                    server_cursor,
+                    chunk_size,
+                    arrow_schema,
+                    fetch_size,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
+                ):
                     yielded = True
                     yield batch
             return
@@ -1550,6 +1584,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     arrow_schema,
                     f"posthog_{inputs.team_id}_{schema}.{table_name}",
                     logger,
+                    primary_keys=primary_keys,
                 )
 
         return SourceResponse(

@@ -136,7 +136,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
     )
     quantile = serializers.FloatField(
         required=False,
