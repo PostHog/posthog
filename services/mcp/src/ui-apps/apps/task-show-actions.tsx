@@ -25,8 +25,11 @@ function sendAction(app: App | null, action: ShowAction): void {
     if (!app) {
         return
     }
+    // `label` is the button's own text and never reaches a link, so it is dropped rather than
+    // sent as a field the host's schema does not declare.
+    const { label: _label, ...target } = action
     void app.request(
-        { method: OPEN_ACTION_METHOD, params: { action } } as unknown as AppRequest,
+        { method: OPEN_ACTION_METHOD, params: { action: target } } as unknown as AppRequest,
         OpenActionResultSchema
     )
 }

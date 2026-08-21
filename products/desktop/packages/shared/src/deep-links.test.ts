@@ -284,7 +284,7 @@ describe("buildActionUrl", () => {
     ])("round-trips a prompt containing %s", (_label, prompt) => {
       const url = buildActionUrl({ kind: "compose", prompt }, PROD);
 
-      const { protocol, host, params } = parse(url as string);
+      const { protocol, host, params } = parse(url);
       expect(protocol).toBe("posthog-code:");
       expect(host).toBe("new");
       expect(params.get("prompt")).toBe(prompt);
@@ -298,13 +298,7 @@ describe("buildActionUrl", () => {
         PROD,
       );
 
-      expect(parse(url as string).params.get("repo")).toBe(repo);
-    });
-
-    it("returns null for a blank prompt", () => {
-      expect(
-        buildActionUrl({ kind: "compose", prompt: "   " }, PROD),
-      ).toBeNull();
+      expect(parse(url).params.get("repo")).toBe(repo);
     });
   });
 
@@ -328,15 +322,9 @@ describe("buildActionUrl", () => {
       );
 
       expect(url).toBe("posthog-code://channel/a%2F..%2Fb%3Fc%23d");
-      expect(decodeURIComponent(parse(url as string).pathname.slice(1))).toBe(
+      expect(decodeURIComponent(parse(url).pathname.slice(1))).toBe(
         "a/../b?c#d",
       );
-    });
-
-    it("returns null for a blank channel id", () => {
-      expect(
-        buildActionUrl({ kind: "open_space", channel_id: "" }, PROD),
-      ).toBeNull();
     });
   });
 
@@ -367,26 +355,11 @@ describe("buildActionUrl", () => {
       );
 
       expect(url).toBe("posthog-code://canvas/chan%2F1%3Fx/canvas%2F2%23y");
-      const segments = parse(url as string)
-        .pathname.slice(1)
-        .split("/");
+      const segments = parse(url).pathname.slice(1).split("/");
       expect(segments.map((segment) => decodeURIComponent(segment))).toEqual([
         "chan/1?x",
         "canvas/2#y",
       ]);
-    });
-
-    it.each<[string, McpAppAction]>([
-      [
-        "the canvas id is missing",
-        { kind: "open_canvas", channel_id: "chan", canvas_id: "" },
-      ],
-      [
-        "the channel id is missing",
-        { kind: "open_canvas", channel_id: "  ", canvas_id: "dash" },
-      ],
-    ])("returns null rather than a partial link when %s", (_label, action) => {
-      expect(buildActionUrl(action, PROD)).toBeNull();
     });
   });
 

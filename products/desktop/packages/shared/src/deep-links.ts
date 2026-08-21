@@ -154,38 +154,23 @@ export type McpAppAction =
   | McpAppOpenSpaceAction
   | McpAppOpenCanvasAction;
 
-function encodeRequired(value: string | undefined): string | null {
-  return value && value.trim().length > 0 ? encodeURIComponent(value) : null;
-}
-
 /**
- * Returns null rather than a partial link when a piece is missing, because a
- * partial link would land the user somewhere they didn't ask for.
+ * The action is already validated by `mcpAppActionSchema`, which rejects a blank required field,
+ * so every branch can build a whole link. Keep that guarantee at the schema rather than returning
+ * a partial link from here.
  */
-export function buildActionUrl(
-  action: McpAppAction,
-  scheme: string,
-): string | null {
+export function buildActionUrl(action: McpAppAction, scheme: string): string {
   switch (action.kind) {
     case "compose": {
-      const prompt = encodeRequired(action.prompt);
-      if (!prompt) {
-        return null;
-      }
-      const repo = encodeRequired(action.repo);
-      const query = repo ? `prompt=${prompt}&repo=${repo}` : `prompt=${prompt}`;
+      const prompt = `prompt=${encodeURIComponent(action.prompt)}`;
+      const query = action.repo
+        ? `${prompt}&repo=${encodeURIComponent(action.repo)}`
+        : prompt;
       return `${scheme}://new?${query}`;
     }
-    case "open_space": {
-      const channelId = encodeRequired(action.channel_id);
-      return channelId ? `${scheme}://channel/${channelId}` : null;
-    }
-    case "open_canvas": {
-      const channelId = encodeRequired(action.channel_id);
-      const canvasId = encodeRequired(action.canvas_id);
-      return channelId && canvasId
-        ? `${scheme}://canvas/${channelId}/${canvasId}`
-        : null;
-    }
+    case "open_space":
+      return `${scheme}://channel/${encodeURIComponent(action.channel_id)}`;
+    case "open_canvas":
+      return `${scheme}://canvas/${encodeURIComponent(action.channel_id)}/${encodeURIComponent(action.canvas_id)}`;
   }
 }

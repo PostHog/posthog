@@ -83,8 +83,9 @@ export const mcpAppsRouter = router({
     .input(openActionInput)
     .mutation(({ ctx, input }) => {
       const deepLinks = ctx.container.get<IDeepLinkRegistry>(DEEP_LINK_SERVICE);
-      const url = buildActionUrl(input.action, deepLinks.getProtocol());
-      return url ? deepLinks.handleUrl(url) : false;
+      return deepLinks.handleUrl(
+        buildActionUrl(input.action, deepLinks.getProtocol()),
+      );
     }),
 
   onToolInput: publicProcedure

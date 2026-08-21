@@ -149,20 +149,25 @@ export const openLinkInput = z.object({
   url: z.string(),
 });
 
+// Required fields are non-blank here rather than in the link builder, so a bad action fails at
+// the boundary instead of being rebuilt into a button that does nothing when clicked. `label` is
+// carried by the card and never reaches a link, so it is not declared.
+const requiredField = z.string().trim().min(1);
+
 export const mcpAppActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("compose"),
-    prompt: z.string(),
-    repo: z.string().optional(),
+    prompt: requiredField,
+    repo: z.string().trim().min(1).optional(),
   }),
   z.object({
     kind: z.literal("open_space"),
-    channel_id: z.string(),
+    channel_id: requiredField,
   }),
   z.object({
     kind: z.literal("open_canvas"),
-    channel_id: z.string(),
-    canvas_id: z.string(),
+    channel_id: requiredField,
+    canvas_id: requiredField,
   }),
 ]);
 
