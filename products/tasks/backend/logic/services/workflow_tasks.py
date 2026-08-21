@@ -303,7 +303,9 @@ def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
 
     def _react() -> None:
         try:
-            SlackIntegration(binding.integration).client.reactions_add(
+            client = SlackIntegration(binding.integration).client
+            client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
+            client.reactions_add(
                 channel=thread.channel,
                 # `_resolve_slack_binding` always sets this, but the shared context types
                 # it optional, and the thread is the right target if it ever is not.
