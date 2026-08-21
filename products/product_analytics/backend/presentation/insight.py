@@ -152,6 +152,7 @@ from products.dashboards.backend.facade.api import (
     DashboardTileBasicSerializer,
     InsightTilePlacement,
     active_tile_count,
+    dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
     insight_ids_on_dashboard,
@@ -165,7 +166,6 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 from products.product_analytics.backend.presentation.insight_metadata import (
@@ -727,9 +727,7 @@ class InsightSerializer(InsightBasicSerializer):
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
             team = self.context["get_team"]()
-            dashboard_names = dict(
-                Dashboard.objects.filter(team=team, id__in=new_dashboard_ids).values_list("id", "name")
-            )
+            dashboard_names = {dashboard.id: dashboard.name for dashboard in dashboard_refs(new_dashboard_ids)}
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
                 existing_dashboard_ids = set(
