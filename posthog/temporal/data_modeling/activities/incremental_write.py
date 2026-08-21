@@ -118,8 +118,11 @@ class UniqueKeyTracker:
         if grouped.num_rows != combined.num_rows:
             worst = pc.max(grouped.column("count_all")).as_py()
             raise IncrementalWriteError(
-                f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
-                f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
+                f"The unique key ({', '.join(self._columns)}) does not identify a single row. "
+                f"One key appears {worst} times in this run's result. "
+                f"If the source can return duplicate rows, deduplicate them in the query. "
+                f"The events table, for example, can return the same row more than once. "
+                f"If the rows differ, add the columns that tell them apart."
             )
 
         seen = grouped.select(self._columns)

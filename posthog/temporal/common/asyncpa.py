@@ -9,9 +9,29 @@ logger = get_write_only_logger()
 
 CONTINUATION_BYTES = b"\xff\xff\xff\xff"
 
+# How many leading bytes to surface when the stream is not Arrow, so the error can show the
+# server's actual response (often a plain-text error) instead of a byte-level complaint.
+INVALID_PREFIX_PREVIEW_BYTES = 256
+
 
 class InvalidMessageFormat(Exception):
     pass
+
+
+def describe_invalid_prefix(preview: bytes) -> str:
+    """Build a readable error for a stream that is not a valid Arrow IPC message.
+
+    Each Arrow IPC message starts with a continuation marker. When the first bytes are something
+    else, the body is not Arrow: the source returned an error, or an HTTP framing artifact leaked
+    in undecoded. The raw byte complaint means nothing to a reader, so decode and show what
+    actually arrived, which is usually the error text itself.
+    """
+    detail = preview.decode("utf-8", errors="replace")
+    return (
+        "Expected an Arrow record batch, but the stream did not start with the Arrow continuation "
+        "marker. The source returned an error or non-Arrow content instead of Arrow record batches. "
+        f"The stream started with: {detail!r}"
+    )
 
 
 class AsyncMessageReader:
@@ -45,9 +65,8 @@ class AsyncMessageReader:
         await self.read_until(4)
 
         if self._buffer[:4] != CONTINUATION_BYTES:
-            raise InvalidMessageFormat(
-                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer[:4]}'"
-            )
+            preview = await self.read_preview()
+            raise InvalidMessageFormat(describe_invalid_prefix(preview))
 
         await self.read_until(8)
 
@@ -82,6 +101,17 @@ class AsyncMessageReader:
         while len(self._buffer) < n:
             bytes = await anext(self._bytes)
             self._buffer.extend(bytes)
+
+    async def read_preview(self) -> bytes:
+        """Pull a little more of the stream so an error can show what actually arrived.
+
+        Best-effort: a short stream just yields fewer bytes.
+        """
+        try:
+            await self.read_until(INVALID_PREFIX_PREVIEW_BYTES)
+        except StopAsyncIteration:
+            pass
+        return bytes(self._buffer[:INVALID_PREFIX_PREVIEW_BYTES])
 
     def parse_body_size(self, metadata_flatbuffer: bytes | bytearray | memoryview) -> int:
         """Parse body size from metadata flatbuffer.

@@ -110,6 +110,26 @@ async def test_record_batch_reader_reads_record_batches(record_batches: collecti
             _ = buffer.truncate()
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(b"\r\n\r\nCode: 241. DB::Exception: Memory limit exceeded", id="http_chunk_framing"),
+        pytest.param(b"Code: 159. DB::Exception: Timeout exceeded", id="plain_text_error"),
+    ],
+)
+async def test_non_arrow_stream_raises_readable_error(payload: bytes):
+    """A non-Arrow response must surface what actually arrived, not a raw byte complaint."""
+    reader = asyncpa.AsyncMessageReader(AsyncWrapper(io.BytesIO(payload)))
+
+    with pytest.raises(asyncpa.InvalidMessageFormat) as exc_info:
+        await reader.read_next_message()
+
+    message = str(exc_info.value)
+    assert "Arrow" in message
+    # The server's own text is what a reader needs, so it must reach the message.
+    assert "DB::Exception" in message
+
+
 @pytest.mark.parametrize("batches_before_resume", [1, 5, 10])
 async def test_record_batch_reader_resumes_from_byte_offset(batches_before_resume: int):
     total_batches = 10
