@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
 import {
@@ -19,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi } from '../../generated/api.schemas'
+import { getFeatureRequestDetailUrl } from '../FeatureRequests/featureRequestNavigation'
 import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
 export function AccountFeatureRequestsExpansion({ accountId }: { accountId: string }): JSX.Element {
@@ -53,12 +53,13 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
         AccessControlLevel.Editor
     )
 
+    const origin = urls.customerAnalyticsAccount(accountId, 'feature_requests')
     const columns: LemonTableColumns<FeatureRequestApi> = [
         {
             title: 'Request',
             key: 'title',
             render: (_, request) => (
-                <Link to={urls.customerAnalyticsFeatureRequests(request.id)} className="font-medium">
+                <Link to={getFeatureRequestDetailUrl({ requestId: request.id, origin })} className="font-medium">
                     {request.title}
                 </Link>
             ),
@@ -80,11 +81,11 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                 <LemonButton
                     type="secondary"
                     size="xsmall"
-                    to={
-                        combineUrl(urls.customerAnalyticsFeatureRequests(request.id), {
-                            evidence_account: accountId,
-                        }).url
-                    }
+                    to={getFeatureRequestDetailUrl({
+                        requestId: request.id,
+                        origin,
+                        searchParams: { evidence_account: accountId },
+                    })}
                     disabledReason={editorDisabledReason}
                 >
                     Add evidence
