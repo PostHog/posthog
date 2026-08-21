@@ -580,9 +580,12 @@ class TestForkMenuOnReplies(SimpleTestCase):
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_non_streamed_answer_carries_the_menu_after_the_footer(
+    def test_non_streamed_answer_carries_the_menu_on_the_footer_line(
         self, mock_get_client, mock_get_integration, _flag, _home, _forking
     ) -> None:
+        # The menu is the footer's accessory, not a block of its own, so it shares the
+        # footer's line. That forces `section` — a context block rejects interactive
+        # elements outright — so the footer's own text has to come with it.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
@@ -590,8 +593,11 @@ class TestForkMenuOnReplies(SimpleTestCase):
         self._handler().post_thread_message("the answer", with_footer=True)
 
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
-        assert blocks[-2]["type"] == "context"
-        assert blocks[-1]["elements"][0]["type"] == "overflow"
+        assert len(blocks) == 2
+        footer = blocks[-1]
+        assert footer["type"] == "section"
+        assert "Configure" in footer["text"]["text"]
+        assert footer["accessory"]["type"] == "overflow"
 
     @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
@@ -609,3 +615,4 @@ class TestForkMenuOnReplies(SimpleTestCase):
 
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
         assert blocks[-1]["type"] == "context"
+        assert "accessory" not in blocks[-1]

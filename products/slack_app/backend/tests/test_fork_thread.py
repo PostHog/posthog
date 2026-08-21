@@ -386,16 +386,14 @@ class TestForkButtonDispatch(TestCase):
 
 
 class TestForkMenuBlock(TestCase):
-    def test_menu_is_an_overflow_carrying_the_integration(self):
-        # An overflow renders as a bare "…"; a button would put a label under every
-        # reply. The integration in the option value is what lets the cross-region
-        # interactivity router claim the click.
-        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, fork_menu_block
+    def test_menu_is_a_bare_overflow_element_carrying_the_integration(self):
+        # Bare, not wrapped in an `actions` block, so it can be the footer's accessory
+        # and share its line. The integration in the option value is what lets the
+        # cross-region interactivity router claim the click.
+        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, fork_menu_element
 
-        block = fork_menu_block(42)
+        element = fork_menu_element(42)
 
-        assert block["type"] == "actions"
-        element = block["elements"][0]
         assert element["type"] == "overflow"
         assert element["action_id"] == FORK_THREAD_ACTION_ID
         assert len(element["options"]) == 1

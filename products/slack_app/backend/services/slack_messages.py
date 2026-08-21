@@ -499,13 +499,8 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         return RunFooter()
 
 
-def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
-    """The footer as a `context` block, or `None` when there is nothing to say.
-
-    The answer itself is the message, so this is muted rather than competing with the
-    prose. A run with no links and no pinned model contributes no segments and gets no
-    trailing line at all.
-    """
+def footer_text(footer: RunFooter, configure_url: str | None = None) -> str:
+    """The footer's segments joined, or `""` when the run has nothing to say about itself."""
     segments: list[str] = []
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View on web>")
@@ -515,45 +510,61 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
-    if not segments:
+    return " · ".join(segments)
+
+
+def reply_footer_block(
+    footer: RunFooter,
+    configure_url: str | None = None,
+    accessory: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """The footer block, or `None` when there is nothing to say.
+
+    Without an accessory this is a `context` block: the answer itself is the message,
+    so the footer is muted rather than competing with the prose. A run with no links
+    and no pinned model contributes no segments and gets no trailing line at all.
+
+    An accessory forces a `section` instead, because a context block holds only text
+    and images — Slack rejects an interactive element inside one outright. That buys
+    the control a place on the footer's own line (accessories render beside the text,
+    right-aligned) and costs the muted styling, since `section` renders at body weight.
+    """
+    text = footer_text(footer, configure_url)
+    if not text:
         return None
-    return context_block(" · ".join(segments))
+    if accessory is None:
+        return context_block(text)
+    return {"type": "section", "text": {"type": "mrkdwn", "text": text}, "accessory": accessory}
 
 
 FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
 FORK_TO_DM_OPTION = "fork_to_dm"
 
 
-def fork_menu_block(integration_id: int) -> dict[str, Any]:
-    """The overflow menu that sits under a finished reply.
+def fork_menu_element(integration_id: int) -> dict[str, Any]:
+    """The overflow menu the footer carries as its accessory.
 
-    An overflow renders as a bare "…" with no label, which is as close to invisible
-    as an interactive element gets — the answer above it is what the reader came for.
-    It also has somewhere to put the next destination ("fork to a channel") without
+    An overflow renders as a bare "…" with no label, which is as close to invisible as
+    an interactive element gets — the answer above it is what the reader came for. It
+    also has somewhere to put the next destination ("fork to a channel") without
     growing a second control.
 
-    It lives in its own `actions` block rather than in the footer: Block Kit context
-    blocks hold only text and images, and a `<url|label>` navigates instead of calling
-    back, so neither can reach our interactivity endpoint. A `section` accessory would
-    put it on the footer's own line, at the cost of the muted styling that makes a
-    footer read as one.
+    Returned as a bare element rather than wrapped in an `actions` block so it can be a
+    `section` accessory, which is what puts it on the footer's own line. Slack offers no
+    inline interactive element, so an accessory — right-aligned beside the text — is as
+    close to trailing the footer as Block Kit gets.
 
     The option value carries the integration so the cross-region interactivity router
-    can tell whose click this is. Everything else the fork needs — the channel, and
-    the thread the reply is sitting in — rides on the `block_actions` payload.
+    can tell whose click this is. Everything else the fork needs — the channel, and the
+    thread the reply is sitting in — rides on the `block_actions` payload.
     """
     return {
-        "type": "actions",
-        "elements": [
+        "type": "overflow",
+        "action_id": FORK_THREAD_ACTION_ID,
+        "options": [
             {
-                "type": "overflow",
-                "action_id": FORK_THREAD_ACTION_ID,
-                "options": [
-                    {
-                        "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                        "value": json.dumps({"integration_id": integration_id, "option": FORK_TO_DM_OPTION}),
-                    }
-                ],
+                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                "value": json.dumps({"integration_id": integration_id, "option": FORK_TO_DM_OPTION}),
             }
         ],
     }

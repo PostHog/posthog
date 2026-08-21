@@ -18,7 +18,7 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_menu_block,
+    fork_menu_element,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -83,6 +83,19 @@ def _task_update_chunk(
     if details:
         chunk["details"] = details[:_TASK_FIELD_LIMIT]
     return chunk
+
+
+def _block_text(block: dict[str, Any]) -> str:
+    """The plain text of a footer block, whichever shape it took.
+
+    The footer is a `context` block normally and a `section` when it carries the fork
+    menu, since context blocks reject interactive elements. Callers that need the
+    notification fallback shouldn't have to know which.
+    """
+    if "text" in block:
+        return block["text"].get("text", "")
+    elements = block.get("elements") or [{}]
+    return elements[0].get("text", "")
 
 
 def _format_task_error(error: str) -> str:
@@ -218,7 +231,7 @@ class SlackThreadHandler:
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        return reply_footer_block(footer, configure_url)
+        return reply_footer_block(footer, configure_url, accessory=self._fork_menu())
 
     def _fork_menu(self) -> dict[str, Any] | None:
         """The overflow menu for this reply, or `None` outside the rollout.
@@ -230,22 +243,7 @@ class SlackThreadHandler:
         integration = self._get_integration()
         if not is_slack_app_forking_enabled(integration):
             return None
-        return fork_menu_block(integration.id)
-
-    def _append_fork_menu(self, ts: str) -> None:
-        """Add the fork menu to a streamed reply. Best-effort by design: losing the menu
-        costs a convenience, and the caller keeps it off the answer's own flush."""
-        menu = self._fork_menu()
-        if not menu:
-            return
-        try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=[{"type": "blocks", "blocks": [menu]}],
-            )
-        except Exception as e:
-            logger.warning("slack_app_fork_menu_append_failed", error=str(e))
+        return fork_menu_element(integration.id)
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -415,12 +413,6 @@ class SlackThreadHandler:
                 )
             except Exception as e:
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
-        # Deliberately its own call. Slack documents no block-type restriction on a
-        # streamed `blocks` chunk but does not confirm interactive blocks are allowed
-        # either, and the append above carries the answer itself — bundling an
-        # unproven block with it would risk losing the reply to a rejected request.
-        if footer:
-            self._append_fork_menu(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -559,12 +551,8 @@ class SlackThreadHandler:
         footer = self._footer_block()
         if not footer:
             return
-        blocks = [footer]
-        menu = self._fork_menu()
-        if menu:
-            blocks.append(menu)
         try:
-            self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
+            self._post_in_thread(text=_block_text(footer), blocks=[footer])
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
@@ -588,9 +576,6 @@ class SlackThreadHandler:
                 {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}},
                 footer,
             ]
-            menu = self._fork_menu()
-            if menu:
-                blocks.append(menu)
         try:
             self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
@@ -727,8 +712,7 @@ class SlackThreadHandler:
         if with_footer:
             footer = self._footer_block(include_task_url=False)
             if footer:
-                menu = self._fork_menu()
-                blocks = [*blocks, footer, *([menu] if menu else [])]
+                blocks = [*blocks, footer]
         try:
             self.delete_progress()
             self._post_in_thread(text=text, blocks=blocks)
