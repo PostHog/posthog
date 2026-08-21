@@ -73,26 +73,36 @@ def _apply_account_field_filter(
         queryset = queryset.annotate(**{field_lookup: KeyTextTransform(field.value, "_properties")})
 
     if operator == contracts.AccountTableFieldOperator.IS_SET:
-        return queryset.filter(**{f"{field_lookup}__isnull": False})
+        return queryset.filter(**{f"{field_lookup}__isnull": False})  # nosemgrep: orm-field-injection -- enum allowlist
     if operator == contracts.AccountTableFieldOperator.IS_NOT_SET:
-        return queryset.filter(**{f"{field_lookup}__isnull": True})
+        return queryset.filter(**{f"{field_lookup}__isnull": True})  # nosemgrep: orm-field-injection -- enum allowlist
     if not values:
         raise InvalidAccountFilter("Account field filters require at least one value.")
 
     if field in ACCOUNT_TEXT_FIELDS:
         if operator == contracts.AccountTableFieldOperator.EXACT:
-            return queryset.filter(**{f"{field_lookup}__in": values})
+            return queryset.filter(  # nosemgrep: orm-field-injection -- enum allowlist
+                **{f"{field_lookup}__in": values}  # nosemgrep: orm-field-injection -- enum allowlist
+            )
         if operator == contracts.AccountTableFieldOperator.IS_NOT:
-            return queryset.filter(Q(**{f"{field_lookup}__isnull": True}) | ~Q(**{f"{field_lookup}__in": values}))
+            return queryset.filter(  # nosemgrep: orm-field-injection -- enum allowlist
+                Q(**{f"{field_lookup}__isnull": True})  # nosemgrep: orm-field-injection -- enum allowlist
+                | ~Q(**{f"{field_lookup}__in": values})  # nosemgrep: orm-field-injection -- enum allowlist
+            )
         if operator in {
             contracts.AccountTableFieldOperator.CONTAINS,
             contracts.AccountTableFieldOperator.DOES_NOT_CONTAIN,
         }:
             predicate = Q()
             for value in values:
-                predicate |= Q(**{f"{field_lookup}__icontains": value})
+                predicate |= Q(  # nosemgrep: orm-field-injection -- enum allowlist
+                    **{f"{field_lookup}__icontains": value}  # nosemgrep: orm-field-injection -- enum allowlist
+                )
             if operator == contracts.AccountTableFieldOperator.DOES_NOT_CONTAIN:
-                return queryset.filter(Q(**{f"{field_lookup}__isnull": True}) | ~predicate)
+                return queryset.filter(  # nosemgrep: orm-field-injection -- enum allowlist
+                    Q(**{f"{field_lookup}__isnull": True})  # nosemgrep: orm-field-injection -- enum allowlist
+                    | ~predicate
+                )
             return queryset.filter(predicate)
         raise InvalidAccountFilter(f"Operator {operator.value} does not support text account fields.")
 
@@ -111,7 +121,9 @@ def _apply_account_field_filter(
         }.get(operator)
         if lookup is None:
             raise InvalidAccountFilter(f"Operator {operator.value} does not support date account fields.")
-        return queryset.filter(**{f"{field_lookup}__{lookup}": target})
+        return queryset.filter(  # nosemgrep: orm-field-injection -- enum allowlists
+            **{f"{field_lookup}__{lookup}": target}  # nosemgrep: orm-field-injection -- enum allowlists
+        )
 
     raise InvalidAccountFilter(f"Unsupported account field: {field.value}")
 
@@ -174,7 +186,10 @@ def _custom_property_filter_predicate(
         contracts.AccountTableCustomPropertyOperator.EXACT,
         contracts.AccountTableCustomPropertyOperator.IS_NOT,
     }:
-        return Q(**{f"{value_field}__in": values}), operator == contracts.AccountTableCustomPropertyOperator.IS_NOT
+        return (  # nosemgrep: orm-field-injection -- data-type allowlist
+            Q(**{f"{value_field}__in": values}),  # nosemgrep: orm-field-injection -- data-type allowlist
+            operator == contracts.AccountTableCustomPropertyOperator.IS_NOT,
+        )
     if operator in {
         contracts.AccountTableCustomPropertyOperator.REGEX,
         contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
@@ -206,7 +221,7 @@ def _custom_property_filter_predicate(
             contracts.AccountTableCustomPropertyOperator.LESS_THAN: "lt",
             contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL: "lte",
         }[operator]
-        return Q(**{f"value_num__{lookup}": values[0]}), False
+        return Q(**{f"value_num__{lookup}": values[0]}), False  # nosemgrep: orm-field-injection -- operator allowlist
     if operator in {
         contracts.AccountTableCustomPropertyOperator.DATE_EXACT,
         contracts.AccountTableCustomPropertyOperator.DATE_BEFORE,
@@ -223,7 +238,9 @@ def _custom_property_filter_predicate(
             contracts.AccountTableCustomPropertyOperator.DATE_BEFORE: "lt",
             contracts.AccountTableCustomPropertyOperator.DATE_AFTER: "gt",
         }[operator]
-        return Q(**{f"value_datetime__{lookup}": values[0]}), False
+        return Q(  # nosemgrep: orm-field-injection -- operator allowlist
+            **{f"value_datetime__{lookup}": values[0]}  # nosemgrep: orm-field-injection -- operator allowlist
+        ), False
     raise InvalidAccountFilter(f"Unsupported custom property filter operator: {operator.value}")
 
 

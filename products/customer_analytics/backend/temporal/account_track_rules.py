@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from uuid import UUID
 
 from temporalio import activity, workflow
@@ -12,6 +11,7 @@ with workflow.unsafe.imports_passed_through():
 
     import structlog
 
+    from posthog.dataclasses import frozen
     from posthog.exceptions_capture import capture_exception
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
@@ -26,14 +26,14 @@ ACCOUNT_TRACK_RULE_WORKFLOW_NAME = "customer-analytics-account-track-rule-evalua
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class AccountTrackRuleEvaluationInput:
     team_id: int
     run_id: str
     config_version: int
 
 
-@dataclass
+@frozen
 class AccountTrackRuleEvaluationOutput:
     status: str
     processed: int
