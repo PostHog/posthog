@@ -34,21 +34,24 @@ idempotent on the workflow id, so a replay starts nothing and Temporal answers
 idempotent across a consumer restart.
 
 A Redis failure while the consumer is running fails open: the notification is
-admitted and `cymbal_issue_created_rate_limit_fail_open` goes up, because a
+admitted and `cymbal_notifications_rate_limit_fail_open` goes up, because a
 limiter outage must not silence alerts. A Redis that is configured but
 unreachable at startup is fatal instead, so a pod cannot come up and quietly run
 without the limit it was told to enforce.
 
+The variables are prefixed by the service, while the metrics and the Redis key
+are named for what is actually capped. Only issue-created is charged.
+
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_REDIS_URL` | empty | An empty URL builds no limiter, so every notification starts its workflow. |
-| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_PER_HOUR` | `1000` | Issue-created workflows a team may start per hour. Zero or less disables the limit. |
-| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-issue-created-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
-| `ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` | empty | An empty URL builds no limiter, so every notification starts its workflow. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR` | `1000` | Issue-created workflows a team may start per hour. Zero or less disables the limit. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. |
 
 The limit covers every team once the Redis URL is set. To size it before it cuts
 anything, set `PER_HOUR` far above real traffic, watch
-`cymbal_issue_created_rate_limit_outcomes`, then lower it. Clearing the Redis URL
+`cymbal_notifications_rate_limit_outcomes`, then lower it. Clearing the Redis URL
 switches the limit off again.
 
 The bucket lives in

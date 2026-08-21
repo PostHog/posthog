@@ -204,6 +204,10 @@ case "$RS_SVC" in
       )"
     fi
     export TEMPORAL_SECRET_KEY
+    # Per-team cap on issue-created workflow starts. Deliberately low locally, so
+    # the limit is exercised rather than merely present.
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL:-$DEFAULT_REDIS}"
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR:-10}"
     ;;
 
   embedding-worker)

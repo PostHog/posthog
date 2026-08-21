@@ -58,30 +58,30 @@ pub struct NotificationsConfig {
     /// Redis backing the per-team cap on issue-created workflows. An empty URL
     /// builds no limiter, so every notification starts its workflow.
     #[envconfig(
-        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_REDIS_URL",
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL",
         default = ""
     )]
-    pub issue_created_rate_limit_redis_url: String,
+    pub notifications_rate_limit_redis_url: String,
 
     /// Issue-created workflows a team may start per hour. Zero or less disables
     /// the limit.
     #[envconfig(
-        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_PER_HOUR",
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR",
         default = "1000"
     )]
-    pub issue_created_rate_limit_per_hour: i64,
+    pub notifications_rate_limit_per_hour: i64,
 
     #[envconfig(
-        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_KEY_PREFIX",
-        default = "@posthog/error-tracking-issue-created-rate-limiter"
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX",
+        default = "@posthog/error-tracking-notifications-rate-limiter"
     )]
-    pub issue_created_rate_limit_key_prefix: String,
+    pub notifications_rate_limit_key_prefix: String,
 
     #[envconfig(
-        from = "ERROR_TRACKING_ISSUE_CREATED_RATE_LIMIT_BUCKET_TTL_SECONDS",
+        from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS",
         default = "3600"
     )]
-    pub issue_created_rate_limit_bucket_ttl_seconds: u64,
+    pub notifications_rate_limit_bucket_ttl_seconds: u64,
 
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,

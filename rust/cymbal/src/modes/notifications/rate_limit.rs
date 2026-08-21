@@ -54,10 +54,10 @@ impl IssueCreatedRateLimiter {
             Self { bucket: None }
         };
 
-        if config.issue_created_rate_limit_redis_url.is_empty() {
+        if config.notifications_rate_limit_redis_url.is_empty() {
             return Ok(disabled("no Redis URL"));
         }
-        if config.issue_created_rate_limit_per_hour <= 0 {
+        if config.notifications_rate_limit_per_hour <= 0 {
             return Ok(disabled("limit is zero or less"));
         }
 
@@ -67,7 +67,7 @@ impl IssueCreatedRateLimiter {
         // Runtime failures are different: `decide` fails open, because a limiter
         // outage must not silence alerts for pods that are already serving.
         let client = RedisClient::with_config(
-            config.issue_created_rate_limit_redis_url.clone(),
+            config.notifications_rate_limit_redis_url.clone(),
             common_redis::CompressionConfig::disabled(),
             common_redis::RedisValueFormat::Utf8,
             optional_millis(config.redis_response_timeout_ms),
@@ -76,16 +76,16 @@ impl IssueCreatedRateLimiter {
         .await?;
 
         info!(
-            per_hour = config.issue_created_rate_limit_per_hour,
+            per_hour = config.notifications_rate_limit_per_hour,
             "Error-tracking issue-created rate limiter enabled for all teams",
         );
 
         Ok(Self {
             bucket: Some(TokenBucket::per_hour(
                 Arc::new(client),
-                config.issue_created_rate_limit_key_prefix.clone(),
-                config.issue_created_rate_limit_per_hour as f64,
-                config.issue_created_rate_limit_bucket_ttl_seconds,
+                config.notifications_rate_limit_key_prefix.clone(),
+                config.notifications_rate_limit_per_hour as f64,
+                config.notifications_rate_limit_bucket_ttl_seconds,
             )),
         })
     }
