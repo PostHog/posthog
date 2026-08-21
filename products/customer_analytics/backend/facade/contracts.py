@@ -235,6 +235,25 @@ class AccountTableAccountIdFilter:
     account_id: UUID
 
 
+class AccountTableFieldOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableFieldFilter:
+    field: AccountTableField
+    operator: AccountTableFieldOperator
+    values: tuple[str, ...] = ()
+
+
 class AccountTableCustomPropertyOperator(str, Enum):
     EXACT = "exact"
     IS_NOT = "is_not"
@@ -266,6 +285,7 @@ AccountTableFilter = (
     | AccountTableAssignedToFilter
     | AccountTableUnassignedFilter
     | AccountTableAccountIdFilter
+    | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
 )
 
@@ -579,6 +599,7 @@ class FeatureRequestEvidenceView:
     evidence_source: str = "conversation"
     source_url: str = ""
     requested_on: date | None = None
+    image_ids: list[UUID] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
@@ -689,6 +710,7 @@ class FeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -707,6 +729,7 @@ class CreateFeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -718,6 +741,7 @@ class UpdateFeatureRequestEvidenceInput:
     evidence_source: str
     source_url: str
     requested_on: date | None
+    image_ids: tuple[UUID, ...] | None = None
 
 
 @dataclass(frozen=True)

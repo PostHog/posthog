@@ -657,6 +657,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     })
                 }
 
+                posthog.capture('alert wizard completed', {
+                    action: isNewAlert ? 'created' : 'updated',
+                    alert_type: 'insight',
+                })
+
                 // The alert is already persisted — any error from the local side-effects below is a
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.

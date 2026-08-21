@@ -1356,6 +1356,10 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
                     .date()
                     .nullish()
                     .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
             }),
             zod.null(),
         ])
@@ -1398,6 +1402,10 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
     expected_version: zod
         .number()
         .min(1)
@@ -1507,6 +1515,10 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
     expected_version: zod
         .number()
         .min(1)

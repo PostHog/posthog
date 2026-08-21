@@ -222,6 +222,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             },
         }
 
+    def test_omitted_required_input_falls_back_to_the_schema_default(self):
+        schema = [
+            {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+            {"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"},
+        ]
+
+        inputs = validate_inputs(schema, {"url": {"value": "https://example.com"}})
+
+        assert inputs["method"]["value"] == "POST"
+
+    def test_explicitly_emptied_required_input_is_still_rejected(self):
+        schema = [{"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"}]
+
+        with pytest.raises(ValidationError) as e:
+            validate_inputs(schema, {"method": {"value": ""}})
+
+        assert "This field is required." in str(e.value)
+
     def test_validate_inputs_creates_bytecode_for_html(self):
         # NOTE: CSS block curly brackets must be escaped beforehand
         html_with_css = '<html>\n<head>\n<style type="text/css">\n  .css \\{\n    width: 500px !important;\n  }</style>\n</head>\n\n<body>\n    <p>Hi {person.properties.email}</p>\n</body>\n</html>'

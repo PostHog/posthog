@@ -14,7 +14,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..logic import rules
+from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -29,7 +29,7 @@ from .contracts import (
 )
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
-ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
+ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 
@@ -55,7 +55,7 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             kind=integration.kind,
             display_name=integration.display_name,
         ),
-        external_url=logic.build_external_issue_url(reference),
+        external_url=external_references.build_external_issue_url(reference),
     )
 
 
@@ -622,12 +622,12 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
-    references = logic.list_external_references(team_id=team_id)
+    references = external_references.list_external_references(team_id=team_id)
     return [_to_external_reference(reference) for reference in references]
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
-    reference = logic.get_external_reference(reference_id=reference_id, team_id=team_id)
+    reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:
         return None
     return _to_external_reference(reference)
@@ -642,7 +642,7 @@ def create_external_reference(
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
-    reference, created = logic.create_external_reference(
+    reference, created = external_references.create_external_reference(
         team_id=team_id,
         issue_id=issue_id,
         integration_id=integration_id,
@@ -674,7 +674,7 @@ def search_external_issues(
     search: str,
     repository: str | None = None,
 ) -> list[dict[str, Any]]:
-    return logic.search_external_issues(
+    return external_references.search_external_issues(
         team_id=team_id,
         integration_id=integration_id,
         search=search,
@@ -683,7 +683,7 @@ def search_external_issues(
 
 
 def is_supported_external_issue_provider(kind: str) -> bool:
-    return logic.is_supported_external_issue_provider(kind=kind)
+    return external_references.is_supported_external_issue_provider(kind=kind)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
