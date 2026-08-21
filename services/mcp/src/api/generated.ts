@@ -2363,8 +2363,6 @@ export namespace Schemas {
 
     export interface ActionsPie {
       disableHoverOffset?: boolean | null;
-      /** Render the pie with a hollow center (donut). */
-      donut?: boolean | null;
       hideAggregation?: boolean | null;
     }
 
@@ -3155,6 +3153,7 @@ export namespace Schemas {
       BoldNumber: 'BoldNumber',
       Metric: 'Metric',
       ActionsPie: 'ActionsPie',
+      ActionsDonut: 'ActionsDonut',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
       WorldMap: 'WorldMap',

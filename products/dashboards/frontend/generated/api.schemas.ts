@@ -2418,6 +2418,7 @@ export const ChartDisplayTypeApi = {
     BoldNumber: 'BoldNumber',
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
+    ActionsDonut: 'ActionsDonut',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -4229,8 +4230,6 @@ export interface WebOverviewQueryApi {
 
 export interface ActionsPieApi {
     disableHoverOffset?: boolean | null
-    /** Render the pie with a hollow center (donut). */
-    donut?: boolean | null
     hideAggregation?: boolean | null
 }
 

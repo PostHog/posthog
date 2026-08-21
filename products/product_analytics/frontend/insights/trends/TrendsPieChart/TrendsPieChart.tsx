@@ -25,11 +25,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { DonutCenterLabel } from './DonutCenterLabel'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -60,6 +62,7 @@ export function TrendsPieChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const {
+        display,
         indexedResults,
         trendsFilter,
         formula,
@@ -88,7 +91,7 @@ export function TrendsPieChart({
 
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
-    const isDonut = !!pieChartVizOptions?.donut
+    const isDonut = display === ChartDisplayType.ActionsDonut
 
     // Share the line/bar label resolver so the legend humanizes event names ($pageview → Pageview)
     // and honors series renames, instead of showing the raw event key.
@@ -273,9 +276,7 @@ export function TrendsPieChart({
     // stranding it below the chart.
     const centerLabel =
         isDonut && showAggregation ? (
-            <div className="text-3xl text-center font-bold">
-                {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
-            </div>
+            <DonutCenterLabel>{formatAggregationAxisValue(trendsFilter, total, baseCurrency)}</DonutCenterLabel>
         ) : undefined
 
     const pie = (

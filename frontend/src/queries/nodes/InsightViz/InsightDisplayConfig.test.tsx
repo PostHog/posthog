@@ -199,8 +199,21 @@ describe('InsightDisplayConfig', () => {
                         'Show as % of total',
                         'Show names on slices',
                         'Show total below chart',
-                        'Donut',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
+                        'Show legendBottom',
+                    ],
+                },
+            ],
+            [
+                'trends donut',
+                makeTrendsQuery(ChartDisplayType.ActionsDonut),
+                {
+                    sections: ['Display', 'Unit'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show names on slices',
+                        'Show total in center',
                         'Show legendBottom',
                     ],
                 },

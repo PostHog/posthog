@@ -3028,6 +3028,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
     Metric = 'Metric',
     ActionsPie = 'ActionsPie',
+    ActionsDonut = 'ActionsDonut',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
     WorldMap = 'WorldMap',

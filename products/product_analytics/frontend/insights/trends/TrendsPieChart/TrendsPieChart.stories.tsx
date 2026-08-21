@@ -11,7 +11,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import type { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, type InsightLogicProps, type InsightShortId } from '~/types'
 
 import { TrendsPieChart } from './TrendsPieChart'
 
@@ -102,7 +102,13 @@ export const Donut: Story = {
             ...trendsPieBreakdownFixture,
             query: {
                 ...trendsPieBreakdownFixture.query,
-                vizSpecificOptions: { ActionsPie: { donut: true } },
+                source: {
+                    ...trendsPieBreakdownFixture.query.source,
+                    trendsFilter: {
+                        ...trendsPieBreakdownFixture.query.source.trendsFilter,
+                        display: ChartDisplayType.ActionsDonut,
+                    },
+                },
             },
         }),
 }

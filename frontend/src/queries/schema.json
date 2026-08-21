@@ -5074,6 +5074,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsDonut",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsBarValue",
                     "type": "string"
                 },
@@ -5198,6 +5202,7 @@
                         "BoldNumber",
                         "Metric",
                         "ActionsPie",
+                        "ActionsDonut",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
@@ -15389,6 +15394,7 @@
                 "BoldNumber",
                 "Metric",
                 "ActionsPie",
+                "ActionsDonut",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -53471,10 +53477,6 @@
                     "additionalProperties": false,
                     "properties": {
                         "disableHoverOffset": {
-                            "type": "boolean"
-                        },
-                        "donut": {
-                            "description": "Render the pie with a hollow center (donut).",
                             "type": "boolean"
                         },
                         "hideAggregation": {

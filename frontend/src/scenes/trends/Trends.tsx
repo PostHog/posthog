@@ -120,7 +120,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 />
             )
         }
-        if (display === ChartDisplayType.ActionsPie) {
+        if (display === ChartDisplayType.ActionsPie || display === ChartDisplayType.ActionsDonut) {
             return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
