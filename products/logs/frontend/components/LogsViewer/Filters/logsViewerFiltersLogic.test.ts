@@ -162,7 +162,32 @@ describe('logsViewerFiltersLogic', () => {
             expect(logic.values.filters.filterGroup).toEqual(applied)
         })
 
-        it('appends a filter without crashing when addFilter runs on the default group', async () => {
+        // The leaf-at-values[0] case arrives from an externally-supplied filterGroup (URL param,
+        // initialFilters): its outer values array is non-empty, so it passes the reducer guard and
+        // reaches state, but values[0] is a property filter with no nested `values` array. addFilter
+        // used to spread that missing array and crash the viewer.
+        it.each([
+            ['the default group', null],
+            [
+                'a group whose inner value is a leaf property filter',
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'service',
+                            value: ['api'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                    ],
+                },
+            ],
+        ])('addFilter appends a chip without crashing, starting from %s', async (_label, initialGroup) => {
+            if (initialGroup) {
+                logic.actions.setFilterGroup(initialGroup as any)
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
             logic.actions.addFilter('level', 'error')
             await expectLogic(logic).toFinishAllListeners()
 

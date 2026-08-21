@@ -354,10 +354,15 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             actions.setDateRange(newDateRange)
         },
         addFilter: ({ key, value, operator, propertyType }) => {
-            const currentGroup = (values.filters.filterGroup.values[0] as UniversalFiltersGroup | undefined) ?? {
-                type: FilterLogicalOperator.And,
-                values: [],
-            }
+            const firstValue = values.filters.filterGroup.values[0] as UniversalFiltersGroup | undefined
+            // An externally-supplied filterGroup (URL param, initialFilters) can put a leaf property
+            // filter at values[0] instead of the expected nested group. A leaf has no `values` array,
+            // so fall back to an empty group whenever the first value isn't a group, because spreading
+            // a missing `values` below would throw and crash the viewer.
+            const currentGroup: UniversalFiltersGroup =
+                firstValue && Array.isArray(firstValue.values)
+                    ? firstValue
+                    : { type: FilterLogicalOperator.And, values: [] }
 
             const newGroup: UniversalFiltersGroup = {
                 ...currentGroup,
