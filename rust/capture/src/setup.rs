@@ -518,9 +518,6 @@ fn create_v1_sink_router(
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
     let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
         .context("failed to parse CAPTURE_V1_SINKS")?;
-    sinks_cfg
-        .validate()
-        .context("v1 sink config validation failed")?;
 
     for cfg in sinks_cfg.configs.values_mut() {
         cfg.kafka.topic_ai = config.kafka.capture_analytics_ai_events_topic.clone();
@@ -529,6 +526,14 @@ fn create_v1_sink_router(
             .capture_analytics_ai_events_overflow_topic
             .clone();
     }
+
+    // After the injection above, so the topic completeness check sees the
+    // values the sinks will actually produce to rather than the per-sink env
+    // parse. Which topics a deployment must have wired depends on its capture
+    // mode: capture-ai never routes to the analytics lanes.
+    sinks_cfg
+        .validate(config.capture_mode)
+        .context("v1 sink config validation failed")?;
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();

@@ -12,6 +12,8 @@ use std::time::Duration;
 
 use envconfig::Envconfig;
 
+use crate::config::CaptureMode;
+
 pub use event::Event;
 pub use kafka::KafkaSink;
 pub use prepare::{serialize_batch, SerializedBatch, DEFAULT_SCATTER_GATHER_MIN_BATCH};
@@ -93,7 +95,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn validate(&self) -> anyhow::Result<()> {
+    /// `capture_mode` decides which topics this deployment must have wired;
+    /// see `kafka::config::Config::reachable_topics`.
+    pub fn validate(&self, capture_mode: CaptureMode) -> anyhow::Result<()> {
         let msg_timeout = Duration::from_millis(self.kafka.message_timeout_ms as u64);
         anyhow::ensure!(
             self.produce_timeout >= msg_timeout,
@@ -102,7 +106,7 @@ impl Config {
             self.produce_timeout,
             msg_timeout,
         );
-        self.kafka.validate()?;
+        self.kafka.validate(capture_mode)?;
         Ok(())
     }
 }
@@ -119,7 +123,7 @@ pub struct Sinks {
 }
 
 impl Sinks {
-    pub fn validate(&self) -> anyhow::Result<()> {
+    pub fn validate(&self, capture_mode: CaptureMode) -> anyhow::Result<()> {
         anyhow::ensure!(!self.configs.is_empty(), "no v1 sinks configured");
         anyhow::ensure!(
             self.configs.contains_key(&self.default),
@@ -127,7 +131,7 @@ impl Sinks {
             self.default,
         );
         for (&name, cfg) in &self.configs {
-            cfg.validate()
+            cfg.validate(capture_mode)
                 .map_err(|e| anyhow::anyhow!("sink {}: {e}", name))?;
         }
         Ok(())
@@ -437,7 +441,7 @@ mod tests {
     fn config_validate_ok() {
         let env = test_env_for(SinkName::Msk);
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        assert!(cfg.validate().is_ok());
+        assert!(cfg.validate(CaptureMode::Events).is_ok());
     }
 
     #[test]
@@ -452,7 +456,7 @@ mod tests {
             "20000".into(),
         );
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate().unwrap_err();
+        let err = cfg.validate(CaptureMode::Events).unwrap_err();
         assert!(
             err.to_string().contains("produce_timeout"),
             "expected produce_timeout in error: {err}"
@@ -464,7 +468,7 @@ mod tests {
         let mut env = test_env_for(SinkName::Msk);
         env.insert("CAPTURE_V1_SINK_MSK_KAFKA_HOSTS".into(), "".into());
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate().unwrap_err();
+        let err = cfg.validate(CaptureMode::Events).unwrap_err();
         assert!(
             err.to_string().contains("empty kafka hosts"),
             "expected empty hosts in error: {err}"
@@ -477,7 +481,7 @@ mod tests {
             default: SinkName::Msk,
             configs: HashMap::new(),
         };
-        assert!(sinks.validate().is_err());
+        assert!(sinks.validate(CaptureMode::Events).is_err());
     }
 
     #[test]
@@ -485,7 +489,7 @@ mod tests {
         let mut env = test_env_for(SinkName::Msk);
         env.insert("CAPTURE_V1_SINK_MSK_KAFKA_QUEUE_MIB".into(), "0".into());
         let cfg = load_sink_config(SinkName::Msk, &env).unwrap();
-        let err = cfg.validate().unwrap_err();
+        let err = cfg.validate(CaptureMode::Events).unwrap_err();
         assert!(
             err.to_string().contains("queue_mib"),
             "expected queue_mib in error: {err}"
@@ -500,7 +504,7 @@ mod tests {
             default: SinkName::Ws,
             configs: [(SinkName::Msk, cfg)].into_iter().collect(),
         };
-        let err = sinks.validate().unwrap_err();
+        let err = sinks.validate(CaptureMode::Events).unwrap_err();
         assert!(
             err.to_string().contains("default sink"),
             "expected 'default sink' in error: {err}"
@@ -516,7 +520,7 @@ mod tests {
             default: SinkName::Msk,
             configs: [(SinkName::Msk, cfg)].into_iter().collect(),
         };
-        let err = sinks.validate().unwrap_err();
+        let err = sinks.validate(CaptureMode::Events).unwrap_err();
         assert!(
             err.to_string().contains("sink msk"),
             "expected sink name in error: {err}"
