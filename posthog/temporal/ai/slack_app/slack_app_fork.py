@@ -262,15 +262,19 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     # Inherit the repo the forked thread was already working on. A fork's prompt is
     # generic, so the cascade has nothing to match on and would send an "explain this
     # to me" ask to the discovery agent and then the repo picker, in a DM.
-    fork_repository = (
+    # A thread the agent has already worked in has a task behind it, which holds far
+    # more than the messages did: prior runs, session logs, artifacts, the PR. Carry
+    # its id so the fork can go and read that when the question calls for it.
+    source_task = (
         SlackThreadTaskMapping.objects.filter(
             integration=integration,
             channel=source_channel,
             thread_ts=source_thread_ts,
         )
-        .values_list("task__repository", flat=True)
+        .values_list("task_id", "task__repository")
         .first()
     )
+    source_task_id, fork_repository = (str(source_task[0]), source_task[1]) if source_task else (None, None)
 
     permalink = _thread_permalink(slack, source_channel, source_thread_ts)
     title = _fork_title(thread_root)
@@ -322,6 +326,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
                 source_channel=source_channel,
                 source_thread_ts=source_thread_ts,
                 repository=fork_repository,
+                task_id=source_task_id,
                 is_ext_shared=is_ext_shared,
             ),
         )
@@ -346,6 +351,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
             fork_source_channel=source_channel,
             fork_source_thread_ts=source_thread_ts,
             fork_repository=fork_repository,
+            fork_source_task_id=source_task_id,
         )
 
     logger.info(

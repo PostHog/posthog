@@ -33,6 +33,10 @@ class PendingFork(BaseModel):
     source_channel: str
     source_thread_ts: str
     repository: str | None = None
+    # Set when the forked thread was already being worked on. Points the fork at that
+    # task's own history — prior runs, session logs, artifacts — which holds far more
+    # than the Slack messages ever showed.
+    task_id: str | None = None
     is_ext_shared: bool = False
 
 

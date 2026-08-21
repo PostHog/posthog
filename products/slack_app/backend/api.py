@@ -1821,6 +1821,7 @@ def _handle_assistant_dm_message(
             fork_source_channel=pending.source_channel,
             fork_source_thread_ts=pending.source_thread_ts,
             fork_repository=pending.repository,
+            fork_source_task_id=pending.task_id,
         )
     return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
 
@@ -3334,6 +3335,7 @@ def _start_mention_workflow(
     fork_source_channel: str | None = None,
     fork_source_thread_ts: str | None = None,
     fork_repository: str | None = None,
+    fork_source_task_id: str | None = None,
 ) -> str:
     """Start the mention workflow for an explicit ``app_mention``, an untagged
     thread reply, or a forked thread.
@@ -3368,6 +3370,7 @@ def _start_mention_workflow(
         fork_source_channel=fork_source_channel,
         fork_source_thread_ts=fork_source_thread_ts,
         fork_repository=fork_repository,
+        fork_source_task_id=fork_source_task_id,
     )
     # Events without channel/ts fall back to the per-message workflow.
     queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)

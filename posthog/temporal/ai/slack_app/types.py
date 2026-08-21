@@ -67,6 +67,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # would fall through to the discovery agent and then the picker — in a DM, for
     # someone who asked for an explanation. `None` means "run the normal cascade".
     fork_repository: str | None = None
+    # The forked thread's own task, when it had one. Named in the context block so the
+    # agent can pull that task's runs, logs and artifacts if the question needs more
+    # than the messages.
+    fork_source_task_id: str | None = None
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:

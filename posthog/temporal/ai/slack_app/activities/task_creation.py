@@ -272,6 +272,7 @@ def _build_posthog_code_task_description(
     mentioner_slack_user_id: str | None = None,
     mentioner_display_name: str | None = None,
     fork_source_permalink: str | None = None,
+    fork_source_task_id: str | None = None,
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
     context up front and the initiator's @mention is the actionable prompt at the end.
@@ -376,6 +377,13 @@ def _build_posthog_code_task_description(
             "in this thread — never ping anyone quoted here, they did not ask for this and are not "
             "in the conversation. Refer to them by name instead.",
         ]
+        if fork_source_task_id:
+            origin_lines.append(
+                f"That thread was already being worked on as PostHog task `{fork_source_task_id}`. The "
+                "messages below are only what was said in Slack — the task itself holds the work: its "
+                "runs, session logs, comments and artifacts. Read it with the PostHog task tools when "
+                "the question is about what was actually done, changed, or decided, rather than said."
+            )
     else:
         origin_lines = [
             "Slack thread leading up to the request, chronological, oldest first.",
@@ -636,6 +644,7 @@ def create_posthog_code_task_for_repo_activity(
         mentioner_slack_user_id=None if is_fork else slack_user_id,
         mentioner_display_name=None if is_fork else mentioner_display_name,
         fork_source_permalink=fork_source_permalink,
+        fork_source_task_id=inputs.fork_source_task_id if is_fork else None,
     )
 
     slack_thread_context = SlackThreadContext(
