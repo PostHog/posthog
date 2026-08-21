@@ -19,7 +19,6 @@ from rest_framework.response import Response
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
@@ -34,6 +33,7 @@ from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import get_export_source_authentication
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
@@ -708,21 +708,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
             filename = self._generate_export_filename(serializable_filters, export_format)
-            authenticator = request.successful_authenticator
-            source_data: dict[str, Any] = {}
-            if isinstance(authenticator, PersonalAPIKeyAuthentication):
-                source_data = {
-                    "source_authentication": ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
-                    "source_credential_id": authenticator.personal_api_key.id,
-                }
-            elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-                source_data = {
-                    "source_authentication": ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN,
-                    "source_credential_id": str(authenticator.access_token.id),
-                }
-            elif isinstance(authenticator, SessionAuthentication):
-                source_data = {"source_authentication": ExportedAsset.SourceAuthentication.SESSION}
-            else:
+            source_authentication = get_export_source_authentication(request.successful_authenticator)
+            if source_authentication is None:
                 return Response(
                     {"error": "API path exports do not support this authentication method."},
                     status=400,
@@ -738,7 +725,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
-                **source_data,
+                **source_authentication,
             )
 
             exporter.export_asset.delay(exported_asset.id)

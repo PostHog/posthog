@@ -350,7 +350,7 @@ class TestCSVExporter(APIBaseTest):
                 csv_exporter.export_tabular(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
-    def test_legacy_api_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
+    def test_path_based_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
         exported_asset = self._create_asset()
         exported_asset.source_authentication = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
         exported_asset.source_credential_id = "source-key-id"
@@ -364,7 +364,7 @@ class TestCSVExporter(APIBaseTest):
         claims = decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
         assert claims["personal_api_key_id"] == "source-key-id"
 
-    def test_legacy_api_export_rejects_missing_authentication_source(self) -> None:
+    def test_path_based_export_rejects_missing_authentication_source(self) -> None:
         exported_asset = self._create_asset()
         exported_asset.source_authentication = None
 
@@ -377,7 +377,7 @@ class TestCSVExporter(APIBaseTest):
             ("body", {"body": {"value": "payload"}}),
         ]
     )
-    def test_legacy_api_export_rejects_mutating_requests(self, _name: str, extra_context: dict[str, Any]) -> None:
+    def test_path_based_export_rejects_mutating_requests(self, _name: str, extra_context: dict[str, Any]) -> None:
         with pytest.raises(ValueError, match="export request is no longer supported"):
             csv_exporter.export_tabular(self._create_asset(extra_context))
 

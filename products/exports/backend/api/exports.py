@@ -18,7 +18,6 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -42,6 +41,7 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     is_valid_session_recording_id,
 )
+from products.exports.backend.source_authentication import get_export_source_authentication
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
 from products.product_analytics.backend.facade.models import Insight
 
@@ -200,15 +200,9 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
-            validated_data["source_credential_id"] = authenticator.personal_api_key.id
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
-            validated_data["source_credential_id"] = str(authenticator.access_token.id)
-        elif isinstance(authenticator, SessionAuthentication):
-            validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.SESSION
+        source_authentication = get_export_source_authentication(request.successful_authenticator)
+        if source_authentication is not None:
+            validated_data.update(source_authentication)
         elif (validated_data.get("export_context") or {}).get("path"):
             raise ValidationError({"export_context": ["API path exports do not support this authentication method."]})
         self._assert_may_export_session_recording(validated_data)
