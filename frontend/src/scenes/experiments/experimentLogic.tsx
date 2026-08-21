@@ -91,7 +91,8 @@ import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
-} from '../../../../products/experiments/frontend/legacy/calculations/legacyExperimentCalculations'
+} from 'products/experiments/frontend/legacy/calculations/legacyExperimentCalculations'
+
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
