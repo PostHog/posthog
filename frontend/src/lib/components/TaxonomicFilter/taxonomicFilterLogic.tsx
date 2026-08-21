@@ -69,6 +69,7 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { toParams } from 'lib/utils/url'
 import {
     getAccountCustomPropertyDefinitionIcon,
+    getAccountFieldDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -1351,8 +1352,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Revenue analytics properties',
                     },
                     {
-                        name: 'Custom properties',
-                        searchPlaceholder: 'custom properties',
+                        name: 'Account fields',
+                        searchPlaceholder: 'account fields',
+                        type: TaxonomicFilterGroupType.AccountFields,
+                        getIcon: getAccountFieldDefinitionIcon,
+                        getName: (option: PropertyDefinition) => option.name,
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Account field',
+                    },
+                    {
+                        name: 'Account custom properties',
+                        searchPlaceholder: 'account custom properties',
                         type: TaxonomicFilterGroupType.AccountCustomProperties,
                         // Account custom property definitions are per-team API data, so the
                         // options come from the consumer via `optionsFromProp` — items carry
