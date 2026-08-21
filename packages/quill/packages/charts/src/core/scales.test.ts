@@ -479,6 +479,19 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
         })
 
+        // A reference line outside its axis's domain doesn't render, so an axis whose meaning fixes
+        // its range (a 0-1 probability) has to say so — the chart-level valueDomain above only
+        // reaches the primary axis.
+        it('honors a secondary axis own valueDomain', () => {
+            const value = makeSeries({ key: 'value', data: [0, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const score = makeSeries({ key: 'score', data: [0, 0.25], yAxisId: 'y1' })
+            const result = createScales([value, score], ['a', 'b'], dimensions, {
+                axes: [{ id: 'y1', valueDomain: { min: 0, max: 1 } }],
+            })
+            expect(result.yAxes!.y1.scale.domain()).toEqual([0, 1])
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(1000)
+        })
+
         it.each([
             ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
             ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
