@@ -12,6 +12,13 @@ import { commentsLogic } from './commentsLogic'
 
 const PROPS = { scope: ActivityScope.TICKET, item_id: 'ticket-1' }
 
+const FAILING_LOAD = {
+    get: {
+        '/api/projects/:team_id/comments': () => [500, { detail: 'nope' }],
+        '/api/organizations/@current/members/': { results: [] },
+    },
+}
+
 afterEach(cleanup)
 
 describe('CommentsList', () => {
@@ -60,5 +67,47 @@ describe('CommentsList', () => {
 
         // Let the refresh land, so its request doesn't settle after teardown
         await waitFor(() => expect(logic.values.commentsLoading).toBe(false))
+    })
+
+    const mountAndRender = (): ReturnType<typeof commentsLogic.build> => {
+        const logic = commentsLogic(PROPS)
+        logic.mount()
+
+        render(
+            <Provider>
+                <CommentsList {...PROPS} />
+            </Provider>
+        )
+
+        return logic
+    }
+
+    it('shows an error state when the first load fails', async () => {
+        initKeaTests()
+        useMocks(FAILING_LOAD)
+        const logic = mountAndRender()
+
+        await waitFor(() => expect(screen.getByText("Couldn't load the discussion.")).toBeInTheDocument())
+        // A thread nobody has posted in and a thread that never answered read the same otherwise, so
+        // the reader is invited to start a discussion that may already be underway
+        expect(screen.queryByText('Start the discussion!')).not.toBeInTheDocument()
+        expect(logic.values.comments).toBe(null)
+    })
+
+    it('keeps the error state through a background refresh', async () => {
+        initKeaTests()
+        useMocks(FAILING_LOAD)
+        const logic = mountAndRender()
+
+        await waitFor(() => expect(screen.getByText("Couldn't load the discussion.")).toBeInTheDocument())
+
+        act(() => {
+            logic.actions.refreshComments()
+        })
+        expect(logic.values.commentsLoading).toBe(true)
+        expect(screen.getByText("Couldn't load the discussion.")).toBeInTheDocument()
+
+        await waitFor(() => expect(logic.values.commentsLoading).toBe(false))
+        expect(screen.getByText("Couldn't load the discussion.")).toBeInTheDocument()
     })
 })

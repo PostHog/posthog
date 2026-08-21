@@ -68,7 +68,9 @@ export interface commentsLogicValues {
     user: UserType | null // userLogic
     commentContexts: Record<string, string>
     comments: CommentType[] | null
+    commentsInitialLoadFailed: boolean
     commentsInitialLoading: boolean
+    commentsLoadFailed: boolean
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
     composerDrafts: Record<string, JSONContent | null>
@@ -360,6 +362,7 @@ export interface commentsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         key: (arg: any) => string
         commentsInitialLoading: (comments: CommentType[] | null, commentsLoading: boolean) => boolean
+        commentsInitialLoadFailed: (comments: CommentType[] | null, commentsLoadFailed: boolean) => boolean
         sortedComments: (comments: CommentType[] | null) => CommentType[]
         commentsWithReplies: (sortedComments: CommentType[]) => CommentWithRepliesType[]
         emojiReactionsByComment: (sortedComments: CommentType[]) => Record<string, Record<string, CommentType[]>>
@@ -555,6 +558,19 @@ export const commentsLogic = kea<commentsLogicType>([
                 persistEditedComment: () => true,
                 persistEditedCommentSuccess: () => false,
                 persistEditedCommentFailure: () => false,
+            },
+        ],
+        commentsLoadFailed: [
+            false,
+            {
+                // Deliberately not reset when `refreshComments` starts: the background poll runs every
+                // 20 seconds, so clearing it on the way out would take an error state off screen and
+                // put it back each time the poll came round. It clears when a fetch actually answers.
+                loadComments: () => false,
+                loadCommentsSuccess: () => false,
+                loadCommentsFailure: () => true,
+                refreshCommentsSuccess: () => false,
+                refreshCommentsFailure: () => true,
             },
         ],
     }),
@@ -892,6 +908,14 @@ export const commentsLogic = kea<commentsLogicType>([
         commentsInitialLoading: [
             (s) => [s.comments, s.commentsLoading],
             (comments: CommentType[] | null, commentsLoading: boolean): boolean => !comments && commentsLoading,
+        ],
+
+        // A failed poll over a thread that is already on screen is not worth interrupting anyone for,
+        // so this stays false while there is something to read. It reports only the case where the
+        // reader would otherwise be looking at an empty thread that was never actually fetched.
+        commentsInitialLoadFailed: [
+            (s) => [s.comments, s.commentsLoadFailed],
+            (comments: CommentType[] | null, commentsLoadFailed: boolean): boolean => !comments && commentsLoadFailed,
         ],
 
         sortedComments: [
