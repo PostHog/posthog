@@ -1,10 +1,10 @@
-"""DRF enforcement point for access-control policies owned by this product.
+"""DRF enforcement point for the access-control policies this product owns.
 
-`TeamAndOrgViewSetMixin.get_permissions` composes `WithinSurfaceLimits` into every viewset's
-stack, so a new endpoint gets surface-limit enforcement without knowing limits exist. DRF evaluates
-permission classes with AND semantics: this class is an independent vote and cannot be bypassed by
-another class's internal early return (a `*`-scoped token passing `APIScopePermission` is still
-limited here).
+`TeamAndOrgViewSetMixin.get_permissions` puts `WithinSurfaceLimits` into every viewset's stack.
+A new endpoint gets surface-limit enforcement without knowledge that limits exist. DRF combines
+permission classes with AND semantics, so this class is an independent vote. Another class's
+internal early return cannot bypass it: a `*`-scoped token that passes `APIScopePermission` is
+still limited here.
 """
 
 from typing import Any
@@ -17,13 +17,13 @@ from products.access_control.backend.facade.surface_limits import classify_surfa
 class WithinSurfaceLimits(ScopeBasePermission):
     """Denies actions that exceed the organization's limit for the request's access surface.
 
-    Subclasses ScopeBasePermission only for `_get_required_scopes`, so this class derives
-    an action's read/write nature the same way APIScopePermission does and the two can't
+    This class subclasses ScopeBasePermission only for `_get_required_scopes`. It derives an
+    action's read or write nature the same way `APIScopePermission` does, so the two cannot
     disagree about what counts as a write."""
 
     def has_permission(self, request: Any, view: Any) -> bool:
-        # Cheap exit first: almost every request has no classified surface, and classification
-        # is a couple of isinstance checks with no query.
+        # Cheap exit first: almost every request has no classified surface. Classification
+        # is two isinstance checks and no query.
         if classify_surface(request) is None:
             return True
 

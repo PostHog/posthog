@@ -29,10 +29,6 @@ class TestSurfaceLimitResolution(BaseTest):
 
 
 class TestMCPReadOnlyEnforcement(APIBaseTest):
-    """The regression these guard: a write-scoped token arriving through the MCP surface must be
-    denied when the org limits it, including `*`-scoped tokens, while reads and non-MCP requests
-    stay untouched. No existing test exercises the surface-limit path at all."""
-
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [

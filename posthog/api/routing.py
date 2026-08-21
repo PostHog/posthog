@@ -255,7 +255,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             pass
         else:
             # Domain enforcement and surface limits are tenant boundaries, not authorization
-            # levels: views that shape their own permission chain cannot opt out of them.
+            # levels. Views that shape their own permission chain cannot remove them.
             return [*dangerously_defined, WithinSurfaceLimits(), VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):

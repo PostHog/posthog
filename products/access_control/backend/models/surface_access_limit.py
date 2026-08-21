@@ -4,24 +4,24 @@ from posthog.models.utils import UUIDModel
 
 
 class SurfaceAccessLimit(UUIDModel):
-    """An organization-wide cap on what any principal can do through one access surface, such as
-    the MCP server, a personal API key, or a public share link.
+    """An organization-wide cap on what any principal can do through one access surface.
+    Example surfaces: the MCP server, a personal API key, a public share link.
 
-    Limits are not grants. The grants system (AccessControl rows) answers "what may this
-    principal do"; a limit answers "how much this surface allows", and the effective access is
-    the minimum of the two. A limit therefore applies to every member, admins included:
-    exceptions are future subject-specific limit rows that widen it, never grants.
+    A limit is not a grant. AccessControl rows answer "what may this principal do". A limit
+    answers "how much this surface allows". The effective access is the minimum of the two.
+    A limit applies to every member, including admins. Only a future subject-specific limit
+    row can widen a limit. A grant cannot.
 
-    Absence of a row means the surface is unrestricted. `resource=None` limits every resource;
-    a row naming a resource overrides the wildcard row for that resource.
+    No row means the surface has no limit. A row with `resource=None` limits every resource.
+    A row that names a resource overrides the wildcard row for that resource.
     """
 
     class Surface(models.TextChoices):
         MCP = "mcp"
 
     class MaxLevel(models.TextChoices):
-        # The grants vocabulary, minus levels a limit never needs. "none" disables the
-        # surface; "viewer" makes it read-only.
+        # The grants vocabulary without the levels a limit never needs. "none" disables
+        # the surface. "viewer" makes it read-only.
         NONE = "none"
         VIEWER = "viewer"
         EDITOR = "editor"
@@ -35,8 +35,8 @@ class SurfaceAccessLimit(UUIDModel):
             )
         ]
 
-    # db_constraint=False: posthog_organization is a hot table, and creating a real FK
-    # constraint takes a lock on it that queues behind live writes.
+    # db_constraint=False because posthog_organization is a hot table. A real FK
+    # constraint takes a lock on it, and that lock queues behind live writes.
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,

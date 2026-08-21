@@ -17,16 +17,17 @@ from products.access_control.backend.models.surface_access_limit import SurfaceA
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
-# The outbound identity of services/mcp (see its oauth-constants.ts). Surface classification is
-# governance of the pathway, not a defense against a hostile key holder: the same credential used
-# outside MCP keeps its own scopes, and tightening the credential itself is the mint-time follow-up.
+# The outbound identity of services/mcp (see its oauth-constants.ts). Surface classification
+# governs the pathway. It is not a defense against a hostile key holder: the same credential
+# keeps its own scopes outside MCP. A later change can reduce the credential's scopes at mint
+# time.
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 WRITE_LIMITED_LEVELS = {SurfaceAccessLimit.MaxLevel.NONE, SurfaceAccessLimit.MaxLevel.VIEWER}
 
 
 def classify_surface(request: Any) -> str | None:
-    """The access surface this request arrived through, or None for surfaces without policies."""
+    """The access surface of this request, or None for surfaces without policies."""
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
         user_agent = request.headers.get("User-Agent") or ""
@@ -38,11 +39,12 @@ def classify_surface(request: Any) -> str | None:
 def limit_denial_for_request(
     request: Any, organization: "Organization", resource: str | None, writes: bool
 ) -> str | None:
-    """The complete surface-limit decision: a user-facing denial message when this request's
-    surface is limited below what the action needs, or None to allow.
+    """The complete surface-limit decision. Returns a user-facing denial message when the
+    request's surface is limited below what the action needs. Returns None to allow.
 
-    Owns classification, the entitlement gate, row lookup and the copy, so enforcement points
-    (today `WithinSurfaceLimits`, later the facade's `decide()`) contain no policy of their own."""
+    This function owns classification, the entitlement gate, the row lookup and the copy.
+    Enforcement points (`WithinSurfaceLimits` today, the facade's `decide()` later) contain
+    no policy of their own."""
     if not writes:
         return None
     surface = classify_surface(request)
@@ -62,10 +64,11 @@ def limit_denial_for_request(
 def surface_limit(
     organization: "Organization", surface: str | None, resource: str | None = None
 ) -> SurfaceAccessLimit.MaxLevel | None:
-    """The max level this organization allows through `surface`, or None when unrestricted.
+    """The max level this organization allows through `surface`, or None when the surface has
+    no limit.
 
-    A row naming `resource` overrides the wildcard row. One query per call; callers on hot
-    paths should classify the surface first, since surface=None short-circuits.
+    A row that names `resource` overrides the wildcard row. Each call makes one query. Callers
+    on hot paths can classify the surface first, because surface=None returns with no query.
     """
     if surface is None:
         return None
