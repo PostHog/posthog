@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+import structlog
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -16,6 +17,8 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class QueryErrorCategory(StrEnum):
@@ -90,6 +93,42 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
     "re-upload the file if you manage it yourself), and contact support if it keeps happening."
 )
+
+
+# ClickHouse phrases code 6 as `Cannot parse string 'the actual value' as Float64: ... In scope
+# SELECT toFloat64('the actual value')`, so the message is rebuilt rather than filtered: everything
+# but the target type is either the failing value or the query fragment that contains it. The whole
+# prefix is matched, not a bare `as <Type>`, because the value is arbitrary user data that can itself
+# contain `as Int64`. Only the closed set of type names can reach the reader, and a parameterized
+# target like `Decimal(10, 2)` reports its base name.
+CANNOT_PARSE_TEXT_TARGET_TYPE_PATTERN = re.compile(
+    r"Cannot parse string '[\s\S]*' as (U?Int(?:8|16|32|64|128|256)|Float(?:32|64)"
+    r"|Decimal(?:32|64|128|256)?|DateTime(?:64)?|Date(?:32)?|UUID|Bool|IPv4|IPv6)\b(?:\s*\([^()]*\))?\s*:"
+)
+# The greedy match is quadratic in the number of `Cannot parse string '` occurrences the value can
+# carry, and truncating instead would hand the match to a fake terminator inside the value.
+CANNOT_PARSE_TEXT_SEARCH_LIMIT = 4096
+
+
+def _wrap_cannot_parse_text_error(err: ServerException) -> "CHQueryErrorCannotParseText":
+    # The value is quoted again in the trailing `In scope SELECT ...`, so cutting there leaves the
+    # real `' as <Type>:` last, beating any the value carries. A value that itself contains `In
+    # scope` cuts the window short and matches nothing, which drops the type.
+    head = err.message.partition("In scope")[0]
+    match = CANNOT_PARSE_TEXT_TARGET_TYPE_PATTERN.search(head) if len(head) <= CANNOT_PARSE_TEXT_SEARCH_LIMIT else None
+    if match is None:
+        # Nothing else records the drop, so a ClickHouse rewording would degrade every code 6 message
+        # silently.
+        logger.warning("clickhouse_cannot_parse_text_target_type_unmatched", code=err.code)
+    target = f" as {match.group(1)}" if match else ""
+    return CHQueryErrorCannotParseText(
+        f"A value in your data can't be read{target}. Usually a column holds text that doesn't parse "
+        "as the type the query expects. Cast the column explicitly, or switch to the OrNull variant "
+        "of the conversion function so values that don't parse become NULL instead of failing the "
+        "whole query.",
+        code=err.code,
+        code_name="cannot_parse_text",
+    )
 
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
@@ -187,6 +226,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
     elif name == "CANNOT_PARSE_BOOL":
         return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
+    elif name == "CANNOT_PARSE_TEXT":
+        return _wrap_cannot_parse_text_error(err)
     elif name == "UNSUPPORTED_METHOD":
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
@@ -303,6 +344,13 @@ class CHQueryErrorCannotParseBool(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorCannotParseText(ExposedCHQueryError):
+    """A value in the data can't be read as the type the query expects. Carries a sanitized message,
+    never ClickHouse's, which quotes the offending value."""
+
+    pass
+
+
 class CHQueryErrorUnsupportedMethod(InternalCHQueryError):
     pass
 
@@ -358,8 +406,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
     3: ErrorCodeMeta("UNEXPECTED_END_OF_FILE"),
     4: ErrorCodeMeta("EXPECTED_END_OF_FILE"),
-    # Stays internal: the CH message embeds the failing data value, which would leak stored
-    # data to anonymous viewers of public shared insights. Only user_safe once sanitized.
+    # Sanitized in wrap_clickhouse_query_error rather than user_safe here: the CH message embeds the
+    # failing data value, which would leak stored data to anonymous viewers of public shared insights.
     6: ErrorCodeMeta("CANNOT_PARSE_TEXT", category=QueryErrorCategory.USER_ERROR),
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),

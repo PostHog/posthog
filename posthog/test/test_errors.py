@@ -64,7 +64,6 @@ class TestWrapClickhouseQueryError:
             (62, "SYNTAX_ERROR"),
             # These parse/convert codes embed the failing data value in the CH message, so they stay
             # internal to avoid leaking source values on public shared insights.
-            (6, "CANNOT_PARSE_TEXT"),
             (70, "CANNOT_CONVERT_TYPE"),
             (72, "CANNOT_PARSE_NUMBER"),
             (675, "CANNOT_PARSE_IPV4"),
@@ -79,3 +78,39 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            (
+                "Cannot parse string 'sk_live_hunter2' as Int64: syntax error at begin of string. Note: there "
+                "are toInt64OrZero and toInt64OrNull functions, which returns zero/NULL instead of throwing "
+                "exception: In scope SELECT toInt64('sk_live_hunter2').",
+                "as Int64",
+            ),
+            # A value can contain the phrasing the target type is read from, and ClickHouse quotes the
+            # value again in the trailing scope fragment, so the real target is the last one before it.
+            (
+                "Cannot parse string 'sk_live_hunter2 as Int8: x' as Float64: syntax error at begin of "
+                "string. In scope SELECT toFloat64('sk_live_hunter2 as Int8: x').",
+                "as Float64",
+            ),
+            # Parameterized targets report their base name rather than dropping the type.
+            (
+                "Cannot parse string 'sk_live_hunter2' as Decimal(10, 2): syntax error at begin of string.",
+                "as Decimal",
+            ),
+            # Text columns hold newlines, which must not stop the value from being consumed.
+            ("Cannot parse string 'sk_live\nhunter2' as Int64: syntax error.", "as Int64"),
+            # Past the scan bound the type is dropped rather than risking a match inside the value.
+            (f"Cannot parse string '{'sk_live_hunter2' * 500}' as Int64: syntax error.", "read."),
+            ("Something new ClickHouse phrases another way about sk_live_hunter2.", "read."),
+        ]
+    )
+    def test_cannot_parse_text_is_exposed_without_the_failing_value(self, message: str, expected: str) -> None:
+        err = ServerException(f"DB::Exception: {message}", code=6)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert "sk_live_hunter2" not in str(wrapped)
+        assert expected in str(wrapped)

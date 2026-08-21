@@ -12,6 +12,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.errors import QueryError
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.hogql.database.models import DatabaseField
     from posthog.hogql.functions.core import HogQLFunctionMeta
@@ -798,6 +800,94 @@ def _branch_supertype_or_raise(
         f"Cannot find a common type between `{function_name}` branches of type {' and '.join(type_names)}",
         start=start,
         end=end,
+    )
+
+
+# Scalar families `toString` accepts. Numeric-only and date-only sets are absent on purpose: they
+# always unify, so they never reach a mismatch, and listing them would imply a numeric or date hint
+# is reachable when it isn't.
+_STRING_CASTABLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset(
+    {"string", "fixed_string", "enum", "integer", "float", "decimal", "boolean", "date", "datetime", "uuid"}
+)
+
+
+def _cast_hint_for_families(families: set[RuntimeTypeFamily]) -> Optional[str]:
+    """A cast that can hold every family in the set, to use as an example.
+
+    `toString` is the only one that qualifies here. A narrower hint would have to be wrong at least
+    sometimes - `toFloat64` on a DateTime silently suggests turning a timestamp into epoch seconds.
+    Containers get no example: `toString` would technically unify them by stringifying structured
+    data, which papers over what is far more likely a modeling mistake than an intent."""
+    return "toString" if families <= _STRING_CASTABLE_FAMILIES else None
+
+
+@frozen
+class SetOperationColumnTypeMismatch:
+    """One column position of a set operation whose branches have no common supertype."""
+
+    column_name: str
+    type_names: tuple[str, ...]
+    cast_hint: Optional[str]
+    start: Optional[int]
+    end: Optional[int]
+
+    @property
+    def message(self) -> str:
+        if len(self.type_names) == 2:
+            types = " and ".join(self.type_names)
+        else:
+            types = f"{', '.join(self.type_names[:-1])}, and {self.type_names[-1]}"
+        message = (
+            f"Cannot find a common type for column `{self.column_name}` between the branches of "
+            f"this set operation, of type {types}"
+        )
+        if self.cast_hint is None:
+            return message
+        # The example wraps the expression rather than the column name, because a branch that only
+        # defines the name with AS cannot refer to it: the alias registers after its own expression
+        # resolves, so `toString(token) as token` fails to resolve `token`.
+        return f"{message}. Cast the column in every branch, e.g. `{self.cast_hint}(<expression>)`"
+
+
+def describe_set_operation_type_mismatch(
+    column_name: str,
+    column_type: ast.ConstantType,
+    branch_types: list[ast.ConstantType],
+    branch_exprs: Sequence[Optional[ast.Expr]],
+) -> Optional[SetOperationColumnTypeMismatch]:
+    """Name a set operation column that could not be unified, so the reader learns which column is at
+    fault instead of bisecting the query by hand.
+
+    This describes rather than raises, because a warning reaches the editor as the reader types while
+    raising would reject the query outright. ClickHouse fails such a column with NO_COMMON_TYPE at
+    execution, so the warning is the earlier and more specific half of the same diagnosis. Branches
+    whose inferred type is a guess rather than a fact are skipped, and unanalyzable branches could be
+    any type at all - see _branch_type_is_untrustworthy."""
+    if not isinstance(column_type, ast.UnknownType) or column_type.unanalyzable:
+        return None
+    known = [
+        (branch_type, branch_exprs[index] if index < len(branch_exprs) else None)
+        for index, branch_type in enumerate(branch_types)
+        if not isinstance(branch_type, ast.UnknownType)
+    ]
+    if len(known) < 2 or any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
+        return None
+    # Branch order, not sorted: the reader maps the first type named to the first branch they wrote.
+    type_names = tuple(dict.fromkeys(branch_type.print_type() for branch_type, _ in known))
+    if len(type_names) < 2:
+        return None
+    # The first branch that departs from the leading type is the one that broke unification. Spanning
+    # every branch instead would mark the whole UNION, which is what the reader already knew.
+    culprit = next(
+        (expr for branch_type, expr in known if expr is not None and branch_type.print_type() != type_names[0]),
+        None,
+    )
+    return SetOperationColumnTypeMismatch(
+        column_name=column_name,
+        type_names=type_names,
+        cast_hint=_cast_hint_for_families({runtime_type_from_constant_type(t).family for t, _ in known}),
+        start=culprit.start if culprit is not None else None,
+        end=culprit.end if culprit is not None else None,
     )
 
 

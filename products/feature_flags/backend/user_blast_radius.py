@@ -31,11 +31,12 @@ class BlastRadiusResult:
     total: int
 
 
-# ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
-# 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
-# value casts 'None' to Float64 and fails deterministically. Both are classified USER_ERROR in
-# posthog/errors.py but not user_safe, so they wrap to InternalCHQueryError, not Exposed.
-_VALUE_PARSE_CH_ERROR_CODES = frozenset({6, 72})
+# 72 CANNOT_PARSE_NUMBER means the literal can't be parsed as the column's type, e.g. a numeric
+# operator (gt/lt) against a null or non-numeric filter value casts 'None' to Float64 and fails
+# deterministically. It is classified USER_ERROR in posthog/errors.py but not user_safe, so it wraps
+# to InternalCHQueryError. 6 CANNOT_PARSE_TEXT belongs to the same family but already wraps to an
+# ExposedCHQueryError, so it is caught above.
+_VALUE_PARSE_CH_ERROR_CODES = frozenset({72})
 
 
 @contextmanager

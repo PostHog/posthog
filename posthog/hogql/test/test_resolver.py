@@ -569,6 +569,77 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    @parameterized.expand(
+        [
+            (
+                "select 1 as token union all select 'abc' as token",
+                "Cannot find a common type for column `token` between the branches of this set operation, of "
+                "type Integer and String. Cast the column in every branch, e.g. `toString(<expression>)`",
+                "'abc' as token",
+            ),
+            (
+                "select now() as ts union all select 1 as ts",
+                "Cannot find a common type for column `ts` between the branches of this set operation, of type "
+                "DateTime and Integer. Cast the column in every branch, e.g. `toString(<expression>)`",
+                "1 as ts",
+            ),
+            # A container branch gets no cast example - stringifying an array would "work" but hides
+            # what is far more likely a mistake.
+            (
+                "select [1, 2] as items union all select 'abc' as items",
+                "Cannot find a common type for column `items` between the branches of this set operation, of "
+                "type Array and String",
+                "'abc' as items",
+            ),
+            # Three types read as a list, and in branch order, so the reader can line each type up
+            # with the branch they wrote.
+            (
+                "select 1 as x union all select 'abc' as x union all select [1] as x",
+                "Cannot find a common type for column `x` between the branches of this set operation, of type "
+                "Integer, String, and Array",
+                "'abc' as x",
+            ),
+            # INTERSECT and EXCEPT reach the same unification, so the wording cannot name UNION.
+            (
+                "select 1 as x intersect select 'abc' as x",
+                "Cannot find a common type for column `x` between the branches of this set operation, of type "
+                "Integer and String. Cast the column in every branch, e.g. `toString(<expression>)`",
+                "'abc' as x",
+            ),
+        ]
+    )
+    def test_set_operation_column_type_mismatch_warns_naming_the_column(
+        self, query: str, expected: str, expected_marked: str
+    ):
+        node = parse_select(query)
+        resolve_types(node, self.context, dialect="clickhouse")
+
+        assert [warning.message for warning in self.context.warnings] == [expected]
+        # The SQL editor renders the warning as a marker over this span. Spanning every branch would
+        # mark the whole union and leave the reader back where they started, so it points at the
+        # branch that broke unification.
+        warning = self.context.warnings[0]
+        assert query[warning.start : warning.end] == expected_marked
+
+    @parameterized.expand(
+        [
+            # An integer branch and a float branch have a common supertype, so a column mixing them
+            # is not a mismatch and must stay quiet however plausible a warning would look.
+            ("select 1 as n union all select 2.5 as n", "Float"),
+            ("select toDate('2020-01-01') as d union all select now() as d", "DateTime"),
+            ("select null as n union all select 1 as n", "Integer"),
+            ("select properties.foo as p from events union all select 1 as p", "Unknown"),
+        ]
+    )
+    def test_unifiable_set_operation_columns_do_not_warn(self, query: str, expected_type: str):
+        # resolve_types clones rather than mutating, so the resolved types are on the return value.
+        resolved = cast(ast.SelectSetQuery, resolve_types(parse_select(query), self.context, dialect="clickhouse"))
+
+        assert self.context.warnings == []
+        assert resolved.type is not None
+        column_type = cast(ast.ConstantType, next(iter(resolved.type.columns.values())))
+        assert column_type.print_type() == expected_type
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_call_type(self):
         node = self._select("select max(timestamp) from events")
