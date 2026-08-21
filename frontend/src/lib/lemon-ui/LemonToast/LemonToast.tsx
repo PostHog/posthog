@@ -161,6 +161,81 @@ function ensureToastId<T>(
     return { ...toastOptions, toastId }
 }
 
+const URL_REGEX = /https?:\/\/\S+/g
+// \S+ swallows punctuation after a URL, so sentence-ending characters are split back off the match.
+const TRAILING_PUNCTUATION_REGEX = /[.,;:!?)"']+$/
+
+function splitUrlMatch(match: string): { url: string; punctuation: string } {
+    const url = match.replace(TRAILING_PUNCTUATION_REGEX, '')
+    return { url, punctuation: match.slice(url.length) }
+}
+
+function linkifyInline(text: string): (string | JSX.Element)[] {
+    const nodes: (string | JSX.Element)[] = []
+    let cursor = 0
+    for (const match of text.matchAll(URL_REGEX)) {
+        const { url, punctuation } = splitUrlMatch(match[0])
+        if (match.index! > cursor) {
+            nodes.push(text.slice(cursor, match.index))
+        }
+        nodes.push(
+            <Link key={match.index} to={url} target="_blank">
+                {url}
+            </Link>
+        )
+        if (punctuation) {
+            nodes.push(punctuation)
+        }
+        cursor = match.index! + match[0].length
+    }
+    if (cursor < text.length) {
+        nodes.push(text.slice(cursor))
+    }
+    return nodes
+}
+
+/**
+ * Backend error details often end in a raw docs URL ("... see our docs: https://posthog.com/docs/..."),
+ * which as plain toast text is unclickable and wraps over several lines. A URL ending the message is
+ * folded into a "Learn more" link, and a URL mid-message becomes a link in place.
+ */
+export function withClickableUrls(message: string | JSX.Element): string | JSX.Element {
+    if (typeof message !== 'string') {
+        return message
+    }
+    const trimmed = message.trimEnd()
+    const matches = Array.from(trimmed.matchAll(URL_REGEX))
+    if (matches.length === 0) {
+        return message
+    }
+    const last = matches[matches.length - 1]
+    if (last.index! + last[0].length < trimmed.length) {
+        return <>{linkifyInline(trimmed)}</>
+    }
+    const { url } = splitUrlMatch(last[0])
+    // The lead-in separator (": " or a space) reads as dangling once the URL moves into the link label,
+    // so it is dropped and the sentence closed with a period instead.
+    let lead = trimmed.slice(0, last.index).replace(/[\s:]+$/, '')
+    if (!lead) {
+        return (
+            <Link to={url} target="_blank">
+                {url}
+            </Link>
+        )
+    }
+    if (!/[.!?]$/.test(lead)) {
+        lead += '.'
+    }
+    return (
+        <>
+            {linkifyInline(lead)}{' '}
+            <Link to={url} target="_blank">
+                Learn more
+            </Link>
+        </>
+    )
+}
+
 function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
     const status = getIncidentStatus()
     if (status === 'operational') {
@@ -268,7 +343,7 @@ export const lemonToast = {
             toast.error(
                 <ToastContent
                     type="error"
-                    message={withIncidentNote(message)}
+                    message={withIncidentNote(withClickableUrls(message))}
                     // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
                     button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                     id={id}
@@ -314,7 +389,7 @@ export const lemonToast = {
                         return (
                             <ToastContent
                                 type="error"
-                                message={withIncidentNote(data?.message || messages.error)}
+                                message={withIncidentNote(withClickableUrls(data?.message || messages.error))}
                                 button={button}
                                 id={id}
                             />
