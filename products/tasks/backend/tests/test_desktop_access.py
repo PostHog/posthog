@@ -146,17 +146,6 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
-    @patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision")
-    @patch(
-        "products.tasks.backend.logic.services.code_usage_gate.get_authenticator_scopes",
-        return_value=["task:write", "internal_run:read"],
-    )
-    def test_internal_run_credentials_bypass_human_gate(self, _mock_scopes, mock_decision) -> None:
-        request = MagicMock()
-
-        self.assertIsNone(code_access_required_response(request, self.organization))
-        mock_decision.assert_not_called()
-
     @patch("products.tasks.backend.access._get_funding_status")
     def test_access_code_does_not_affect_authorization_after_rollout(self, mock_funding) -> None:
         invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=1, is_active=True)

@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.conf import settings
 
@@ -9,12 +10,13 @@ from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import OAuthAccessToken
 from posthog.permissions import get_authenticator_scopes
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
-from posthog.temporal.oauth import create_oauth_access_token_for_user
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
 from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
@@ -171,9 +173,30 @@ def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Res
     )
 
 
-def code_access_required_response(request: Request, organization: "Organization") -> Response | None:
-    authenticator_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
-    if "internal_run:read" in authenticator_scopes:
+def _task_bound_internal_run(request: Request, task_id: str | UUID | None) -> bool:
+    authenticator = getattr(request, "successful_authenticator", None)
+    authenticator_scopes = get_authenticator_scopes(authenticator) or []
+    if "internal_run:read" not in authenticator_scopes or task_id is None:
+        return False
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+
+    access_token = authenticator.access_token
+    application = access_token.application
+    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return False
+
+    try:
+        parsed_task_id = UUID(str(task_id))
+    except ValueError:
+        return False
+    return access_token.sandbox_task_id == parsed_task_id
+
+
+def code_access_required_response(
+    request: Request, organization: "Organization", *, task_id: str | UUID | None = None
+) -> Response | None:
+    if _task_bound_internal_run(request, task_id):
         return None
 
     try:

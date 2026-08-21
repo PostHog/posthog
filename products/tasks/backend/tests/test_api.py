@@ -12092,6 +12092,42 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_task_bound_internal_run_bypasses_access_for_its_own_task(self, _mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        client = self._sandbox_oauth_client(task.id, internal_scope=True)
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_task_bound_internal_run_cannot_bypass_access_for_another_task(self, mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        bound_task = self.create_task()
+        other_task = self.create_task()
+        client = self._sandbox_oauth_client(bound_task.id, internal_scope=True)
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{other_task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(TaskRun.objects.filter(task=other_task).exists())
+        mock_gate.assert_not_called()
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_forged_signal_report_origin_without_report_still_403s(self, mock_gate, mock_workflow):
         # `origin_product` is client input on task create, so an FK-less signal_report claim

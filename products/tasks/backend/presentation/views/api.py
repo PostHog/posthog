@@ -1030,7 +1030,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # "Discuss", scout chat), so the Desktop policy applies only to tasks whose Inbox
         # entitlement the server can't verify. See task_exempt_from_code_access.
         if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
-            access_response := code_access_required_response(request, self.organization)
+            access_response := code_access_required_response(request, self.organization, task_id=pk)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1375,7 +1375,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
             if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-                access_response := code_access_required_response(request, self.organization)
+                access_response := code_access_required_response(request, self.organization, task_id=task_id)
             ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1441,7 +1441,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.organization)
+            access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -2416,7 +2416,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.organization)
+            access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -2540,7 +2540,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Inbox discussion tasks are server-verifiable policy exemptions. Every other command
             # that starts or resumes model work follows the same Desktop policy as TaskViewSet.run.
             if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-                access_response := code_access_required_response(request, self.organization)
+                access_response := code_access_required_response(request, self.organization, task_id=task_id)
             ):
                 return access_response
 
@@ -2621,7 +2621,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "get_state",
                 }
                 and not tasks_facade.task_exempt_from_code_access(task_id, self.team_id)
-                and (access_response := code_access_required_response(request, self.organization))
+                and (access_response := code_access_required_response(request, self.organization, task_id=task_id))
             ):
                 return access_response
 
@@ -2919,7 +2919,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Resume also runs in cloud: gate before handoff.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.organization)
+            access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
