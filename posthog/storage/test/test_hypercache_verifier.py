@@ -1148,8 +1148,6 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixAllTeamsDeadline(BaseTest):
-    """Test that verify_and_fix_all_teams winds down at a batch boundary once stop_time passes."""
-
     @parameterized.expand(
         [
             # A passed deadline breaks after the first (chunk_size=1) batch, leaving the

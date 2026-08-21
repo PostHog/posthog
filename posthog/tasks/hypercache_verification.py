@@ -41,8 +41,10 @@ CacheType = Literal["flags", "team_metadata"]
 
 # Each task locks for its own hard time limit, passed in as ``self.time_limit``. A
 # crashed task that never runs its finally block still releases the lock when the
-# timeout expires. Every task's hard limit is <= its schedule interval, so that
-# expiry lands before the next scheduled run and a crash skips no runs.
+# timeout expires. The timeout is measured from lock acquisition, and every task's
+# hard limit is <= its schedule interval, so under on-time scheduling that expiry
+# lands before the next scheduled run and a crash skips no runs. A run that starts
+# late enough for its lock to outlive the next tick skips at most one run.
 
 # Wind the sweep down this long before the soft time limit, so the batch-boundary
 # deadline check trips before Celery's SoftTimeLimitExceeded can fire mid-batch. Must

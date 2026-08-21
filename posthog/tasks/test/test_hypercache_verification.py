@@ -299,14 +299,18 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         success = self.registry.get_sample_value("posthog_celery_verify_and_fix_flag_definitions_cache_task_success")
         assert success == 1
 
+    @patch("posthog.tasks.hypercache_verification.time.monotonic", return_value=1000.0)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
-    def test_passes_monotonic_deadline_to_sweep(self, mock_run_verification: MagicMock) -> None:
+    def test_passes_monotonic_deadline_to_sweep(
+        self, mock_run_verification: MagicMock, _mock_monotonic: MagicMock
+    ) -> None:
         # The flag_definitions task threads its own soft time limit down as the deadline.
         mock_run_verification.return_value = VerificationResult()
 
         verify_and_fix_flag_definitions_cache_task()
 
-        assert mock_run_verification.call_args.kwargs["stop_time"] is not None
+        expected = 1000.0 + (verify_and_fix_flag_definitions_cache_task.soft_time_limit - DEADLINE_HEADROOM_SECONDS)
+        assert mock_run_verification.call_args.kwargs["stop_time"] == expected
 
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
     def test_releases_lock_after_error(self, mock_run_verification: MagicMock) -> None:
