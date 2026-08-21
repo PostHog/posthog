@@ -29,6 +29,8 @@ export function getHiddenSettingsCategories({
   localWorkspaces,
   quickAskAvailable = false,
 }: SettingsVisibility): ReadonlySet<SettingsCategory> {
+  // SettingsPanel drops these from its nav and its search, and redirects
+  // direct navigation to one, so a deep link can't reach them either.
   const hiddenCategories = new Set<SettingsCategory>();
 
   if (!billingEnabled && !spendAnalysisEnabled) {
@@ -39,9 +41,6 @@ export function getHiddenSettingsCategories({
       hiddenCategories.add(category);
     }
   }
-  // Better to hide the page than to leave one whose controls silently do
-  // nothing. SettingsPanel also redirects direct navigation to a hidden
-  // category, so a deep link can't reach it either.
   if (!quickAskAvailable) {
     hiddenCategories.add("quick-ask");
   }

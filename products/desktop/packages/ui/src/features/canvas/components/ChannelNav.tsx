@@ -230,7 +230,9 @@ export function ChannelNav() {
   const renderNavItem: Record<CustomizableNavItemId, () => ReactNode> = {
     inbox: () => (
       <NavIcon
-        icon={<EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />}
+        icon={
+          <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
+        }
         label="Inbox"
         shortcut={formatHotkey(SHORTCUTS.INBOX)}
         isActive={isInbox}
