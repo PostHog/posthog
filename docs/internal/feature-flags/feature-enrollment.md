@@ -55,15 +55,21 @@ The enrollment property key is **derived from the flag key** (`$feature_enrollme
 ### Legacy `super_groups`
 
 Enrollment used to be a `filters.super_groups` block — an array of condition sets, each with a `$feature_enrollment/{flag_key}` property.
-The `feature_enrollment` boolean replaced that representation, which was then fully removed from Rust, Python, and the frontend.
+The `feature_enrollment` boolean replaced it as the enrollment mechanism.
 
-`super_groups` now survives only as a legacy passthrough key:
+The **flag matcher** no longer evaluates `super_groups`.
+The Rust `FlagFilters` struct keeps unknown keys in its `extra` map, so `super_groups` round-trips through the cache but is never read during matching.
 
-- The Rust `FlagFilters` struct keeps unknown keys in its `extra` map, so the cache round-trip does not drop them.
+But `super_groups` is **not** fully removed. Stored values persist, and compatibility code outside the matcher still reads them:
+
+- The backfill migrations (`1076_backfill_feature_enrollment`, `1078_backfill_feature_enrollment_fix`) only add `feature_enrollment = true`; they do not strip `super_groups`. The key is removed only opportunistically, when a flag is next saved (`api/feature_flag.py`), so rows nobody has edited still carry it.
+- Python still reads it for behavior: `group_cohort_restriction_blocker` (`facade/filters.py`) and `is_unconditionally_fully_rolled_out` (`persisted_flags.py`) treat its presence as a blocker, and the experiment freeze-exposure control renders that blocker as a user-facing message. The resource-transfer visitors walk `("groups", "super_groups")` to collect and rewrite cohort and action ids, and `flags_cache._GROUP_LEVEL_LIST_KEYS` lists it for cache-drift comparison.
+- The frontend still declares `super_groups` on `FeatureFlagFilters` (`frontend/src/types.ts`) and reads it: the experiment freeze-exposure guard checks it, and the flag AI context copies its value and count.
+
+Do not add new `super_groups` — write `feature_enrollment` instead. New writes are steered to the marker:
+
 - The Python filters schema lists `super_groups` in `LEGACY_UNKNOWN_FILTER_KEYS`.
 - `set_feature_enrollment` (the facade transform) drops any `super_groups` key when it writes the marker.
-
-Do not add new `super_groups`. Read and write `feature_enrollment` instead.
 
 ## The enrollment property
 
