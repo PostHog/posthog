@@ -25,23 +25,23 @@ If the question is project-wide ("what should I clean up?"), use `auditing-endpo
 
 ## Available tools
 
-| Tool                                  | Purpose                                                                                        |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `endpoint-get`                        | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
-| `endpoint-versions`                   | History of every version (query + materialisation state); which version is current             |
-| `endpoint-materialization-status`     | Whether materialisation is eligible, current state, last run, last error                       |
-| `endpoints-materialization-preview`   | What the materialised query would look like, plus the rejection reason if ineligible           |
-| `endpoints-last-execution-times`      | When was it last called (endpoint-level sanity-check that it is in active use)                 |
-| `execute-sql`                         | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
+| Tool                                | Purpose                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `endpoint-get`                      | Full endpoint config: query, current version, `data_freshness_seconds`, materialisation status |
+| `endpoint-versions`                 | History of every version (query + materialisation state); which version is current             |
+| `endpoint-materialization-status`   | Whether materialisation is eligible, current state, last run, last error                       |
+| `endpoints-materialization-preview` | What the materialised query would look like, plus the rejection reason if ineligible           |
+| `endpoints-last-execution-times`    | When was it last called (endpoint-level sanity-check that it is in active use)                 |
+| `execute-sql`                       | Query `query_log` for endpoint-level call frequency and per-call duration/bytes                |
 
 The two AI rewrite tools below are gated behind the `endpoints-ai-materialization-fix`
 feature. When that feature is off, they do not appear in your tool catalog. Step 3 works
 without them — treat them as an accelerator, not a requirement.
 
-| Tool (feature-gated)                  | Purpose                                                                                        |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks           |
-| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting           |
+| Tool (feature-gated)                  | Purpose                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------ |
+| `endpoint-materialization-suggestion` | Server-side AI rewrite of an ineligible SQL query, validated against the live checks |
+| `endpoint-materialization-conditions` | Source code of the live eligibility checks + the rewrite contract, for DIY rewriting |
 
 ## The decision tree
 
