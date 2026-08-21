@@ -719,8 +719,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 export_format=format_mapping[export_format],
                 export_context={
-                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
-                    "method": "GET",
+                    "api_export": {
+                        "kind": "project_api_path",
+                        "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
+                    },
                     "filters": serializable_filters,
                     "filename": filename,
                 },

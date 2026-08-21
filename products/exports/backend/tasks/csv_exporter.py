@@ -8,7 +8,7 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, NoReturn, Optional, Protocol
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
 
@@ -408,18 +408,25 @@ def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: s
     raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
 
 
+def _resolve_api_export_path(exported_asset: ExportedAsset, resource: dict) -> str:
+    api_export = resource.get("api_export")
+    if not isinstance(api_export, dict) or api_export.get("kind") != "project_api_path":
+        _raise_invalid_export_authorization(exported_asset, "unsupported_api_export")
+    path = api_export.get("path")
+    parsed_path = urlparse(path) if isinstance(path, str) else None
+    if (
+        parsed_path is None
+        or parsed_path.scheme
+        or parsed_path.netloc
+        or not unquote(parsed_path.path).startswith(f"/api/projects/{exported_asset.team_id}/")
+        or ".." in unquote(parsed_path.path).split("/")
+    ):
+        _raise_invalid_export_authorization(exported_asset, "invalid_api_export_path")
+    return path
+
+
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
-    path: str = resource["path"]
-    method: str = resource.get("method", "GET")
-    body = resource.get("body", None)
-    if method.upper() != "GET" or body is not None:
-        logger.error(
-            "csv_exporter.unsupported_api_request",
-            exported_asset_id=exported_asset.id,
-            method=method,
-            has_body=body is not None,
-        )
-        raise ValueError("This export request is no longer supported. Create a new export and try again.")
+    path = _resolve_api_export_path(exported_asset, resource)
     source_authentication = exported_asset.source_authentication
     if source_authentication is None:
         _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
@@ -435,15 +442,20 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         token_payload["oauth_access_token_id"] = exported_asset.source_credential_id
     elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
         _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
+    token_audience = (
+        PosthogJwtAudience.IMPERSONATED_USER
+        if source_authentication == ExportedAsset.SourceAuthentication.SESSION
+        else PosthogJwtAudience.DELEGATED_USER
+    )
     access_token = encode_jwt(
         token_payload,
         datetime.timedelta(minutes=15),
-        PosthogJwtAudience.DELEGATED_USER,
+        token_audience,
     )
     total = 0
     while total < CSV_EXPORT_LIMIT:
         try:
-            response = make_api_call(access_token, body, limit, method, next_url, path)
+            response = make_api_call(access_token, None, limit, "GET", next_url, path)
         except HTTPError as e:
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as

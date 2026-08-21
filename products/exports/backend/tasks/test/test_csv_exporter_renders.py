@@ -41,7 +41,12 @@ def test_csv_rendering(
     asset = ExportedAsset(
         team=team,
         export_format=ExportedAsset.ExportFormat.CSV,
-        export_context={"path": "/api/literally/anything"},
+        export_context={
+            "api_export": {
+                "kind": "project_api_path",
+                "path": f"/api/projects/{team.id}/literally/anything",
+            }
+        },
         source_authentication=ExportedAsset.SourceAuthentication.SESSION,
     )
     export_context = cast(dict[str, Any], asset.export_context)

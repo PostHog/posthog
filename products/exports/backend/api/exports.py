@@ -41,7 +41,6 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     is_valid_session_recording_id,
 )
-from products.exports.backend.source_authentication import get_export_source_authentication
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
 from products.product_analytics.backend.facade.models import Insight
 
@@ -119,12 +118,8 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
-        if export_context.get("path") and (
-            str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
-        ):
-            raise ValidationError(
-                {"export_context": ["Exports from API endpoints only support GET requests without a request body."]}
-            )
+        if "path" in export_context or "api_export" in export_context:
+            raise ValidationError({"export_context": ["API endpoint exports cannot be created through this endpoint."]})
         # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
         # and rejecting it here would 400 exports that never touch a recording.
         session_recording_id = export_context.get("session_recording_id")
@@ -202,13 +197,6 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
-        source_authentication = get_export_source_authentication(request.successful_authenticator)
-        if source_authentication is not None:
-            validated_data.update(source_authentication)
-        elif (validated_data.get("export_context") or {}).get("path"):
-            raise ValidationError(
-                {"export_context": ["Exports from API endpoints do not support this authentication method."]}
-            )
         self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
 

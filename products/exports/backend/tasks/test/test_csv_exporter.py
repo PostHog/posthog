@@ -18,7 +18,6 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
-from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
@@ -116,13 +115,16 @@ class TestCSVExporter(APIBaseTest):
             yield patched_request
 
     def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
-        if extra_context is None:
-            extra_context = {}
+        extra_context = dict(extra_context or {})
+        path = extra_context.pop("path", f"/api/projects/{self.team.id}/literally/anything")
 
         asset = ExportedAsset(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"path": "/api/literally/anything", **extra_context},
+            export_context={
+                "api_export": {"kind": "project_api_path", "path": path},
+                **extra_context,
+            },
             source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
@@ -374,15 +376,40 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(ValueError, match="could not verify its original authorization"):
             csv_exporter.export_tabular(exported_asset)
 
-    @parameterized.expand(
+    def test_path_based_export_rejects_caller_selected_path(self) -> None:
+        exported_asset = self._create_asset()
+        exported_asset.export_context = {"path": f"/api/projects/{self.team.id}/persons/"}
+
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            csv_exporter.export_tabular(exported_asset)
+
+    @pytest.mark.parametrize(
+        "path",
         [
-            ("method", {"method": "POST"}),
-            ("body", {"body": {"value": "payload"}}),
-        ]
+            "/api/projects/999999/persons/",
+            "/api/projects/1/../organizations/",
+            "/api/projects/1/%2e%2e/organizations/",
+            "https://example.com/api/projects/1/persons/",
+        ],
     )
-    def test_path_based_export_rejects_mutating_requests(self, _name: str, extra_context: dict[str, Any]) -> None:
-        with pytest.raises(ValueError, match="export request is no longer supported"):
-            csv_exporter.export_tabular(self._create_asset(extra_context))
+    def test_path_based_export_rejects_unbound_internal_path(self, path: str) -> None:
+        exported_asset = self._create_asset({"path": path.replace("/projects/1/", f"/projects/{self.team.id}/")})
+
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            csv_exporter.export_tabular(exported_asset)
+
+    @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
+    def test_path_based_session_export_uses_impersonated_user_audience(self, patched_api_call: MagicMock) -> None:
+        response = Mock()
+        response.json.return_value = {"next": None, "results": []}
+        patched_api_call.return_value = response
+
+        csv_exporter.export_tabular(self._create_asset())
+
+        access_token = patched_api_call.call_args.args[0]
+        decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
@@ -1658,7 +1685,12 @@ class TestCSVExporter(APIBaseTest):
             exported_asset = ExportedAsset(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
-                export_context={"path": "/api/test/endpoint"},
+                export_context={
+                    "api_export": {
+                        "kind": "project_api_path",
+                        "path": f"/api/projects/{self.team.id}/test/endpoint",
+                    }
+                },
                 source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
