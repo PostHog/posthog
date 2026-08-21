@@ -3749,9 +3749,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
-                if (tileSpacing !== 'standard') {
-                    eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
-                }
+                eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)

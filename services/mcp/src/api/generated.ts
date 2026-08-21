@@ -4754,6 +4754,10 @@ export namespace Schemas {
     export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentFunnelMetric {
+      /** How to attribute the breakdown value across funnel steps. */
+      breakdownAttributionType?: BreakdownAttributionType | null;
+      /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+      breakdownAttributionValue?: number | null;
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
@@ -44611,11 +44615,24 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
+      /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+      provider: string;
+    }
+
+    export interface LLMProviderModelsSummary {
+      /** Supported provider value, exactly as the `provider` param accepts it. */
+      provider: string;
+      /** How many of this provider's models appear in `models`. */
+      model_count: number;
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+      requires_provider_key: boolean;
     }
 
     export interface LLMModelsListResponse {
-      /** Models supported for the requested provider. */
+      /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
       models: LLMModelInfo[];
+      /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+      providers: LLMProviderModelsSummary[];
     }
 
     /**
@@ -91365,13 +91382,13 @@ export namespace Schemas {
 
     export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string;
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider;
+    provider?: LlmAnalyticsModelsRetrieveProvider;
     };
 
     export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
