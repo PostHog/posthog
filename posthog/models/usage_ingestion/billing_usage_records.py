@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}
 )
 ENGINE = {billing_usage_records_data_table_engine()}
 PARTITION BY toYYYYMM(event_timestamp)
-ORDER BY (team_id, producer_id, record_id, version)
+ORDER BY (team_id, event_timestamp, producer_id, record_id, version)
 """
 
 
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS {BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
 """
 
 
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS {WRITABLE_BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
 """
 
 

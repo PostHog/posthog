@@ -1086,6 +1086,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
+                    {
+                        name: 'Materialized views',
+                        searchPlaceholder: 'materialized views',
+                        type: TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
+                        logic: dataWarehouseSettingsSceneLogic,
+                        value: 'materializedViews',
+                        valueLoading: 'materializedViewsLoading',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
+                        getPopoverHeader: () => 'Materialized view',
+                        getIcon: () => <IconServer />,
+                    },
                     ...(schemaColumns.length > 0 || schemaColumnsLoading
                         ? [
                               {

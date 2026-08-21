@@ -145,9 +145,7 @@ describe("EvidenceRefChip", () => {
         </SessionTaskIdProvider>,
       );
 
-      fireEvent.click(
-        screen.getByRole("button", { name: `${kind} reference` }),
-      );
+      fireEvent.focus(screen.getByRole("link", { name: `${kind} reference` }));
       expect(
         screen.getByRole("button", { name: "Ask about this" }),
       ).toBeDefined();
