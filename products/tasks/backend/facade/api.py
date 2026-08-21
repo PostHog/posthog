@@ -412,6 +412,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "pending_user_message_id",
         "pr_authorship_mode",
         "pr_base_branch",
+        "prewarmed",
         "provider",
         "reasoning_effort",
         "repositories",
