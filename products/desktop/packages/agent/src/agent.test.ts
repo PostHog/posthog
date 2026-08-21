@@ -89,4 +89,59 @@ describe("Agent", () => {
     ];
     expect(config.claudeGatewayEnv?.posthogProjectId).toBe("7");
   });
+
+  it("adds task attribution to local Claude gateway headers", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        origin_product: "posthog_code",
+        repositories: ["org/repo"],
+      }),
+    });
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("task-1", "run-1", { adapter: "claude" });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+      "x-posthog-property-task_id: task-1",
+    );
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+      'x-posthog-property-task_repositories: ["org/repo"]',
+    );
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+      "x-posthog-property-task_execution_environment: local",
+    );
+  });
+
+  it("does not fetch or add task attribution for preview sessions", async () => {
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("__preview__", "run-1", { adapter: "claude" });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/tasks/__preview__/"),
+      expect.anything(),
+    );
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toBe("");
+  });
 });

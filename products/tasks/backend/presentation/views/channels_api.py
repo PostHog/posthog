@@ -30,6 +30,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    ProvisionedChannelsSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
     TaskActivityPageSerializer,
@@ -57,9 +58,10 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    API for task channels — the shared feeds tasks are kicked off in. Listing lazily
-    provisions the requester's personal "#me" channel; creation is resolve-or-create
-    by normalized name so clients can map channel-like surfaces onto backend channels.
+    API for task channels — the shared feeds tasks are kicked off in. The
+    provision_defaults action get-or-creates the requester's personal "#me" channel and
+    the team's shared "#general" channel; creation is resolve-or-create by normalized
+    name so clients can map channel-like surfaces onto backend channels.
     """
 
     authentication_classes = [
@@ -76,6 +78,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions", "context_generation"]
     scope_object_write_actions = [
         "create",
+        "provision_defaults",
         "partial_update",
         "destroy",
         "publish_instructions",
@@ -98,11 +101,37 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
         summary="List channels",
-        description="All live public channels plus the requester's personal #me channel (created on first list).",
+        description=(
+            "All live public channels plus the requester's personal #me channel when it exists, "
+            "sorted by name. Listing does not provision; call provision_defaults to create the "
+            "default channels."
+        ),
     )
     def list(self, request, *args, **kwargs):
         channels = tasks_facade.list_channels(self.team_id, self._user_id())
         return Response(ChannelSerializer(channels, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=ProvisionedChannelsSerializer,
+                description="The channel list plus which default channels this call created",
+            )
+        },
+        summary="Provision default channels",
+        description=(
+            "Get-or-create the requester's personal #me channel and the team's shared #general "
+            "channel, and report which of the two this call created. Idempotent."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="provision_defaults")
+    def provision_defaults(self, request: Request, **kwargs) -> Response:
+        user_id = self._user_id()
+        if user_id is None:
+            raise PermissionDenied("Provisioning default channels requires a user.")
+        provisioned = tasks_facade.provision_default_channels(self.team_id, user_id)
+        return Response(ProvisionedChannelsSerializer(provisioned).data)
 
     @extend_schema(
         request=ChannelWriteSerializer,
@@ -110,7 +139,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Resolve or create a public channel",
         description=(
             "Returns the existing public channel with the (normalized) name, creating it if needed. "
-            "A channel created here is starred for the requester unless star is false."
+            "A channel created here is starred for the requester unless star is false. "
+            "The general name returns the team's general space; names that read as a private "
+            'space ("me", "personal") are rejected.'
         ),
     )
     def create(self, request, **kwargs):
@@ -139,6 +170,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be renamed")
+        if result == "general":
+            raise PermissionDenied("The general space can't be renamed")
         if result == "invalid_name":
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
@@ -164,6 +197,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if result == "personal":
             raise PermissionDenied("Your private space cannot be deleted")
+        if result == "general":
+            raise PermissionDenied("The general space can't be deleted")
         if result == "not_empty":
             return Response(
                 {"detail": "Remove this space's tasks and canvases before deleting it."},

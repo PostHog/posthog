@@ -5,6 +5,7 @@ import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,6 +23,15 @@ import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/e
 
 const ISSUE_ID = 'issue-id'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
+const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
+const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
+    results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+        fingerprint,
+        x: Math.cos(index * 1.7) * (1 + (index % 3) * 0.4),
+        y: Math.sin(index * 1.7) * (1 + (index % 4) * 0.3),
+    })),
+    hasMore: false,
+}
 const STORY_STACK_FRAME_RESULTS = stackFrameResults.map((record) => ({
     ...record,
     raw_id: record.raw_id.includes('/') ? record.raw_id : `${record.raw_id}/0`,
@@ -264,13 +274,11 @@ const meta: Meta = {
                     200,
                     {
                         next: null,
-                        results: [
-                            {
-                                fingerprint: FINGERPRINT,
-                                issue_id: ISSUE_ID,
-                                created_at: STORY_TIMESTAMPS.at(-1),
-                            },
-                        ],
+                        results: STORY_FINGERPRINTS.map((fingerprint, index) => ({
+                            fingerprint,
+                            issue_id: ISSUE_ID,
+                            created_at: STORY_TIMESTAMPS[index % STORY_TIMESTAMPS.length],
+                        })),
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
@@ -287,6 +295,9 @@ const meta: Meta = {
                     const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.ErrorTrackingFingerprintProjectionQuery) {
+                        return [200, STORY_FINGERPRINT_PROJECTION_RESPONSE]
                     }
                     if (body.query?.kind === NodeKind.EventsQuery) {
                         return body.query.select?.includes('properties.$exception_list')
@@ -439,6 +450,15 @@ export const GroupPageCappedBreakdownPanel: Story = {
     render: () => (
         <IssueScenePreviewStory activePreview="properties" selectedEventProperties={STORY_MANY_EVENT_PROPERTIES} />
     ),
+}
+
+export const GroupPageFingerprintMap: Story = {
+    name: 'Issue scene with fingerprint map',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
+    },
+    render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
 }
 
 export const GroupPageBreakdownLoading: Story = {

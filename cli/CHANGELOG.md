@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.13.3 — 2026-08-20
+
+### Patch changes
+
+- [ee7d6424091](https://github.com/PostHog/posthog/commit/ee7d642409193f1dd781651c931991a70497712e) Linux release binaries now embed a GNU build id, so native crash reports from the CLI can be matched to uploaded debug symbols. — Thanks @ablaszkiewicz!
+
+## 0.13.2 — 2026-08-20
+
+### Patch changes
+
+- [029c984bdef](https://github.com/PostHog/posthog/commit/029c984bdefc2a09acb7975e29de052fcf0144d7) Retry symbol set uploads through the standard S3 endpoint when the transfer-acceleration endpoint is unreachable, so uploads complete on networks that block the accelerate domain. A 5 second connect timeout on uploads makes unreachable endpoints fail fast. — Thanks @ablaszkiewicz!
+
+## 0.13.1 — 2026-08-20
+
+### Patch changes
+
+- [fd234e17b30](https://github.com/PostHog/posthog/commit/fd234e17b301dcf20ffac31d839a773d400af933) Improve CLI error diagnostics with native stack symbolication metadata, release debug symbols, and structured categories for local file and parsing failures. — Thanks @hpouillot!
+
 ## 0.13.0 — 2026-08-18
 
 ### Minor changes

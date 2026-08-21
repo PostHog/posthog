@@ -1,12 +1,15 @@
 import {
   ArchiveIcon,
   CaretRightIcon,
+  DotsThreeIcon,
   FolderSimpleIcon,
   PencilSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
   SquaresFourIcon,
+  StopCircle,
   TrashIcon,
+  UserSwitchIcon,
 } from "@phosphor-icons/react";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
@@ -18,6 +21,10 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
@@ -30,7 +37,7 @@ import {
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
-import { type ComponentType, type ReactNode, useMemo } from "react";
+import { type ComponentType, type ReactNode, useMemo, useState } from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
@@ -53,10 +60,13 @@ export interface TaskRowMenuProps {
   onAddToCommandCenter?: () => void;
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
+  onStop?: () => void;
   onTogglePin: () => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
+  /** Owner-only: handing a task to a colleague needs a confirm dialog. */
+  onHandoff?: () => void;
 }
 
 // The two menus differ only in which primitives draw them, so the item list is
@@ -78,6 +88,12 @@ const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
+};
+
+const DROPDOWN_PARTS: MenuParts = {
+  Item: DropdownMenuItem,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
 };
 
 /**
@@ -125,6 +141,12 @@ function TaskRowMenuItems({
           Rename
         </Item>
       )}
+      {menu.onStop && (
+        <Item onClick={menu.onStop}>
+          <StopCircle size={14} />
+          Stop task
+        </Item>
+      )}
       {isTask && (
         <Item
           disabled={!menu.onAddToCommandCenter}
@@ -151,6 +173,12 @@ function TaskRowMenuItems({
             />
           </MenuSubFlyout>
         </Sub>
+      )}
+      {isTask && menu.onHandoff && (
+        <Item onClick={menu.onHandoff}>
+          <UserSwitchIcon size={14} />
+          Hand off…
+        </Item>
       )}
       {menu.onArchive && (
         <Item onClick={menu.onArchive}>
@@ -254,6 +282,30 @@ function TaskRowBulkMenuItems({
  * `onSubmenuOpenChange` reports the one thing that *is* a popup ("File to…"), so
  * a hover surface can stay open while the pointer is inside it.
  */
+export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label={`Options for ${menu.title || "task"}`}
+            onClick={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        <DotsThreeIcon size={14} weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <TaskRowMenuItems parts={DROPDOWN_PARTS} menu={menu} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TaskRowMenuList({
   menu,
   onAction,

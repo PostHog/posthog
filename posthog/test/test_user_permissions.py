@@ -10,7 +10,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.models.dashboard_privilege import DashboardPrivilege
 

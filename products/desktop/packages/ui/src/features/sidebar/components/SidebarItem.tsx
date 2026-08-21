@@ -77,6 +77,10 @@ export function SidebarItem({
       className={cn(
         "group flex w-full cursor-default text-left text-[13px] leading-snug transition-colors",
         "disabled:opacity-100",
+        // A second row outgrows the button's fixed height, and the overflow
+        // lands on the row below it. The padding stands in for the height the
+        // row gives up.
+        subtitle && "h-auto py-1",
         // The open row keeps its neutral background on its own, and takes the
         // accent only once it is part of a selection, a shade above the rows
         // picked around it.
@@ -127,7 +131,7 @@ export function SidebarItem({
           ) : null}
         </span>
         {subtitle ? (
-          <span className="truncate text-gray-10 group-data-active:text-gray-11">
+          <span className="truncate text-muted-foreground/70 text-xxs group-data-active:text-muted-foreground">
             {subtitle}
           </span>
         ) : null}
