@@ -36,6 +36,6 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             raise MaxToolRetryableError(str(e))
         except OperationalError as e:
             raise MaxToolTransientError(
-                f"Reading the taxonomy timed out against the database: {e}. This can happen on large projects. "
+                "Reading the taxonomy timed out. This can happen on large projects. "
                 "You may retry, or read a narrower part of the taxonomy."
-            )
+            ) from e
