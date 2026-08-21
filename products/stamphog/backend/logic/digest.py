@@ -12,6 +12,7 @@ wrong, and a wrong count is the one error a reader can see without opening anyth
 
 from __future__ import annotations
 
+import re
 import json
 from dataclasses import asdict, field
 from typing import TYPE_CHECKING, Any
@@ -38,6 +39,12 @@ _SOURCE_PRODUCT = "stamphog_digest"
 # lines into a channel, and Slack rejects the message outright past 50 blocks. What it removes is
 # deferred to the next run rather than dropped (see _capped_summary).
 MAX_DIGEST_PRS = 10
+
+# A link the model wrote into the headline, in either a bare or a Slack-wrapped form. The channel
+# post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
+# one is attached to the change it opens. A headline carrying one is rejected rather than repaired,
+# because cutting the URL out of a sentence leaves the punctuation around the hole behind.
+_HEADLINE_URL_RE = re.compile(r"https?://")
 
 
 @frozen
@@ -227,7 +234,12 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "it, which most readers never open, so the headline has to stand alone: someone who reads it",
         "and nothing else must still learn the thing that could catch them out.",
         "- Cover the one or two changes with the most consequence. Do not summarize the whole list.",
-        "- One to three sentences. Every style rule above applies to it unchanged.",
+        "- One to three sentences that run on from each other as a single paragraph. It is read the",
+        "  way a person reads a message from a colleague, not scanned the way a list is.",
+        "- Every style rule above applies to it unchanged.",
+        "- No links, no URLs, no PR numbers, no repository names, and no author names. The thread",
+        "  carries the link for every change, so a reader who wants the diff is one click from it.",
+        "- No bullets, no numbered points, no line breaks, and no headings. Plain sentences only.",
         "- Open with what is true now. Do not open with a count, a date, or the word digest.",
         "- Name the area in the words the team uses, so a reader can tell whether it touches them.",
         "- Never mention a change you left out of the prs list.",
@@ -290,14 +302,24 @@ def _strip_code_fence(content: str) -> str:
 
 
 def _headline(data: dict[str, Any]) -> str:
-    """The model's channel-level prose, or "" when it gave none.
+    """The model's channel-level paragraph, or "" when it gave none or gave one we will not post.
 
-    A non-string value is dropped rather than coerced. The headline is the one part of the digest a
-    reader sees without opening the thread, so a stringified list or dict in the channel is worse
-    than the scope line the renderer falls back to.
+    Whitespace collapses to single spaces, so a headline the model broke into lines or bullets still
+    reads as the one paragraph the channel post is meant to be.
+
+    Anything that is not a plain string, and anything carrying a link, is dropped rather than
+    repaired. This is the one part of the digest a reader sees without opening the thread, so a
+    stringified dict or a raw URL in the middle of a sentence is worse there than the scope line the
+    renderer falls back to.
     """
     headline = data.get("headline")
-    return headline.strip() if isinstance(headline, str) else ""
+    if not isinstance(headline, str):
+        return ""
+    paragraph = " ".join(headline.split())
+    if _HEADLINE_URL_RE.search(paragraph):
+        logger.warning("stamphog_digest_headline_rejected_link")
+        return ""
+    return paragraph
 
 
 def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> DigestSummary:

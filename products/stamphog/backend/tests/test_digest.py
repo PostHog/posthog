@@ -475,6 +475,38 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
             _parse_llm_response(content, prs_by_index)
 
 
+@pytest.mark.parametrize(
+    "raw_headline,expected",
+    [
+        ("The scanner stops at 24 months.", "The scanner stops at 24 months."),
+        ("  The scanner stops.\n\n It also logs.  ", "The scanner stops. It also logs."),
+        ("- The scanner stops.\n- It also logs.", "- The scanner stops. - It also logs."),
+        ("See https://github.com/o/r/pull/1 for the change.", ""),
+        ("<https://github.com/o/r/pull/1|The scanner stops.>", ""),
+        (["not", "a", "string"], ""),
+    ],
+    ids=[
+        "a_plain_paragraph_survives",
+        "line_breaks_collapse_into_one_paragraph",
+        "a_list_collapses_rather_than_reaching_the_channel_as_lines",
+        "a_bare_url_drops_the_whole_headline",
+        "a_slack_link_drops_the_whole_headline",
+        "a_non_string_drops_the_whole_headline",
+    ],
+)
+def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headline: Any, expected: str) -> None:
+    # The headline is the only part posted where a reader cannot choose to skip it, and it is meant
+    # to read as prose. A model that answers with bullets puts the list back in the channel, and one
+    # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
+    # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
+    # with the scope line instead.
+    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "summary": "Ship it."}]})
+    summary = _parse_llm_response(content, {0: _pr_stub("o/r", 1, "Ship it", "https://example.com/1")})
+    assert summary.headline == expected
+    # A rejected headline never costs the change line it was written over.
+    assert len(summary.prs) == 1
+
+
 def _slack_channel(team: Any) -> DigestChannel:
     integration = Integration.objects.create(
         team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
