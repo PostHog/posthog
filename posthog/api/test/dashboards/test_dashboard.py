@@ -699,6 +699,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
             evaluation_runtime="all",
         )
+        self.assertGreater(len(_mock_get_flags.call_args_list), 0)
         self.assertTrue(all(flag_call == expected_flag_call for flag_call in _mock_get_flags.call_args_list))
 
     @patch(
