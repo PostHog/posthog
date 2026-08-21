@@ -519,6 +519,9 @@ export class PiAgentServer {
         environment: "cloud",
         taskId: this.config.taskId,
         taskRunId: this.config.runId,
+        // Same condition the `repository-tools` extension uses below: with no repo on disk,
+        // the session needs the tools that find one and clone it.
+        channelMode: !this.config.repositoryPath,
         baseBranch: this.config.baseBranch,
         peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       },
