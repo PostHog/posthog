@@ -383,6 +383,11 @@ def _fix_and_record(
     if config.get_primary_writer_fn is not None:
         try:
             writer = config.get_primary_writer_fn(team.id)
+        except SoftTimeLimitExceeded:
+            # The task ran out of time during attribution, not an attribution
+            # failure. Let it propagate so the run winds down, matching the write
+            # path below and the other guards in this file.
+            raise
         except Exception:
             # Attribution must never fail the repair itself.
             writer = "unknown"

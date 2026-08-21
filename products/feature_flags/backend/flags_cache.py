@@ -43,6 +43,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.kafka_client.routing import producer_scope
@@ -1076,6 +1077,11 @@ def get_team_primary_flags_writer(team_id: int) -> str:
     """
     try:
         result = _evaluate_kafka_routing_flag(team_id)
+    except SoftTimeLimitExceeded:
+        # A Celery soft-time-limit is a task-control signal, not an attribution
+        # failure. Let it propagate so the verify sweep winds down, matching the
+        # other SoftTimeLimitExceeded guards in the verifier.
+        raise
     except Exception:
         return "unknown"
     if result is None:
