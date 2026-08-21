@@ -64,20 +64,22 @@ class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner
     def breakdown(self) -> MarketingAnalyticsAttributionBreakdown:
         return self.query.breakdownBy or MarketingAnalyticsAttributionBreakdown.CHANNEL
 
-    @cached_property
-    def goal(self) -> ConversionGoal:
-        """The requested goal, found among the team's configured goals.
+    def resolve_goal(self, goal_id: str | None) -> ConversionGoal:
+        """The named goal, found among the team's configured goals.
 
         Data warehouse goals are rejected rather than silently mis-attributed: their conversions live in
         a warehouse table keyed by distinct_id, but these queries collect conversions from one `events`
         scan grouped by person_id, so there is nothing to join them on here.
+
+        Takes the id rather than reading it off the query: retention resolves two goals, one that starts
+        a cohort and one that counts as coming back.
         """
         all_goals = self._get_team_conversion_goals()
         goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
         self._valid_conversion_goals_count = len(goals)
 
         for goal in goals:
-            if goal.conversion_goal_id == self.query.conversionGoalId:
+            if goal.conversion_goal_id == goal_id:
                 if goal.kind == "DataWarehouseNode":
                     raise ValueError(
                         f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
@@ -85,28 +87,22 @@ class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner
                     )
                 return goal
 
-        # Only one goal is queried at a time, so another goal being unusable is not this query's problem.
-        # Only report it when it's the goal that was actually asked for.
-        skipped = next((g for g in all_goals if g.conversion_goal_id == self.query.conversionGoalId), None)
+        # Another goal being unusable is not this query's problem. Only report it when it's the goal
+        # that was actually asked for.
+        skipped = next((g for g in all_goals if g.conversion_goal_id == goal_id), None)
         if skipped is not None:
-            reason = next(
-                (s.message for s in skipped_goals if s.conversion_goal_id == self.query.conversionGoalId), None
-            )
+            reason = next((s.message for s in skipped_goals if s.conversion_goal_id == goal_id), None)
             raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
 
-        raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
+        raise ValueError(f"Conversion goal '{goal_id}' not found for this team")
 
-    @cached_property
-    def conversion_condition(self) -> ast.Expr:
+    def condition_for_goal(self, goal: ConversionGoal) -> ast.Expr:
         """True for an event row that counts as a conversion for this goal.
 
         Shared with the Dashboard's pipeline so the two can't drift on what a conversion is, which
         includes the goal's own property filters: a goal scoped to purchases over $100 has to mean that
         here too, or this table reports a different number than the Dashboard for the same goal.
-
-        Cached because the query references it three times, and the action branch hits Postgres.
         """
-        goal = self.goal
         condition = conversion_goal_condition(goal, self.team)
         if condition is None:
             # Validation already rejected the goals with nothing to match on, so what's left is an
@@ -116,6 +112,15 @@ class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner
                 "Update the goal in marketing analytics settings, or pick another goal."
             )
         return condition
+
+    @cached_property
+    def goal(self) -> ConversionGoal:
+        return self.resolve_goal(self.query.conversionGoalId)
+
+    @cached_property
+    def conversion_condition(self) -> ast.Expr:
+        """Cached because the query references it three times, and the action branch hits Postgres."""
+        return self.condition_for_goal(self.goal)
 
     def _conversion_value_expr(self) -> ast.Expr:
         """Value of one conversion: the goal's math property under SUM math, otherwise 1.

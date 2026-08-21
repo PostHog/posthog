@@ -11416,6 +11416,13 @@
                 "returningEvent": {
                     "$ref": "#/definitions/MarketingAnalyticsRetentionReturningEvent"
                 },
+                "startConversionGoalName": {
+                    "description": "Set only for conversion_goal starts, for the header copy.",
+                    "type": "string"
+                },
+                "startEvent": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionStartEvent"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -11467,6 +11474,7 @@
                 "otherBreakdownCount",
                 "results",
                 "returningEvent",
+                "startEvent",
                 "timezone",
                 "totalCohortSize",
                 "truncatedCohorts"
@@ -34239,6 +34247,14 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionReturningEvent",
                     "description": "What counts as coming back. Defaults to activity."
                 },
+                "startConversionGoalId": {
+                    "description": "conversion_goal_id of the goal that starts a cohort. Required when startEvent is conversion_goal.",
+                    "type": "string"
+                },
+                "startEvent": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionStartEvent",
+                    "description": "What puts a person in a cohort, and which period they land in. Defaults to arrival. Persons are always acquired within the date range, whichever this is, so a person who converted in the range but arrived before it is not counted."
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
@@ -34316,6 +34332,13 @@
                 "returningEvent": {
                     "$ref": "#/definitions/MarketingAnalyticsRetentionReturningEvent"
                 },
+                "startConversionGoalName": {
+                    "description": "Set only for conversion_goal starts, for the header copy.",
+                    "type": "string"
+                },
+                "startEvent": {
+                    "$ref": "#/definitions/MarketingAnalyticsRetentionStartEvent"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -34360,6 +34383,7 @@
                 "otherBreakdownCount",
                 "results",
                 "returningEvent",
+                "startEvent",
                 "totalCohortSize",
                 "truncatedCohorts"
             ],
@@ -34377,7 +34401,7 @@
                     "type": "string"
                 },
                 "cohortDate": {
-                    "description": "Start of the acquisition period, in the team's timezone.",
+                    "description": "Start of the cohort's period, in the team's timezone.",
                     "format": "date-time",
                     "type": "string"
                 },
@@ -34387,10 +34411,10 @@
                 },
                 "cohortSize": {
                     "$ref": "#/definitions/integer",
-                    "description": "Persons whose first session fell in this period with this breakdown value. Not derivable from values[0]: with a conversion-goal return event, period 0 counts converters, not arrivals."
+                    "description": "Persons who started a cohort in this period with this breakdown value. Not derivable from values[0]: with a conversion-goal return event, period 0 counts converters, not starters."
                 },
                 "values": {
-                    "description": "One per column, index = periods since acquisition. Always intervalCount long.",
+                    "description": "One per column, index = periods since the cohort started. Always intervalCount long.",
                     "items": {
                         "$ref": "#/definitions/MarketingAnalyticsRetentionCell"
                     },
@@ -34399,6 +34423,11 @@
             },
             "required": ["breakdownValue", "cohortDate", "cohortIndex", "cohortSize", "values"],
             "type": "object"
+        },
+        "MarketingAnalyticsRetentionStartEvent": {
+            "description": "What puts a person in a cohort, and which period they land in.",
+            "enum": ["arrival", "conversion_goal"],
+            "type": "string"
         },
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
@@ -41839,6 +41868,13 @@
                         "returningEvent": {
                             "$ref": "#/definitions/MarketingAnalyticsRetentionReturningEvent"
                         },
+                        "startConversionGoalName": {
+                            "description": "Set only for conversion_goal starts, for the header copy.",
+                            "type": "string"
+                        },
+                        "startEvent": {
+                            "$ref": "#/definitions/MarketingAnalyticsRetentionStartEvent"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -41883,6 +41919,7 @@
                         "otherBreakdownCount",
                         "results",
                         "returningEvent",
+                        "startEvent",
                         "totalCohortSize",
                         "truncatedCohorts"
                     ],

@@ -3145,6 +3145,11 @@ class MarketingAnalyticsRetentionReturningEvent(StrEnum):
     CONVERSION_GOAL = "conversion_goal"
 
 
+class MarketingAnalyticsRetentionStartEvent(StrEnum):
+    ARRIVAL = "arrival"
+    CONVERSION_GOAL = "conversion_goal"
+
+
 class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     STRING = "string"
     INTEGER = "integer"

@@ -12,6 +12,7 @@ from posthog.schema import (
     MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsRetentionQuery,
     MarketingAnalyticsRetentionReturningEvent,
+    MarketingAnalyticsRetentionStartEvent,
     PropertyOperator,
 )
 
@@ -31,6 +32,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_retention_quer
 
 GOAL_ID = "goal-1"
 CONVERSION_EVENT = "purchase"
+SIGNUP_GOAL_ID = "goal-2"
+SIGNUP_EVENT = "signed_up"
 
 # Every timestamp below is a Wednesday, so a cohort can't drift into the neighbouring week whichever
 # day the team's week starts on.
@@ -61,7 +64,17 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
                 schema_map={},
                 math=BaseMathType.TOTAL,
                 counts_as_revenue=False,
-            ).model_dump()
+            ).model_dump(),
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=SIGNUP_EVENT,
+                name="Sign ups",
+                conversion_goal_id=SIGNUP_GOAL_ID,
+                conversion_goal_name="Sign ups",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+                counts_as_revenue=False,
+            ).model_dump(),
         ]
         config.save()
 
@@ -97,6 +110,9 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
     def _conversion(self, distinct_id: str, at: str) -> None:
         _create_event(team=self.team, event=CONVERSION_EVENT, distinct_id=distinct_id, timestamp=at)
 
+    def _signup(self, distinct_id: str, at: str) -> None:
+        _create_event(team=self.team, event=SIGNUP_EVENT, distinct_id=distinct_id, timestamp=at)
+
     def _query(
         self,
         breakdown: MarketingAnalyticsAttributionBreakdown = MarketingAnalyticsAttributionBreakdown.SOURCE,
@@ -106,6 +122,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         interval: MarketingAnalyticsRetentionInterval = MarketingAnalyticsRetentionInterval.WEEK,
         total_intervals: int = 4,
         returning_event: MarketingAnalyticsRetentionReturningEvent = MarketingAnalyticsRetentionReturningEvent.ACTIVITY,
+        start_event: MarketingAnalyticsRetentionStartEvent = MarketingAnalyticsRetentionStartEvent.ARRIVAL,
+        start_goal_id: str = GOAL_ID,
         only_new_users: bool = True,
         exclude_direct: bool = False,
         exclude_unattributed: bool = False,
@@ -120,6 +138,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             totalIntervals=total_intervals,
             returningEvent=returning_event,
             conversionGoalId=GOAL_ID,
+            startEvent=start_event,
+            startConversionGoalId=start_goal_id,
             onlyNewUsers=only_new_users,
             excludeDirectTraffic=exclude_direct,
             excludeUnattributed=exclude_unattributed,
@@ -428,6 +448,84 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         row = response.results[0]
         self.assertEqual(row.values[1].count, 1)
         self.assertEqual(row.values[1].rate, 1.0)
+
+    def test_a_goal_start_places_the_person_in_the_period_they_converted(self):
+        # The point of the goal start: someone who arrived in week 0 and signed up in week 2 belongs to
+        # the week 2 cohort, so the columns count from the signup. Keying the row off the arrival would
+        # answer the question the arrival start already answers.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+        self._signup("p1", WEEK_2)
+        self._conversion("p1", WEEK_3)
+
+        response = self._run(
+            start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL,
+            start_goal_id=SIGNUP_GOAL_ID,
+            returning_event=MarketingAnalyticsRetentionReturningEvent.CONVERSION_GOAL,
+        )
+
+        row = response.results[0]
+        self.assertEqual(row.cohortIndex, 2)
+        # Purchased one period after signing up, and the two axes resolved different goals to get here.
+        self.assertEqual([cell.count for cell in row.values], [0, 1, 0, 0])
+        self.assertEqual(response.startConversionGoalName, "Sign ups")
+        self.assertEqual(response.conversionGoalName, "Purchases")
+
+    def test_a_goal_start_still_credits_the_channel_that_acquired_them(self):
+        # The breakdown has to stay the acquiring channel even when the conversion happens in a later
+        # session from somewhere else. Reading it off the converting session is the obvious alternative
+        # and would make "Channel" mean something different here than on the attribution tab.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+        self._session("p1", WEEK_1, utm_source="bing")
+        self._conversion("p1", WEEK_1)
+
+        response = self._run(start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL)
+
+        self.assertEqual([row.breakdownValue for row in response.results], ["google"])
+
+    def test_a_goal_start_keys_off_the_first_conversion_not_a_later_one(self):
+        # A repeat converter must not have their row move every time they convert again.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+        self._conversion("p1", WEEK_1)
+        self._conversion("p1", WEEK_3)
+
+        response = self._run(start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL)
+
+        self.assertEqual([row.cohortIndex for row in response.results], [1])
+
+    def test_converting_then_converting_again_shows_up_as_a_later_column(self):
+        # The fourth quadrant end to end: cohorted on the goal and counting the same goal, which is how
+        # "do the people who pay keep paying" gets asked.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+        self._conversion("p1", WEEK_1)
+        self._conversion("p1", WEEK_2)
+
+        response = self._run(
+            start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL,
+            returning_event=MarketingAnalyticsRetentionReturningEvent.CONVERSION_GOAL,
+        )
+
+        row = response.results[0]
+        self.assertEqual(row.cohortIndex, 1)
+        self.assertEqual([cell.count for cell in row.values], [1, 1, 0, 0])
+
+    def test_a_goal_start_leaves_out_someone_acquired_before_the_range(self):
+        # A known limitation, kept honest here: the breakdown is read off an in-range first session, so
+        # a person who converted inside the range but arrived before it has no channel to credit and
+        # drops out. Loosening the join to keep them would silently report them as unattributed.
+        create_person(team=self.team, distinct_ids=["old"])
+        create_person(team=self.team, distinct_ids=["new"])
+        self._session("old", BEFORE_RANGE, utm_source="google")
+        self._conversion("old", WEEK_1)
+        self._session("new", WEEK_0, utm_source="google")
+        self._conversion("new", WEEK_1)
+
+        response = self._run(start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL, only_new_users=False)
+
+        self.assertEqual(sum(row.cohortSize for row in response.results), 1)
 
     def test_property_filters_narrow_the_cohort_and_the_return(self):
         # The filters have to reach both arms. Applied only to the cohort side, a filtered-out person

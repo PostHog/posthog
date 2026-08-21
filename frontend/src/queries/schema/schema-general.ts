@@ -7232,6 +7232,17 @@ export enum MarketingAnalyticsRetentionInterval {
     Month = 'month',
 }
 
+/** What puts a person in a cohort, and which period they land in. */
+export enum MarketingAnalyticsRetentionStartEvent {
+    /** Their first session. The cohort period is when they arrived. */
+    Arrival = 'arrival',
+    /**
+     * Their first completion of the goal named by startConversionGoalId. The cohort period is when they
+     * converted, not when they arrived, so the columns count from the conversion.
+     */
+    ConversionGoal = 'conversion_goal',
+}
+
 /** What a person has to do to count as having come back. */
 export enum MarketingAnalyticsRetentionReturningEvent {
     /** Any pageview. */
@@ -7257,6 +7268,14 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     retentionInterval?: MarketingAnalyticsRetentionInterval
     /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
     totalIntervals?: integer
+    /**
+     * What puts a person in a cohort, and which period they land in. Defaults to arrival. Persons are
+     * always acquired within the date range, whichever this is, so a person who converted in the range
+     * but arrived before it is not counted.
+     */
+    startEvent?: MarketingAnalyticsRetentionStartEvent
+    /** conversion_goal_id of the goal that starts a cohort. Required when startEvent is conversion_goal. */
+    startConversionGoalId?: string
     /** What counts as coming back. Defaults to activity. */
     returningEvent?: MarketingAnalyticsRetentionReturningEvent
     /** conversion_goal_id of the goal to count. Required when returningEvent is conversion_goal. */
@@ -7291,16 +7310,16 @@ export interface MarketingAnalyticsRetentionCell {
 
 export interface MarketingAnalyticsRetentionRow {
     breakdownValue: string
-    /** Start of the acquisition period, in the team's timezone. @format date-time */
+    /** Start of the cohort's period, in the team's timezone. @format date-time */
     cohortDate: string
     /** 0-based position of this cohort from the range start. */
     cohortIndex: integer
     /**
-     * Persons whose first session fell in this period with this breakdown value. Not derivable from
-     * values[0]: with a conversion-goal return event, period 0 counts converters, not arrivals.
+     * Persons who started a cohort in this period with this breakdown value. Not derivable from
+     * values[0]: with a conversion-goal return event, period 0 counts converters, not starters.
      */
     cohortSize: integer
-    /** One per column, index = periods since acquisition. Always intervalCount long. */
+    /** One per column, index = periods since the cohort started. Always intervalCount long. */
     values: MarketingAnalyticsRetentionCell[]
 }
 
@@ -7311,9 +7330,12 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
     interval: MarketingAnalyticsRetentionInterval
     /** Column headers, e.g. ['Week 0', 'Week 1', ...]. */
     labels: string[]
+    startEvent: MarketingAnalyticsRetentionStartEvent
     returningEvent: MarketingAnalyticsRetentionReturningEvent
     /** Set only for conversion_goal returns, for the header copy. */
     conversionGoalName?: string
+    /** Set only for conversion_goal starts, for the header copy. */
+    startConversionGoalName?: string
     /** How many breakdown values were folded into 'Other', so the table can say so. */
     otherBreakdownCount: integer
     /**

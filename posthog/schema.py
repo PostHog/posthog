@@ -165,6 +165,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsRetentionReturningEvent as MarketingAnalyticsRetentionReturningEvent,
+    MarketingAnalyticsRetentionStartEvent as MarketingAnalyticsRetentionStartEvent,
     MarketingAnalyticsSchemaFieldTypes as MarketingAnalyticsSchemaFieldTypes,
     MatchedOn as MatchedOn,
     MatchField as MatchField,
@@ -5865,19 +5866,19 @@ class MarketingAnalyticsRetentionRow(BaseModel):
         extra="forbid",
     )
     breakdownValue: str
-    cohortDate: AwareDatetime = Field(..., description="Start of the acquisition period, in the team's timezone.")
+    cohortDate: AwareDatetime = Field(..., description="Start of the cohort's period, in the team's timezone.")
     cohortIndex: int = Field(..., description="0-based position of this cohort from the range start.")
     cohortSize: int = Field(
         ...,
         description=(
-            "Persons whose first session fell in this period with this breakdown value."
-            " Not derivable from values[0]: with a conversion-goal return event, period"
-            " 0 counts converters, not arrivals."
+            "Persons who started a cohort in this period with this breakdown value. Not"
+            " derivable from values[0]: with a conversion-goal return event, period 0"
+            " counts converters, not starters."
         ),
     )
     values: list[MarketingAnalyticsRetentionCell] = Field(
         ...,
-        description=("One per column, index = periods since acquisition. Always intervalCount long."),
+        description=("One per column, index = periods since the cohort started. Always intervalCount long."),
     )
 
 
@@ -12887,6 +12888,11 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
     )
     results: list[MarketingAnalyticsRetentionRow]
     returningEvent: MarketingAnalyticsRetentionReturningEvent
+    startConversionGoalName: str | None = Field(
+        default=None,
+        description="Set only for conversion_goal starts, for the header copy.",
+    )
+    startEvent: MarketingAnalyticsRetentionStartEvent
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -18953,6 +18959,11 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
     )
     results: list[MarketingAnalyticsRetentionRow]
     returningEvent: MarketingAnalyticsRetentionReturningEvent
+    startConversionGoalName: str | None = Field(
+        default=None,
+        description="Set only for conversion_goal starts, for the header copy.",
+    )
+    startEvent: MarketingAnalyticsRetentionStartEvent
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20736,6 +20747,11 @@ class QueryResponseAlternative35(BaseModel):
     )
     results: list[MarketingAnalyticsRetentionRow]
     returningEvent: MarketingAnalyticsRetentionReturningEvent
+    startConversionGoalName: str | None = Field(
+        default=None,
+        description="Set only for conversion_goal starts, for the header copy.",
+    )
+    startEvent: MarketingAnalyticsRetentionStartEvent
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -26813,6 +26829,21 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     )
     returningEvent: MarketingAnalyticsRetentionReturningEvent | None = Field(
         default=None, description="What counts as coming back. Defaults to activity."
+    )
+    startConversionGoalId: str | None = Field(
+        default=None,
+        description=(
+            "conversion_goal_id of the goal that starts a cohort. Required when startEvent is conversion_goal."
+        ),
+    )
+    startEvent: MarketingAnalyticsRetentionStartEvent | None = Field(
+        default=None,
+        description=(
+            "What puts a person in a cohort, and which period they land in. Defaults to"
+            " arrival. Persons are always acquired within the date range, whichever"
+            " this is, so a person who converted in the range but arrived before it is"
+            " not counted."
+        ),
     )
     tags: QueryLogTags | None = None
     totalIntervals: int | None = Field(

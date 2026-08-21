@@ -10,6 +10,19 @@ brought me", rather than "the events that happened to carry this channel's tag" 
 `RetentionQuery` with a session-property breakdown would give, and which mixes several channels into one
 person's history.
 
+Both ends of the question are configurable, and the four combinations are all worth asking:
+
+| start     | return     | question                                        |
+|-----------|------------|-------------------------------------------------|
+| arrival   | activity   | do the users this channel brings come back?      |
+| arrival   | conversion | how long do this channel's users take to convert?|
+| conversion| activity   | do the people who convert here stick around?     |
+| conversion| conversion | do the people who convert keep converting?       |
+
+Under a goal start the row is the period of a person's **first conversion**, not of their arrival, so
+the columns count from the event that matters. The breakdown still comes from their first session,
+because a channel row has to mean the channel that acquired them on every surface.
+
 Two things this deliberately does that core retention does not:
 
 1. `onlyNewUsers` excludes anyone who was already here before the range. Without it, a channel's cohorts
@@ -32,6 +45,7 @@ from posthog.schema import (
     MarketingAnalyticsRetentionQueryResponse,
     MarketingAnalyticsRetentionReturningEvent,
     MarketingAnalyticsRetentionRow,
+    MarketingAnalyticsRetentionStartEvent,
 )
 
 from posthog.hogql import ast
@@ -43,7 +57,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRI
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to_start_of_interval
 
-from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
+from .session_breakdown_base import ConversionGoal, MarketingSessionBreakdownQueryRunnerBase
 
 # Weekly by default. A daily grain over a 90-day range is 90 cohort rows per breakdown value before
 # anyone has misconfigured anything, and marketing questions are asked in weeks anyway.
@@ -81,6 +95,7 @@ _INTERVAL_LABEL: dict[MarketingAnalyticsRetentionInterval, str] = {
 }
 
 # CTE names.
+_FIRST_SESSION_CTE = "first_session"
 _ACQUISITION_CTE = "acquisition"
 _ACTIVITY_CTE = "activity"
 _COHORT_SIZES_CTE = "cohort_sizes"
@@ -93,6 +108,9 @@ _SUMMARY_CTE = "summary"
 _ACTOR_ID = "actor_id"
 _BREAKDOWN_VALUE = "breakdown_value"
 _FIRST_SESSION_AT = "first_session_at"
+# What decides a person's row. The first session under an arrival start, their first conversion under a
+# goal start — kept separate from `first_session_at`, which always means the session the breakdown reads.
+_COHORT_AT = "cohort_at"
 _ACTIVITY_INDEX = "activity_index"
 _COHORT_INDEX = "cohort_index"
 _COHORT_SIZE = "cohort_size"
@@ -120,6 +138,23 @@ class MarketingAnalyticsRetentionQueryRunner(
     @property
     def retention_interval(self) -> MarketingAnalyticsRetentionInterval:
         return self.query.retentionInterval or DEFAULT_INTERVAL
+
+    @property
+    def start_event(self) -> MarketingAnalyticsRetentionStartEvent:
+        return self.query.startEvent or MarketingAnalyticsRetentionStartEvent.ARRIVAL
+
+    @property
+    def starts_on_conversion(self) -> bool:
+        return self.start_event == MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL
+
+    @cached_property
+    def start_goal(self) -> ConversionGoal:
+        return self.resolve_goal(self.query.startConversionGoalId)
+
+    @cached_property
+    def start_conversion_condition(self) -> ast.Expr:
+        """Cached for the same reason as the return side: referenced twice, and actions hit Postgres."""
+        return self.condition_for_goal(self.start_goal)
 
     @property
     def returning_event(self) -> MarketingAnalyticsRetentionReturningEvent:
@@ -305,7 +340,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             ),
         )
 
-    def _build_acquisition_select(self) -> ast.SelectQuery:
+    def _build_first_session_select(self) -> ast.SelectQuery:
         """(B) One row per acquired person: when they first arrived, and what brought them.
 
         `argMin` over the session start is the whole first-touch semantic. Note it is deliberately not
@@ -346,6 +381,72 @@ class MarketingAnalyticsRetentionQueryRunner(
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
             group_by=[ast.Field(chain=[_ACTOR_ID])],
+        )
+
+    def _build_first_conversion_select(self) -> ast.SelectQuery:
+        """(B2) When each person first completed the goal that starts a cohort.
+
+        Only reached under a goal start. Their *first* conversion, because the row is meant to be the
+        period they became a customer: keying off a later repeat would move a person's row every time
+        they converted again.
+        """
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias=_ACTOR_ID, expr=ast.Field(chain=["events", "person_id"])),
+                ast.Alias(alias=_COHORT_AT, expr=ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])])),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    self.start_conversion_condition,
+                    *self._range_conditions(ast.Field(chain=["events", "timestamp"])),
+                    *self._event_filters(),
+                ]
+            ),
+            group_by=[ast.Field(chain=[_ACTOR_ID])],
+        )
+
+    def _build_acquisition_select(self) -> ast.SelectQuery:
+        """(C) One row per person in the table: which period they belong to, and under which value.
+
+        Under an arrival start the two come from the same place, so this is just the first session
+        relabelled. Under a goal start the period comes from the conversion while the breakdown still
+        comes from the first session, which is what keeps "Channel" meaning the channel that acquired
+        the person on both surfaces rather than whatever they were browsing when they converted.
+
+        The INNER JOIN is also what scopes a goal start to people acquired inside the range: someone who
+        converted here but arrived earlier has no `first_session` row, so they drop out. That is a real
+        limitation of reading the breakdown off an in-range session, and widening the range is the fix.
+        """
+        if not self.starts_on_conversion:
+            first_session = self._build_first_session_select()
+            for column in first_session.select:
+                if isinstance(column, ast.Alias) and column.alias == _FIRST_SESSION_AT:
+                    column.alias = _COHORT_AT
+            return first_session
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias=_ACTOR_ID, expr=ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID])),
+                ast.Alias(alias=_COHORT_AT, expr=ast.Field(chain=["first_conversion", _COHORT_AT])),
+                ast.Alias(alias=_BREAKDOWN_VALUE, expr=ast.Field(chain=[_FIRST_SESSION_CTE, _BREAKDOWN_VALUE])),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=[_FIRST_SESSION_CTE]),
+                next_join=ast.JoinExpr(
+                    join_type="INNER JOIN",
+                    table=self._build_first_conversion_select(),
+                    alias="first_conversion",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["first_conversion", _ACTOR_ID]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
         )
 
     def _build_activity_select(self) -> ast.SelectQuery:
@@ -394,7 +495,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=[_BREAKDOWN_VALUE]),
-                ast.Alias(alias=_COHORT_INDEX, expr=self._interval_index_expr(ast.Field(chain=[_FIRST_SESSION_AT]))),
+                ast.Alias(alias=_COHORT_INDEX, expr=self._interval_index_expr(ast.Field(chain=[_COHORT_AT]))),
                 ast.Alias(
                     alias=_COHORT_SIZE,
                     expr=ast.Call(name="count", args=[ast.Field(chain=[_ACTOR_ID])], distinct=True),
@@ -406,7 +507,7 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     def _build_matrix_select(self) -> ast.SelectQuery:
         """(E) The cells: people from one cohort seen again N periods later."""
-        cohort_index = self._interval_index_expr(ast.Field(chain=[_ACQUISITION_CTE, _FIRST_SESSION_AT]))
+        cohort_index = self._interval_index_expr(ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]))
         intervals_from_base = ast.ArithmeticOperation(
             left=ast.Field(chain=[_ACTIVITY_CTE, _ACTIVITY_INDEX]),
             op=ast.ArithmeticOperationOp.Sub,
@@ -605,6 +706,17 @@ class MarketingAnalyticsRetentionQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         ctes: dict[str, ast.CTE] = {}
 
+        # Only under a goal start, where `acquisition` joins it against the first conversion. Under an
+        # arrival start the first session *is* the acquisition, so a second CTE would just alias it.
+        if self.starts_on_conversion:
+            with self.timings.measure("retention_first_session_cte"):
+                ctes[_FIRST_SESSION_CTE] = ast.CTE(
+                    name=_FIRST_SESSION_CTE,
+                    expr=self._build_first_session_select(),
+                    cte_type="subquery",
+                    materialized=True,
+                )
+
         # Materialized because both `cohort_sizes` and `matrix` read it, and ClickHouse re-evaluates an
         # unmaterialized CTE at each reference — the events scan underneath would run twice.
         with self.timings.measure("retention_acquisition_cte"):
@@ -666,13 +778,17 @@ class MarketingAnalyticsRetentionQueryRunner(
         if self.returning_event == MarketingAnalyticsRetentionReturningEvent.CONVERSION_GOAL:
             conversion_goal_name = self.goal.conversion_goal_name
 
+        start_goal_name = self.start_goal.conversion_goal_name if self.starts_on_conversion else None
+
         return MarketingAnalyticsRetentionQueryResponse(
             results=rows,
             intervalCount=self.interval_count,
             interval=self.retention_interval,
             labels=[f"{_INTERVAL_LABEL[self.retention_interval]} {i}" for i in range(self.interval_count)],
+            startEvent=self.start_event,
             returningEvent=self.returning_event,
             conversionGoalName=conversion_goal_name,
+            startConversionGoalName=start_goal_name,
             otherBreakdownCount=max(distinct_breakdowns - self.breakdown_limit, 0),
             truncatedCohorts=self.truncated_cohorts,
             totalCohortSize=sum(row.cohortSize for row in rows),

@@ -12,6 +12,7 @@ import {
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsRetentionReturningEvent,
+    MarketingAnalyticsRetentionStartEvent,
 } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
@@ -31,6 +32,8 @@ export function RetentionTab(): JSX.Element {
         retentionInterval,
         totalIntervals,
         returningEvent,
+        startEvent,
+        selectedStartGoalId,
         attributableGoals,
         selectedGoalId,
         excludeDirectTraffic,
@@ -44,7 +47,9 @@ export function RetentionTab(): JSX.Element {
         setRetentionInterval,
         setTotalIntervals,
         setReturningEvent,
+        setStartEvent,
         setConversionGoalId,
+        setStartConversionGoalId,
         setExcludeDirectTraffic,
         setExcludeUnattributed,
         setOnlyNewUsers,
@@ -54,6 +59,7 @@ export function RetentionTab(): JSX.Element {
     const { setDates } = useActions(marketingAnalyticsLogic)
 
     const countingConversions = returningEvent === MarketingAnalyticsRetentionReturningEvent.ConversionGoal
+    const startsOnConversion = startEvent === MarketingAnalyticsRetentionStartEvent.ConversionGoal
 
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
@@ -61,7 +67,9 @@ export function RetentionTab(): JSX.Element {
                 <div className="text-muted mb-2 text-xs font-semibold uppercase">Acquisition period</div>
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
                 <div className="text-muted mt-1 text-xs">
-                    People who arrived in this period become the cohorts. Each cohort is then followed forward.
+                    {startsOnConversion
+                        ? 'Only people acquired in this period are counted, and their cohort is the period they converted in.'
+                        : 'People who arrived in this period become the cohorts. Each cohort is then followed forward.'}
                 </div>
             </div>
             <div>
@@ -124,6 +132,41 @@ export function RetentionTab(): JSX.Element {
                                     }))}
                                 />
                             </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-secondary">Cohorts start when they</span>
+                                <LemonSelect
+                                    size="small"
+                                    value={startEvent}
+                                    onChange={(value) => value && setStartEvent(value)}
+                                    options={[
+                                        {
+                                            value: MarketingAnalyticsRetentionStartEvent.Arrival,
+                                            label: 'Arrive',
+                                        },
+                                        {
+                                            value: MarketingAnalyticsRetentionStartEvent.ConversionGoal,
+                                            label: 'Convert',
+                                            disabledReason: attributableGoals.length
+                                                ? undefined
+                                                : 'Add a conversion goal based on an event or action in marketing settings first.',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                            {startsOnConversion && attributableGoals.length > 1 && (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-secondary">Starting goal</span>
+                                    <LemonSelect
+                                        size="small"
+                                        value={selectedStartGoalId}
+                                        onChange={(value) => value && setStartConversionGoalId(value)}
+                                        options={attributableGoals.map((goal) => ({
+                                            value: goal.conversion_goal_id,
+                                            label: goal.conversion_goal_name,
+                                        }))}
+                                    />
+                                </div>
+                            )}
                             <div className="flex items-center gap-2">
                                 {/* Not "coming back means": under a goal the columns count conversions, which
                                     for a one-time goal is a different question than whether someone returned. */}

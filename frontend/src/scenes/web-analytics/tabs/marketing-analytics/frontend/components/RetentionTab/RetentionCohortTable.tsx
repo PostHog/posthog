@@ -186,6 +186,12 @@ export function RetentionCohortTable({
     return (
         <div className="flex flex-col gap-2">
             {caveats.length > 0 && <div className="text-secondary text-xs">{caveats.join(' ')}</div>}
+            <div>
+                <div className="text-muted mb-1 text-xs font-semibold uppercase">
+                    All {dimensionLabel.toLowerCase()}s
+                </div>
+                <LemonTable columns={columns} dataSource={baselineRows(rows)} size="small" firstColumnSticky />
+            </div>
             <LemonCollapse
                 multiple
                 defaultActiveKeys={breakdownValues.slice(0, EXPANDED_BY_DEFAULT)}
@@ -216,3 +222,42 @@ export function RetentionCohortTable({
 
 const totalAcquired = (rows: MarketingAnalyticsRetentionRow[] | undefined): number =>
     (rows ?? []).reduce((total, row) => total + row.cohortSize, 0)
+
+/**
+ * The same cohorts with the breakdown collapsed away, so a channel can be read against the average
+ * instead of on its own.
+ *
+ * Summing is exact rather than approximate: a person has one breakdown value, so no one is counted
+ * under two of the rows being merged. Rates are recomputed from the summed counts, because averaging
+ * per-channel rates would weight a channel with ten people the same as one with ten thousand.
+ */
+export function baselineRows(rows: MarketingAnalyticsRetentionRow[]): MarketingAnalyticsRetentionRow[] {
+    const byCohort = new Map<number, MarketingAnalyticsRetentionRow>()
+    for (const row of rows) {
+        const merged = byCohort.get(row.cohortIndex)
+        if (!merged) {
+            byCohort.set(row.cohortIndex, {
+                ...row,
+                breakdownValue: '',
+                values: row.values.map((cell) => ({ ...cell })),
+            })
+            continue
+        }
+        merged.cohortSize += row.cohortSize
+        row.values.forEach((cell, index) => {
+            const into = merged.values[index]
+            if (into) {
+                into.count += cell.count
+            }
+        })
+    }
+    return [...byCohort.values()]
+        .sort((a, b) => a.cohortIndex - b.cohortIndex)
+        .map((row) => ({
+            ...row,
+            values: row.values.map((cell) => ({
+                ...cell,
+                rate: row.cohortSize ? cell.count / row.cohortSize : null,
+            })),
+        }))
+}
