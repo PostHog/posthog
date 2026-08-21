@@ -18,13 +18,11 @@ CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
 
-# Signed as a constant, never read from the request. The signature covers the authority, so a signer
-# that signed whichever Host it was handed would give any site proxying this route a directory that
-# verifies on that site while carrying our key. Preventing exactly that is what this signature is for.
+# Sign this constant instead of the Host from the request. Otherwise, another site can proxy this
+# route and receive a directory that verifies for that site but contains our public key.
 #
-# This is the origin the bot names in Signature-Agent, and it is us.posthog.com rather than
-# posthog.com because Vercel reserves /.well-known and will not rewrite it, so posthog.com cannot
-# serve a response it computes per request.
+# The bot uses this origin in Signature-Agent. Use us.posthog.com because Vercel reserves /.well-known.
+# Vercel does not rewrite /.well-known, so posthog.com cannot compute this response for each request.
 _AUTHORITY = "us.posthog.com"
 
 
@@ -40,15 +38,15 @@ def public_jwk(key: Ed25519PrivateKey) -> dict[str, str]:
 
 
 def jwk_thumbprint(jwk: dict[str, str]) -> str:
-    """RFC 7638, over the required members only. RFC 8037 appendix A.3 fixes those for Ed25519."""
+    """RFC 7638 requires only these members. RFC 8037 appendix A.3 defines the Ed25519 members."""
     canonical = json.dumps({"crv": jwk["crv"], "kty": jwk["kty"], "x": jwk["x"]}, separators=(",", ":"))
     return base64.urlsafe_b64encode(hashlib.sha256(canonical.encode()).digest()).decode().rstrip("=")
 
 
 def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_digest: str) -> SignatureBase:
     """
-    RFC 9421 section 2.5. Returns the parameters alongside the base, because Signature-Input must
-    repeat them byte for byte and building them twice invites the two copies to differ.
+    RFC 9421 section 2.5 defines this signature base. Return the parameters with the base because
+    Signature-Input must repeat the same bytes. Building the parameters twice can produce different values.
     """
     params = (
         f'("@authority";req "content-digest");alg="ed25519";keyid="{keyid}";nonce="{nonce}";'
@@ -80,7 +78,7 @@ def signed_directory(
             "Content-Digest": content_digest,
             "Signature-Input": ", ".join(signature_inputs),
             "Signature": ", ".join(signatures),
-            # A cached copy outlives its own signature, so every reader must reach this view.
+            # Do not cache this response because a cached response can outlive its signature.
             "Cache-Control": "no-store",
         },
     )
@@ -88,9 +86,11 @@ def signed_directory(
 
 def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     """
-    The Web Bot Auth key directory for PostHogImageFetcherBot. A stored file cannot serve this:
-    Cloudflare uses a key only when the response carries a signature made with that key, covering
-    the authority asked for and expiring minutes later.
+    This endpoint serves the Web Bot Auth key directory for PostHogImageFetcherBot.
+
+    Cloudflare uses a public key only if the corresponding private key signs the directory response.
+    The signature must cover the requested authority and expire after a few minutes. A stored file cannot
+    provide a fresh signature.
 
     https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/
     """
