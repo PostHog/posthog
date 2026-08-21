@@ -113,6 +113,16 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 1])
         })
 
+        it('treats a series with null data as empty instead of throwing', () => {
+            // A query that returned no points can hand the chart `data: null`, which the `number[]`
+            // type forbids but the runtime still sees. Iterating it used to crash the whole chart.
+            const nullData = { ...makeSeries({ key: 'empty', data: [] }), data: null as unknown as number[] }
+            const withData = makeSeries({ key: 's1', data: [10, 20] })
+            const [domainMin, domainMax] = createYScale([withData, nullData], dimensions).domain()
+            expect(domainMin).toBe(0)
+            expect(domainMax).toBeGreaterThanOrEqual(20)
+        })
+
         it('excludes visibility.excluded series from the domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10] })
             const hidden = makeSeries({ key: 'h', data: [0, 1000], visibility: { excluded: true } })
