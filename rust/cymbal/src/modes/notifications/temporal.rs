@@ -48,6 +48,7 @@ impl IssueLifecycleWorkflowStarters {
             server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
+            insecure: config.temporal_insecure,
         })
         .await
         .map_err(|error| UnhandledError::Other(error.to_string()))?;

@@ -9,21 +9,27 @@ pub async fn handle_issue_created(
     context: &NotificationsContext,
     notification: IssueCreated,
 ) -> Result<(), UnhandledError> {
-    context
-        .issue_lifecycle_workflow_starters
-        .start_created(&notification)
-        .await?;
-
+    let team_id = notification.meta.team_id;
+    let issue_id = notification.issue.issue_id;
     let sentry_integration = notification
         .issue
         .event_properties
         .properties()
         .contains_key("$sentry_event_id");
-    capture_issue_created(
-        notification.meta.team_id,
-        notification.issue.issue_id,
-        sentry_integration,
-    );
+
+    if !context.issue_created_limiter.admit(team_id).await {
+        // The issue was still created, so it still counts. Only the workflow,
+        // and with it the embedding and the alert, was cut.
+        capture_issue_created(team_id, issue_id, sentry_integration, true);
+        return Ok(());
+    }
+
+    context
+        .issue_lifecycle_workflow_starters
+        .start_created(&notification)
+        .await?;
+
+    capture_issue_created(team_id, issue_id, sentry_integration, false);
     Ok(())
 }
 
