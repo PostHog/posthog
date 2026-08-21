@@ -6282,16 +6282,22 @@ export class PostHogAPIClient {
       }
       case "person": {
         if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {
+          // A UUID-shaped id can be a person uuid or a UUID-shaped distinct id
+          // (posthog-js writes anonymous distinct ids as UUIDs). Retrieve-by-id
+          // matches only the person uuid, so a 404 (no such uuid) or 400 (the id
+          // isn't a valid person uuid) means fall through and resolve it as a
+          // distinct id below rather than giving up.
           const person = await this.api
             .get("/api/projects/{project_id}/persons/{id}/", {
               path: { project_id: projectId, id },
               query: {},
             })
             .catch((error) => {
-              if (requestErrorStatus(error) === 404) return null;
+              const status = requestErrorStatus(error);
+              if (status === 404 || status === 400) return null;
               throw error;
             });
-          return person ? shapePersonPreview(person) : null;
+          if (person) return shapePersonPreview(person);
         }
         const page = await this.api.get("/api/projects/{project_id}/persons/", {
           path: { project_id: projectId },

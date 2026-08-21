@@ -120,6 +120,56 @@ describe("PostHogAPIClient", () => {
         "/api/projects/42/persons/0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee/",
       );
     });
+
+    it("resolves a UUID-shaped distinct id when retrieve-by-uuid 404s", async () => {
+      const distinctId = "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ detail: "Not found." }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [
+                {
+                  id: 1,
+                  uuid: "0192ffff-1111-2222-3333-444444444444",
+                  name: "Ann",
+                  distinct_ids: [distinctId],
+                  properties: { email: "ann@example.com" },
+                  created_at: "2024-01-03T10:00:00Z",
+                  last_seen_at: "2024-01-04T10:00:00Z",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("person", distinctId),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192ffff-1111-2222-3333-444444444444",
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        `/api/projects/42/persons/${distinctId}/`,
+      );
+      const listUrl = fetch.mock.calls[1][0] as URL;
+      expect(listUrl.pathname).toBe("/api/projects/42/persons/");
+      expect(listUrl.searchParams.get("search")).toBe(distinctId);
+    });
   });
 
   it("fetches later task pages before reporting complete results", async () => {
