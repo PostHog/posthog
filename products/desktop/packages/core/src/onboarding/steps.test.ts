@@ -11,24 +11,69 @@ import {
   stepDirection,
 } from "./steps";
 
+const allSteps = {
+  hasCodeAccess: false,
+  hasImportableConfig: true,
+  hasGithubIntegration: undefined,
+  projectCount: 2,
+};
+
 describe("computeActiveSteps", () => {
   it("drops invite-code when the user already has code access", () => {
-    expect(computeActiveSteps(true, true)).not.toContain("invite-code");
+    expect(
+      computeActiveSteps({ ...allSteps, hasCodeAccess: true }),
+    ).not.toContain("invite-code");
   });
 
   it("keeps invite-code when access is unknown or false", () => {
-    expect(computeActiveSteps(false, true)).toEqual(ONBOARDING_STEPS);
-    expect(computeActiveSteps(null, true)).toEqual(ONBOARDING_STEPS);
-    expect(computeActiveSteps(undefined, true)).toEqual(ONBOARDING_STEPS);
+    expect(computeActiveSteps(allSteps)).toEqual(ONBOARDING_STEPS);
+    expect(computeActiveSteps({ ...allSteps, hasCodeAccess: null })).toEqual(
+      ONBOARDING_STEPS,
+    );
+    expect(
+      computeActiveSteps({ ...allSteps, hasCodeAccess: undefined }),
+    ).toEqual(ONBOARDING_STEPS);
   });
 
   it("drops import-config when there is no importable config", () => {
-    expect(computeActiveSteps(false, false)).not.toContain("import-config");
+    expect(
+      computeActiveSteps({ ...allSteps, hasImportableConfig: false }),
+    ).not.toContain("import-config");
+  });
+
+  it("drops project-select only when there is exactly one project", () => {
+    expect(computeActiveSteps({ ...allSteps, projectCount: 1 })).not.toContain(
+      "project-select",
+    );
+    expect(computeActiveSteps({ ...allSteps, projectCount: 2 })).toContain(
+      "project-select",
+    );
+    expect(
+      computeActiveSteps({ ...allSteps, projectCount: undefined }),
+    ).toContain("project-select");
+    expect(computeActiveSteps({ ...allSteps, projectCount: 0 })).toContain(
+      "project-select",
+    );
+  });
+
+  it("drops install-cli only on a confirmed github connection", () => {
+    expect(
+      computeActiveSteps({ ...allSteps, hasGithubIntegration: true }),
+    ).not.toContain("install-cli");
+    expect(
+      computeActiveSteps({ ...allSteps, hasGithubIntegration: false }),
+    ).toContain("install-cli");
+    expect(computeActiveSteps(allSteps)).toContain("install-cli");
   });
 });
 
 describe("nearestActiveStep", () => {
-  const withoutConditionals = computeActiveSteps(true, false);
+  const withoutConditionals = computeActiveSteps({
+    hasCodeAccess: true,
+    hasImportableConfig: false,
+    hasGithubIntegration: undefined,
+    projectCount: 2,
+  });
 
   it("returns the step itself while it is still active", () => {
     expect(nearestActiveStep(ONBOARDING_STEPS, "import-config")).toBe(
@@ -61,7 +106,12 @@ describe("nearestActiveStep", () => {
 });
 
 describe("step navigation", () => {
-  const steps = computeActiveSteps(true, true);
+  const steps = computeActiveSteps({
+    hasCodeAccess: true,
+    hasImportableConfig: true,
+    hasGithubIntegration: undefined,
+    projectCount: 2,
+  });
 
   it("identifies first and last steps", () => {
     expect(isFirstStep(0)).toBe(true);

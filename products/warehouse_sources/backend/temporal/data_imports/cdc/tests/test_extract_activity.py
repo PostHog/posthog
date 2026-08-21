@@ -2920,6 +2920,112 @@ class TestFailureVisibilityJobs:
         assert created_for == {schema_a, schema_b}
 
 
+class TestPKColumnLoading:
+    def _activity(self, schemas, queried_pks=None, default_namespace="public"):
+        source = _make_source()
+        source.job_inputs = {**source.job_inputs, "schema": default_namespace}
+        act = _make_extract_activity(source)
+        act.cdc_schemas = schemas
+        for schema in schemas:
+            schema.source = source
+        act.reader = MagicMock()
+        act.reader.get_primary_key_columns.side_effect = lambda namespace, relations: {
+            relation: pks for relation, pks in (queried_pks or {}).get(namespace, {}).items() if relation in relations
+        }
+        return act
+
+    def test_qualified_name_is_split_for_the_query_and_rejoined_for_the_result(self):
+        # The catalog filters on the bare relation name inside one namespace, so a qualified
+        # ExternalDataSchema.name matched nothing and the table synced with no merge key.
+        schema = _make_schema("cdc_test.orders")
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("cdc_test", ["orders"])
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert "cdc_pk_columns_first_write" in warnings
+
+    def test_bare_name_falls_back_to_the_source_namespace(self):
+        schema = _make_schema("orders")
+        act = self._activity([schema], queried_pks={"analytics": {"orders": ["id"]}}, default_namespace="analytics")
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("analytics", ["orders"])
+        assert act.pk_columns_by_table == {"orders": ["id"]}
+
+    def test_tables_are_grouped_by_namespace(self):
+        # One query per namespace, and two tables sharing a relation name stay distinct.
+        act = self._activity(
+            [_make_schema("cdc_test.orders"), _make_schema("public.orders")],
+            queried_pks={"cdc_test": {"orders": ["id"]}, "public": {"orders": ["uuid"]}},
+        )
+
+        act._load_pk_columns()
+
+        queried_namespaces = {call.args[0] for call in act.reader.get_primary_key_columns.call_args_list}
+        assert queried_namespaces == {"cdc_test", "public"}
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
+
+    def test_stored_keys_are_not_requeried(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        act = self._activity([schema])
+
+        act._load_pk_columns()
+
+        act.reader.get_primary_key_columns.assert_not_called()
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+
+
+class TestPKDivergenceDetection:
+    def _activity(self, decoder_pks, stored_pks, table="cdc_test.orders"):
+        source = _make_source()
+        schema = _make_schema(table, source=source)
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [schema]
+        act.schema_by_name = {table: schema}
+        act.all_table_names = {table}
+        act.pk_columns_by_table = {table: stored_pks}
+        act.reader = MagicMock()
+        act.reader.get_decoder_key_columns.return_value = decoder_pks
+        return act, schema
+
+    @parameterized.expand(
+        [
+            # The qualified name is the whole point: it is what ExternalDataSchema.name holds, and
+            # the decoder used to match only the bare relation name, so this never fired.
+            ("key_gained_a_column", ["id", "tenant_id"], ["id"], True),
+            ("key_replaced", ["uuid"], ["id"], True),
+            # pg_catalog orders by index position, the decoder by column position.
+            ("same_key_different_order", ["tenant_id", "id"], ["id", "tenant_id"], False),
+            ("unchanged", ["id"], ["id"], False),
+            # What REPLICA IDENTITY FULL and NOTHING both report.
+            ("no_key_in_wal", [], ["id"], False),
+        ]
+    )
+    def test_divergence_warns_only_on_a_real_change(self, _name, decoder_pks, stored_pks, expect_warning):
+        act, _schema = self._activity(decoder_pks, stored_pks)
+
+        act._detect_pk_changes_post_wal()
+
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert ("cdc_pk_columns_diverged" in warnings) is expect_warning
+
+    def test_diverged_key_is_not_persisted_over_the_merge_key(self):
+        # Re-keying a live Delta table duplicates every row already merged under the old key, so a
+        # detected change stays a signal until an operator re-snapshots the table.
+        act, schema = self._activity(["id", "tenant_id"], ["id"])
+
+        act._detect_pk_changes_post_wal()
+
+        assert "primary_key_columns" not in schema.sync_type_config
+        assert act.pk_columns_by_table["cdc_test.orders"] == ["id"]
+
+
 class _ScriptedReader:
     """Reader stub that serves preconfigured WAL pages to the bounded read loop.
 
