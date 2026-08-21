@@ -35,6 +35,7 @@ import {
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
@@ -168,12 +169,19 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
 ): string | { append: string } {
-  if (typeof userPrompt === "string") {
-    return appendRichOutputPrompt([userPrompt, cloudAppend].join("\n\n"));
-  }
+  const prompt = [
+    typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
+    cloudAppend,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const combinedPrompt = appendRichOutputPrompt(
+    prependProductEngineerPrompt(prompt),
+  );
 
-  const prompt = [userPrompt?.append, cloudAppend].filter(Boolean).join("\n\n");
-  return { append: appendRichOutputPrompt(prompt) };
+  return typeof userPrompt === "string"
+    ? combinedPrompt
+    : { append: combinedPrompt };
 }
 
 function sleep(ms: number): Promise<void> {
