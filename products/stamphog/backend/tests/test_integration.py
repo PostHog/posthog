@@ -1514,7 +1514,9 @@ def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
     posted = fakes.FakeSlackIntegration.posted_messages
     assert len(posted) == 1
     assert posted[0]["channel"] == "C-DEVEX"
-    assert "#101 Add util helper" in posted[0]["text"]
+    # The notification preview is the change itself now, with the PR number only inside the link.
+    assert posted[0]["text"] == "Add util helper"
+    assert "/pull/101|" in posted[0]["blocks"][0]["text"]["text"]
     assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 

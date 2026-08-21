@@ -4,7 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.slack_formatting import markdown_to_slack_mrkdwn, strip_chart_references
+from products.signals.backend.slack_formatting import (
+    SLACK_SECTION_TEXT_MAX_LEN,
+    chunk_slack_mrkdwn,
+    markdown_to_slack_mrkdwn,
+    split_markdown_by_headings,
+    strip_chart_references,
+)
 
 
 class TestStripChartReferences(SimpleTestCase):
@@ -85,3 +91,100 @@ class TestStripChartReferences(SimpleTestCase):
         strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
+
+
+class TestSplitMarkdownByHeadings(SimpleTestCase):
+    def test_lead_precedes_one_segment_per_heading(self) -> None:
+        summary = "Intro line.\n\n## First\nbody one\n\n### Second\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "Intro line."
+        assert segments[1].startswith("## First")
+        assert segments[2].startswith("### Second")
+        assert len(segments) == 3
+
+    def test_leading_heading_yields_empty_lead(self) -> None:
+        segments = split_markdown_by_headings("## Only\nbody")
+
+        assert segments[0] == ""
+        assert segments[1].startswith("## Only")
+
+    def test_summary_without_headings_stays_one_segment(self) -> None:
+        assert split_markdown_by_headings("no headings here") == ["no headings here"]
+
+    def test_empty_summary_yields_no_segments(self) -> None:
+        assert split_markdown_by_headings("   ") == []
+
+    @parameterized.expand([("backtick_fence", "```"), ("tilde_fence", "~~~")])
+    def test_column_zero_hash_inside_a_fence_does_not_split(self, _name: str, fence: str) -> None:
+        # The bug this guards: a `# ` line inside a fenced code block used to be read as a heading and
+        # split there, orphaning the fence and mangling the snippet when each segment was converted.
+        summary = f"Intro.\n\n{fence}\n# not a heading\nconfig value\n{fence}\n\nTail."
+        assert split_markdown_by_headings(summary) == [summary]
+
+    def test_real_heading_after_a_fence_still_splits(self) -> None:
+        summary = "```\n# in code\n```\n\n## Real heading\nbody"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "```\n# in code\n```"
+        assert segments[1].startswith("## Real heading")
+        assert len(segments) == 2
+
+
+class TestChunkSlackMrkdwn(SimpleTestCase):
+    def test_short_text_is_one_chunk(self) -> None:
+        assert chunk_slack_mrkdwn("short") == ["short"]
+
+    def test_long_text_splits_within_the_section_limit_without_losing_the_tail(self) -> None:
+        # The bug this guards: a summary past the section cap used to be truncated with an ellipsis,
+        # dropping everything after ~2,900 characters. Chunking must keep every line.
+        lines = [f"line {index}" for index in range(600)]
+        chunks = chunk_slack_mrkdwn("\n".join(lines))
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        recovered = "\n".join(chunks)
+        assert all(line in recovered for line in lines)
+
+    @parameterized.expand(
+        [
+            ("plain_run", "x" * (SLACK_SECTION_TEXT_MAX_LEN * 2 + 5)),
+            ("link_longer_than_a_section", "<https://example.com/" + "z" * (SLACK_SECTION_TEXT_MAX_LEN * 2) + "|l>"),
+        ]
+    )
+    def test_unbreakable_run_is_hard_sliced(self, _name: str, line: str) -> None:
+        # A run with no sentence, word, or token boundary has nowhere safe to break, so it is sliced
+        # at the limit. Guards both halves of that fallback: it has to terminate, and it has to keep
+        # every character rather than dropping the remainder.
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert "".join(chunks) == line
+
+    @parameterized.expand(
+        [
+            ("sentence_ends", "The mount call times out and the retry never fires. "),
+            ("no_sentence_ends", "mount timeout retry never fires again "),
+        ]
+    )
+    def test_text_only_report_never_breaks_mid_word(self, _name: str, sentence: str) -> None:
+        # The bug this guards: a report with no Markdown headings is one long line, which used to be
+        # sliced at exactly the section cap, so a reply opened mid-word ("...since Tue" / "sday and
+        # the retry..."). Comparing word sequences catches that, because a mid-word cut turns one
+        # word into two and no longer round-trips.
+        line = (sentence * 400).strip()
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert len(chunks) > 1
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert " ".join(chunks).split() == line.split()
+
+    def test_link_spanning_the_section_boundary_is_kept_whole(self) -> None:
+        # The bug this guards: a cut inside a converter-emitted `<url|label>` token leaves half a
+        # link in each message, and Slack renders both halves as visible junk.
+        link = "<https://example.com/a/very/long/path|the failing request>"
+        line = "x" * (SLACK_SECTION_TEXT_MAX_LEN - 20) + link + " and the prose that follows it."
+        chunks = chunk_slack_mrkdwn(line)
+
+        assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
+        assert any(link in chunk for chunk in chunks)

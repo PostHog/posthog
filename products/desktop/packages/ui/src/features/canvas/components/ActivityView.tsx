@@ -115,10 +115,6 @@ export function ActivityRow({
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
-    if (channelId && item.targetScope === "desktop_canvas" && item.targetId) {
-      navigateToChannelDashboard(channelId, item.targetId);
-      return;
-    }
     if (channelId && item.commentTarget?.scope === "desktop_canvas") {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);
