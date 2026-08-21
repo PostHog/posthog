@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockClient = vi.hoisted(() => ({
   getTaskActivity: vi.fn(),
   markTaskActivityRead: vi.fn(),
+  markTaskActivityUnread: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -21,6 +22,7 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 }));
 
 import { useMarkTaskActivityRead } from "./useMarkTaskActivityRead";
+import { useMarkTaskActivityUnread } from "./useMarkTaskActivityUnread";
 import { TASK_ACTIVITY_QUERY_KEY, useTaskActivity } from "./useTaskActivity";
 
 function activity(overrides: Partial<TaskActivity>): TaskActivity {
@@ -256,5 +258,54 @@ describe("task activity hooks", () => {
       true,
     ]);
     expect(cached?.pages[0]?.unread_count).toBe(2);
+  });
+
+  it("marks only the selected comment activity unread", async () => {
+    const page: TaskActivityPage = {
+      results: [
+        activity({
+          id: "comment-activity-1",
+          latest_comment_id: "comment-1",
+          is_unread: false,
+        }),
+        activity({
+          id: "comment-activity-2",
+          latest_comment_id: "comment-2",
+          is_unread: false,
+        }),
+      ],
+      unread_count: 0,
+    };
+    queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+      pages: [page],
+      pageParams: [undefined],
+    });
+    mockClient.markTaskActivityUnread.mockResolvedValue({
+      marked_unread: 1,
+      unread_count: 1,
+    });
+
+    const hook = renderHook(() => useMarkTaskActivityUnread(), { wrapper });
+    act(() => {
+      hook.result.current.mutate([
+        {
+          task_id: "task-1",
+          seen_before: "2026-07-01T10:00:00Z",
+          activity_id: "comment-activity-1",
+        },
+      ]);
+    });
+
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityUnread).toHaveBeenCalledOnce(),
+    );
+    const cached = queryClient.getQueryData<{
+      pages: TaskActivityPage[];
+    }>(TASK_ACTIVITY_QUERY_KEY);
+    expect(cached?.pages[0]?.results.map((row) => row.is_unread)).toEqual([
+      true,
+      false,
+    ]);
+    expect(cached?.pages[0]?.unread_count).toBe(1);
   });
 });

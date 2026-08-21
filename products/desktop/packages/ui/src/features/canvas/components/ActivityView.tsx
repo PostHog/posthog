@@ -2,6 +2,8 @@ import {
   BellIcon,
   CheckIcon,
   ChecksIcon,
+  DotsThreeIcon,
+  EnvelopeSimpleIcon,
   LinkIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
@@ -11,12 +13,24 @@ import {
   AvatarFallback,
   Badge,
   Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Heading,
   Spinner,
+  Text,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -29,6 +43,7 @@ import { MentionText } from "@posthog/ui/features/canvas/components/MentionText"
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
+import { useMarkTaskActivityUnread } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityUnread";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
@@ -51,7 +66,6 @@ import {
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
@@ -65,6 +79,8 @@ export function ActivityRow({
   channelId,
   onOpen,
   onMarkRead,
+  onMarkUnread,
+  isUpdatingReadState = false,
   currentUser,
   blockedTaskIds,
   surface = "activity",
@@ -76,6 +92,8 @@ export function ActivityRow({
   channelId: string | null;
   onOpen: (item: TaskActivityItem) => void;
   onMarkRead: (item: TaskActivityItem) => void;
+  onMarkUnread: (item: TaskActivityItem) => void;
+  isUpdatingReadState?: boolean;
   currentUser?: UserBasic | null;
   /**
    * Tasks whose session is waiting on you. Passed in rather than selected here:
@@ -134,99 +152,160 @@ export function ActivityRow({
 
   return (
     <div className="group relative">
-      <button
-        type="button"
-        onClick={openTask}
-        className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2"} ${item.isUnread ? "bg-fill-secondary" : ""}`}
-      >
-        <span className="relative mt-0.5 shrink-0">
-          {isAgentActivity ? (
-            <Avatar size="xs">
-              <AvatarFallback>
-                <RobotIcon size={12} />
-              </AvatarFallback>
-            </Avatar>
-          ) : (
-            <UserAvatar user={item.author ?? currentUser} size="xs" />
-          )}
-          {/* Unread is a fact about the feed: you haven't looked at this yet.
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <button
+              type="button"
+              onClick={openTask}
+              className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2 pr-10"} ${item.isUnread ? "bg-fill-secondary" : ""}`}
+            />
+          }
+        >
+          <span className="relative mt-0.5 shrink-0">
+            {isAgentActivity ? (
+              <Avatar size="xs">
+                <AvatarFallback>
+                  <RobotIcon size={12} />
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <UserAvatar user={item.author ?? currentUser} size="xs" />
+            )}
+            {/* Unread is a fact about the feed: you haven't looked at this yet.
               Waiting on you is a fact about the session, and reading the row
               doesn't answer the prompt — so it keeps its dot until you do. */}
-          {(item.isUnread || awaitsReply) && (
-            <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
-              // Off the table the status dots read, so a row that says the agent
-              // is waiting is the same blue as the session it is waiting in.
-              style={{
-                backgroundColor: awaitsReply
-                  ? DOT_TONE_VAR.blue
-                  : "var(--primary)",
-              }}
-              title={awaitsReply ? "Waiting on you" : "New activity"}
-            />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <Text
-              size="1"
-              weight={item.isUnread ? "medium" : "regular"}
-              className="truncate"
-            >
-              {activityHeadline(item, currentUser?.email)}
-            </Text>
-            {item.isUnread && !compact && <Badge variant="info">New</Badge>}
-            {!compact && (
-              <Text size="1" className="shrink-0 text-muted-foreground">
-                {formatRelativeTimeShort(item.activityAt)}
-              </Text>
+            {(item.isUnread || awaitsReply) && (
+              <span
+                className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
+                // Off the table the status dots read, so a row that says the agent
+                // is waiting is the same blue as the session it is waiting in.
+                style={{
+                  backgroundColor: awaitsReply
+                    ? DOT_TONE_VAR.blue
+                    : "var(--primary)",
+                }}
+                title={awaitsReply ? "Waiting on you" : "New activity"}
+              />
             )}
           </span>
-          <Text size="1" className="block truncate text-muted-foreground">
-            {item.taskTitle}
-          </Text>
-          {item.snippet && !compact && (
-            <MentionText
-              content={item.snippet}
-              currentUserEmail={currentUser?.email}
-              className="mt-1 block whitespace-pre-wrap break-words text-xs"
-            />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <Text
+                size="xs"
+                weight={item.isUnread ? "medium" : "normal"}
+                className="truncate"
+              >
+                {activityHeadline(item, currentUser?.email)}
+              </Text>
+              {item.isUnread && !compact && <Badge variant="info">New</Badge>}
+              {!compact && (
+                <Text size="xs" className="shrink-0 text-muted-foreground">
+                  {formatRelativeTimeShort(item.activityAt)}
+                </Text>
+              )}
+            </span>
+            <Text size="xs" className="block truncate text-muted-foreground">
+              {item.taskTitle}
+            </Text>
+            {item.snippet && !compact && (
+              <MentionText
+                content={item.snippet}
+                currentUserEmail={currentUser?.email}
+                className="mt-1 block whitespace-pre-wrap break-words text-xs"
+              />
+            )}
+          </span>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          {item.isUnread ? (
+            <ContextMenuItem
+              disabled={isUpdatingReadState}
+              onClick={() => onMarkRead(item)}
+            >
+              <CheckIcon size={14} />
+              Mark as read
+            </ContextMenuItem>
+          ) : (
+            <ContextMenuItem
+              disabled={isUpdatingReadState}
+              onClick={() => onMarkUnread(item)}
+            >
+              <EnvelopeSimpleIcon size={14} />
+              Mark as unread
+            </ContextMenuItem>
           )}
-        </span>
-      </button>
+          {channelId && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() =>
+                  void copyChannelLink(channelId, surface, item.taskId)
+                }
+              >
+                <LinkIcon size={14} />
+                Copy link
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
       {compact && (
         <Text
-          size="1"
+          size="xs"
           className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground"
         >
           {formatRelativeTimeShort(item.activityAt)}
         </Text>
       )}
-      {item.isUnread && (
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Mark as read"
-          title="Mark as read"
-          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "right-2 bottom-1" : `top-2 ${channelId ? "right-9" : "right-2"}`}`}
-          onClick={() => onMarkRead(item)}
-        >
-          <CheckIcon size={14} />
-        </Button>
-      )}
-      {channelId && !compact && (
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Copy thread link"
-          className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={() =>
-            void copyChannelLink(channelId, "activity", item.taskId)
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label={`More actions for ${item.taskTitle}`}
+              data-attr="activity-item-menu"
+              className={`absolute opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 ${compact ? "right-2 bottom-1" : "top-2 right-2"}`}
+              onClick={(event) => event.stopPropagation()}
+            />
           }
         >
-          <LinkIcon size={14} />
-        </Button>
-      )}
+          <DotsThreeIcon size={14} weight="bold" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          {item.isUnread ? (
+            <DropdownMenuItem
+              disabled={isUpdatingReadState}
+              onClick={() => onMarkRead(item)}
+            >
+              <CheckIcon size={14} />
+              Mark as read
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              disabled={isUpdatingReadState}
+              onClick={() => onMarkUnread(item)}
+            >
+              <EnvelopeSimpleIcon size={14} />
+              Mark as unread
+            </DropdownMenuItem>
+          )}
+          {channelId && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() =>
+                  void copyChannelLink(channelId, surface, item.taskId)
+                }
+              >
+                <LinkIcon size={14} />
+                Copy link
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -250,6 +329,8 @@ export function ActivityView() {
   const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
+  const { mutate: markTasksUnread, isPending: isMarkingUnread } =
+    useMarkTaskActivityUnread();
   const visibleItems = items;
   const unreadItems = useMemo(
     () => getUnreadActivityItems(visibleItems),
@@ -270,6 +351,30 @@ export function ActivityView() {
         },
       ]),
     [markTasksRead],
+  );
+  const markReadFromMenu = useCallback(
+    (item: TaskActivityItem) => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "mark_activity_read",
+        surface: "activity",
+        channel_id: item.channelId ?? undefined,
+        task_id: item.taskId,
+      });
+      markRead(item);
+    },
+    [markRead],
+  );
+  const markUnread = useCallback(
+    (item: TaskActivityItem) => {
+      track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+        action_type: "mark_activity_unread",
+        surface: "activity",
+        channel_id: item.channelId ?? undefined,
+        task_id: item.taskId,
+      });
+      markTasksUnread(activityReadPayload([item]));
+    },
+    [markTasksUnread],
   );
   const markAllRead = useCallback(() => {
     markTasksRead(activityReadPayload(unreadItems));
@@ -344,7 +449,9 @@ export function ActivityView() {
               item={item}
               channelId={item.channelId}
               onOpen={markRead}
-              onMarkRead={markRead}
+              onMarkRead={markReadFromMenu}
+              onMarkUnread={markUnread}
+              isUpdatingReadState={isMarkingRead || isMarkingUnread}
               currentUser={currentUser}
               blockedTaskIds={blockedTaskIds}
             />
@@ -388,10 +495,10 @@ export function ActivityView() {
       <div className="mx-auto w-full max-w-[680px] px-4 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Text size="5" weight="bold" className="block">
+            <Heading size="xl" render={<h1 aria-label="Activity" />}>
               Activity
-            </Text>
-            <Text size="2" className="block text-muted-foreground">
+            </Heading>
+            <Text size="sm" className="block text-muted-foreground">
               Task updates and comment notifications across{" "}
               {spacesLayout ? "spaces" : "channels"}.
             </Text>

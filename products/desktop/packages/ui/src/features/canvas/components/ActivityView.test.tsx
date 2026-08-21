@@ -137,6 +137,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        onMarkUnread={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
@@ -156,5 +157,40 @@ describe("activityHeadline", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
+  });
+
+  it.each([
+    [
+      "more actions menu",
+      (): void => {
+        fireEvent.click(screen.getByLabelText("More actions for Say hello"));
+      },
+    ],
+    [
+      "context menu",
+      (): void => {
+        const row = screen.getByText("Say hello").closest("button");
+        if (!row) throw new Error("Expected activity row button");
+        fireEvent.contextMenu(row);
+      },
+    ],
+  ])("marks read activity unread from the %s", async (_name, openMenu) => {
+    const activity = item({ isUnread: false });
+    const onMarkUnread = vi.fn();
+    render(
+      <ActivityRow
+        item={activity}
+        channelId="channel-1"
+        onOpen={vi.fn()}
+        onMarkRead={vi.fn()}
+        onMarkUnread={onMarkUnread}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+      />,
+    );
+
+    openMenu();
+    fireEvent.click(await screen.findByText("Mark as unread"));
+
+    expect(onMarkUnread).toHaveBeenCalledWith(activity);
   });
 });
