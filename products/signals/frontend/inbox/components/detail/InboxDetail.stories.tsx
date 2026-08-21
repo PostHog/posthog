@@ -145,6 +145,26 @@ export const ReportMinimal: Story = {
     ),
 }
 
+// Past `FLAT_SIGNALS_MAX` the Evidence section groups by source line with per-group counts
+// and a "Show all" expander per group.
+export const ReportGroupedEvidence: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+                    200,
+                    { report: null, signals: mockSignals(req.params.reportId as string, 9) },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} tab="reports" />
+        </Frame>
+    ),
+}
+
 export const PullRequest: Story = {
     render: () => (
         <Frame>

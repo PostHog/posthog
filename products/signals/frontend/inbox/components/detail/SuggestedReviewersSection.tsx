@@ -227,7 +227,6 @@ function ReviewerRow({
     onRemove: () => void
 }): JSX.Element {
     const displayName = reviewer.github_name ?? reviewer.user?.first_name ?? reviewer.github_login
-    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
     const githubUrl = reviewer.github_login ? `https://github.com/${reviewer.github_login}` : null
 
     const person = (
@@ -245,15 +244,17 @@ function ReviewerRow({
         />
     )
 
+    // The suggestion's commit-sha evidence stays out of the row: a reviewer is a person to ping,
+    // not a research trail. The "why them" reasoning still reaches whoever wants it via the tooltip.
+    const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
+
     return (
-        <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 @lg:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_auto]">
+        <div className="group flex items-center justify-between gap-2 rounded px-1.5 py-1">
             {/* no row hover: the row isn't clickable, only the remove button is */}
             <Tooltip
                 title={
                     reviewer.user
-                        ? githubUrl
-                            ? `@${reviewer.github_login} on GitHub`
-                            : undefined
+                        ? (reason ?? (githubUrl ? `@${reviewer.github_login} on GitHub` : undefined))
                         : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
                 }
             >
@@ -273,25 +274,6 @@ function ReviewerRow({
                     )}
                 </span>
             </Tooltip>
-            <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere] @lg:col-span-1 @lg:row-start-auto">
-                {reviewer.relevant_commits.length > 0 && (
-                    <span className="text-xs text-tertiary">
-                        {reviewer.relevant_commits.map((commit, i) => (
-                            <span key={commit.sha}>
-                                {i > 0 && ', '}
-                                <Link
-                                    to={commit.url}
-                                    target="_blank"
-                                    className="font-mono text-tertiary hover:text-primary"
-                                >
-                                    {commit.sha.slice(0, 7)}
-                                </Link>
-                            </span>
-                        ))}
-                    </span>
-                )}
-                {reason && <span className="text-xs text-tertiary leading-snug">{reason}</span>}
-            </div>
             <LemonButton
                 size="xsmall"
                 type="tertiary"

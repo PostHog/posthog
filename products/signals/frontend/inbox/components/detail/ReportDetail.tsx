@@ -11,19 +11,12 @@ import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
-import {
-    displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
-    parsePrUrlParts,
-    safeHttpUrl,
-} from '../../utils/reportPresentation'
+import { humanizeReportTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -34,10 +27,10 @@ import {
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
-import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { EvidenceList } from './EvidenceList'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import {
@@ -48,11 +41,9 @@ import {
     PullRequestDiffStat,
     PullRequestDiffStatSkeleton,
 } from './PullRequestDiffPanel'
-import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
-import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
 /**
@@ -96,19 +87,32 @@ const SIGNALS_TOOLTIP =
 function ReportDetailMeta({
     report,
     evidenceCount,
+    priorityExplanation,
     actionabilityExplanation,
     scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
+    priorityExplanation?: string | null
     actionabilityExplanation?: string | null
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
     scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
+    // "Ready" is the resting state of everything in the list — it earns no badge; the exceptions do.
+    const showStatus =
+        report.status !== SignalReportStatus.READY &&
+        !isStatusRedundantWithActionability(report.status, report.actionability)
 
     const stats: ReactNode[] = []
+    // Priority as muted metadata, not a colored monogram: it should inform, not shout.
+    if (report.priority) {
+        stats.push(
+            <Tooltip title={priorityExplanation || undefined}>
+                <span className={priorityExplanation ? 'cursor-help' : undefined}>{report.priority} priority</span>
+            </Tooltip>
+        )
+    }
     if (evidenceCount > 0) {
         stats.push(
             <Tooltip title={SIGNALS_TOOLTIP}>
@@ -343,8 +347,7 @@ export function InboxDetailFrame({
             extra: { section },
         })
 
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
-    const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+    const displayTitle = humanizeReportTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
@@ -400,7 +403,8 @@ export function InboxDetailFrame({
                 </div>
 
                 <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
+                    {/* Pull request (when present) first, then reviewers and evidence. The run/activity
+                    machinery stays on the Runs surface — a report reads as a brief, not a pipeline. */}
                     {children}
                     <SuggestedReviewersSection report={report} />
                     {hasEvidence && (
@@ -420,16 +424,10 @@ export function InboxDetailFrame({
                             {reportSignalsLoading && reportSignals === null ? (
                                 <EvidenceSkeleton count={evidenceCount} />
                             ) : (
-                                <div className="flex flex-col gap-3">
-                                    {signals.map((signal: SignalNode) => (
-                                        <SignalCard key={signal.signal_id} signal={signal} />
-                                    ))}
-                                </div>
+                                <EvidenceList signals={signals} />
                             )}
                         </DetailSection>
                     )}
-                    <ReportTasksSection report={report} />
-                    <ReportActivitySection report={report} />
                 </div>
             </div>
         </BindLogic>
@@ -449,29 +447,16 @@ export function InboxDetailFrame({
                     {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}
                 </LemonButton>
                 <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
-                    {/* Priority square anchors the title; everything else collapses into the meta line. */}
+                    {/* The title carries the page; priority and everything else collapse into the meta line. */}
                     <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
-                        {report.priority && (
-                            <div className="shrink-0 mt-0.5">
-                                <SignalReportPriorityBadge
-                                    priority={report.priority}
-                                    explanation={priorityExplanation}
-                                />
-                            </div>
-                        )}
                         <div className="flex flex-col gap-2 min-w-0">
                             <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {conventionalTitle && (
-                                    <ConventionalCommitScopeTag
-                                        type={conventionalTitle.type}
-                                        scope={conventionalTitle.scope}
-                                    />
-                                )}
                                 {displayTitle}
                             </h1>
                             <ReportDetailMeta
                                 report={report}
                                 evidenceCount={evidenceCount}
+                                priorityExplanation={priorityExplanation}
                                 actionabilityExplanation={actionabilityExplanation}
                                 scoutSkillName={report.scout_name}
                             />

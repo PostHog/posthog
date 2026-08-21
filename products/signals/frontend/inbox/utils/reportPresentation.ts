@@ -67,6 +67,16 @@ export function displayConventionalCommitTitle(title: string | null | undefined,
 }
 
 /**
+ * The human display title: conventional-commit prefixes stripped and the first letter
+ * capitalized, so "fix(oauth): validate scopes" reads "Validate scopes". Reports present
+ * as briefs, not commits – the commit-shaped title still lives on the PR itself.
+ */
+export function humanizeReportTitle(title: string | null | undefined, fallback: string): string {
+    const display = displayConventionalCommitTitle(title, fallback)
+    return display.charAt(0).toUpperCase() + display.slice(1)
+}
+
+/**
  * Return the URL only if it's a safe `http(s)` link, otherwise `null`. Guards external `href`s
  * against `javascript:` / `data:` and other script-bearing schemes – `implementation_pr_url`
  * originates from an agent's raw task-run output and is not scheme-validated server-side.

@@ -7,8 +7,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport } from '../../types'
-import { displayConventionalCommitTitle, parseConventionalCommitTitle } from '../../utils/reportPresentation'
-import { ConventionalCommitScopeTag } from '../cards/ReportCard'
+import { humanizeReportTitle } from '../../utils/reportPresentation'
 
 /**
  * Header for the Runs detail view: a labeled back button, the conventional-commit title, and a
@@ -16,8 +15,7 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
  * details render their own merged header inside `InboxDetailFrame`.
  */
 export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
-    const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+    const displayTitle = humanizeReportTitle(report.title, 'Untitled report')
     const reportPath = urls.inboxReport(tab, report.id)
 
     return (
@@ -33,9 +31,6 @@ export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: 
             </LemonButton>
             <div className="flex items-start justify-between gap-3 min-w-0">
                 <h1 className="min-w-0 flex-1 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-                    {conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                    )}
                     {displayTitle}
                 </h1>
                 <LemonButton

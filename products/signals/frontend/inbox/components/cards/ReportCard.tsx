@@ -13,13 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
-import {
-    deriveHeadline,
-    displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
-    parsePrUrlParts,
-    safeHttpUrl,
-} from '../../utils/reportPresentation'
+import { deriveHeadline, humanizeReportTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -32,18 +26,6 @@ import {
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
-
-export function ConventionalCommitScopeTag({ type, scope }: { type: string; scope: string | null }): JSX.Element {
-    const label = scope ? `${type}(${scope})` : type
-    // Rendered as an inline prefix to the title text (not a flex sibling), so it stays on the
-    // title's first line and the title wraps beneath it. `align-middle` keeps it centered on that
-    // line; `font-normal` stops it inheriting the title's weight.
-    return (
-        <LemonTag size="small" className="mr-1 align-middle font-mono font-normal select-none" title={label}>
-            {label}
-        </LemonTag>
-    )
-}
 
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
 export function InboxCardSourceMeta({
@@ -123,8 +105,7 @@ export function ReportCard({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
-    const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
+    const cardTitle = humanizeReportTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const detailUrl = backUrl
         ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
@@ -166,9 +147,6 @@ export function ReportCard({
                         hasPr && 'pr-14'
                     )}
                 >
-                    {conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                    )}
                     {cardTitle}
                 </div>
 
