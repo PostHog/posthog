@@ -6,7 +6,7 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -23,7 +23,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _account_type, find_task_run
+from products.tasks.backend.webhooks import _account_type, _bounded_attribution_lookup, find_task_run
 
 
 class TestAccountType(TestCase):
@@ -1931,3 +1931,24 @@ class TestFindSignalImplementationRun(TestCase):
 
         assert found is not None
         assert found.run_id == legitimate.id
+
+
+class TestBoundedAttributionLookup(TestCase):
+    def _statement_timeout(self) -> str:
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0]
+
+    def test_caps_statements_and_restores_the_previous_value(self):
+        # Django's TestCase runs each test inside a transaction, which is exactly the case
+        # the restore exists for: joining a transaction we did not open (a future caller's
+        # atomic block, or ATOMIC_REQUESTS) must not leave the 800 ms cap behind.
+        before = self._statement_timeout()
+
+        with _bounded_attribution_lookup():
+            inside = self._statement_timeout()
+
+        self.assertEqual(inside, "800ms")
+        self.assertEqual(self._statement_timeout(), before)

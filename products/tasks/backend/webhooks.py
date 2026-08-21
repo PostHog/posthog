@@ -6,6 +6,7 @@ from contextlib import ExitStack, contextmanager
 
 from django.conf import settings
 from django.db import OperationalError, connections, transaction
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
@@ -576,6 +577,35 @@ _ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
 _ATTRIBUTION_DB_ALIASES = ("default", "replica")
 
 
+def _read_statement_timeout(connection: BaseDatabaseWrapper) -> str | None:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _apply_statement_timeout(connection: BaseDatabaseWrapper, value: str) -> None:
+    # set_config(..., is_local=True) is SET LOCAL, but takes the value as a bind parameter,
+    # so a restored value ("30s", "0", ...) does not have to be quoted by hand.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('statement_timeout', %s, true)", [value])
+
+
+@contextmanager
+def _statement_timeout(connection: BaseDatabaseWrapper, timeout_ms: int, *, restore: bool) -> Iterator[None]:
+    """Cap statements on one connection, optionally putting the previous value back."""
+    previous = _read_statement_timeout(connection) if restore else None
+    _apply_statement_timeout(connection, f"{timeout_ms}ms")
+
+    yield
+
+    # Only reached when the block succeeded. If it raised, the enclosing atomic() rolls the
+    # (sub)transaction back and PostgreSQL undoes SET LOCAL with it, so there is nothing to
+    # restore -- and a statement on an aborted transaction would error anyway.
+    if previous:
+        _apply_statement_timeout(connection, previous)
+
+
 @contextmanager
 def _bounded_attribution_lookup() -> Iterator[None]:
     """Run a block under a per-statement timeout on each configured DB the lookup may use.
@@ -587,9 +617,14 @@ def _bounded_attribution_lookup() -> Iterator[None]:
         for alias in _ATTRIBUTION_DB_ALIASES:
             if alias not in settings.DATABASES:
                 continue
+            connection = connections[alias]
+            # SET LOCAL dies with the transaction it was set in, so the cap only needs
+            # restoring when we are joining a transaction somebody else owns -- a future
+            # caller wrapping this in its own atomic block, or ATOMIC_REQUESTS (which
+            # PostHog does not enable today). Otherwise the commit below ends it for us.
+            restore = connection.in_atomic_block
             stack.enter_context(transaction.atomic(using=alias))
-            with connections[alias].cursor() as cursor:
-                cursor.execute(f"SET LOCAL statement_timeout = {int(_ATTRIBUTION_STATEMENT_TIMEOUT_MS)}")
+            stack.enter_context(_statement_timeout(connection, _ATTRIBUTION_STATEMENT_TIMEOUT_MS, restore=restore))
         yield
 
 
