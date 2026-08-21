@@ -1,4 +1,7 @@
-import type { EvidencePreview } from "@posthog/api-client/evidence-previews";
+import {
+  compactCount,
+  type EvidencePreview,
+} from "@posthog/api-client/evidence-previews";
 import { Card, CardContent, Text } from "@posthog/quill";
 import {
   TimeSeriesBarChart,
@@ -62,6 +65,44 @@ function CardTitle({ children }: { children: string }) {
   );
 }
 
+/**
+ * Latest point of a single series with its step change, so the chart answers
+ * "where is it now?" without hovering. Mirrors the inbox report cards; the
+ * delta stays uncolored because a rise here isn't necessarily good.
+ */
+function SeriesHeadline({ points }: { points: number[] }) {
+  const last = points[points.length - 1];
+  const previous = points.length > 1 ? points[points.length - 2] : null;
+  if (typeof last !== "number" || !Number.isFinite(last)) return null;
+  let delta: { label: string; up: boolean } | null = null;
+  if (
+    typeof previous === "number" &&
+    Number.isFinite(previous) &&
+    previous !== 0
+  ) {
+    const pct = ((last - previous) / Math.abs(previous)) * 100;
+    if (Math.abs(pct) >= 0.5) {
+      delta = {
+        label: `${Math.abs(pct) >= 10 ? Math.round(Math.abs(pct)) : Math.abs(pct).toFixed(1)}%`,
+        up: pct >= 0,
+      };
+    }
+  }
+  return (
+    <span className="flex shrink-0 items-baseline gap-1.5">
+      <span className="font-semibold text-[15px] text-foreground tabular-nums leading-none">
+        {compactCount(last)}
+      </span>
+      {delta && (
+        <span className="font-medium text-[11px] text-muted-foreground tabular-nums">
+          {delta.up ? "▲" : "▼"}
+          {delta.label}
+        </span>
+      )}
+    </span>
+  );
+}
+
 type Section = NonNullable<EvidencePreview["sections"]>[number];
 
 /**
@@ -104,7 +145,10 @@ export function PostHogObjectDetails({
       {showActivity && preview.spark && (
         <Card size="sm">
           <CardContent>
-            <CardTitle>Activity</CardTitle>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Activity</CardTitle>
+              <SeriesHeadline points={preview.spark.points} />
+            </div>
             {preview.spark.labels &&
             preview.spark.labels.length === preview.spark.points.length ? (
               <DailySeriesChart

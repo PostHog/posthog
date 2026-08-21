@@ -1,6 +1,17 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import type { PostHogObjectArtifactMetadata } from "@posthog/core/canvas/runArtifactSchemas";
-import { Badge, Button, Heading, Skeleton, Text } from "@posthog/quill";
+import {
+  Badge,
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Heading,
+  Skeleton,
+  Text,
+} from "@posthog/quill";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
@@ -27,7 +38,7 @@ function StatStrip({
       {stats.slice(0, 8).map((stat) => (
         <div
           key={stat.label}
-          className="rounded-lg border border-border bg-card px-3.5 py-2"
+          className="rounded-lg border border-border bg-card px-3.5 py-2.5"
         >
           <div className="truncate text-[11px] text-muted-foreground">
             {stat.label}
@@ -117,20 +128,32 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   );
 }
 
-function UnavailableObject({ isError }: { isError: boolean }) {
+function UnavailableObject({
+  isError,
+  objectKind,
+}: {
+  isError: boolean;
+  objectKind: string;
+}) {
+  const ObjectIcon = getObjectKind(objectKind).icon;
   return (
-    <div className="rounded-md border border-border bg-muted p-4">
-      <Text>
-        {isError
-          ? "Couldn't load this object."
-          : "This object is not available in the current project."}
-      </Text>
-      <Text className="mt-1 text-muted-foreground text-sm">
-        {isError
-          ? "Try again, or open PostHog to review it."
-          : "Check the identifier or open PostHog to review access."}
-      </Text>
-    </div>
+    <Empty className="rounded-lg border border-border">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <ObjectIcon size={18} />
+        </EmptyMedia>
+        <EmptyTitle>
+          {isError
+            ? "Couldn't load this object"
+            : "This object is not available in the current project"}
+        </EmptyTitle>
+        <EmptyDescription>
+          {isError
+            ? "Try again, or open PostHog to review it."
+            : "Check the identifier or open PostHog to review access."}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }
 
@@ -229,15 +252,24 @@ export function PostHogObjectPageView({
               blockKey={`artifact:${objectKind}:${objectId}`}
             />
           ) : state === "loading" ? (
-            <div className="space-y-3">
-              <Skeleton className="h-20 w-full" />
-              <Skeleton className="h-44 w-full" />
-              <Skeleton className="h-24 w-full" />
+            // Mirrors the loaded layout (stat strip, chart, detail card) so
+            // content lands in place instead of reflowing the page.
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[0, 1, 2, 3].map((tile) => (
+                  <Skeleton key={tile} className="h-[62px] w-full rounded-lg" />
+                ))}
+              </div>
+              <Skeleton className="h-56 w-full rounded-lg" />
+              <Skeleton className="h-40 w-full rounded-lg" />
             </div>
           ) : preview ? (
             <ObjectContent preview={preview} />
           ) : (
-            <UnavailableObject isError={state === "error"} />
+            <UnavailableObject
+              isError={state === "error"}
+              objectKind={objectKind}
+            />
           )}
         </div>
 

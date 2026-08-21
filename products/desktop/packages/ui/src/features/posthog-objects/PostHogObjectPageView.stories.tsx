@@ -138,6 +138,18 @@ export const SqlQuery: Story = {
   },
 };
 
+export const Loading: Story = {
+  args: {
+    objectKind: "flag",
+    objectId: "390",
+    fallbackName: "pi-harness",
+    url: null,
+    occurrenceCount: 4,
+    state: "loading",
+    preview: null,
+  },
+};
+
 export const MissingObject: Story = {
   args: {
     objectKind: "flag",
