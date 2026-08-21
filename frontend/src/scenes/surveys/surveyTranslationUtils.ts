@@ -1,6 +1,45 @@
-import { Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { MultipleSurveyQuestion, Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
 
-import { NewSurvey } from './constants'
+import { NewSurvey, TRANSLATION_NEEDED_PLACEHOLDER } from './constants'
+
+// Respondents are shown choices in their own language and submit the translated text, so a
+// translated choice has to map back to its base-language choice (matched by position) to be
+// recognised as a predefined answer rather than a free-text "Other" response.
+//
+// Keep in sync with the backend twin `build_choice_translation_map` in
+// products/surveys/backend/responses/fetch_rows.py — both must agree on the positional mapping,
+// the length guard, and the base-choice-wins seeding order.
+export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map<string, string> {
+    const baseChoices = question.choices ?? []
+    const map = new Map<string, string>()
+
+    for (const translation of Object.values(question.translations ?? {})) {
+        const translatedChoices = translation.choices
+        // The length guard only catches out-of-band edits (API/Max tool) that change array
+        // length — the editor path preserves length and stamps the placeholder instead (see the
+        // placeholder skip below), which is why that skip is the real guard for that path.
+        if (!translatedChoices || translatedChoices.length !== baseChoices.length) {
+            continue
+        }
+        translatedChoices.forEach((choice, index) => {
+            const baseChoice = baseChoices[index]
+            const isUntranslated = !choice || choice === TRANSLATION_NEEDED_PLACEHOLDER || choice.trim() === ''
+            // Skip untranslated placeholders and blanks — they carry no real mapping and would
+            // otherwise collapse onto whichever base choice the last language lands on.
+            if (!isUntranslated && baseChoice !== undefined) {
+                map.set(choice, baseChoice)
+            }
+        })
+    }
+
+    // Seed base choices last so they take precedence: a translation that reuses another
+    // base-choice string must not remap that base choice to a different option. The tradeoff is
+    // lossy — a translated pick that collides with a different base choice is attributed to that
+    // base option — but it's the safe default (base-language data is never misattributed).
+    baseChoices.forEach((choice) => map.set(choice, choice))
+
+    return map
+}
 
 export function getSurveyWithTranslatedContent<TSurvey extends Survey | NewSurvey>(
     survey: TSurvey,

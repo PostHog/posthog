@@ -23,7 +23,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.signals import mutable_receiver
+from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_project,
@@ -601,6 +601,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # Enable/disable toggle for cookieless ingestion. STATELESS (1) is sunset: any non-disabled
+    # value is processed as stateful.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
@@ -994,6 +996,8 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
+
+        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 

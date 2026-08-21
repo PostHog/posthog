@@ -1,0 +1,8 @@
+{
+  "extends": "@posthog/tsconfig/node-package.json",
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src/**/*"]
+}

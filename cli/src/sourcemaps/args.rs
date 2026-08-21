@@ -93,6 +93,15 @@ impl FileSelectionArgs {
     }
 }
 
+/// How exceptions get associated with a release.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReleaseMode {
+    /// Bind the release to the uploaded symbol sets (the previous behavior)
+    SymbolSet,
+    /// EXPERIMENTAL: resolve the release per event from an id injected into each chunk
+    Event,
+}
+
 #[derive(clap::Args, Clone)]
 pub struct ReleaseArgs {
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
@@ -122,14 +131,53 @@ pub struct ReleaseArgs {
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
+    /// Allow overwriting an existing symbol set whose content has changed. Always on with
+    /// `--release-mode=event`. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged. [default: false]
+    /// Existing symbol sets are left unchanged. Ignored with `--release-mode=event`. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
+}
+
+/// How the server should treat a symbol set that already exists under the chunk id being uploaded
+/// with different content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConflictBehavior {
+    /// Overwrite the stored symbol set.
+    pub force: bool,
+    /// Leave the stored symbol set alone and carry on rather than failing the run.
+    pub skip_on_conflict: bool,
+}
+
+impl UploadConflictArgs {
+    /// Resolve what to do about changed content, given the release mode.
+    ///
+    /// Event mode always overwrites, and neither flag changes that. A chunk's id and its uploaded
+    /// bytes move independently there: the id is derived from the pristine minified source and so
+    /// survives a new release, while the injected snippet inside the payload carries the release id
+    /// and changes with every release. Every chunk therefore conflicts on every release after the
+    /// first, so honoring `--skip-on-conflict` would skip all of them and leave the server serving
+    /// the previous release's id forever.
+    pub fn resolve(&self, release_mode: ReleaseMode) -> ConflictBehavior {
+        match release_mode {
+            ReleaseMode::Event => ConflictBehavior {
+                force: true,
+                skip_on_conflict: false,
+            },
+            ReleaseMode::SymbolSet => ConflictBehavior {
+                force: self.force,
+                skip_on_conflict: self.skip_on_conflict,
+            },
+        }
+    }
+
+    /// Whether the run asked to skip conflicts but the release mode cannot honor it.
+    pub fn skip_on_conflict_ignored(&self, release_mode: ReleaseMode) -> bool {
+        self.skip_on_conflict && release_mode == ReleaseMode::Event
+    }
 }
 
 /// Pack version and build into a single string for release uniqueness.
@@ -219,6 +267,58 @@ mod tests {
     }
 
     #[test]
+    fn event_mode_always_overwrites() {
+        let cases = [
+            // (force, skip_on_conflict, release_mode,         expected force, expected skip)
+            (false, false, ReleaseMode::Event, true, false),
+            // Skipping every chunk would strand the server on the previous release id.
+            (false, true, ReleaseMode::Event, true, false),
+            (true, false, ReleaseMode::Event, true, false),
+            (false, false, ReleaseMode::SymbolSet, false, false),
+            (false, true, ReleaseMode::SymbolSet, false, true),
+            (true, false, ReleaseMode::SymbolSet, true, false),
+        ];
+
+        for (force, skip_on_conflict, release_mode, expected_force, expected_skip) in cases {
+            let conflict = UploadConflictArgs {
+                force,
+                skip_on_conflict,
+            };
+            assert_eq!(
+                conflict.resolve(release_mode),
+                ConflictBehavior {
+                    force: expected_force,
+                    skip_on_conflict: expected_skip,
+                },
+                "force={force} skip_on_conflict={skip_on_conflict} release_mode={release_mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn skip_on_conflict_is_reported_as_ignored_only_in_event_mode() {
+        let cases = [
+            // (skip_on_conflict, release_mode,        expected)
+            (true, ReleaseMode::Event, true),
+            (false, ReleaseMode::Event, false),
+            (true, ReleaseMode::SymbolSet, false),
+            (false, ReleaseMode::SymbolSet, false),
+        ];
+
+        for (skip_on_conflict, release_mode, expected) in cases {
+            let conflict = UploadConflictArgs {
+                force: false,
+                skip_on_conflict,
+            };
+            assert_eq!(
+                conflict.skip_on_conflict_ignored(release_mode),
+                expected,
+                "skip_on_conflict={skip_on_conflict} release_mode={release_mode:?}"
+            );
+        }
+    }
+
+    #[test]
     fn upload_concurrency_defaults_to_ten() {
         let parsed = parse_concurrency(&["test"], None).unwrap();
 
@@ -262,6 +362,56 @@ mod tests {
                 message.contains(&format!("invalid value '{value}'"))
                     && message.contains("--concurrency"),
                 "unexpected error for {value:?}: {message}"
+            );
+        }
+    }
+
+    /// Golden vectors pinning the release `hash_id` the CLI writes: `content_hash([name, version])`
+    /// with `version = pack_version(version, build)` (see `api::releases::create_release`). Cymbal
+    /// reconstructs the same hash from a mobile event's app metadata (`mobile_release_hash_id` in
+    /// `rust/cymbal/src/core/types/frames/releases.rs`), so these literals must stay identical on
+    /// both sides or mobile releases silently stop resolving. Keep in sync with the matching golden
+    /// test in cymbal.
+    #[test]
+    fn release_hash_id_golden_vectors() {
+        use crate::utils::files::content_hash;
+
+        // (name, version, build, expected hash_id)
+        let cases: [(&str, Option<&str>, Option<&str>, &str); 4] = [
+            (
+                "com.posthog.iosraw",
+                Some("1.0"),
+                Some("1"),
+                "75605cac5268ba4bdc57b4c8336f6686802e88236ae4026418a18cabcde854d1015f18734489b8ec4c71c68773a027e5b880f7278b8ba6864a5334d76ef9eba6",
+            ),
+            (
+                "com.example.app",
+                Some("1.0"),
+                Some("42"),
+                "5a7f7b504d81759fa4e15f8b3bbc77c694a9dc222cfcd06c801fae9619076e97909edf651087106af331aea76463449f015ccc41ccacbf19148329b1c2c35aa7",
+            ),
+            (
+                "com.example.app",
+                Some("2.3"),
+                None,
+                "09aeeb69b914985562d4aa39d13033abf0f90c753ef90b0148cb06b8aeadca7dd1dd853fa24c7cc51d18cf251bb7348eae58906347a217a98d74ba7ca5673b66",
+            ),
+            (
+                "com.example.app",
+                None,
+                Some("99"),
+                "5e925a3f2e9349f64ab88eede466b641a7332dc79d6f1901d931fb659704a0475fa77a3ca25c0a60b2919547de8d94117fbcc52448e83aa72787a3fe35f725ae",
+            ),
+        ];
+
+        for (name, version, build, expected) in cases {
+            let version = version.map(String::from);
+            let build = build.map(String::from);
+            let packed = pack_version(&version, &build).expect("these cases always pack a version");
+            let hash_id = content_hash([name.as_bytes(), packed.as_bytes()]);
+            assert_eq!(
+                hash_id, expected,
+                "release hash_id drift for {name} {version:?}+{build:?}"
             );
         }
     }

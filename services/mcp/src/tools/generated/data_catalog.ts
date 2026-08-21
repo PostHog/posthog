@@ -27,7 +27,13 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({ project_id: true })
+const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({
+    project_id: true,
+}).extend({
+    id: DataCatalogCertificationsCertifyCreateParams.shape['id'].describe(
+        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+    ),
+})
 
 const DataCatalogCertificationCertifySchemaExecute = z.strictObject({
     confirmation_hash: z
@@ -52,6 +58,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -74,6 +81,7 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
             purpose: 'data-catalog-certification-certify',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -91,6 +99,10 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
 
 const DataCatalogCertificationDeprecateSchema = DataCatalogCertificationsDeprecateCreateParams.omit({
     project_id: true,
+}).extend({
+    id: DataCatalogCertificationsDeprecateCreateParams.shape['id'].describe(
+        'Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).'
+    ),
 })
 
 const DataCatalogCertificationDeprecateSchemaExecute = z.strictObject({
@@ -116,6 +128,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
             messageTemplate:
                 "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -138,6 +151,7 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
             purpose: 'data-catalog-certification-deprecate',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -179,6 +193,9 @@ const dataCatalogCertificationPropose = (): ToolBase<
         if (params.notes !== undefined) {
             body['notes'] = params.notes
         }
+        if (params.proposed_status !== undefined) {
+            body['proposed_status'] = params.proposed_status
+        }
         const result = await context.api.request<Schemas.DataCatalogCertification>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/certifications/`,
@@ -213,6 +230,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -232,6 +250,7 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
             purpose: 'data-catalog-metric-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -326,9 +345,9 @@ const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Sch
     },
 })
 
-const DataCatalogMetricUpdateSchema = DataCatalogMetricsPartialUpdateParams.omit({ project_id: true }).extend(
-    DataCatalogMetricsPartialUpdateBody.shape
-)
+const DataCatalogMetricUpdateSchema = DataCatalogMetricsPartialUpdateParams.omit({ project_id: true })
+    .extend(DataCatalogMetricsPartialUpdateBody.omit({ name: true }).shape)
+    .extend({ new_name: DataCatalogMetricsPartialUpdateBody.shape['name'] })
 
 const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchema, Schemas.DataCatalogMetric> => ({
     name: 'data-catalog-metric-update',
@@ -336,8 +355,8 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
     handler: async (context: Context, params: z.infer<typeof DataCatalogMetricUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
+        if (params.new_name !== undefined) {
+            body['name'] = params.new_name
         }
         if (params.display_name !== undefined) {
             body['display_name'] = params.display_name
@@ -420,6 +439,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
             messageTemplate:
                 "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -442,6 +462,7 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
             purpose: 'data-catalog-relationship-accept',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -531,6 +552,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
             messageTemplate:
                 "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -553,6 +575,7 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
             purpose: 'data-catalog-relationship-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {

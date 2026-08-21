@@ -1,13 +1,26 @@
+from typing import cast
+
 from django.contrib import admin, messages
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .models import (
+    CodeInvite,
+    CodeInviteQuerySet,
+    CodeInviteRedemption,
+    Loop,
+    LoopTrigger,
+    SandboxSnapshot,
+    Task,
+    TaskRun,
+)
+from .visibility import task_run_visibility_q, task_visibility_q
 
 
 @admin.register(Task)
@@ -27,6 +40,14 @@ class TaskAdmin(admin.ModelAdmin):
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
 
+    def get_queryset(self, request: HttpRequest):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(team__organization_id__in=cast(User, request.user).organizations.values("id"))
+            .filter(task_visibility_q(request.user.id))
+        )
+
 
 @admin.register(TaskRun)
 class TaskRunAdmin(admin.ModelAdmin):
@@ -42,6 +63,14 @@ class TaskRunAdmin(admin.ModelAdmin):
         ("Data", {"fields": ("output", "state")}),
         ("Dates", {"fields": ("created_at", "updated_at", "completed_at")}),
     )
+
+    def get_queryset(self, request: HttpRequest):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(task__team__organization_id__in=cast(User, request.user).organizations.values("id"))
+            .filter(task_run_visibility_q(request.user.id))
+        )
 
     def get_urls(self) -> list:
         # Prepended so it isn't shadowed by the default `<path:object_id>/` route.
@@ -126,6 +155,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "redemption_count", "created_at")
     autocomplete_fields = ("created_by",)
     inlines = []
+    actions = ["expire_invites"]
+
+    @admin.action(description="Expire selected invites")
+    def expire_invites(self, request: HttpRequest, queryset: CodeInviteQuerySet) -> None:
+        selected = queryset.count()
+        expired = queryset.expire()
+        message = f"Expired {expired} of {selected} selected invite(s)."
+        if expired < selected:
+            message += " Invites that were already expired were left unchanged."
+        self.message_user(request, message)
 
     def get_fieldsets(self, request, obj=None):
         if obj:

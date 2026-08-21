@@ -374,6 +374,17 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(data["event_plan"], {"events": [{"name": "$pageview"}]})
         self.assertEqual(data["error"], {"type": "TimeoutError", "message": "Anthropic API timed out"})
 
+    def test_handoff_text_persists_across_pushes_without_it(self):
+        # Leading indentation must survive validation: the doc is markdown, where it is syntax.
+        doc = "    indented code block\n\n# Setup report"
+        response = self.client.post(self._url(), self._payload(handoff_text=doc), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["handoff_text"], doc)
+
+        response = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["handoff_text"], doc)
+
     def test_stream_requires_workflow_id(self):
         # No params → 400 from the view-level validation (workflow_id is the
         # only required query param; skill_id is optional for pattern subscribe).

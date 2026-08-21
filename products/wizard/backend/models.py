@@ -42,6 +42,10 @@ class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
     # Null means no input is pending — each push replaces it, so the CLI clearing the
     # question is just the next upsert without the field.
     pending_input = models.JSONField(null=True, blank=True)
+    # The markdown handoff doc (the wizard's setup report) once the run has produced one.
+    # Unlike the fields above it is monotonic within a session: a push without it keeps
+    # the stored value (see upsert_session), since the doc arrives late in the run.
+    handoff_text = models.TextField(null=True, blank=True)
 
     updated_at = models.DateTimeField(auto_now=True)
 

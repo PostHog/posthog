@@ -77,18 +77,26 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
         rerun_config = dict(suggestion.suggested_config)
     else:
         rerun_config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
+    # The API stamped the admitted model into the running stub before starting the workflow; using the
+    # scanner's then-current model instead would let a model switch mid-run overspend the admitted budget.
+    admitted_model = (
+        suggestion.evaluation.get("model") if isinstance(suggestion.evaluation, dict) else None
+    ) or scanner.model
     # Signals stay off so a dry run can't pollute the team's feeds.
     snapshot = ScannerSnapshot(
         name=scanner.name,
         scanner_type=scanner.scanner_type,
         scanner_version=scanner.scanner_version,
-        model=scanner.model,
+        model=admitted_model,
         provider=scanner.provider,
         emits_signals=False,
         scanner_config=rerun_config,
     )
     suggestion.evaluation = build_running_evaluation(
-        total=len(sessions), labels_fingerprint=labels_fingerprint(scanner)
+        total=len(sessions),
+        labels_fingerprint=labels_fingerprint(scanner),
+        model=admitted_model,
+        started_at=inputs.started_at,
     )
     suggestion.save(update_fields=["evaluation"])
     return SelectEvaluationSessionsOutput(sessions=sessions, snapshot=snapshot)
@@ -139,11 +147,14 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
                 observation_id=evaluation_usage_id(
                     suggestion.id,
                     inputs.session.session_id,
-                    str(suggestion.evaluation.get("started_at") or ""),
+                    # Frozen at request time so a concurrent re-test that restamps the row can't re-key
+                    # this run's receipts and charge its sessions twice.
+                    inputs.started_at or str(suggestion.evaluation.get("started_at") or ""),
                 ),
                 defaults={
                     "organization_id": suggestion.team.organization_id,
                     "team_id": inputs.team_id,
+                    "scanner_id": suggestion.scanner_id,
                     "observation_created_at": timezone.now(),
                     "model": inputs.model,
                     "credits": observation_credits_for_model(inputs.model or ""),

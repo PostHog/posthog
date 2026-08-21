@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-analytics
-description: Configures the analytics side of a PostHog experiment — exposure criteria (default `$feature_flag_called` vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude" vs "First seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
+description: Configures the analytics side of a PostHog experiment — exposure criteria (server-resolved default exposure event vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude" vs "First seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
 ---
 
 # Configuring experiment analytics
@@ -15,7 +15,7 @@ Exposure criteria determine which users are counted in the experiment analysis.
 
 Two options:
 
-1. **Feature flag called** (default) — users are included when the `$feature_flag_called` event fires for the experiment's flag. This is the standard approach — it means a user is included only when they actually encounter the feature flag in your code.
+1. **Default exposure event** — users are included when the experiment's default exposure event fires for the experiment's flag: `$feature_flag_called`, or `$experiment_exposure` for newer experiments. Which one applies is resolved server-side — read `resolved_exposure_event` from `experiment-get` rather than assuming either name (both events carry the same properties). This is the standard approach — it means a user is included only when they actually encounter the feature flag in your code.
 2. **Custom exposure event** — users are included when a specific custom event fires. Use this when you want tighter control over who enters the analysis (e.g., only users who actually visit the page where the experiment runs).
 
 ### Multiple variant handling
@@ -194,3 +194,9 @@ See `references/metric-configuration.md` for the full rendered `ExperimentMetric
 ## Interpreting results
 
 See `references/interpreting-results.md` for guidance on reading experiment results, statistical significance, and when to ship vs end.
+
+## Related skills
+
+- **`configuring-experiment-rollout`** — the rollout side: variant splits and traffic percentage
+- **`diagnosing-experiment-results`** — when results look biased, empty, or strange
+- **`analyzing-experiment-session-replays`** — qualitative complement — watch what each variant's users actually did

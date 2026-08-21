@@ -71,7 +71,6 @@ export interface activeCloudRunLogicValues {
     activeCloudRun: CloudRunHandle | null
     canHydrateFromServer: boolean
     cancellingRun: boolean
-    panelMounted: boolean
     persistedCloudRun: CloudRunHandle | null
 }
 
@@ -102,9 +101,6 @@ export interface activeCloudRunLogicActions {
         runId: string
         startedAt: string
         taskId: string
-    }
-    setPanelMounted: (mounted: boolean) => {
-        mounted: boolean
     }
 }
 
@@ -164,7 +160,6 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
         // and the two never render the same run at once.
         // Last-writer-wins boolean, not a refcount: at most ONE inline view may be mounted at a time,
         // or the first unmount un-hides the FAB while the second view is still on screen.
-        setPanelMounted: (mounted: boolean) => ({ mounted }),
         // Reconcile the persisted handle against the server's view of the project's active wizard
         // cloud run: seeds a handle the client never wrote (drop-flow signups start the run
         // server-side) and retires one the server no longer reports.
@@ -188,12 +183,6 @@ export const activeCloudRunLogic = kea<activeCloudRunLogicType>([
                     projectId,
                 }),
                 clearActiveCloudRun: () => null,
-            },
-        ],
-        panelMounted: [
-            false,
-            {
-                setPanelMounted: (_, { mounted }) => mounted,
             },
         ],
         // Guards the Cancel button against double-submission while the request is in flight.

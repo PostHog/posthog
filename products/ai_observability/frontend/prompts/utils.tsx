@@ -28,6 +28,19 @@ export function validatePromptName(name: string | undefined): string | undefined
     return undefined
 }
 
+// Search params owned by the prompt detail scene. Strip them from any URL that
+// leaves the scene (breadcrumb, list row links), otherwise a lingering ?edit or
+// ?version reopens the next prompt in the wrong view.
+const PROMPT_SCENE_SEARCH_PARAMS = ['edit', 'version', 'version_id', 'tab']
+
+export function stripPromptSceneSearchParams(searchParams: Record<string, any>): Record<string, any> {
+    const nextSearchParams = { ...searchParams }
+    for (const param of PROMPT_SCENE_SEARCH_PARAMS) {
+        delete nextSearchParams[param]
+    }
+    return nextSearchParams
+}
+
 export const PROMPT_LABEL_MAX_LENGTH = 128
 // Mirrors validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py; the backend stays authoritative.
 const PROMPT_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/

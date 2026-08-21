@@ -21,6 +21,7 @@ LOCATION_MODULES = [
     "posthog_ai",
     "revenue_analytics",
     "shared",
+    "signals",
     "web_analytics",
 ]
 

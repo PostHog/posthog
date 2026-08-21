@@ -1,3 +1,4 @@
+use crate::cohorts::cohort_models::MembershipStampPolicy;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
@@ -393,15 +394,26 @@ pub struct Config {
     // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
     // membership lookups on the hot path for those teams.
     //
-    // `Cohort::uses_realtime_membership()` also requires `condition_type` to flag a
-    // behavioral/lifecycle condition. `condition_type` wasn't backfilled when it was added, so
-    // any cohort that hasn't been saved since must be resaved (`python manage.py resave_cohorts
-    // --team-id <id>`) for every team in REALTIME_COHORT_EVALUATION_TEAM_IDS, including any
-    // already allowlisted at deploy time — otherwise its behavioral cohorts read as
-    // condition_type = NULL and fall back to legacy dynamic evaluation, which resolves every
-    // person as a non-member rather than just evaluating slower.
+    // Routing also requires `condition_type`, which was never backfilled, so every team listed
+    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
+    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
+    // every person as a non-member rather than just evaluating slower.
+    //
+    // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
+    // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
+    // an edited cohort keeps routing to a membership table computed for its old definition.
     #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
     pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
+
+    // Which cohort stamps the routing predicate accepts as proof the PG `cohort_membership`
+    // table is populated (see `MembershipStampPolicy`). "any_backfill_stamp" also accepts the
+    // overloaded `last_backfill_person_properties_at`; "events_or_calculation_stamp" does not,
+    // and is what Django's BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED gate waits on.
+    #[envconfig(
+        from = "REALTIME_COHORT_MEMBERSHIP_STAMP_POLICY",
+        default = "any_backfill_stamp"
+    )]
+    pub realtime_cohort_membership_stamp_policy: MembershipStampPolicy,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -634,9 +646,6 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 
-    #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
-    pub cookieless_force_stateless: bool,
-
     #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
@@ -864,6 +873,12 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
+    // Write an S3 hit back into Redis so the next reader for that key is served by Redis
+    // instead of paying another S3 read. Applies to the team metadata and remote config
+    // hypercaches, which have no in-process cache in front of them. 0 disables.
+    #[envconfig(from = "HYPERCACHE_READ_REPAIR_TTL_SECONDS", default = "600")]
+    pub hypercache_read_repair_ttl_seconds: u64,
+
     // TTL for the Redis-backed per-token auth cache (positive hits).
     // Starts at 5 minutes as a conservative default; increase once invalidation
     // signals are proven reliable in production.
@@ -1054,6 +1069,7 @@ impl Config {
             flags_secret_keys: String::new(),
             secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
+            realtime_cohort_membership_stamp_policy: MembershipStampPolicy::default(),
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
@@ -1086,7 +1102,6 @@ impl Config {
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
-            cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
@@ -1133,6 +1148,7 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
+            hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
@@ -1204,7 +1220,6 @@ impl Config {
     pub fn get_cookieless_config(&self) -> CookielessConfig {
         CookielessConfig {
             disabled: self.cookieless_disabled,
-            force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }

@@ -231,17 +231,35 @@ async def a_external_data_workflow_exists(id: str) -> bool:
 
 def pause_external_data_schedule(id: str):
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    try:
+        pause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    try:
+        unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 async def a_unpause_external_data_schedule(id: str):
     temporal = await async_connect()
-    await a_unpause_schedule(temporal, schedule_id=id)
+    try:
+        await a_unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def delete_external_data_schedule(schedule_id: str):

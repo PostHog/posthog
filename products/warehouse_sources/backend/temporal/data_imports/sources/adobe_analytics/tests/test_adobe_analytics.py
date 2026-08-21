@@ -201,9 +201,9 @@ class TestResolveWindow:
         self, start_date: str | None, incremental: bool, last_value: str | None, expected_start: date
     ) -> None:
         today = date(2024, 3, 6)
-        start, end = resolve_window(start_date, incremental, last_value, today)
-        assert start == expected_start
-        assert end == today
+        window = resolve_window(start_date, incremental, last_value, today)
+        assert window.start == expected_start
+        assert window.end == today
 
 
 class TestBuildReportBody:

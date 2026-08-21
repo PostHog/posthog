@@ -61,3 +61,30 @@ def endpoints_for_version(api_version: str) -> dict[str, PipedriveEndpointConfig
 # Endpoint names are version-independent (`activities` exists under both), so schema discovery
 # can enumerate them without a resolved version.
 ENDPOINTS = (*_SHARED_ENDPOINTS.keys(), "activities")
+
+
+# Our schema name -> the Pipedrive webhook entity, which is both the `event_object` we subscribe
+# to and the `meta.entity` a delivery carries. Only endpoints polled from the API v2 collections
+# appear: a webhooks v2 delivery carries the v2 entity shape, so routing one into a table
+# backfilled from a v1 collection (notes, leads, users, the *_fields catalogs) would merge rows
+# whose field names don't match the ones already in the table.
+WEBHOOK_ENTITY_BY_SCHEMA: dict[str, str] = {
+    "activities": "activity",
+    "deals": "deal",
+    "organizations": "organization",
+    "persons": "person",
+    "pipelines": "pipeline",
+    "products": "product",
+    "stages": "stage",
+}
+
+
+def webhook_schema_names(api_version: str) -> frozenset[str]:
+    """Schemas a webhook can feed for a resolved source version.
+
+    We always register version 2.0 webhooks, so a schema only qualifies while its polled
+    endpoint is the matching v2 collection. That excludes `activities` under a deliberate `v1`
+    pin, where the backfill still comes from the deprecated v1 offset endpoint.
+    """
+    endpoints = endpoints_for_version(api_version)
+    return frozenset(name for name in WEBHOOK_ENTITY_BY_SCHEMA if endpoints[name].path.startswith("/api/v2/"))

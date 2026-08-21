@@ -510,6 +510,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -527,6 +528,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -570,6 +572,7 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
+         "posthog_taggeditem"."replay_scanner_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -791,6 +794,8 @@
          "posthog_cohort"."behavioral_filters_shape_hash",
          "posthog_cohort"."person_filters_shape_hash",
          "posthog_cohort"."last_realtime_cohort_calculation_at",
+         "posthog_cohort"."last_import_total_count",
+         "posthog_cohort"."last_import_unmatched_count",
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
@@ -962,6 +967,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -979,6 +985,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1164,6 +1171,8 @@
          "posthog_cohort"."behavioral_filters_shape_hash",
          "posthog_cohort"."person_filters_shape_hash",
          "posthog_cohort"."last_realtime_cohort_calculation_at",
+         "posthog_cohort"."last_import_total_count",
+         "posthog_cohort"."last_import_unmatched_count",
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
@@ -1361,6 +1370,7 @@
          "posthog_experiment"."end_date",
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
+         "posthog_experiment"."version",
          "posthog_experiment"."archived",
          "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",
@@ -1474,6 +1484,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1491,6 +1502,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1521,7 +1533,8 @@
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1550,6 +1563,7 @@
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1567,6 +1581,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1603,7 +1618,7 @@
     (SELECT 1 AS "a"
      FROM "posthog_team" U0
      WHERE (U0."project_id" = ("posthog_team"."project_id")
-            AND ((U0."session_recording_linked_flag" -> 'id'))::integer = ("posthog_featureflag"."id"))
+            AND U0."session_recording_linked_flag" @> (JSONB_BUILD_OBJECT(('id')::text, "posthog_featureflag"."id")))
      LIMIT 1) AS "is_used_in_replay_settings_annotation",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -1711,6 +1726,7 @@
          "posthog_experiment"."end_date",
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
+         "posthog_experiment"."version",
          "posthog_experiment"."archived",
          "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",

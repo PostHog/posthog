@@ -1,6 +1,9 @@
+import posthoganalytics
+
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -17,6 +20,13 @@ DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
 
 DEFAULT_ORDER_BY = "created_at DESC"
 
+# The query is bound by federated Postgres scans (one per merged lazy-join branch), not
+# CPU; the cluster's effective thread cap keeps those branches from running wide, so ask
+# for enough threads that the scans overlap.
+PERF_QUERY_SETTINGS = HogQLGlobalSettings(max_threads=16)
+
+PERF_FLAG = "customer-analytics-accounts-perf"
+
 
 def _normalize_order_clause(raw: str) -> str:
     """Allow Django-style `-col` shorthand alongside native HogQL `col DESC`."""
@@ -32,6 +42,10 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._perf_enabled = self._perf_flag_enabled()
+        if self._perf_enabled:
+            self.modifiers.mergeFederatedAggregateJoins = True
 
         # Metrics-only callers (just aggregations, no `select`) skip column
         # resolution. A combined query carries both `select` and `metrics`.
@@ -58,6 +72,29 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             limit=self.query.limit,
             offset=self.query.offset,
         )
+
+    def _perf_flag_enabled(self) -> bool:
+        # only_evaluate_locally keeps this flag check off the network: it runs on the query
+        # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    PERF_FLAG,
+                    str(self.team.uuid),
+                    groups={
+                        "organization": str(self.team.organization_id),
+                        "project": str(self.team.pk),
+                    },
+                    group_properties={
+                        "organization": {"id": str(self.team.organization_id)},
+                        "project": {"id": str(self.team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
 
     def validate_query_runner_access(self, user: User) -> bool:
         return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource(
@@ -90,6 +127,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
 
     def _build_where_exprs(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
+
+        if not self.query.includeIgnored:
+            where_exprs.append(parse_expr("isNull(accounts.ignored_at)"))
 
         if self.query.search and self.query.search.strip():
             pattern = f"%{self.query.search.strip()}%"
@@ -198,6 +238,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
         name_index = self.columns.index(NAME_COLUMN)
@@ -243,6 +284,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
+            settings=PERF_QUERY_SETTINGS if self._perf_enabled else None,
         )
 
     def _metric_evaluation_error(self, metrics: list[str], error: Exception) -> ExposedHogQLError:

@@ -61,7 +61,13 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import (
+    ClassicBehaviorBooleanFieldSerializer,
+    action,
+    canonicalize_encoded_url,
+    strip_url_userinfo,
+    unparsed_hostname_in_allowed_url_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -78,16 +84,23 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
+from posthog.helpers.email_utils import (
+    EmailNormalizer,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
     is_read_only_impersonation,
 )
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
-from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_third_party_oauth_access
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -270,10 +283,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey and has not yet "
-            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
-            "first post-provisioning login. Becomes False once the user POSTs to "
-            "`/api/users/@me/credentials_review_complete/`. Read-only."
+            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
+            "application that can currently act as them, and has not yet acknowledged that access. "
+            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
 
@@ -373,6 +386,18 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_last_name(self, value: str) -> str:
         return validate_display_name(value)
 
+    def validate_email(self, value: str) -> str:
+        if self.instance and value.lower() == self.instance.email.lower():
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
+            return value
+        reject_plus_addressed_email(value)
+        # Excluding the editor lets a legacy '+' account holder drop their own alias.
+        if EmailValidationHelper.user_exists_with_stripped_alias(
+            value, exclude_user_id=self.instance.pk if self.instance else None
+        ):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
+
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
 
@@ -433,9 +458,18 @@ class UserSerializer(serializers.ModelSerializer):
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
+        # impersonating users shouldn't bounced into the credential review screen
+        if is_impersonated(self.context.get("request")):
+            return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
-        return WebauthnCredential.objects.filter(user=instance).exists()
+        if WebauthnCredential.objects.filter(user=instance).exists():
+            return True
+        # A provisioning partner's OAuth token is the access this screen exists to disclose, and it
+        # is the one form of it that leaves no credential on the user's own record. Without this the
+        # interstitial never fires for a partner that provisioned the account without also issuing a
+        # personal API key, which is the default (see `issues_personal_api_key`).
+        return has_live_third_party_oauth_access(instance)
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
@@ -534,6 +568,12 @@ class UserSerializer(serializers.ModelSerializer):
         try:
             organization = Organization.objects.get(id=value)
             if organization.memberships.filter(user=self.context["request"].user).exists():
+                # A member the org no longer admits can't point their session back at it — this
+                # endpoint is on the enforcement whitelist, so it must refuse on its own.
+                if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                    self.context["request"].user.email, organization
+                ):
+                    raise serializers.ValidationError(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
                 return organization
         except Organization.DoesNotExist:
             pass
@@ -919,6 +959,13 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class UserGithubLoginSerializer(serializers.Serializer):
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text="The user's resolved GitHub login, or null when no GitHub identity is linked.",
+    )
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -1025,6 +1072,7 @@ class UserViewSet(
         report_user_deleted_account(user)
         super().perform_destroy(user)
 
+    @extend_schema(responses=UserGithubLoginSerializer)
     @action(methods=["GET"], detail=True, url_path="github_login")
     def github_login(self, request, **kwargs):
         user = self.get_object()
@@ -1135,6 +1183,10 @@ class UserViewSet(
         # must not become a password-backend login path around the IdP. The user logs in via SSO.
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
@@ -1828,8 +1880,12 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        parsed_app_url = urllib.parse.urlparse(app_url)
-        hostname = parsed_app_url.hostname or app_url
+        try:
+            hostname = urllib.parse.urlparse(app_url).hostname or app_url
+        except ValueError:
+            # A URL too malformed to parse is still a rejection, so report it back as typed
+            # rather than failing the request with a 500.
+            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -1851,6 +1907,10 @@ def redirect_to_site(request):
             },
             status_code=403,
         )
+
+    # Redirect to the form that was approved, not the caller's raw string.
+    app_url = strip_url_userinfo(canonicalize_encoded_url(app_url))
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,

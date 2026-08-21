@@ -1,4 +1,10 @@
-export { SupportEditor, serializeToMarkdown, SUPPORT_EXTENSIONS, serializationOptions } from './SupportEditor'
+export {
+    SupportEditor,
+    serializeToMarkdown,
+    SUPPORT_EXTENSIONS,
+    SUPPORT_PREVIEW_EXTENSIONS,
+    serializationOptions,
+} from './SupportEditor'
 export type { SupportEditorProps } from './SupportEditor'
 
 export { ImageLightbox } from './ImageLightbox'

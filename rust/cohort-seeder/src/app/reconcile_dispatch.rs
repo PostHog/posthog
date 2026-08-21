@@ -62,6 +62,10 @@ impl PreparedReconcileDispatch {
         self.run.run_id()
     }
 
+    pub const fn run_kind(&self) -> RunKind {
+        self.run.kind()
+    }
+
     pub const fn run_status(&self) -> RunStatus {
         self.run.status()
     }
@@ -115,6 +119,10 @@ impl PreparedDispatch {
         self.inner().run_id()
     }
 
+    pub fn run_kind(&self) -> RunKind {
+        self.inner().run_kind()
+    }
+
     pub fn run_status(&self) -> RunStatus {
         self.inner().run_status()
     }
@@ -132,6 +140,8 @@ impl PreparedDispatch {
     }
 }
 
+/// The run's own row decides its kind; every kind-bound read below follows from it, so a caller
+/// never has to name one. [`PreparedDispatch::run_kind`] hands it back for the claim.
 pub async fn prepare_reconcile_dispatch(
     pool: &PgPool,
     run_id: RunId,
@@ -142,7 +152,7 @@ pub async fn prepare_reconcile_dispatch(
     let progress = PgChunkStore::new(pool.clone())
         .chunk_progress(run_id)
         .await?;
-    let planning_proven = read_planning_stamp(pool, run_id, RunKind::Behavioral)
+    let planning_proven = read_planning_stamp(pool, run_id, run.kind())
         .await?
         .is_some();
     validate_completion(run_id, progress.remaining(), planning_proven, completion)?;
@@ -568,7 +578,9 @@ mod tests {
         ReconcileTile::new(
             TeamId(2),
             CohortId(cohort_id),
-            crate::domain::BehavioralShapeHash::parse("behavioral-shape").unwrap(),
+            crate::domain::ReconcileScope::Behavioral(
+                crate::domain::BehavioralShapeHash::parse("behavioral-shape").unwrap(),
+            ),
             RunId(Uuid::nil()),
         )
     }

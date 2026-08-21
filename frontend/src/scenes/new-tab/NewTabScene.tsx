@@ -4,6 +4,7 @@ import { useCallback } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,8 +14,13 @@ export const scene: SceneExport = {
 
 export function NewTabScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const handleItemSelect = useCallback((item: SearchItem) => {
-        if (item.href) {
+    const handleItemSelect = useCallback((item: SearchItem, openInNewTab?: boolean) => {
+        if (!item.href) {
+            return
+        }
+        if (openInNewTab) {
+            newInternalTab(item.href)
+        } else {
             router.actions.push(item.href)
         }
     }, [])

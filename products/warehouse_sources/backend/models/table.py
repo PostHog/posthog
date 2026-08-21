@@ -2,10 +2,12 @@ import csv
 import sys
 import time
 import subprocess
+from collections.abc import Iterable
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -17,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -30,7 +33,12 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
+from posthog.errors import (
+    CORRUPTED_PARQUET_METADATA_MESSAGE,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -70,11 +78,11 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
-    "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
-    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
@@ -283,6 +291,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
+    class CreatedVia(models.TextChoices):
+        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+        # attribution can be counted together. The last three have no source equivalent — they cover
+        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+        # whoever happened to trigger the run.
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
+        SOURCE = "source", "source"
+        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+        DEMO = "demo", "demo"
+
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -292,6 +314,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
@@ -319,6 +346,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+
+    def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        if not internally_computed_url_pattern:
+            self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        # Django admin's changeform validates via full_clean() (form.is_valid() -> clean()) before
+        # ModelAdmin.save_model() ever calls save() - and unlike DRF's perform_update, save_model
+        # doesn't translate a save()-raised ValidationError into a form error, so it would surface
+        # as an unhandled 500. Running the same check here lets admin catch it as a normal field
+        # error. save()'s check stays the enforcement of record for every other caller (DRF, a
+        # management command, a future endpoint), since nothing but ModelForm calls full_clean().
+        super().clean()
+        self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
+        """Block a url_pattern change on a table with no credential, unless the caller declares the
+        new value was computed by PostHog's own code rather than taken from request input.
+
+        A table with no credential is read by ClickHouse under the cluster's own S3 role rather than
+        a key the team supplied, so its url_pattern is only safe because PostHog chose it. Pipeline
+        syncs, saved-query materialization, and the direct-connection upsert helpers all legitimately
+        rewrite this field on such tables using values they compute themselves; those call
+        ``save(internally_computed_url_pattern=True)`` to say so. Every other caller, present or
+        future, is refused by default rather than trusted to have remembered a check elsewhere.
+        """
+        if self._state.adding:
+            return
+        if update_fields is not None and "url_pattern" not in update_fields:
+            return
+        prior = type(self).raw_objects.filter(pk=self.pk).values_list("credential_id", "url_pattern").first()
+        if prior is None:
+            return
+        prior_credential_id, prior_url_pattern = prior
+        if prior_credential_id is None and prior_url_pattern != self.url_pattern:
+            raise ValidationError(
+                "This table has no credential, so its URL is only safe because PostHog set it. "
+                "Add an access key and secret before pointing it at a different location."
+            )
 
     @property
     def name_chain(self) -> list[str]:
@@ -454,8 +521,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
-            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so this SET stays until chdb is upgraded past that release.
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
@@ -648,6 +716,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         | DirectSnowflakeTable
         | DirectRedshiftTable
         | DirectClickHouseTable
+        | DirectMotherDuckTable
     ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
@@ -655,6 +724,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
             DIRECT_CLICKHOUSE_DATABASE_OPTION,
             DIRECT_CLICKHOUSE_TABLE_OPTION,
+            DIRECT_MOTHERDUCK_CATALOG_OPTION,
+            DIRECT_MOTHERDUCK_SCHEMA_OPTION,
+            DIRECT_MOTHERDUCK_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -774,6 +846,40 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        # Engine-keyed like ClickHouse (no is_direct_motherduck) to satisfy the source-agnostic
+        # guard; the is_direct_query check keeps synced sources' tables S3-backed.
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "motherduck"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            motherduck_database = (
+                self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
+                else job_inputs.get("database", "")
+            )
+            motherduck_schema = (
+                self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION), str)
+                else "main"
+            )
+            motherduck_table_name = (
+                self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMotherDuckTable(
+                name=self.name,
+                fields=fields,
+                motherduck_database=motherduck_database,
+                motherduck_schema=motherduck_schema,
+                motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
             )
 
         # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
@@ -932,6 +1038,28 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if not hasattr(err, "message"):
             raise err
 
+        # A cancelled query here means our own client timed out reading, not a bad file or bucket.
+        if classify_query_error(err) == QueryErrorCategory.CANCELLED:
+            raise Exception(
+                "Reading the files from your storage bucket took too long and the query was cancelled. "
+                "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
+            )
+
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (see TRANSIENT_OBJECT_STORE_ERRORS), just wrapped in a ClickHouse
+        # exception instead of an OSError/DeltaError. Recognize it here too, before the generic
+        # bucket-misconfiguration fallback below, so it's classified as retryable instead of
+        # blamed on the customer's credentials or URL pattern.
+        # Deferred: pipelines.core.delta.errors pulls in posthog.temporal.common.errors ->
+        # temporalio, which must stay off django.setup(), where this model loads in every process.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415
+            TRANSIENT_OBJECT_STORE_ERRORS,
+            TransientObjectStoreError,
+        )
+
+        if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
+            raise TransientObjectStoreError(raw_message)
+
         for key, value in ExtractErrors.items():
             if key in raw_message:
                 raise Exception(value)
@@ -961,4 +1089,6 @@ def acreate_datawarehousetable(**kwargs):
 
 @database_sync_to_async
 def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    table.save()
+    # Saved-query materialization is the only caller: it computes url_pattern itself from the
+    # backing DataWarehouseSavedQuery rather than taking it from request input.
+    table.save(internally_computed_url_pattern=True)

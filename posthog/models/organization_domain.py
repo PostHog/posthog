@@ -1,20 +1,27 @@
 import secrets
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
+from posthog.dns_utils import dnssec_resolver
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +33,10 @@ def generate_verification_challenge() -> str:
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        # INVARIANT for that future work: never clear `verified_at` while the owning organization
+        # has `enforce_verified_domains` on — the domain would drop out of the enforcement
+        # allow-list and lock out every member on it at once, admins included. Suspend or flag
+        # instead of clearing.
         # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
         # it (`OrganizationDomain.idp_config`) in the hot auth paths.
         return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
@@ -167,6 +178,34 @@ class OrganizationDomainManager(models.Manager):
 
         return candidate_sso_enforcement
 
+    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+        """Whether the domain of `email` is a verified domain owned by `organization`."""
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
+
+    def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
+        """
+        Whether a login or join for `email` into `organization` should be blocked: the org requires
+        a verified email domain, and `email`'s domain is not one of the org's verified domains.
+        """
+        if not organization.enforce_verified_domains:
+            return False
+        return not self.is_domain_verified_for_organization(email, organization)
+
+    def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
+        """
+        Whether `user` should be denied access to the organization they're currently in.
+
+        Scoped to the current organization, matching `enforce_2fa`: one organization's setting must
+        not lock a member out of the other organizations they belong to.
+        """
+        organization = user.organization
+        if organization is None:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
+
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
@@ -281,7 +320,16 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         errors = self._validate_identity_provider_config_organization()
         if errors:
             raise ValidationError(errors)
-        super().save(*args, **kwargs)
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.identity_provider_config_id is None:
+                return
+
+            LinkedIdentityProviderConfig.objects.get_or_create(
+                organization_domain=self,
+                identity_provider_config_id=self.identity_provider_config_id,
+            )
 
     @property
     def is_verified(self) -> bool:
@@ -332,9 +380,8 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         Performs a DNS verification for a specific domain.
         """
         try:
-            # TODO: Should we manually validate DNSSEC?
-            dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            dns_response = dnssec_resolver().resolve(f"_posthog-challenge.{self.domain}", "TXT")
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
             pass
         else:
             for item in list(dns_response.response.answer[0]):
@@ -344,3 +391,15 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         self.last_verification_retry = timezone.now()
         self.save()
         return (self, False)
+
+
+@receiver(post_delete, sender=OrganizationDomain)
+def delete_orphaned_identity_provider_config(
+    sender: type[OrganizationDomain], instance: OrganizationDomain, **kwargs: Any
+) -> None:
+    """
+    Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are currently implicitly
+    managed by their relationship to the org domains so we need to make sure they get cleaned up when all linked org domains are deleted
+    """
+    if instance.identity_provider_config_id is not None:
+        IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id, domains__isnull=True).delete()

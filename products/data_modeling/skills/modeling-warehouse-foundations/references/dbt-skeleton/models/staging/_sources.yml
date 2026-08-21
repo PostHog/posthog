@@ -1,0 +1,33 @@
+version: 2
+
+# Declare the raw tables dbt reads. These are whatever landed in YOUR warehouse:
+# - PostHog events/persons via a batch export (posthog batch export -> warehouse)
+# - business sources (Stripe, your app DB) synced by your own pipeline
+# Adjust database/schema/table names to match your warehouse.
+sources:
+    - name: posthog
+      description: Raw PostHog data exported into the warehouse.
+      database: analytics # your warehouse database/project
+      schema: posthog_raw
+      tables:
+          - name: events
+            description: One row per captured PostHog event.
+            columns:
+                - name: event
+                  description: Event name, e.g. $pageview.
+                - name: distinct_id
+                - name: person_id
+                - name: timestamp
+                - name: properties # JSON blob; parse in staging
+          - name: persons
+            description: One row per person.
+
+    - name: stripe
+      description: Stripe objects synced into the warehouse (if using Stripe for revenue).
+      database: analytics
+      schema: stripe_raw
+      tables:
+          - name: charges
+          - name: invoices
+          - name: subscriptions
+          - name: customers

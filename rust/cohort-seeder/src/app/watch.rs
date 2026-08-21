@@ -1,6 +1,6 @@
 //! The single global marker-watch task — the seeder's second lifecycle component.
 //!
-//! One dedicated consumer tails the whole membership topic, folding every observed
+//! One dedicated consumer tails the whole marker topic, folding every observed
 //! `reconcile_complete` marker into the per-run [`MarkerLedger`] it names. Bits and the watcher's
 //! resume positions are flushed through the fenced [`persist_marker_observations`] on a cadence
 //! (every persist interval), a batch cap (every N consumed messages), or immediately when a cohort's
@@ -26,8 +26,8 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::domain::{
-    DispatchEpoch, MarkerFold, MarkerLedger, MembershipPartition, NextOffset, PartitionBitmap,
-    RunId, WatchPositions,
+    DispatchEpoch, MarkerFold, MarkerLedger, NextOffset, PartitionBitmap, RunId, WatchPartition,
+    WatchPositions,
 };
 use crate::kafka::markers::{MarkerWatcher, WatchError, WatchItem};
 use crate::observability::metrics::{RECONCILE_MARKERS_OBSERVED, RECONCILE_WATCH_TRUNCATED};
@@ -50,7 +50,7 @@ pub struct WatchDirectives {
     pub runs: Vec<WatchDirective>,
 }
 
-/// The membership-topic consumer seam. Real impl: [`MarkerWatcher`].
+/// The marker-topic consumer seam. Real impl: [`MarkerWatcher`].
 #[async_trait]
 pub trait MarkerStream: Send {
     /// Re-assign the stream to read from `start` on every named partition. The watch state decides
@@ -93,11 +93,12 @@ pub trait MarkerFlush: Send {
 /// The real flush: the epoch-fenced OR-merge of bits plus the watcher positions.
 pub struct PgMarkerFlush {
     pool: PgPool,
+    marker_topic: String,
 }
 
 impl PgMarkerFlush {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, marker_topic: String) -> Self {
+        Self { pool, marker_topic }
     }
 }
 
@@ -110,7 +111,15 @@ impl MarkerFlush for PgMarkerFlush {
         bits: &[(CohortId, PartitionBitmap)],
         positions: &WatchPositions,
     ) -> Result<(), CompletionStoreError> {
-        persist_marker_observations(&self.pool, run_id, epoch, bits, positions).await
+        persist_marker_observations(
+            &self.pool,
+            run_id,
+            epoch,
+            bits,
+            positions,
+            &self.marker_topic,
+        )
+        .await
     }
 }
 
@@ -140,13 +149,13 @@ impl RunWatch {
 }
 
 /// What the stream has read since coverage was last folded into the watched runs. Held once for the
-/// whole task rather than advanced into every run per record: the membership topic is high-volume and
-/// the watched-run set has no upper bound, so per-record work must not scale with it.
+/// whole task rather than advanced into every run per record: the watched-run set has no upper bound,
+/// so per-record work must not scale with it.
 #[derive(Default)]
-struct StreamCoverage(BTreeMap<MembershipPartition, NextOffset>);
+struct StreamCoverage(BTreeMap<WatchPartition, NextOffset>);
 
 impl StreamCoverage {
-    fn advance(&mut self, partition: MembershipPartition, next: NextOffset) {
+    fn advance(&mut self, partition: WatchPartition, next: NextOffset) {
         let slot = self.0.entry(partition).or_insert(next);
         if next > *slot {
             *slot = next;
@@ -349,7 +358,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                     requested,
                     low,
                 }) => {
-                    let partition = MembershipPartition::new(partition);
+                    let partition = WatchPartition::new(partition);
                     // Drop against the log's low watermark, not just the rejected start: every run
                     // below it is equally unreadable, so one pass clears them all instead of one
                     // watermark round-trip per coverage level.
@@ -379,7 +388,7 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
                             run_id = ?run_id,
                             partition = partition.get(),
                             low,
-                            "membership topic truncated past this run's watch start; dropping (re-dispatch to recover)"
+                            "marker topic truncated past this run's watch start; dropping (re-dispatch to recover)"
                         );
                         if let Some(run) = self.runs.remove(&run_id) {
                             self.truncated.insert(run_id, run.epoch);
@@ -533,7 +542,7 @@ impl<S: MarkerStream, F: MarkerFlush> MarkerWatchTask<S, F> {
                             self.handle.report_healthy();
                         }
                         Err(error) => {
-                            warn!(error = %error, "receiving from the membership topic failed; backing off");
+                            warn!(error = %error, "receiving from the marker topic failed; backing off");
                             self.state.request_seek().await;
                             self.handle.report_healthy();
                             tokio::time::sleep(RECV_BACKOFF).await;
@@ -578,7 +587,7 @@ mod tests {
     fn start_at(partition: i32, offset: i64) -> WatchPositions {
         let mut positions = WatchPositions::new();
         positions.insert(
-            MembershipPartition::new(partition),
+            WatchPartition::new(partition),
             NextOffset::from_high_watermark(offset),
         );
         positions
@@ -609,7 +618,7 @@ mod tests {
 
     fn marker_item(partition: i32, offset: i64, run_id: RunId, cohort: i32, bit: u32) -> WatchItem {
         WatchItem {
-            partition: MembershipPartition::new(partition),
+            partition: WatchPartition::new(partition),
             next_offset: NextOffset::from_high_watermark(offset),
             marker: Some(ObservedMarker {
                 team_id: TeamId(2),
@@ -739,7 +748,7 @@ mod tests {
         // Two non-marker rows: below the batch cap, no flush.
         for offset in 1..=2 {
             state.ingest(WatchItem {
-                partition: MembershipPartition::new(0),
+                partition: WatchPartition::new(0),
                 next_offset: NextOffset::from_high_watermark(offset),
                 marker: None,
             });
@@ -812,7 +821,7 @@ mod tests {
             .await;
 
         state.ingest(WatchItem {
-            partition: MembershipPartition::new(0),
+            partition: WatchPartition::new(0),
             next_offset: NextOffset::from_high_watermark(1),
             marker: None,
         });
@@ -843,7 +852,7 @@ mod tests {
 
         for offset in 1..=100 {
             state.ingest(WatchItem {
-                partition: MembershipPartition::new(0),
+                partition: WatchPartition::new(0),
                 next_offset: NextOffset::from_high_watermark(offset),
                 marker: None,
             });
@@ -865,7 +874,7 @@ mod tests {
                 .iter()
                 .filter(|call| call.run_id == run_id)
                 .next_back()
-                .and_then(|call| call.positions.get(MembershipPartition::new(0)))
+                .and_then(|call| call.positions.get(WatchPartition::new(0)))
         };
         assert_eq!(
             persisted(early),
@@ -992,7 +1001,7 @@ mod tests {
             .await;
         assert_eq!(state.stream.seeks.len(), 2);
         assert_eq!(
-            state.stream.seeks[1].get(MembershipPartition::new(0)),
+            state.stream.seeks[1].get(WatchPartition::new(0)),
             Some(NextOffset::from_high_watermark(50)),
             "the seek rewinds to the earliest watched start"
         );
@@ -1032,14 +1041,11 @@ mod tests {
     #[tokio::test]
     async fn flush_persists_start_coverage_for_idle_partitions() {
         // The directive's start covers two partitions; traffic arrives on only one. The flush must
-        // still persist the idle partition at its dispatch start, or an idle membership partition
+        // still persist the idle partition at its dispatch start, or an idle marker partition
         // would hold `caught_up` (and every negative-verdict settlement) open forever.
         let run_id = run(1);
         let mut start = start_at(0, 10);
-        start.insert(
-            MembershipPartition::new(1),
-            NextOffset::from_high_watermark(7),
-        );
+        start.insert(WatchPartition::new(1), NextOffset::from_high_watermark(7));
         let mut state = make_state(FakeFlush::default(), 10_000);
         state
             .apply_directives(&WatchDirectives {
@@ -1053,12 +1059,12 @@ mod tests {
         let calls = state.flush.calls();
         assert_eq!(calls.len(), 1);
         assert_eq!(
-            calls[0].positions.get(MembershipPartition::new(0)),
+            calls[0].positions.get(WatchPartition::new(0)),
             Some(NextOffset::from_high_watermark(11)),
             "the read partition advances to the ingested record's next offset"
         );
         assert_eq!(
-            calls[0].positions.get(MembershipPartition::new(1)),
+            calls[0].positions.get(WatchPartition::new(1)),
             Some(NextOffset::from_high_watermark(7)),
             "the idle partition stays covered at its dispatch start"
         );
@@ -1085,9 +1091,7 @@ mod tests {
             "a record read on the stale assignment is not folded"
         );
         assert_eq!(
-            state.runs[&run_id]
-                .positions
-                .get(MembershipPartition::new(0)),
+            state.runs[&run_id].positions.get(WatchPartition::new(0)),
             Some(NextOffset::from_high_watermark(10)),
             "coverage stays at the dispatch start until the seek lands"
         );

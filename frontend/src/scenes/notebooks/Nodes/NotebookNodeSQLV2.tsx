@@ -19,7 +19,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { outputHeightForShape } from './notebookNodeOutputHeight'
+import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -41,6 +41,10 @@ export type NotebookNodeSQLV2Attributes = {
     code: string
     // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
     returnVariable: string
+    // Where the cell runs: a direct-query data source id, or null/absent for PostHog's ClickHouse.
+    connectionId?: string | null
+    // Send the code to that connection verbatim instead of compiling it from HogQL.
+    sendRawQuery?: boolean | null
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     // How the run that produced `result` ended. An interrupt persists a partial result just
@@ -95,10 +99,40 @@ const inferTypes = (result: NotebookNodeSQLV2Result): [string, string][] =>
         return [column, typeof sample === 'number' ? 'Float64' : 'String']
     })
 
-const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
+// A notebook stores the whole result envelope, and a cell the sandbox kernel ran can hold raw
+// pandas dtypes ('float64', 'str'). The chart layer reads ClickHouse names to decide which
+// columns can go on a numeric axis, so map those over rather than make a saved cell re-run.
+const PANDAS_DTYPE_NAMES: Record<string, string> = {
+    bool: 'Bool',
+    boolean: 'Bool',
+    category: 'String',
+    object: 'String',
+    str: 'String',
+}
+
+const toClickhouseTypeName = (type: string): string => {
+    const dtype = type.toLowerCase()
+    if (PANDAS_DTYPE_NAMES[dtype]) {
+        return PANDAS_DTYPE_NAMES[dtype]
+    }
+    if (dtype.startsWith('datetime64')) {
+        return 'DateTime'
+    }
+    if (/^u?int(8|16|32|64)$/.test(dtype)) {
+        return 'Int64'
+    }
+    if (/^float(16|32|64)$/.test(dtype)) {
+        return 'Float64'
+    }
+    return type
+}
+
+export const toCachedResults = (result: NotebookNodeSQLV2Result): HogQLQueryResponse => ({
     results: result.first_page ?? [],
     columns: result.columns ?? [],
-    types: result.types?.length ? result.types : inferTypes(result),
+    types: result.types?.length
+        ? result.types.map(([column, type]): [string, string] => [column, toClickhouseTypeName(type)])
+        : inferTypes(result),
 })
 
 const Component = ({
@@ -106,7 +140,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
@@ -155,25 +189,35 @@ const Component = ({
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
     const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
 
-    // The stored viz config wins, but the source always tracks the node's current code.
+    // The stored viz config wins, but the source always tracks the node's current code — and the
+    // connection it runs on, so anything the viz layer re-queries lands on the same engine.
     const vizQuery = useMemo(
         (): DataVisualizationNode => ({
             kind: NodeKind.DataVisualizationNode,
             display: ChartDisplayType.ActionsLineGraph,
             ...attributes.vizQuery,
-            source: { kind: NodeKind.HogQLQuery, query: attributes.code },
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: attributes.code,
+                connectionId: attributes.connectionId ?? undefined,
+                sendRawQuery: attributes.connectionId ? !!attributes.sendRawQuery || undefined : undefined,
+            },
         }),
-        [attributes.vizQuery, attributes.code]
+        [attributes.vizQuery, attributes.code, attributes.connectionId, attributes.sendRawQuery]
     )
 
     // Grow a still-too-short node to fit the result each run lands, so output is readable without
     // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
     // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
-    // resize (or a reload of an already-sized cell) is left untouched.
-    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
     useEffect(() => {
         const runId = attributes.runId ?? null
-        if (!result || runId === sizedRunIdRef.current) {
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -185,7 +229,7 @@ const Component = ({
             updateAttributes({ height: target })
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [result, attributes.runId])
+    }, [result, attributes.runId, isEditable])
 
     if (!expanded) {
         return null
@@ -290,14 +334,11 @@ const Component = ({
                 ) : (
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -308,10 +349,13 @@ const Component = ({
                     type="text"
                     // A dataframe name other SQL nodes reference by table name (`from sql_df`).
                     // Optional: left empty, the cell is display-only and exports nothing.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Dataframe name (optional)"
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
                 {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
@@ -340,7 +384,7 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, sqlV2ReturnVariable } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -359,9 +403,17 @@ const Settings = ({
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
+            persistConnection
             // Refs come from the notebook content, not the tiptap editor: markdown notebooks
             // (the only surface with SQLV2 cells) have no tiptap editor at all.
-            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
+            // outputName is what a rerouted (DuckDB) run binds its result to in the kernel, so
+            // downstream cells can read this cell's frame; a ClickHouse run ignores it.
+            onRunQuery={(code, connection) =>
+                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), {
+                    ...connection,
+                    outputName: sqlV2ReturnVariable,
+                })
+            }
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL query"
@@ -387,6 +439,12 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         // carry their persisted name ('sql_df' was the old default) and keep exporting it.
         returnVariable: {
             default: '',
+        },
+        connectionId: {
+            default: null,
+        },
+        sendRawQuery: {
+            default: false,
         },
         runId: {
             default: null,

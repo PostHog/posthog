@@ -1,0 +1,66 @@
+export interface SpendAnalysisSummary {
+  date_from: string;
+  date_to: string;
+  product: string | null;
+  total_cost_usd: number;
+  event_count: number;
+  scoped_cost_usd: number;
+  scoped_event_count: number;
+}
+
+export interface SpendAnalysisProductRow {
+  product: string | null;
+  event_count: number;
+  cost_usd: number;
+}
+
+export interface SpendAnalysisToolRow {
+  tool: string | null;
+  generation_count: number;
+  cost_usd: number;
+  share_of_scoped: number;
+  avg_input_tokens: number;
+}
+
+export interface SpendAnalysisTokenRow {
+  cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface SpendAnalysisGenerationRow extends SpendAnalysisTokenRow {
+  generation_count: number;
+}
+
+export interface SpendAnalysisModelRow extends SpendAnalysisGenerationRow {
+  model: string | null;
+}
+
+export interface SpendAnalysisDayRow extends SpendAnalysisTokenRow {
+  day: string;
+  event_count: number;
+}
+
+export interface SpendAnalysisDayModelRow extends SpendAnalysisGenerationRow {
+  day: string;
+  model: string | null;
+}
+
+export interface SpendAnalysisFilledDay extends SpendAnalysisDayRow {
+  models: SpendAnalysisDayModelRow[];
+}
+
+export interface SpendAnalysisBreakdown<TRow> {
+  items: TRow[];
+  truncated: boolean;
+}
+
+export interface SpendAnalysisResponse {
+  summary: SpendAnalysisSummary;
+  by_product: SpendAnalysisBreakdown<SpendAnalysisProductRow>;
+  by_tool: SpendAnalysisBreakdown<SpendAnalysisToolRow>;
+  by_model: SpendAnalysisBreakdown<SpendAnalysisModelRow>;
+  // Optional until the backend by_day rollout reaches every deployment.
+  by_day?: SpendAnalysisBreakdown<SpendAnalysisDayRow>;
+  by_day_model?: SpendAnalysisDayModelRow[];
+}

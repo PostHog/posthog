@@ -39,7 +39,12 @@ from products.data_catalog.evals.constants import (
     CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DEFINITION_INSIGHT_DESCRIPTION,
+    DEFINITION_INSIGHT_NAME,
+    DEFINITION_INSIGHT_QUERY,
     DEPRECATED_SOURCE_NAME,
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
     DRIFTED_INSIGHT_MUTATED_QUERY,
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
     DRIFTED_METRIC_DESCRIPTION,
@@ -49,6 +54,10 @@ from products.data_catalog.evals.constants import (
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    OPERATIONAL_METRIC_DEFINITION,
+    OPERATIONAL_METRIC_DESCRIPTION,
+    OPERATIONAL_METRIC_DISPLAY_NAME,
+    OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
@@ -62,7 +71,7 @@ from products.data_catalog.evals.constants import (
     TOP_CUSTOMERS_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -73,10 +82,13 @@ __all__ = [
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_definition_insight",
+    "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
+    "seed_operational_metric",
     "seed_proposed_metric",
     "seed_top_customers_metric",
 ]
@@ -205,6 +217,29 @@ def seed_failing_top_customers_metric(context: CustomPromptSandboxContext) -> di
     }
 
 
+def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=OPERATIONAL_METRIC_NAME,
+        display_name=OPERATIONAL_METRIC_DISPLAY_NAME,
+        description=OPERATIONAL_METRIC_DESCRIPTION,
+        unit="percent",
+        definition=OPERATIONAL_METRIC_DEFINITION,
+    )
+    approve_metric(metric, user)
+    return {
+        "metric": {
+            "name": OPERATIONAL_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": False,
+            "denominator": "pageviews",
+            "time_window": "trailing 30 days",
+        }
+    }
+
+
 def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
     upsert_metric(
@@ -231,6 +266,24 @@ def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     # Mutating the source insight after approval is what makes the metric read as drifted.
     Insight.objects.filter(pk=insight.pk).update(query=DRIFTED_INSIGHT_MUTATED_QUERY)
     return {"metric": {"name": DRIFTED_METRIC_NAME, "status": "approved", "is_drifted": True}}
+
+
+def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    insight = Insight.objects.create(
+        team=team,
+        created_by=user,
+        name=DEFINITION_INSIGHT_NAME,
+        description=DEFINITION_INSIGHT_DESCRIPTION,
+        query=DEFINITION_INSIGHT_QUERY,
+    )
+    return {
+        "definition_insight": {
+            "name": DEFINITION_INSIGHT_NAME,
+            "short_id": insight.short_id,
+            "query": DEFINITION_INSIGHT_QUERY["query"],
+        }
+    }
 
 
 def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -284,6 +337,22 @@ def seed_certification_trust_sources(context: CustomPromptSandboxContext) -> dic
         "certification_sources": {
             "preferred": CERTIFIED_SOURCE_NAME,
             "deprecated": DEPRECATED_SOURCE_NAME,
+        }
+    }
+
+
+def seed_deprecation_candidate_sources(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    canonical_source = _warehouse_table(
+        team, DEPRECATION_CANONICAL_SOURCE_NAME, ("payment_id", "amount_usd", "account_id")
+    )
+    stale_source = _warehouse_table(team, DEPRECATION_STALE_SOURCE_NAME, ("payment_id", "amount_usd", "account_id"))
+    return {
+        "deprecation_candidate": {
+            "stale_table_name": DEPRECATION_STALE_SOURCE_NAME,
+            "stale_table_id": str(stale_source.id),
+            "canonical_table_name": DEPRECATION_CANONICAL_SOURCE_NAME,
+            "canonical_table_id": str(canonical_source.id),
         }
     }
 

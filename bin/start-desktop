@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/../products/desktop"
+
+pnpm install --frozen-lockfile
+
+exec pnpm exec turbo dev --filter=@posthog/code --filter=@posthog/agent --filter=@posthog/git --filter=@posthog/platform --filter=@posthog/enricher

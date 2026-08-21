@@ -3,6 +3,9 @@ from typing import Any
 from posthog.schema import AssistantHogQLQuery, HogQLQuery
 
 TRUNCATED_MARKER = "...truncated"
+# Must stay distinctive: query_executor detects it with a substring check over the whole formatted
+# table (same way it detects TRUNCATED_MARKER), and an LLM must not mistake it for a data value.
+NULL_MARKER = "(null)"
 
 
 class SQLResultsFormatter:
@@ -31,7 +34,16 @@ class SQLResultsFormatter:
 
     def _format_cell(self, cell: Any) -> str:
         """Format a single cell value, truncating large dicts/arrays or stringified JSON."""
+        if cell is None:
+            # Bare str(None) yields "None", which LLMs read as a value rather than as missing data.
+            return NULL_MARKER
+
         cell_str = str(cell)
+
+        if cell_str == NULL_MARKER:
+            # A real value that renders exactly like the marker would otherwise be indistinguishable
+            # from SQL NULL, so the LLM would report present data as missing. Quote it instead.
+            return f'"{NULL_MARKER}"'
 
         # Check if it's a dict/list or a stringified JSON (starts with { or [)
         is_json_like = isinstance(cell, dict | list) or (

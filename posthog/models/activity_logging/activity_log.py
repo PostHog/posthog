@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Canvas",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",
@@ -53,6 +54,7 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseExpression",
     "DataWarehouseSavedQuery",
     "LegalDocument",
     "Organization",
@@ -80,6 +82,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
@@ -96,9 +99,11 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "DataQualityCheck",
     "Billing",
     "Loop",
 ]
@@ -260,7 +265,14 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
+        # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
         "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # Full config snapshot including input values (auth headers, API keys on rows written before
+        # secret inputs were encrypted) — record that a draft was staged/published/discarded, never
+        # its contents. The per-version config audit lives in the revisions endpoints instead.
+        "draft",
     ],
     "Integration": [
         "config",
@@ -305,6 +317,14 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "temporary_token",
         "pending_email",
     ],
+    # Support-ticket comment bodies are gated on ticket access and must not be readable via
+    # activity_log:read. Both ticket comment scopes mask `content`: internal ticket discussions
+    # ("Ticket") and customer-facing ticket messages ("conversations_ticket" — the literal scope
+    # the conversations product writes, not an ActivityScope member, hence the cast). Comment rows
+    # never go through changes_between; the Comment post_save signal consults these entries
+    # directly, keyed by the comment's own scope.
+    "Ticket": ["content"],
+    cast(AuditableScope, "conversations_ticket"): ["content"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
@@ -336,6 +356,14 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "auto_pause_exempt": "never pause for inactivity",
+    },
+    # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
+    "SignalTeamConfig": {
+        "autostart_enabled": "PR generation",
+        "default_autostart_priority": "project PR threshold",
+        "default_slack_notification_channel": "team Slack channel",
+        "autostart_base_branches": "base branch overrides",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -417,7 +445,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {
         "scope": "User",
-        "activities": ["created", "updated"],
+        "activities": ["created", "updated", "deleted"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -457,6 +485,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Support-ticket comment rows: bodies are gated on ticket access, and rows written before
+        # write-time masking (see field_with_masked_contents) still hold plaintext content readable
+        # with only activity_log:read. People with ticket access read the discussion on the ticket
+        # itself, so nothing needs these rows in the feeds. Ticket lifecycle activities
+        # (created/updated) stay visible — only comment rows are hidden.
+        "scope": "Ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # As above, for customer-facing ticket messages (the literal scope the conversations
+        # product writes).
+        "scope": "conversations_ticket",
+        "activities": ["commented", "created task"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
@@ -470,6 +517,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+    ],
+    "DataQualityCheck": [
+        # Written by the runner, not by a person editing the check.
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "saved_query",
+        "table",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
@@ -489,13 +546,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+        "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
-        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        # Reverse relations, not plain field diffs — and diffing them reads every related row, which
+        # for SCIM request logs is the tenant's whole request history.
         "domains",
+        "linked_identity_provider_configs",
+        "scim_provisioned_users",
+        "scim_request_logs",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
@@ -518,6 +580,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "HogFunction": [
         "bytecode",
         "icon_url",
+        # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
+        # and the per-version audit lives in the revisions endpoints.
+        "version",
+        "draft_updated_at",
+        "revisions",
     ],
     "Notebook": [
         "text_content",
@@ -536,6 +603,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "holdout",
         "saved_metrics",
         "experimenttosavedmetric_set",
+        # Optimistic-concurrency counter, not a user-meaningful change.
+        "version",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -614,6 +683,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "_old_api_token",
     ],
     "Project": ["id", "created_at"],
+    "DataWarehouseExpression": ["deleted_at"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -760,6 +830,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "table",
     ],
     "Evaluation": [
+        # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
+        "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
     ],
@@ -1113,7 +1185,15 @@ class LogActivityEntry(TypedDict, total=False):
     force_save: bool
 
 
-def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+def bulk_log_activity(
+    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True
+) -> list[ActivityLog]:
+    """Write activity log rows in bulk.
+
+    Each row created also fires `post_save`, which produces a CDP internal event so customer
+    destinations and workflows can react. Pass `notify=False` for a maintenance sweep, where that
+    fan-out would put one event per affected row onto the internal-events topic.
+    """
     if not log_entries:
         return []
 
@@ -1148,8 +1228,9 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
     def _do_bulk_create():
         created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
-        for log in created_logs:
-            post_save.send(sender=ActivityLog, instance=log, created=True)
+        if notify:
+            for log in created_logs:
+                post_save.send(sender=ActivityLog, instance=log, created=True)
 
         return created_logs
 

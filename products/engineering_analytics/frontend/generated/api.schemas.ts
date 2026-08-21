@@ -27,6 +27,7 @@ export interface WorkflowCostApi {
 
 /**
  * * `breaking_master` - BREAKING_MASTER
+ * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
  * * `novel_burst` - NOVEL_BURST
  * * `potentially_resolved` - POTENTIALLY_RESOLVED
  * * `flaky` - FLAKY
@@ -36,6 +37,7 @@ export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof
 
 export const BrokenTestRowStateEnumApi = {
     BreakingMaster: 'breaking_master',
+    BlockingMergeQueue: 'blocking_merge_queue',
     NovelBurst: 'novel_burst',
     PotentiallyResolved: 'potentially_resolved',
     Flaky: 'flaky',
@@ -53,9 +55,10 @@ export interface BrokenTestRowApi {
     job_name: string
     /** 'owner/name' repository the failure belongs to. */
     repo: string
-    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
      *
      * * `breaking_master` - BREAKING_MASTER
+     * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
      * * `novel_burst` - NOVEL_BURST
      * * `potentially_resolved` - POTENTIALLY_RESOLVED
      * * `flaky` - FLAKY
@@ -436,6 +439,8 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
+ * * `ready_for_review` - READY_FOR_REVIEW
+ * * `converted_to_draft` - CONVERTED_TO_DRAFT
  * * `ci_started` - CI_STARTED
  * * `ci_finished` - CI_FINISHED
  * * `merged` - MERGED
@@ -445,6 +450,8 @@ export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[k
 
 export const PRLifecycleEventKindEnumApi = {
     Opened: 'opened',
+    ReadyForReview: 'ready_for_review',
+    ConvertedToDraft: 'converted_to_draft',
     CiStarted: 'ci_started',
     CiFinished: 'ci_finished',
     Merged: 'merged',
@@ -452,9 +459,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
-    /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+    /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -463,7 +472,7 @@ export interface PRLifecycleEventApi {
     /** When the event occurred. */
     at: string
     /**
-     * Optional detail, e.g. workflow name and conclusion for CI events.
+     * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
      * @nullable
      */
     detail?: string | null
@@ -606,6 +615,11 @@ export interface PullRequestListItemApi {
      * @nullable
      */
     open_to_merge_seconds: number | null
+    /**
+     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
     /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -824,7 +838,7 @@ export interface TimeToGreenBucketApi {
     /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
     /**
-     * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+     * Median wall-clock seconds from a PR push round's first run start until every workflow on that head SHA first completed benign, over rounds started in this bucket (merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had no fully green round (a gap, not instant CI).
      * @nullable
      */
     p50_seconds: number | null
@@ -850,15 +864,27 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface ReadyToMergeBucketApi {
+    /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+    /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
     /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+    ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -892,6 +918,16 @@ export interface RepoOverviewApi {
      */
     median_open_to_merge_seconds_prev: number | null
     /**
+     * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+     * @nullable
+     */
+    median_ready_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when not observed.
+     * @nullable
+     */
+    median_ready_to_merge_seconds_prev: number | null
+    /**
      * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
      * @nullable
      */
@@ -911,6 +947,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     estimated_cost_usd_prev: number | null
+    /**
+     * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes: number | null
+    /**
+     * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes_prev: number | null
     /** Whether the job-level source is synced (cost and queue figures exist). */
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
@@ -923,6 +969,8 @@ export interface RepoOverviewApi {
     success_rate_series_granularity: string
     /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
     open_to_merge_series_granularity: string
+    /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+    ready_to_merge_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -1314,10 +1362,22 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     repo?: string
     /**
+     * Optional test runner to return: 'pytest' or 'jest'.
+     */
+    runner?: EngineeringAnalyticsFlakyTestsRunner
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsFlakyTestsRunner =
+    (typeof EngineeringAnalyticsFlakyTestsRunner)[keyof typeof EngineeringAnalyticsFlakyTestsRunner]
+
+export const EngineeringAnalyticsFlakyTestsRunner = {
+    Jest: 'jest',
+    Pytest: 'pytest',
+} as const
 
 export type EngineeringAnalyticsJobAggregatesParams = {
     /**

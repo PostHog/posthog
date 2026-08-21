@@ -12,6 +12,8 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANTHROPIC_VERSION,
     DEFAULT_CLAUDE_CODE_START,
+    MAX_RETRY_ATTEMPTS,
+    REPORT_MAX_RETRY_ATTEMPTS,
     AnthropicResumeConfig,
     ClaudeCodeDayPaginator,
     _claude_code_start_day,
@@ -23,7 +25,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     anthropic_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import (
+    ANTHROPIC_ENDPOINTS,
+    COST_REPORT_PAGE_BUCKETS,
+    USAGE_GROUP_BY_FALLBACKS,
+    USAGE_REPORT_PAGE_BUCKETS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -178,7 +185,7 @@ class TestReportParams:
         config = ANTHROPIC_ENDPOINTS["usage_report"]
         assert params[0]["params"]["starting_at"] == "2026-03-04T00:00:00Z"
         assert params[0]["params"]["bucket_width"] == "1d"
-        assert params[0]["params"]["limit"] == 7
+        assert params[0]["params"]["limit"] == USAGE_REPORT_PAGE_BUCKETS
         # requests encodes the list as one repeated group_by[] query param per dimension.
         assert params[0]["params"]["group_by[]"] == config.group_by
 
@@ -193,13 +200,17 @@ class TestReportParams:
 
         assert params[0]["params"]["starting_at"] == "2023-01-01T00:00:00Z"
 
-    def test_usage_report_page_size_stays_below_bucket_max(self) -> None:
-        # Grouping by every dimension multiplies the results per bucket, so requesting the 31-bucket
-        # max overflows the per-response result cap and the API 400s. Keep the page small while still
-        # grouping by the full set; pagination walks the rest.
-        config = ANTHROPIC_ENDPOINTS["usage_report"]
-        assert len(config.group_by) == 8
-        assert config.limit is not None and config.limit <= 7
+    def test_cost_report_pages_at_the_bucket_max(self) -> None:
+        # Every page is one request against a per-organization rate limit, so leaving the cost
+        # report on the API's default page walks history in four times as many requests.
+        assert ANTHROPIC_ENDPOINTS["cost_report"].limit == COST_REPORT_PAGE_BUCKETS == 31
+
+    def test_usage_group_by_fallbacks_narrow_to_nothing(self) -> None:
+        # The list is walked in order when the API rejects a query, so each step must be strictly
+        # narrower than the last and the final one must be a query the endpoint cannot refuse.
+        steps = list(zip(USAGE_GROUP_BY_FALLBACKS, USAGE_GROUP_BY_FALLBACKS[1:]))
+        assert steps and all(set(later) < set(earlier) for earlier, later in steps)
+        assert USAGE_GROUP_BY_FALLBACKS[-1] == []
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_version_header_is_set_on_session(self, MockSession) -> None:
@@ -490,6 +501,25 @@ class TestWorkspaceMembersFanOut:
 
         assert [(r["workspace_id"], r["user_id"]) for r in rows] == [("wrkspc_1", "u1")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_workspace_that_does_not_serve_the_sub_resource_is_skipped(self, MockSession) -> None:
+        # A workspace can 404 on the fan-out child (it does not serve that sub-resource, or was
+        # archived between enumeration and the fetch). Skip only that workspace instead of failing
+        # the whole schema, and still deliver the workspaces that do serve it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _entity_page([{"id": "wrkspc_1"}, {"id": "wrkspc_2"}], has_more=False, last_id="wrkspc_2"),
+                _response({"error": "not_found"}, status=404),
+                _entity_page([{"id": "sa_2", "workspace_id": "wrkspc_2"}], has_more=False, last_id="sa_2"),
+            ],
+        )
+
+        rows = _rows(_source("service_accounts", _make_manager()))
+
+        assert [(r["workspace_id"], r["id"]) for r in rows] == [("wrkspc_2", "sa_2")]
+
     def test_saved_state_shapes_still_parse(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — every historical shape must
         # keep parsing after the migration.
@@ -532,6 +562,113 @@ class TestRetries:
         with pytest.raises(requests.HTTPError):
             _rows(_source("users", _make_manager()))
         assert session.send.call_count == 1
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limit_budget_outlasts_the_default(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints 429 without a Retry-After, so the client falls back to exponential
+        # backoff; the default budget is spent in seconds, well short of a per-minute limit window.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(MAX_RETRY_ATTEMPTS - 1)],
+                _entity_page([{"id": "user_1"}], has_more=False, last_id="user_1"),
+            ],
+        )
+
+        rows = _rows(_source("users", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["user_1"]
+        assert session.send.call_count == MAX_RETRY_ATTEMPTS
+
+    @mock.patch("tenacity.nap.time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_endpoint_gets_a_wider_retry_budget(self, MockSession, _mock_sleep) -> None:
+        # The report endpoints share one organization rate limit and 429 without a Retry-After, so
+        # they need more attempts than the entity lists to outlast the window. A burst that would
+        # exhaust the entity budget still resolves for a report endpoint.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                *[_response({}, status=429) for _ in range(REPORT_MAX_RETRY_ATTEMPTS - 1)],
+                _report_page([{"starting_at": "2024-01-01", "results": []}], has_more=False, next_page=None),
+            ],
+        )
+
+        _rows(_source("cost_report", _make_manager()))
+
+        assert session.send.call_count == REPORT_MAX_RETRY_ATTEMPTS
+        assert REPORT_MAX_RETRY_ATTEMPTS > MAX_RETRY_ATTEMPTS
+
+
+class TestUsageReportGroupByFallback:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejected_query_is_retried_with_a_narrower_group_by(self, MockSession) -> None:
+        # The usage report 400s a query that groups more finely than it will serve. Narrowing must
+        # keep the sync alive and still deliver rows, at the finest breakdown the API accepts.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"error": "bad request"}, status=400),
+                _report_page(
+                    [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
+                    has_more=False,
+                    next_page=None,
+                ),
+            ],
+        )
+
+        rows = _rows(_source("usage_report", _make_manager()))
+
+        assert [r["workspace_id"] for r in rows] == ["wrkspc_1"]
+        assert [p["params"]["group_by[]"] for p in params] == USAGE_GROUP_BY_FALLBACKS[:2]
+
+    @parameterized.expand(
+        [
+            # Every fallback rejected: there is nothing narrower left to try.
+            (
+                "all_rejected",
+                [_response({}, status=400) for _ in USAGE_GROUP_BY_FALLBACKS],
+                len(USAGE_GROUP_BY_FALLBACKS),
+            ),
+            # A 404 is not the API refusing the breakdown, so narrowing must not paper over it.
+            ("not_a_bad_request", [_response({}, status=404)], 1),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_error_propagates_instead_of_narrowing(
+        self, _name: str, responses: list[Response], expected_requests: int, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        _wire(session, responses)
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("usage_report", _make_manager()))
+        assert session.send.call_count == expected_requests
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejection_after_rows_are_out_is_not_narrowed(self, MockSession) -> None:
+        # Re-running at a coarser grain would re-emit the buckets already yielded under different
+        # synthesized ids, so once rows are out the 400 has to fail the sync instead.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _report_page(
+                    [{"starting_at": "2025-08-01T00:00:00Z", "results": [{"workspace_id": "wrkspc_1"}]}],
+                    has_more=True,
+                    next_page="page_2",
+                ),
+                _response({"error": "bad request"}, status=400),
+            ],
+        )
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("usage_report", _make_manager()))
+        assert session.send.call_count == 2
 
 
 class TestValidateCredentials:

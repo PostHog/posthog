@@ -131,6 +131,17 @@ CREATE TABLE posthog.sharded_query_log_archive (
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
   lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
+CREATE TABLE posthog.sharded_tophog (
+  timestamp DateTime64(6, 'UTC'),
+  metric LowCardinality(String),
+  type LowCardinality(String) DEFAULT 'sum',
+  key Map(LowCardinality(String), String),
+  value Float64,
+  count UInt64 DEFAULT 0,
+  pipeline LowCardinality(String),
+  lane LowCardinality(String),
+  labels Map(LowCardinality(String), String)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.tophog', '{replica}') ORDER BY (pipeline, lane, metric, timestamp, key) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(30) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.writable_prom_metrics_data (
   id UUID,
   timestamp DateTime64(3),

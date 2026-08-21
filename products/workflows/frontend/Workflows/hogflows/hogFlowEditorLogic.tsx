@@ -172,6 +172,7 @@ export interface hogFlowEditorLogicValues {
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
+    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -474,6 +475,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -716,9 +720,9 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
+                                          properties?: any[] | undefined
                                       }
-                                      type: 'batch'
+                                      type: 'slack-message'
                                   }
                                 | {
                                       filters: {
@@ -731,11 +735,29 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
+                                  }
+                                | {
+                                      filters: {
                                           properties?: any[] | undefined
                                       }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -854,9 +876,9 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
+                                properties?: any[] | undefined
                             }
-                            type: 'batch'
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -869,11 +891,29 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
+                        }
+                      | {
+                            filters: {
                                 properties?: any[] | undefined
                             }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -970,6 +1010,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1260,6 +1303,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1502,9 +1548,9 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
+                                          properties?: any[] | undefined
                                       }
-                                      type: 'batch'
+                                      type: 'slack-message'
                                   }
                                 | {
                                       filters: {
@@ -1517,11 +1563,29 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
+                                  }
+                                | {
+                                      filters: {
                                           properties?: any[] | undefined
                                       }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -1640,9 +1704,9 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
+                                properties?: any[] | undefined
                             }
-                            type: 'batch'
+                            type: 'slack-message'
                         }
                       | {
                             filters: {
@@ -1655,11 +1719,29 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
+                        }
+                      | {
+                            filters: {
                                 properties?: any[] | undefined
                             }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1756,6 +1838,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1869,6 +1954,9 @@ export interface hogFlowEditorLogicActions {
     }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
+    }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
     }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
@@ -1988,6 +2076,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
         mode: [
@@ -2038,6 +2127,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
+            },
+        ],
+        isZoomedOutFar: [
+            false,
+            {
+                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
             },
         ],
         movingNodeId: [

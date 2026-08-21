@@ -324,7 +324,7 @@ const AssistantFlagPropertyFilter = z.object({
         )
         .default('flag'),
     value: z
-        .union([z.coerce.boolean(), z.string()])
+        .union([z.boolean(), z.string()])
         .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
 })
 
@@ -362,7 +362,7 @@ const CountPerActorMathType = z.enum([
     'p99_count_per_actor',
 ])
 
-const GroupMathType = z.literal('unique_group')
+const GroupMathType = z.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group'])
 
 const HogQLMathType = z.literal('hogql')
 
@@ -512,6 +512,7 @@ const AssistantTrendsFilter = z.object({
             'TwoDimensionalHeatmap',
             'BoxPlot',
             'SlopeGraph',
+            'ScatterPlot',
         ])
         .describe(
             'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'
@@ -1204,49 +1205,6 @@ const AssistantLifecycleQuery = z.object({
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
 })
 
-const AssistantTracesQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
-    filterTestAccounts: z.coerce
-        .boolean()
-        .describe('Exclude internal and test users by applying the respective filters.')
-        .default(true)
-        .optional(),
-    groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
-    groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
-    kind: z.literal('TracesQuery').default('TracesQuery'),
-    limit: integer.describe('Maximum number of traces to return.').default(100).optional(),
-    offset: integer.describe('Number of traces to skip for pagination.').default(0).optional(),
-    personId: z.string().describe('Filter traces by a specific person UUID.').optional(),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe(
-            'Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.'
-        )
-        .default([])
-        .optional(),
-    randomOrder: z.coerce
-        .boolean()
-        .describe(
-            'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
-        )
-        .default(false)
-        .optional(),
-})
-
-const AssistantTraceQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    kind: z.literal('TraceQuery').default('TraceQuery'),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe('Property filters to narrow events within the trace.')
-        .default([])
-        .optional(),
-    traceId: z
-        .string()
-        .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
-})
-
 const AssistantTrendsActorsQuery = z.object({
     breakdown: z
         .array(z.string())
@@ -1518,18 +1476,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-    }),
-    'query-llm-traces-list': createQueryWrapper({
-        name: 'query-llm-traces-list',
-        schema: AssistantTracesQuery,
-        kind: 'TracesQuery',
-        outputFormat: 'json',
-    }),
-    'query-llm-trace': createQueryWrapper({
-        name: 'query-llm-trace',
-        schema: AssistantTraceQuery,
-        kind: 'TraceQuery',
-        outputFormat: 'json',
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',

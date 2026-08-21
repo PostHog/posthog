@@ -2,6 +2,8 @@
 # (frozen, pre-2026-06-16 history) would double-count every call.
 MCP_TOOL_CALL_EVENT = "$mcp_tool_call"
 MCP_MISSING_CAPABILITY_EVENT = "$mcp_missing_capability"
+# Emitted per tools/list response; carries $mcp_listed_tool_names (the advertised catalog).
+MCP_TOOLS_LIST_EVENT = "$mcp_tools_list"
 
 # Intent cluster snapshots are stored as one JSON blob and served unpaginated,
 # so cap how many clusters (ranked by call volume) a snapshot carries. A

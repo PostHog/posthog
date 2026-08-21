@@ -140,6 +140,29 @@ describe('personInitialAndUTMProperties()', () => {
         const result = personInitialAndUTMProperties({ $is_server: true, $os_name: 'Linux' })
         expect((result.$set_once as Record<string, any> | undefined)?.$initial_os).toBeUndefined()
     })
+    // Browser SDKs send every absent campaign param as an explicit null whenever at least one is
+    // present. $set_once only applies while the person property is missing, so a null there would
+    // permanently block the real first-touch value. $set intentionally keeps the nulls (last-touch).
+    it.each([
+        [
+            'null campaign params stay in $set but never claim $set_once',
+            { utm_source: 'google', gclid: null },
+            { utm_source: 'google', gclid: null },
+            { $initial_utm_source: 'google' },
+        ],
+        [
+            'all-null campaign params leave $set_once empty',
+            { gclid: null, msclkid: null },
+            { gclid: null, msclkid: null },
+            {},
+        ],
+        ['a null $os_name does not claim $initial_os', { $os_name: null }, { $os: null }, {}],
+    ])('never writes null first-touch values: %s', (_desc, input, expectedSet, expectedSetOnce) => {
+        const result = personInitialAndUTMProperties({ ...input })
+        expect(result.$set).toEqual(expectedSet)
+        expect(result.$set_once).toEqual(expectedSetOnce)
+    })
+
     it.each([
         ['client event maps $os', { $lib: 'web', $os: 'Linux' }, 'Linux'],
         ['client mobile via $os_name', { $lib: 'posthog-ios', $os_name: 'iOS' }, 'iOS'],

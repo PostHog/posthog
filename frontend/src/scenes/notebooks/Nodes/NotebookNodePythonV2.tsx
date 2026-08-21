@@ -14,7 +14,7 @@ import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { countTextLines, outputHeightForShape } from './notebookNodeOutputHeight'
+import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
@@ -34,6 +34,12 @@ export type NotebookNodePythonV2Attributes = {
     runStatus?: NotebookNodeRunTerminalStatus | null
 }
 
+const PYTHON_EDITOR_MIN_HEIGHT = 160
+// About 20 lines at Monaco's 18px line height. An MCP-written cell is often far longer than that,
+// and an editor that grows with the code pushes the output and the next cell off the screen.
+// Past the cap the editor scrolls, and the drag handle expands it.
+const PYTHON_EDITOR_MAX_HEIGHT = 360
+
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
     const firstPage = result.first_page ?? []
@@ -49,7 +55,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -95,11 +101,15 @@ const Component = ({
     // Grow a still-too-short node to fit the output each run lands, so it's readable without a
     // manual resize. Sized to what came back — a printed value stays compact, a table or figure
     // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
-    // resize (or a reload of an already-sized cell) is left untouched.
-    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
     useEffect(() => {
         const runId = attributes.runId ?? null
-        if (!result || runId === sizedRunIdRef.current) {
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
             return
         }
         sizedRunIdRef.current = runId
@@ -112,7 +122,7 @@ const Component = ({
             updateAttributes({ height: target })
         }
         // oxlint-disable-next-line exhaustive-deps
-    }, [result, attributes.runId])
+    }, [result, attributes.runId, isEditable])
 
     if (!expanded) {
         return null
@@ -189,14 +199,11 @@ const Component = ({
                 ) : hasStreamOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -207,10 +214,13 @@ const Component = ({
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
                     // Optional: left empty, the cell binds nothing and later cells can't read it.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Dataframe name (optional)"
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
             </div>
@@ -284,14 +294,20 @@ const Settings = ({
                     {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
-            <div className="min-h-0 flex-1">
+            <div
+                className="min-h-0 flex-1"
+                // The editor owns pointer drags in here. Without this the resize handle drags the
+                // node around the markdown notebook instead of resizing the editor.
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
                 <CodeEditorResizeable
                     language="python"
                     value={typeof attributes.code === 'string' ? attributes.code : ''}
                     onChange={(value) => updateAttributes({ code: value ?? '' })}
                     onPressCmdEnter={() => runRef.current()}
-                    allowManualResize={false}
-                    minHeight={160}
+                    minHeight={PYTHON_EDITOR_MIN_HEIGHT}
+                    maxHeight={PYTHON_EDITOR_MAX_HEIGHT}
                     embedded
                 />
             </div>

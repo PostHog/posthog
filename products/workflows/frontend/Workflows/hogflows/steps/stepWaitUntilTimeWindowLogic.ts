@@ -75,8 +75,10 @@ export function getWaitUntilTimeWindowDescription(
     return `Wait until ${dayDesc} ${timeClause} (${tzDesc}).`
 }
 
-export function shouldAutoUpdateDescription(description: string): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined): boolean {
+    // Agent-created actions can arrive without a description at all; treat an absent one like empty.
     return (
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION
@@ -125,7 +127,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -137,6 +143,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -232,6 +244,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -247,6 +262,14 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -385,9 +408,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
-                      properties: any[]
+                      properties?: any[] | undefined
                   }
-                  type: 'batch'
+                  type: 'slack-message'
               }
             | {
                   filters: {
@@ -397,6 +420,16 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
+                      properties: any[]
+                      tag_names?: string[] | undefined
+                  }
+                  type: 'batch'
               }
             | {
                   condition: {
@@ -432,6 +465,14 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -500,6 +541,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.types import ScannerSnapshot
 
 
@@ -15,6 +15,10 @@ class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
     # The edited config the user is testing. None re-runs the stored suggested_config. Defaulted so an
     # in-flight run replaying without this field decodes it as "test the suggestion" (its original behavior).
     config_override: dict[str, Any] | None = None
+    # `evaluation.started_at` as stamped when this run was requested. Usage receipt ids are keyed on it,
+    # so it is frozen into the inputs rather than re-read from the mutable row mid-run. Defaulted so an
+    # in-flight run replaying without this field falls back to re-reading, its original behavior.
+    started_at: str | None = None
 
 
 class EvaluationSession(BaseModel, frozen=True):
@@ -31,6 +35,8 @@ class SelectEvaluationSessionsInputs(BaseModel, frozen=True):
     team_id: int
     session_limit: int | None = None
     config_override: dict[str, Any] | None = None
+    # See `EvaluatePromptSuggestionInputs.started_at`; None restamps, its original behavior.
+    started_at: str | None = None
 
 
 class SelectEvaluationSessionsOutput(BaseModel, frozen=True):
@@ -50,6 +56,8 @@ class RecordEvaluationResultInputs(BaseModel, frozen=True):
     error: str | None = None
     # Defaulted to False so an in-flight run replaying without this field decodes it as a non-preview run.
     preview: bool = False
+    # See `EvaluatePromptSuggestionInputs.started_at`; None falls back to re-reading the row.
+    started_at: str | None = None
 
 
 class FinalizeEvaluationInputs(BaseModel, frozen=True):

@@ -17,13 +17,17 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.session.middleware import SessionRiskMiddleware
 from posthog.session.models import Session
-from posthog.session.risk import Context, RiskFlags, RiskTier, evaluate_session_risk
+from posthog.session.risk import Context, RiskFlags, RiskTier, _baseline_for_session, evaluate_session_risk
 
 IMPOSSIBLE_TRAVEL_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
+# Network anomaly *and* device anomaly — the cross-axis pair that reaches HIGH.
+HIGH_RISK_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="firefox|mac os x|pc")
 UA_CHANGE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="firefox|mac os x|pc")
 STABLE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="chrome|mac os x|pc")
 NEARBY_CTX = Context(latitude=41.0, longitude=-74.5, country_code="US", ua_signature="chrome|mac os x|pc")
 NO_GEO_CTX = Context(latitude=None, longitude=None, country_code=None, ua_signature="chrome|mac os x|pc")
+# Same location as the baseline, but the request carried no user-agent header at all.
+MISSING_UA_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature=None)
 
 
 class TestEvaluateSessionRisk(BaseTest):
@@ -71,7 +75,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertNotIn("step_up_required", request.session)
         mock_capture.assert_not_called()
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
     def test_report_only_does_not_set_flag_or_end(self, _flags, mock_capture, _ctx):
@@ -103,6 +107,39 @@ class TestEvaluateSessionRisk(BaseTest):
         for forbidden in ("ip", "session_key", "latitude", "longitude"):
             self.assertNotIn(forbidden, props)
 
+    @parameterized.expand(
+        [
+            ("device_changed", UA_CHANGE_CTX, "chrome|mac os x|pc", "firefox|mac os x|pc"),
+            ("no_user_agent_sent", MISSING_UA_CTX, "chrome|mac os x|pc", "missing"),
+        ]
+    )
+    def test_device_change_records_the_transition(self, _name, ctx, expected_from, expected_to):
+        # Without the transition, a spike in device changes can't be attributed to a cause, and an
+        # absent header has to be distinguishable from a real signature or it vanishes in a breakdown.
+        request = self._authed_request_with_baseline(self._make_user())
+        with (
+            patch("posthog.session.risk.current_request_context", return_value=ctx),
+            patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False)),
+            patch("posthog.session.risk.posthoganalytics.capture") as mock_capture,
+        ):
+            evaluate_session_risk(request)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(props["ua_from"], expected_from)
+        self.assertEqual(props["ua_to"], expected_to)
+
+    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
+    def test_transition_omitted_when_the_device_did_not_change(self, _flags, mock_capture, _ctx):
+        request = self._authed_request_with_baseline(self._make_user())
+
+        evaluate_session_risk(request)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        self.assertNotIn("ua_from", props)
+        self.assertNotIn("ua_to", props)
+
     @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False))
@@ -128,7 +165,7 @@ class TestEvaluateSessionRisk(BaseTest):
         reloaded = self.engine.SessionStore(session_key=request.session.session_key)
         self.assertTrue(reloaded.get("step_up_required"))
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_high_effective_only_when_session_end_on(self, _flags, mock_capture, _ctx):
@@ -138,6 +175,19 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertTrue(mock_capture.call_args.kwargs["properties"]["enforced"])
 
     @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
+    def test_network_only_anomaly_never_ends_the_session(self, _flags, mock_capture, _ctx):
+        # Relay, VPN and carrier-NAT egress move the apparent location on their own, so a network-only
+        # anomaly must stop at a step-up re-auth even with session-end enabled — it must never log the
+        # user out on geo alone.
+        request = self._authed_request_with_baseline(self._make_user())
+
+        self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
+        self.assertTrue(request.session.get("step_up_required"))
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["tier"], RiskTier.MEDIUM.name)
+
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture", side_effect=RuntimeError("telemetry down"))
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_telemetry_failure_does_not_break_evaluation(self, _flags, _capture, _ctx):
@@ -146,7 +196,7 @@ class TestEvaluateSessionRisk(BaseTest):
 
         self.assertEqual(evaluate_session_risk(request), RiskTier.HIGH)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False))
     def test_high_degrades_to_step_up_when_session_end_off(self, _flags, mock_capture, _ctx):
@@ -170,19 +220,53 @@ class TestEvaluateSessionRisk(BaseTest):
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, expected_calls)
 
+    def test_baseline_reuses_the_row_the_session_store_loaded(self):
+        # Loading the session already fetches this row, and scoring runs on every authenticated
+        # request, so reading the baseline must not cost a second SELECT for the same row.
+        key = self._login_session(self._make_user())
+        self._seed_baseline(key)
+        store = self.engine.SessionStore(session_key=key)
+        store.load()
+
+        with self.assertNumQueries(0):
+            baseline = _baseline_for_session(store, key)
+
+        assert baseline is not None
+        self.assertEqual(baseline.country_code, "US")
+
+    @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False))
+    def test_concurrent_requests_emit_once(self, _flags, mock_capture, _ctx):
+        # Parallel requests each hold their own copy of the session, so dedup state kept there is read
+        # before any of them writes and every one emits. The marker has to be shared for a burst of
+        # requests to count as one detection.
+        user = self._make_user()
+        key = self._login_session(user)
+        self._seed_baseline(key)
+        first, second = self._request(user, key), self._request(user, key)
+        # Materialize both session copies before either evaluates — that is what makes them concurrent
+        # rather than sequential.
+        first.session.get(SESSION_KEY), second.session.get(SESSION_KEY)
+
+        evaluate_session_risk(first)
+        evaluate_session_risk(second)
+
+        mock_capture.assert_called_once()
+
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_new_signature_re_emits_within_cooldown(self, _flags, mock_capture):
-        # An escalation to a different anomaly (MEDIUM ua_change -> HIGH impossible travel) is a new
-        # incident and must re-emit even inside the cooldown window.
+        # An escalation to a different anomaly (MEDIUM ua_change -> HIGH cross-axis) is a new incident
+        # and must re-emit even inside the cooldown window.
         request = self._authed_request_with_baseline(self._make_user())
         with patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX):
             evaluate_session_risk(request)
-        with patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX):
+        with patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX):
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, 2)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_dedup_suppresses_telemetry_not_session_end(self, _flags, mock_capture, _ctx):
@@ -284,12 +368,13 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(row.latitude, 40.7)  # still NYC, not poisoned to Tokyo
         self.assertEqual(row.country_code, "US")
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIGH_RISK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_attacker_cannot_erase_detection_over_repeated_requests(self, _flags, _capture, _ctx):
-        # Because the baseline is never poisoned, a replayed stolen cookie keeps tripping HIGH rather
-        # than self-erasing after the first hit.
+        # A replayed stolen cookie arrives from the attacker's own machine and network, so it trips
+        # both axes. Because the baseline is never poisoned, it keeps tripping HIGH on every request
+        # rather than self-erasing after the first hit.
         request = self._authed_request_with_baseline(self._make_user())
 
         self.assertEqual(evaluate_session_risk(request), RiskTier.HIGH)

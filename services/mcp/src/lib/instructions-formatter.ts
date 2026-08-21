@@ -1,5 +1,7 @@
 import type { GroupType } from '@/api/client'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
+    buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
@@ -36,6 +38,10 @@ export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
     metadata?: string | undefined
+    /** `metadata` without the product/integration context lines, for the claude.ai
+     *  exec command reference, which counts against the ~16 KiB registry cap on the
+     *  serialized inputSchema. Falls back to `metadata` when unset. */
+    metadataCompact?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
     /** Whether `render-ui` is actually available to this client (i.e. the client is
@@ -75,11 +81,30 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
-     *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+    /** Build the compact `instructions` payload for single-exec clients. Everything
+     *  but the tool-domain index — env context included — lives on the exec tool's
+     *  `command` parameter description (`buildExecCommandReference`), because this
+     *  payload is hard-capped at {@link MCP_INSTRUCTIONS_CHAR_BUDGET} by Claude Code
+     *  and the command description is not.
+     *
+     *  Rendered optimistically, then re-rendered against the measured overflow if it
+     *  doesn't fit — the index is the only part that can shrink. Measuring the overflow
+     *  rather than the surround keeps the arithmetic exact: both renders carry a
+     *  non-empty index, so they share a byte-identical surround, and shrinking the index
+     *  by N shrinks the payload by exactly N. (Sizing an index-less render instead
+     *  overshoots, because `formatPrompt` trims the trailing separator the real payload
+     *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const rendered = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
+        if (overflow <= 0) {
+            return rendered
+        }
+        const domains = buildToolDomainsCompact(ctx.tools ?? [])
+        return this.compose([COMPACT_INSTRUCTIONS], ctx, {
+            compact: true,
+            toolDomainsMaxChars: domains.length - overflow,
+        })
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
@@ -125,6 +150,15 @@ export class InstructionsFormatter {
             })
         }
 
+        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        entries.push({
+            id: 'urls',
+            kind: 'guide',
+            title: 'URL patterns',
+            description: 'Load before writing any PostHog app link or URL.',
+            content: this.compose([URL_PATTERNS], ctx, { compact: false }),
+        })
+
         entries.push({
             id: 'feedback',
             kind: 'guide',
@@ -149,7 +183,7 @@ export class InstructionsFormatter {
         const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            metadata: ctx.metadata,
+            metadata: ctx.metadataCompact ?? ctx.metadata,
             groupTypes: ctx.groupTypes,
             tools: ctx.tools,
         }
@@ -166,7 +200,6 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
-                URL_PATTERNS,
             ],
             renderCtx,
             {
@@ -231,15 +264,24 @@ export class InstructionsFormatter {
     private compose(
         sections: string[],
         ctx: InstructionsContext,
-        opts: { compact: boolean; compactToolDomains?: boolean; extraCommands?: string }
+        opts: {
+            compact: boolean
+            compactToolDomains?: boolean
+            extraCommands?: string
+            /** Character budget for the domain index; it collapses sub-families to fit. */
+            toolDomainsMaxChars?: number
+        }
     ): string {
         const renderToolDomains =
-            opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
+            opts.compact || opts.compactToolDomains
+                ? (tools: ToolInfo[]) => buildToolDomainsCompact(tools, opts.toolDomainsMaxChars)
+                : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',

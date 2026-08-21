@@ -1,6 +1,7 @@
 from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
+from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce_self_driving_run_quota
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
 from .get_sandbox_for_repository import (
@@ -29,6 +30,11 @@ from .provision_sandbox import (
     prepare_sandbox_for_repository,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
+from .record_peer_message_outcome import (
+    RecordPeerMessageOutcomeInput,
+    peer_message_id_from_context,
+    record_peer_message_outcome,
+)
 from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     RefreshSandboxCredentialsOutput,
@@ -100,11 +106,16 @@ __all__ = [
     "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "STEER_DECLINED_OUTCOME",
+    "RecordPeerMessageOutcomeInput",
+    "peer_message_id_from_context",
+    "record_peer_message_outcome",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
     "emit_progress_activity",
+    "EnforceSelfDrivingRunQuotaInput",
+    "enforce_self_driving_run_quota",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_agent_design_signals",

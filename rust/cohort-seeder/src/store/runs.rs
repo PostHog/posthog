@@ -11,9 +11,10 @@ use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 
 use crate::domain::{
-    BehavioralShapeHash, BehavioralShapeHashError, PersonPinnedSnapshot, PersonRunValidation,
-    PinnedError, PinnedParticipation, PinnedParticipationState, PinnedPersonRun, PinnedRun,
-    PinnedRunSnapshot, ReconcileTile, RunId, TriggerKind, UtcMillis, ValidatedPinnedRun,
+    PersonPinnedSnapshot, PersonRunValidation, PinnedError, PinnedParticipation,
+    PinnedParticipationState, PinnedPersonRun, PinnedRun, PinnedRunSnapshot, ReconcileScope,
+    ReconcileTile, RunId, ScopeKind, ShapeHashError, TriggerKind, UnknownScopeKind, UtcMillis,
+    ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -56,8 +57,17 @@ const READ_RUN: &str = concat!(
     "\n    WHERE id = $1 AND backfill_kind = $2\n"
 );
 
+// The reconcile path derives the kind from the run row rather than asserting one, so this sibling
+// carries no kind predicate.
+const READ_RUN_ANY_KIND: &str = concat!(
+    "\n    SELECT ",
+    run_columns!(),
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE id = $1\n"
+);
+
 const READ_ACTIVE_RECONCILE_PARTICIPATIONS: &str = r#"
-    SELECT team_id, cohort_id, behavioral_filters_shape_hash
+    SELECT team_id, cohort_id, behavioral_filters_shape_hash, person_filters_shape_hash
     FROM cohort_backfill_run_cohorts
     WHERE run_id = $1 AND superseded_at IS NULL
     ORDER BY cohort_id
@@ -161,28 +171,36 @@ pub enum RunKind {
 
 impl RunKind {
     pub const fn as_str(self) -> &'static str {
+        self.scope().as_str()
+    }
+
+    /// The definition fingerprint this kind's reconcile is fenced by. The two vocabularies are the
+    /// same strings by construction: the column and the metric label name one concept.
+    pub const fn scope(self) -> ScopeKind {
         match self {
-            Self::Behavioral => "behavioral",
-            Self::PersonProperty => "person_property",
+            Self::Behavioral => ScopeKind::Behavioral,
+            Self::PersonProperty => ScopeKind::PersonProperty,
+        }
+    }
+}
+
+/// Exhaustive on [`ScopeKind`], so adding a scope without a matching run kind fails to compile.
+impl From<ScopeKind> for RunKind {
+    fn from(scope: ScopeKind) -> Self {
+        match scope {
+            ScopeKind::Behavioral => Self::Behavioral,
+            ScopeKind::PersonProperty => Self::PersonProperty,
         }
     }
 }
 
 impl FromStr for RunKind {
-    type Err = UnknownRunKind;
+    type Err = UnknownScopeKind;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "behavioral" => Ok(Self::Behavioral),
-            "person_property" => Ok(Self::PersonProperty),
-            other => Err(UnknownRunKind(other.to_string())),
-        }
+        value.parse::<ScopeKind>().map(Self::from)
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown backfill kind {0:?}")]
-pub struct UnknownRunKind(pub String);
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredRun {
@@ -295,11 +313,12 @@ impl SeedableRun {
     }
 }
 
-/// A behavioral run proven safe to expand into reconcile control tiles. Construction validates
-/// the run state, tenant boundary, active participation set, and every persisted behavioral hash.
+/// A run proven safe to expand into reconcile control tiles. Construction validates the run state,
+/// tenant boundary, active participation set, and every persisted shape hash of the run's own kind.
 #[derive(Debug, Clone)]
 pub struct ReconcileRun {
     run_id: RunId,
+    kind: RunKind,
     status: RunStatus,
     team_id: TeamId,
     participations: Vec<ReconcileParticipation>,
@@ -308,6 +327,10 @@ pub struct ReconcileRun {
 impl ReconcileRun {
     pub const fn run_id(&self) -> RunId {
         self.run_id
+    }
+
+    pub const fn kind(&self) -> RunKind {
+        self.kind
     }
 
     pub const fn status(&self) -> RunStatus {
@@ -323,7 +346,7 @@ impl ReconcileRun {
             ReconcileTile::new(
                 self.team_id,
                 participation.cohort_id,
-                participation.behavioral_filters_shape_hash.clone(),
+                participation.scope.clone(),
                 self.run_id,
             )
         })
@@ -333,7 +356,7 @@ impl ReconcileRun {
 #[derive(Debug, Clone)]
 struct ReconcileParticipation {
     cohort_id: CohortId,
-    behavioral_filters_shape_hash: BehavioralShapeHash,
+    scope: ReconcileScope,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -346,12 +369,13 @@ pub enum ReconcileRunError {
     Status { run_id: RunId, status: RunStatus },
     #[error("run {0:?} has no active cohort participations to reconcile")]
     NoActiveParticipations(RunId),
-    #[error("run {run_id:?} cohort {cohort_id:?} has an invalid behavioral shape hash")]
-    InvalidBehavioralShapeHash {
+    #[error("run {run_id:?} cohort {cohort_id:?} has an invalid pinned {kind} shape hash")]
+    InvalidShapeHash {
         run_id: RunId,
         cohort_id: CohortId,
+        kind: ScopeKind,
         #[source]
-        source: BehavioralShapeHashError,
+        source: ShapeHashError,
     },
     #[error(
         "run {run_id:?} team {expected_team_id} has cohort {cohort_id:?} stored under team {actual_team_id}"
@@ -539,6 +563,16 @@ struct ReconcileParticipationRow {
     team_id: i32,
     cohort_id: i32,
     behavioral_filters_shape_hash: String,
+    person_filters_shape_hash: String,
+}
+
+impl ReconcileParticipationRow {
+    fn pinned_hash(&self, kind: ScopeKind) -> &str {
+        match kind {
+            ScopeKind::Behavioral => &self.behavioral_filters_shape_hash,
+            ScopeKind::PersonProperty => &self.person_filters_shape_hash,
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -575,12 +609,14 @@ pub async fn discover_runs(
     rows.into_iter().map(DiscoveredRun::try_from).collect()
 }
 
+/// Load a run's active participations as reconcile tiles. The kind comes from the run row, so a
+/// person run's fence is its person hash and a behavioral run's is its behavioral one; the other
+/// column is expected to be `''` and is never read.
 pub async fn load_reconcile_run(
     pool: &PgPool,
     run_id: RunId,
 ) -> Result<ReconcileRun, ReconcileRunError> {
-    // Reconcile stays behavioral-only: a person run id can never enter this protocol.
-    let run = read_run(pool, run_id, RunKind::Behavioral).await?;
+    let run = read_run_any_kind(pool, run_id).await?;
     if !matches!(run.status, RunStatus::Seeding | RunStatus::Reconciling) {
         return Err(ReconcileRunError::Status {
             run_id,
@@ -597,6 +633,7 @@ pub async fn load_reconcile_run(
         return Err(ReconcileRunError::NoActiveParticipations(run_id));
     }
 
+    let kind = run.kind.scope();
     let mut participations = Vec::with_capacity(rows.len());
     for row in rows {
         let cohort_id = CohortId(row.cohort_id);
@@ -608,22 +645,20 @@ pub async fn load_reconcile_run(
                 actual_team_id: row.team_id,
             });
         }
-        let behavioral_filters_shape_hash =
-            BehavioralShapeHash::parse(&row.behavioral_filters_shape_hash).map_err(|source| {
-                ReconcileRunError::InvalidBehavioralShapeHash {
-                    run_id,
-                    cohort_id,
-                    source,
-                }
-            })?;
-        participations.push(ReconcileParticipation {
-            cohort_id,
-            behavioral_filters_shape_hash,
-        });
+        let scope = ReconcileScope::parse(kind, row.pinned_hash(kind)).map_err(|source| {
+            ReconcileRunError::InvalidShapeHash {
+                run_id,
+                cohort_id,
+                kind,
+                source,
+            }
+        })?;
+        participations.push(ReconcileParticipation { cohort_id, scope });
     }
 
     Ok(ReconcileRun {
         run_id,
+        kind: run.kind,
         status: run.status,
         team_id: run.team_id,
         participations,
@@ -750,6 +785,15 @@ async fn read_run(pool: &PgPool, run_id: RunId, kind: RunKind) -> Result<Discove
     let row = sqlx::query_as::<_, RunRow>(READ_RUN)
         .bind(run_id)
         .bind(kind.as_str())
+        .fetch_optional(pool)
+        .await?
+        .ok_or(RunError::NotFound(run_id))?;
+    row.try_into()
+}
+
+async fn read_run_any_kind(pool: &PgPool, run_id: RunId) -> Result<DiscoveredRun, RunError> {
+    let row = sqlx::query_as::<_, RunRow>(READ_RUN_ANY_KIND)
+        .bind(run_id)
         .fetch_optional(pool)
         .await?
         .ok_or(RunError::NotFound(run_id))?;

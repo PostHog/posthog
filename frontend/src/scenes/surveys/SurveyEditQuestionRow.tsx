@@ -23,7 +23,13 @@ import {
 } from '~/types'
 
 import { ValidationRulesEditor } from './components/ValidationRulesEditor'
-import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
+import {
+    NewSurvey,
+    SCALE_OPTIONS,
+    SURVEY_RATING_SCALE,
+    SurveyQuestionLabel,
+    TRANSLATION_NEEDED_PLACEHOLDER,
+} from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
@@ -266,7 +272,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         return transChoices[newIndex]
                     }
                     // New or modified choices must be translated explicitly.
-                    return '[Translation needed]'
+                    return TRANSLATION_NEEDED_PLACEHOLDER
                 })
                 updatedTranslations[lang] = {
                     ...trans,

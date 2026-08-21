@@ -79,7 +79,7 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         blank=True,
         help_text=(
             "Opaque watcher resume state written by the Rust seeder, shape "
-            '{"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.'
+            '{"schema":2,"topic":"...","positions":{...},"ends":{...}|null}. Django never interprets it.'
         ),
     )
     blocked_reason = models.TextField(blank=True, default="")

@@ -51,7 +51,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     ParquetStreamTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
@@ -1035,6 +1035,7 @@ def _get_databricks_table_settings(
             ("uuid", "STRING"),
             ("event", "STRING"),
             ("properties", json_type),
+            ("person_properties", json_type),
             ("distinct_id", "STRING"),
             ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
@@ -1325,6 +1326,16 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             # client before it reaches this point)
             statement_timeout_seconds=long_running_query_timeout + ONE_MINUTE,
         ).connect() as databricks_client:
+            if not requires_merge and inputs.use_automatic_schema_evolution is False:
+                # Without a stage table, COPY INTO copies directly into the final table,
+                # and with schema evolution disabled it fails on any column an existing
+                # table lacks, so skip such columns. A missing table returns no columns.
+                existing_columns = await databricks_client.aget_table_columns(inputs.table_name)
+                if existing_columns:
+                    filtered_fields = [field for field in table_fields if field[0] in existing_columns]
+                    if filtered_fields:
+                        table_fields = filtered_fields
+
             async with manage_resources(
                 client=databricks_client,
                 volume_name=volume_name,
@@ -1397,16 +1408,14 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Databricks table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -1434,8 +1443,8 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = DatabricksInsertInputs(
             team_id=inputs.team_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,

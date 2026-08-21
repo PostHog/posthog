@@ -5,6 +5,7 @@ use chrono::Utc;
 use common_redis::{CustomRedisError, RedisClient};
 use uuid::Uuid;
 
+use crate::modes::processing::redis_heal::HealGate;
 use crate::modes::processing::rules::rate_limit::BucketParams;
 
 /// Outcome of one fused rate-limit call for a single issue group of `n` events.
@@ -82,6 +83,11 @@ pub trait ScriptRunner: Send + Sync {
         keys: Vec<String>,
         args: Vec<String>,
     ) -> Result<Vec<i64>, CustomRedisError>;
+
+    /// Rebuild the underlying connection after a connection-class failure;
+    /// see `common_redis::Client::heal`. Default no-op keeps test fakes
+    /// trivial.
+    async fn heal(&self) {}
 }
 
 #[async_trait]
@@ -94,12 +100,17 @@ impl ScriptRunner for RedisClient {
     ) -> Result<Vec<i64>, CustomRedisError> {
         RedisClient::eval_int_vec(self, script, keys, args).await
     }
+
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
 }
 
 pub struct RedisRateLimiter {
     redis: Arc<dyn ScriptRunner>,
     key_prefix: String,
     bucket_ttl_seconds: u64,
+    heal_gate: HealGate,
 }
 
 impl RedisRateLimiter {
@@ -108,6 +119,7 @@ impl RedisRateLimiter {
             redis,
             key_prefix,
             bucket_ttl_seconds,
+            heal_gate: HealGate::new(),
         }
     }
 
@@ -120,6 +132,15 @@ impl RedisRateLimiter {
 
     fn team_key(&self, team_id: i32) -> String {
         format!("{}/{{{team_id}}}/project", self.key_prefix)
+    }
+
+    /// Kick a background heal of the limiter's Redis connection; called when
+    /// an admit fails with a connection-class error. Never blocks the
+    /// fail-open path; heal attempts are serialized and cooldown-bounded by
+    /// the client.
+    pub fn spawn_heal(&self) {
+        let redis = self.redis.clone();
+        self.heal_gate.spawn_heal(async move { redis.heal().await });
     }
 }
 

@@ -28,7 +28,6 @@ from functools import partial
 from typing import Optional
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db.models import Q, QuerySet
 
 import pydantic
@@ -42,10 +41,11 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, uuidv7_session_lower_bound
-from posthog.utils import get_safe_cache
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -53,6 +53,7 @@ from products.cohorts.backend.models.cohort import Cohort
 # module attribute so it always sees the same value the scan applies (tests patch it there).
 from products.experiments.backend import metric_events
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
@@ -198,7 +199,7 @@ def get_session_experiment_context(
     items = computed[session_id]
     # A capped single session is still cached: with one session there is no batch union, so a
     # recompute would drop the same metrics again and caching the capped result loses nothing.
-    cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
+    safe_cache_set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
     return items
 
 
@@ -262,7 +263,7 @@ def get_session_experiment_contexts(
             # single-session endpoint computes; it is returned best-effort and left for
             # on-demand recompute instead.
             if session_id not in capped_session_ids:
-                cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
+                safe_cache_set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
         results.update(computed)
 
     return {session_id: results[session_id] for session_id in unique_ids if session_id in results}
@@ -405,6 +406,13 @@ def _compute_session_experiment_contexts(
     # built for; no scan may pass its own modifiers. Postgres foreign-key lazy joins are
     # skipped — the single most expensive build step, and these queries only ever read the
     # events table.
+    # Tagged here, not at the entry points: the recording-metadata lookup above is replay's own
+    # query and tags itself as such, so an earlier tag would be overwritten and these scans would
+    # bill to replay. The scans are experiments' own — exposure criteria and metric definitions
+    # over the events table — and follow the convention of tagging the product whose logic and
+    # cost they are, not the surface they render on.
+    tag_queries(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk)
+
     hogql_modifiers = create_default_modifiers_for_team(team)
     shared_hogql = SharedHogQLDatabase(
         database=Database.create_for(
@@ -569,8 +577,8 @@ def _compute_chunk_contexts(
             if experiment.end_date is not None and experiment.end_date < window.recording_start:
                 continue
             flag_key = experiment.feature_flag.key
-            # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
-            # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
+            # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter
+            # in the analysis queries: a non-enrolled user's flag evaluation captures
             # `$feature_flag_response: false`, which must not surface as a variant named "false".
             defined_variants = resolved.variant_keys_by_id.get(experiment.pk, set())
             exposure_rows = [row for row in session_exposures.get(experiment.pk, []) if row[0] in defined_variants]
@@ -714,7 +722,13 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    event, variant_property = get_exposure_event_and_property(flag_key, criteria)
+    # This surface deliberately stays on the legacy default rather than resolving the
+    # $experiment_exposure rollout per experiment: its shared flag-evaluations query reads
+    # $feature_flag_called, and while ingestion emits both events every exposure still lands on
+    # the same sessions, so the legacy event stays correct here for now.
+    event, variant_property = get_exposure_event_and_property(
+        flag_key, criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+    )
     # Only experiments whose criteria resolve to the plain `$feature_flag_called` shape (no
     # extra property filters) can share the batched query. The literal is deliberate — it names
     # the batched query's shape, not the default: if DEFAULT_EXPOSURE_EVENT ever changes in
@@ -818,7 +832,10 @@ def _query_exposure_event_branches(
         # Built here, after the branch cap, so classification stays DB-free for experiments
         # the slice discards (action-based conditions cost a Postgres lookup each).
         try:
-            conditions = build_exposure_event_conditions(resolution.criteria, team, resolution.flag_key)
+            # The same deliberate legacy-event choice as `_resolve_exposure` above.
+            conditions = build_exposure_event_conditions(
+                resolution.criteria, team, resolution.flag_key, default_exposure_event=DEFAULT_EXPOSURE_EVENT
+            )
         except (Cohort.DoesNotExist, BaseHogQLError):
             # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
             # here (e.g. a duplicated experiment carrying the source project's cohort id), or a

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -28,6 +29,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -43,6 +45,7 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
+from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
@@ -537,6 +540,26 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/recent-per-scout/"
+
+    def test_returns_each_scouts_newest_runs(self) -> None:
+        # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
+        quiet = _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"per_scout_limit": 1})
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
+
+    def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
+        response = self.client.get(self._url(), data={"per_scout_limit": 5000})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"
@@ -555,6 +578,8 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert body["scout_count"] == 2
+        # The quiet run counts as a run; the other team's does not.
+        assert body["run_count"] == 3
         assert body["latest_at"] is not None
 
     def test_summary_counts_report_channel_activity(self) -> None:
@@ -602,6 +627,7 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 1
         assert body["scout_count"] == 1
+        assert body["run_count"] == 1
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
@@ -708,6 +734,483 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             assert response.status_code == status.HTTP_404_NOT_FOUND, (
                 f"expected 404 for {bad!r}, got {response.status_code}"
             )
+
+
+_STRUCTURED_OUTPUT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}},
+    "required": ["verdict", "reason"],
+    "additionalProperties": False,
+}
+
+
+class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # record-output requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _record_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/record-output/"
+
+    def _make_run_with_schema(self, team: Team | None = None, **config_overrides) -> SignalScoutRun:
+        run = _make_run(team or self.team)
+        assert run.scout_config is not None
+        run.scout_config.structured_output_schema = _STRUCTURED_OUTPUT_SCHEMA
+        for field, value in config_overrides.items():
+            setattr(run.scout_config, field, value)
+        run.scout_config.save()
+        return run
+
+    def test_record_output_forwards_events_and_counts_on_the_run(self) -> None:
+        run = self._make_run_with_schema()
+        records = [
+            {"payload": {"verdict": "good", "reason": "coherent grouping"}, "subject": "report-1"},
+            {"payload": {"verdict": "bad", "reason": "two unrelated issues merged"}, "subject": "report-2"},
+            {"payload": {"verdict": "unsure", "reason": "not enough signals"}},
+        ]
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["recorded_count"] == 3
+        # One batch POST carrying one event per record, person processing off, scalar payload
+        # keys flattened for breakdowns, and distinct deterministic uuids per record. The
+        # response's record_ids ARE those event uuids — the events are the record.
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        events = kwargs["events"]
+        assert len(events) == 3
+        assert kwargs["process_person_profile"] is False
+        assert events[0]["event"] == "$scout_structured_output"
+        assert events[0]["properties"]["output_verdict"] == "good"
+        assert events[0]["properties"]["subject"] == "report-1"
+        assert events[0]["properties"]["run_id"] == str(run.id)
+        assert len({event["event_uuid"] for event in events}) == 3
+        assert body["record_ids"] == [event["event_uuid"] for event in events]
+        # A stable timestamp (the run's created_at) keeps the dedupe sorting key — which
+        # includes toDate(timestamp) — identical across retries, even past UTC midnight.
+        assert {event["timestamp"] for event in events} == {run.created_at.isoformat()}
+        # The per-run cap counter is the only Postgres trace, on the run row itself.
+        run.refresh_from_db()
+        assert (run.metadata or {}).get("structured_output_count") == 3
+
+    def test_record_output_is_all_or_nothing_on_invalid_record(self) -> None:
+        run = self._make_run_with_schema()
+        records = [
+            {"payload": {"verdict": "good", "reason": "fine"}},
+            {"payload": {"verdict": "terrible", "reason": "not in the enum"}},
+        ]
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "records[1]" in str(response.json())
+        mock_capture.assert_not_called()
+        run.refresh_from_db()
+        assert (run.metadata or {}).get("structured_output_count") is None
+
+    def test_record_output_fails_closed_without_configured_schema(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "structured_output_schema" in str(response.json())
+
+    def test_record_output_rejects_non_in_progress_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run_with_schema()
+        TaskRun.objects.filter(id=run.task_run_id).update(status=TaskRun.Status.COMPLETED)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_record_output_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = self._make_run_with_schema(team=other)
+        response = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_record_output_fails_closed_for_disabled_source(self) -> None:
+        # Same inactive-skip rule as the emit/report channels — but with events as the only
+        # record, suppressing them quietly would silently lose the batch, so the call fails
+        # loudly instead.
+        from products.signals.backend.models import SignalSourceConfig
+
+        run = self._make_run_with_schema()
+        SignalSourceConfig.objects.get_or_create(
+            team=self.team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            defaults={"enabled": False},
+        )
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "disabled" in str(response.json())
+        mock_capture.assert_not_called()
+
+    def test_record_output_fails_closed_for_dry_run_scout(self) -> None:
+        # The runner also withholds the prompt section for a dry-run scout; this guards the
+        # backstop for a mid-run emit flip.
+        run = self._make_run_with_schema(emit=False)
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "dry-run" in str(response.json())
+        mock_capture.assert_not_called()
+
+    def test_record_output_fails_closed_without_ai_processing_consent(self) -> None:
+        # Mirrors the emit channel's org-level gate: an org that has not approved AI data
+        # processing must not receive AI-generated records into its project.
+        run = self._make_run_with_schema()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AI data processing" in str(response.json())
+        mock_capture.assert_not_called()
+
+    def test_record_output_delivery_failure_is_retryable_with_stable_event_ids(self) -> None:
+        # The forward is the only write, so a failed batch POST must fail the call (a
+        # swallowed failure silently loses the run's output — the regression this guards),
+        # and a retry of the same batch must produce identical event uuids so it collapses
+        # at ingestion instead of double-counting.
+        run = self._make_run_with_schema()
+        records = [{"payload": {"verdict": "good", "reason": "x"}, "subject": "report-1"}]
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal",
+            side_effect=RuntimeError("capture down"),
+        ) as failing_capture:
+            failed = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert failed.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "etry" in str(failed.json())
+        failed_uuids = [event["event_uuid"] for event in failing_capture.call_args.kwargs["events"]]
+
+        with patch(
+            "products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"
+        ) as mock_capture:
+            retried = self.client.post(self._record_url(str(run.id)), data={"records": records}, format="json")
+        assert retried.status_code == status.HTTP_200_OK
+        assert retried.json()["record_ids"] == failed_uuids
+        assert [event["event_uuid"] for event in mock_capture.call_args.kwargs["events"]] == failed_uuids
+
+    def test_record_output_validates_against_dispatch_time_schema_snapshot(self) -> None:
+        # The prompt renders the dispatch-time schema, so a mid-run config edit must not
+        # reject records matching what the run was shown — but clearing the schema entirely
+        # stays a kill switch.
+        run = self._make_run_with_schema()
+        SignalScoutRun.objects.filter(pk=run.pk).update(
+            metadata={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA}
+        )
+        assert run.scout_config is not None
+        run.scout_config.structured_output_schema = {
+            "type": "object",
+            "properties": {"grade": {"type": "integer"}},
+            "required": ["grade"],
+            "additionalProperties": False,
+        }
+        run.scout_config.save()
+        with patch("products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"):
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "matches the shown schema"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        run.scout_config.structured_output_schema = None
+        run.scout_config.save()
+        cleared = self.client.post(
+            self._record_url(str(run.id)),
+            data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+            format="json",
+        )
+        assert cleared.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_run_read_strips_schema_snapshot_from_metadata(self) -> None:
+        # The snapshot exists for record validation; leaking it into run reads repeats up to
+        # 20 KB of schema per row on listings scouts read inside their own prompts.
+        run = self._make_run_with_schema()
+        SignalScoutRun.objects.filter(pk=run.pk).update(
+            metadata={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA, "report_channel": "none"}
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        metadata = response.json()["metadata"]
+        assert "structured_output_schema" not in metadata
+        assert metadata["report_channel"] == "none"
+
+    def test_record_output_fails_closed_when_schema_cleared_mid_request(self) -> None:
+        # Simulates a clear committing between the schema read and the capacity reservation —
+        # the in-transaction recheck must fail the call closed with nothing forwarded.
+        run = self._make_run_with_schema()
+        assert run.scout_config_id is not None
+        config_id = run.scout_config_id
+        original_validate = structured_output_tool._validate_records
+
+        def clear_then_validate(records: list, schema: dict) -> None:
+            SignalScoutConfig.objects.filter(pk=config_id).update(structured_output_schema=None)
+            original_validate(records, schema)
+
+        with (
+            patch.object(structured_output_tool, "_validate_records", side_effect=clear_then_validate),
+            patch.object(structured_output_tool, "capture_batch_internal") as mock_capture,
+        ):
+            response = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "x"}}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_capture.assert_not_called()
+
+    def test_record_output_enforces_per_run_cap_across_calls(self) -> None:
+        # The cap counter lives on the run row, so it must accumulate across calls — a
+        # reservation that doesn't persist would let a looping agent flood events.
+        run = self._make_run_with_schema()
+        with (
+            patch("products.signals.backend.scout_harness.tools.structured_output.MAX_RECORDS_PER_RUN", 2),
+            patch("products.signals.backend.scout_harness.tools.structured_output.capture_batch_internal"),
+        ):
+            first = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": f"r{i}"}} for i in range(2)]},
+                format="json",
+            )
+            second = self.client.post(
+                self._record_url(str(run.id)),
+                data={"records": [{"payload": {"verdict": "good", "reason": "one too many"}}]},
+                format="json",
+            )
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "per-run cap" in str(second.json())
+
+
+class TestStructuredOutputSchemaValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("valid_schema", _STRUCTURED_OUTPUT_SCHEMA, True),
+            ("null_clears", None, True),
+            ("non_object_root", {"type": "array", "items": {"type": "string"}}, False),
+            ("empty_object", {}, False),
+            ("not_a_valid_json_schema", {"type": "object", "properties": {"x": {"type": 42}}}, False),
+            # A remote reference would have the worker fetch an arbitrary URL at record time (SSRF).
+            (
+                "remote_ref_rejected",
+                {"type": "object", "properties": {"x": {"$ref": "https://169.254.169.254/schema.json"}}},
+                False,
+            ),
+            (
+                "local_ref_allowed",
+                {
+                    "type": "object",
+                    "$defs": {"verdict": {"enum": ["good", "bad"]}},
+                    "properties": {"verdict": {"$ref": "#/$defs/verdict"}},
+                },
+                True,
+            ),
+            # A catastrophic regex (`^(a+)+$`) pins the validating worker with no way to
+            # interrupt it, so regex keywords fail closed at the boundary.
+            (
+                "regex_pattern_rejected",
+                {"type": "object", "properties": {"x": {"type": "string", "pattern": "^(a+)+$"}}},
+                False,
+            ),
+            (
+                "property_named_pattern_allowed",
+                {"type": "object", "properties": {"pattern": {"type": "string"}}},
+                True,
+            ),
+        ]
+    )
+    def test_config_schema_validation(self, _name: str, schema: dict | None, valid: bool) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"structured_output_schema": schema}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if not valid:
+            assert "structured_output_schema" in serializer.errors
+
+
+class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def test_patch_persists_schema_and_read_surfaces_it(self) -> None:
+        # Wiring guard for the SimpleTestCase matrix above: the viewset actually routes
+        # `structured_output_schema` through the update serializer and the read shape returns it.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["structured_output_schema"] == _STRUCTURED_OUTPUT_SCHEMA
+        config.refresh_from_db()
+        assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
+
+    def test_patch_rejects_invalid_schema(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": {"type": "array"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.structured_output_schema is None
+
+    @parameterized.expand(
+        [
+            # The schema is rendered verbatim into a privileged run prompt, so setting it is
+            # skill-authoring-level steering: a config-only key must not open the channel.
+            ("config_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("with_skill_authoring_scope", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_setting_schema_requires_skill_authoring_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": _STRUCTURED_OUTPUT_SCHEMA},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+        assert response.status_code == expected, response.json()
+
+    def test_clearing_schema_needs_only_config_scope(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", structured_output_schema=_STRUCTURED_OUTPUT_SCHEMA
+        )
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="k", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:write"]
+        )
+        self.client.logout()
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"structured_output_schema": None},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.structured_output_schema is None
+
+
+class TestScoutHarnessConfigModelAPI(APIBaseTest):
+    _FLAG_PATH = "products.signals.backend.scout_harness.serializers.scout_model_config_enabled"
+
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def test_patch_persists_model_when_flag_on(self) -> None:
+        # Wiring guard: the viewset routes `model` through the update serializer and the read
+        # shape returns it for a team inside the `scouts-model-config` dogfood.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["model"] == "claude-opus-4-5"
+        config.refresh_from_db()
+        assert config.model == "claude-opus-4-5"
+
+    def test_patch_rejects_model_outside_the_flag(self) -> None:
+        # The dogfood gate on the write path: without the flag a pin can't be stored at all.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.model is None
+
+    @parameterized.expand([("null_clears", None), ("blank_normalizes_to_null", "  ")])
+    def test_clearing_model_stays_ungated(self, _name: str, cleared_value: str | None) -> None:
+        # A team that leaves the preview must still be able to remove a stored pin.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
+        )
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(self._detail_url(str(config.id)), data={"model": cleared_value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.model is None
+
+    def test_resending_stored_model_unchanged_stays_ungated(self) -> None:
+        # Clients resend whole config objects, so after a team leaves the preview an unchanged
+        # stored pin must not 400 an unrelated edit.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
+        )
+        with patch(self._FLAG_PATH, return_value=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"model": "claude-opus-4-5", "emit": False},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.model == "claude-opus-4-5"
+        assert config.emit is False
+
+    def test_patch_rejects_model_outside_catalog(self) -> None:
+        # A typo'd pin would fail every scheduled run until cleared, so the write names the
+        # available models instead of storing it.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
+        with patch(self._FLAG_PATH, return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"model": "claude-opus-4-55"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Available models" in str(response.json())
+        config.refresh_from_db()
+        assert config.model is None
 
 
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
@@ -1035,13 +1538,18 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A derived note quotes a report's id, title, and dismissal text, all of which the
-            # report API gates on `task:read`. A scout-only token must not read around that.
+            # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
+            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # so all derived origins are withheld together — a new one must not reopen the gap.
             ("without_report_read", ["signal_scout:read"], {"steering"}),
-            ("with_report_read", ["signal_scout:read", "task:read"], {"steering", "derived from a dismissal"}),
+            (
+                "with_report_read",
+                ["signal_scout:read", "task:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+            ),
         ]
     )
-    def test_list_withholds_dismissal_notes_from_callers_without_report_read(
+    def test_list_withholds_derived_notes_from_callers_without_report_read(
         self, _name: str, scopes: list[str], expected: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -1052,6 +1560,11 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             team=self.team,
             content="derived from a dismissal",
             origin=SignalScoutNote.Origin.REPORT_DISMISSAL,
+        )
+        SignalScoutNote.objects.create(
+            team=self.team,
+            content="derived from feedback",
+            origin=SignalScoutNote.Origin.REPORT_FEEDBACK,
         )
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
@@ -1355,6 +1868,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
 
+    def test_partial_update_stores_mcp_gateway_server_ids_as_strings(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        server_id = str(uuid4())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"mcp_gateway_server_ids": [server_id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["mcp_gateway_server_ids"] == [server_id]
+        config.refresh_from_db()
+        # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
+        assert config.mcp_gateway_server_ids == [server_id]
+
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
@@ -1441,6 +1970,82 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.consecutive_failure_count == 0
         assert config.run_interval_minutes == 120
 
+    @parameterized.expand(
+        [
+            ("no_output", SignalScoutConfig.PauseReason.NO_OUTPUT, {"enabled": True}, False),
+            ("ignored", SignalScoutConfig.PauseReason.IGNORED, {"enabled": True}, False),
+            ("repeated_failures", SignalScoutConfig.PauseReason.REPEATED_FAILURES, {"enabled": True}, False),
+            (
+                "explicit_true_wins",
+                SignalScoutConfig.PauseReason.IGNORED,
+                {"enabled": True, "auto_pause_exempt": True},
+                True,
+            ),
+        ]
+    )
+    def test_re_enabling_a_system_paused_scout_does_not_mark_it_exempt(
+        self, _name: str, pause_reason: SignalScoutConfig.PauseReason, payload: dict, expected_exempt: bool
+    ) -> None:
+        # A resume re-anchors the cold-start grace, which already keeps the sweep from
+        # re-judging the scout soon; minting the exemption here would remove it from the
+        # sweep's jurisdiction forever on every revert. Exemption stays an explicit choice.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=pause_reason,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is expected_exempt
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+        assert config.auto_pause_exempt is expected_exempt
+
+    def test_re_enabling_an_inactivity_paused_scout_emits_the_revert_event(self) -> None:
+        # The sweep's false-positive metric: a re-enable soon after the pause means the rule
+        # paused something someone still wanted.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=timezone.now() - timedelta(hours=2),
+        )
+
+        with patch("products.signals.backend.scout_harness.serializers.posthoganalytics.capture") as capture:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
+        assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
+        assert call.kwargs["properties"]["reverted_within_24h"] is True
+
+    def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
+        # Exempting takes the scout out of the sweep, so nothing else would ever clear the
+        # warning and the fleet page would keep saying it's about to pause.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"auto_pause_exempt": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is True
+        config.refresh_from_db()
+        assert config.auto_pause_exempt is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+
     def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
         # Clients resend whole config objects; an unchanged `enabled=false` must not convert
         # a system pause into a user pause the system may never resume.
@@ -1509,7 +2114,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        # A partial update skips the `thread_reports` default, so the flag reaches the reader
+        # through the response only and the stored destination keeps the shape it was sent in.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -1551,6 +2161,51 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.output_destinations == (destination if expected_status == status.HTTP_200_OK else {})
         if expected_missing_scope is not None:
             assert expected_missing_scope in response.json()["detail"]
+
+    def test_child_scoped_api_key_cannot_update_parent_config(self) -> None:
+        # Config rows canonicalize to the parent team, so a key scoped only to a child
+        # environment passes the default scope check (URL team == child) while the PATCH
+        # targets the parent's row — ScoutCanonicalTeamAccessPermission must 403 before a
+        # child-scoped credential can change the parent's sandbox posture (network_access).
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:write"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+            data={"network_access": "full"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+    def test_partial_update_round_trips_network_access(self) -> None:
+        # Wiring guard: DRF silently drops a field missing from the update serializer's
+        # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
+        # read serializer must surface the stored value back.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "full"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["network_access"] == "full"
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -1669,6 +2324,140 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    def test_list_reports_no_tags_as_an_empty_list(self) -> None:
+        # The column is nullable so the AddField could land without a rewrite; a consumer must
+        # never have to tell "no tags" apart from "null".
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.filter(pk=config.pk).update(tags=None)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["tags"] == []
+
+    @parameterized.expand(
+        [
+            ("single", "revenue", ["signals-scout-alpha", "signals-scout-beta"]),
+            ("any_of_matches_either", "revenue,on-call", ["signals-scout-alpha", "signals-scout-beta"]),
+            ("narrow", "on-call", ["signals-scout-beta"]),
+            ("normalized_like_stored_tags", "On Call", ["signals-scout-beta"]),
+            ("unknown_tag_matches_nothing", "nope", []),
+        ]
+    )
+    def test_list_filters_by_tags(self, _name: str, tags_param: str, expected: list[str]) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta", tags=["on-call", "revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-gamma", tags=[])
+
+        response = self.client.get(self._list_url(), data={"tags": tags_param})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
+    def test_list_without_a_tag_filter_returns_the_whole_fleet(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta", tags=[])
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-alpha", "signals-scout-beta"]
+
+    def test_list_rejects_a_tag_filter_that_normalizes_to_nothing(self) -> None:
+        # An unusable filter must not silently widen to "the whole fleet" — that would read as
+        # "these scouts carry the tag" when nothing was filtered at all.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+
+        response = self.client.get(self._list_url(), data={"tags": "!!!"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("normalizes_and_sorts", ["Revenue", "on call"], ["on-call", "revenue"]),
+            ("dedupes_after_normalization", ["revenue", "Revenue", "REVENUE"], ["revenue"]),
+            ("slugifies_punctuation", ["cost_spike", "billing/usage"], ["billingusage", "cost-spike"]),
+            ("empty_list_clears", [], []),
+            # The length cap is measured on the slug, not the raw string. A raw entry longer than
+            # the cap whose punctuation strips down to a short slug has to be accepted: rejecting
+            # it would 400 a tag the desktop editor showed as fine, since the editor measures the
+            # normalized form too.
+            ("long_raw_input_that_normalizes_short", ["revenue" + "!" * 60], ["revenue"]),
+        ]
+    )
+    def test_partial_update_normalizes_tags(self, _name: str, payload: list[str], expected: list[str]) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["stale"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": payload}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == expected
+        config.refresh_from_db()
+        assert config.tags == expected
+
+    def test_partial_update_replaces_tags_rather_than_merging(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", tags=["revenue", "on-call"]
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": ["revenue"]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["revenue"]
+
+    def test_partial_update_leaves_tags_untouched_when_omitted(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["revenue"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"emit": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tags"] == ["revenue"]
+
+    @parameterized.expand(
+        [
+            ("blank_after_normalization", ["!!!"]),
+            # Over the cap once normalized (all-alphanumeric, so the slug is the same length).
+            ("over_the_per_tag_length_cap", ["a" * (SignalScoutConfig.MAX_TAG_LENGTH + 1)]),
+            ("over_the_count_cap", [f"tag-{index}" for index in range(SignalScoutConfig.MAX_TAGS + 1)]),
+        ]
+    )
+    def test_partial_update_rejects_invalid_tags(self, _name: str, payload: list[str]) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["revenue"])
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"tags": payload}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.tags == ["revenue"]
+
+    def test_create_registers_tags(self) -> None:
+        self._make_skill("signals-scout-foo")
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "tags": ["Revenue", "on call"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["tags"] == ["on-call", "revenue"]
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-foo")
+        assert config.tags == ["on-call", "revenue"]
+
+    def test_create_upsert_applies_tags_to_an_existing_config(self) -> None:
+        self._make_skill("signals-scout-foo")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", tags=["stale"])
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "tags": ["revenue"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.tags == ["revenue"]
 
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
@@ -1789,7 +2578,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         response = self.client.post(
             self._list_url(),
-            data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 120, "emit": False},
+            data={
+                "skill_name": "signals-scout-fresh",
+                "run_interval_minutes": 120,
+                "emit": False,
+                "network_access": "full",
+            },
             format="json",
         )
 
@@ -1799,9 +2593,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body["run_interval_minutes"] == 120
         assert body["emit"] is False
         assert body["enabled"] is True
+        assert body["network_access"] == "full"
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_create_stamps_scout_category_on_skill(self) -> None:
         skill = self._make_skill("signals-scout-fresh")
@@ -2057,6 +2853,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
@@ -2097,6 +2894,18 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_over_quota_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
+            patch(_START) as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
@@ -2290,6 +3099,7 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             "has_self_improvement",
             "has_chart",
             "has_self_validation",
+            "has_structured_output",
         }
 
     @parameterized.expand(

@@ -19,7 +19,7 @@ from products.batch_exports.backend.temporal.metrics import (
 )
 from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, raise_on_task_failure
 from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
 
 LOGGER = get_write_only_logger(__name__)
@@ -41,7 +41,7 @@ class _WaitResult(enum.Enum):
 class Consumer:
     """Consumer for batch exports.
 
-    This is an alternative implementation of the `spmc.Consumer` class that consumes data from a producer which is in
+    This is an alternative implementation of the legacy SPMC consumer that consumes data from a producer which is in
     turn reading data from the internal S3 staging area.
     """
 

@@ -4,6 +4,7 @@ from . import (
     activity_log,
     async_migrations,
     calculate_cohort,
+    comment_slack_sync,
     demo_create_data,
     demo_reset_master_team,
     early_access_feature,
@@ -23,13 +24,13 @@ from . import (
     tasks,
     team_access_cache_tasks,
     usage_report,
-    warehouse,
 )
 
 __all__ = [
     "activity_log",
     "async_migrations",
     "calculate_cohort",
+    "comment_slack_sync",
     "demo_create_data",
     "demo_reset_master_team",
     "early_access_feature",
@@ -49,5 +50,4 @@ __all__ = [
     "tasks",
     "team_access_cache_tasks",
     "usage_report",
-    "warehouse",
 ]

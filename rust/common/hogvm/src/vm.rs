@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -18,8 +19,8 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
-        Num, NumOp, Upvalue, UpvalueCell,
+        compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
+        HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -929,41 +930,49 @@ impl<'a> HogVM<'a> {
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
     }
 
-    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
-    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
-    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
-    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
-    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
-    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers and lexicographically ordered
+    /// numeric arrays. `sortableSemver` returns a numeric array, so server-side property filters need
+    /// this narrow array case even when they retain strict comparison semantics. Other non-number
+    /// operands still error, which lets cymbal auto-disable malformed rules. Only when the context
+    /// opts into coercing comparisons does a non-number operand reach [`compare_values`]. `a` is the
     /// top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
-        if !self.context.coerce_comparisons {
-            // Legacy/reference path: both operands must be `Number` or this errors.
-            let (a, b): (Num, Num) = (self.pop_stack_as()?, self.pop_stack_as()?);
-            return self.push_stack(Num::binary_op(op, &a, &b)?);
-        }
         let a = self.pop_stack()?;
         let b = self.pop_stack()?;
         // Scope the immutable heap borrows so the result is owned before the `&mut self` push.
         let result = {
             let a_lit = a.deref(&self.heap)?;
             let b_lit = b.deref(&self.heap)?;
-            compare_values(op, a_lit, b_lit, &self.heap)?
+            if self.context.coerce_comparisons {
+                compare_values(op, a_lit, b_lit, &self.heap)?
+            } else if let (HogLiteral::Array(a_values), HogLiteral::Array(b_values)) =
+                (a_lit, b_lit)
+            {
+                let ordering = compare_numeric_arrays(a_values, b_values, &self.heap)?;
+                HogLiteral::Boolean(ordering_matches(op, ordering))
+            } else {
+                let a_num: &Num = a_lit.try_as()?;
+                let b_num: &Num = b_lit.try_as()?;
+                Num::binary_op(op, a_num, b_num)?
+            }
         };
         self.push_stack(result)
     }
 
     /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
     /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
-    /// realtime-cohort evaluator) do two Hog temporals compare by epoch seconds to match ClickHouse
+    /// realtime-cohort evaluator) does a temporal pair compare by epoch seconds to match ClickHouse
     /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    ///
+    /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
+    /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
+    /// operands are dates. The Python/TS reference VMs route all six comparison opcodes through a
+    /// single coercion function, so equality has to cover the bare-field string case too, not just
+    /// the both-temporal one.
     fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
         if self.context.coerce_comparisons {
             let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
-            if let (Some(x), Some(y)) = (
-                lhs.as_temporal_seconds(&self.heap),
-                rhs.as_temporal_seconds(&self.heap),
-            ) {
+            if let Some((x, y)) = temporal_seconds_pair(lhs, rhs, &self.heap) {
                 return Ok((x == y).into());
             }
         }
@@ -1520,6 +1529,36 @@ fn failure(error: VmError, vm: Option<&HogVM>, step: usize) -> VmFailure {
         ip: vm.map_or(0, |vm| vm.ip),
         stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
         step,
+    }
+}
+
+fn compare_numeric_arrays(
+    a: &[HogValue],
+    b: &[HogValue],
+    heap: &VmHeap,
+) -> Result<Ordering, VmError> {
+    for value in a.iter().chain(b) {
+        let _: &Num = value.deref(heap)?.try_as()?;
+    }
+
+    for (a_value, b_value) in a.iter().zip(b) {
+        let a_num: &Num = a_value.deref(heap)?.try_as()?;
+        let b_num: &Num = b_value.deref(heap)?.try_as()?;
+        let ordering = a_num.compare(b_num);
+        if ordering != Ordering::Equal {
+            return Ok(ordering);
+        }
+    }
+    Ok(a.len().cmp(&b.len()))
+}
+
+fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
+    match op {
+        NumOp::Gt => ordering.is_gt(),
+        NumOp::Gte => ordering.is_ge(),
+        NumOp::Lt => ordering.is_lt(),
+        NumOp::Lte => ordering.is_le(),
+        _ => unreachable!("ordering comparison requires a comparison operation"),
     }
 }
 

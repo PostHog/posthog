@@ -7,7 +7,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
-    from datetime import timedelta
+    from datetime import date, timedelta
 
     import structlog
 
@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
+    from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
     from products.conversations.backend.support_slack import get_support_slack_bot_token
     from products.conversations.backend.temporal.channel_summary.constants import (
         MAX_SUMMARIES_PER_RUN,
@@ -106,7 +107,11 @@ class ChannelSummaryCoordinatorWorkflow:
         started = 0
         skipped = 0
         for item in result.due:
-            child_id = f"account-channel-summary-{item.account_id}-{item.cadence}-{item.period_start[:10]}"
+            child_id = build_channel_summary_workflow_id(
+                account_id=item.account_id,
+                cadence=item.cadence,
+                period_start=date.fromisoformat(item.period_start[:10]),
+            )
             try:
                 await workflow.start_child_workflow(
                     AccountChannelSummaryWorkflow.run,

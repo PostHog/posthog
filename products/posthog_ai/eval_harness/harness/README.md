@@ -27,7 +27,7 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 | `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                       |
 | `ports.py`         | The six port constants. Deliberately free of Django imports.                                                                      |
 | `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.              |
-| `tunnels.py`       | `NgrokTunnels`. Modal only: generates an ngrok config, starts the agent, waits for public URLs.                                   |
+| `tunnels.py`       | `TailscaleFunnel`. Modal only: enables Tailscale Funnel on the host services and resolves their public URLs.                      |
 | `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
 | `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
 | `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
@@ -54,7 +54,7 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
 5. The LLM gateway (`:13308`) and MCP server (`:18787`) start as subprocesses.
-6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding on a new `@posthog/agent` version or Dockerfile change). Modal only: ngrok tunnels come up, exposing the callback services publicly.
+6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding on a new `@posthog/agent` version or Dockerfile change). Modal only: Tailscale Funnel comes up, exposing the callback services publicly.
 7. Local skills are built. Docker bind-mounts them; Modal bakes them into the image it builds.
 8. The master Hedgebox team is seeded.
 
@@ -95,8 +95,8 @@ The Temporal worker keeps its own loop on a daemon thread, and the two communica
 |                     | docker                        | modal                     |
 | ------------------- | ----------------------------- | ------------------------- |
 | `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`             |
-| Service URLs        | `host.docker.internal:<port>` | ngrok public URLs         |
-| `start()`           | base-image freshness check    | ngrok tunnels             |
+| Service URLs        | `host.docker.internal:<port>` | Tailscale Funnel URLs     |
+| `start()`           | base-image freshness check    | Tailscale Funnel          |
 | Local skills        | bind-mounted                  | baked into the image      |
 | Default sandbox cap | 4                             | unbounded                 |
 | Sandbox TTL         | default                       | case timeout plus margin  |

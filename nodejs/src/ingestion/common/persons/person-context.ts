@@ -39,21 +39,6 @@ export type MergeEventsConfig = {
     isTeamEnabled: ValueMatcher<number>
 }
 
-/** Per-team gates for the personless-table removal rollout (steps 2-4 of the RFC). */
-export type PersonlessRolloutConfig = {
-    /**
-     * Always-v1: merge-added distinct id mappings get version 1 unconditionally (always writing a
-     * ClickHouse override) instead of consulting posthog_personlessdistinctid.
-     */
-    mergeAlwaysV1: boolean
-    /**
-     * Stop-reading/stop-writing: merges skip the posthog_personlessdistinctid upserts entirely.
-     * Forces mergeAlwaysV1 (normalized in the PersonContext constructor): without the upserts the
-     * table has gaps for this team, so a version decision must never consult it again.
-     */
-    writesDisabled: boolean
-}
-
 /**
  * Lightweight data holder containing all the context needed for person processing.
  * This replaces the previous PersonState class which mixed data and business logic.
@@ -79,18 +64,12 @@ export class PersonContext {
             partitionCount: 64,
             isTeamEnabled: () => false,
         },
-        public readonly personlessRollout: PersonlessRolloutConfig = {
-            mergeAlwaysV1: false,
-            writesDisabled: false,
-        },
         /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
-        public readonly mergeFoldPlan?: MergeFoldPlan
+        public readonly mergeFoldPlan?: MergeFoldPlan,
+        /** New-world merge behavior for this team: lifecycle-mark claims plus tombstone deletes. */
+        public readonly mergeTombstoneEnabled: boolean = false
     ) {
         this.eventProperties = event.properties!
-        this.personlessRollout = {
-            mergeAlwaysV1: personlessRollout.mergeAlwaysV1 || personlessRollout.writesDisabled,
-            writesDisabled: personlessRollout.writesDisabled,
-        }
     }
 
     async produceMessages(messages: PersonMessage[]): Promise<void> {

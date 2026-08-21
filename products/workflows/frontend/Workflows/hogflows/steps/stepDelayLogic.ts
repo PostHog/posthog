@@ -3,9 +3,16 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 
-const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
-const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
+const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
+const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (second|minute|hour|day)s?\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait for a specified duration.'
+
+const UNIT_LABELS: Record<string, string> = {
+    s: 'second',
+    m: 'minute',
+    h: 'hour',
+    d: 'day',
+}
 
 export function getDelayDescription(duration: string): string {
     const parts = duration.match(DURATION_REGEX)
@@ -15,13 +22,15 @@ export function getDelayDescription(duration: string): string {
     if (!Number.isFinite(number)) {
         return LEGACY_DEFAULT_DESCRIPTION
     }
-    const unitLabel = unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day'
+    const unitLabel = UNIT_LABELS[unit] ?? 'minute'
     const durationText = `${number} ${unitLabel}${number !== 1 ? 's' : ''}`
     return `Wait for ${durationText}.`
 }
 
-export function shouldAutoUpdateDescription(description: string): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined): boolean {
+    // Agent-created actions can arrive without a description at all; treat an absent one like empty.
     return (
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION
@@ -77,7 +86,11 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -89,6 +102,12 @@ export interface stepDelayLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   condition: {
@@ -184,6 +203,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -199,6 +221,14 @@ export interface stepDelayLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -336,9 +366,9 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
-                      properties: any[]
+                      properties?: any[] | undefined
                   }
-                  type: 'batch'
+                  type: 'slack-message'
               }
             | {
                   filters: {
@@ -348,6 +378,16 @@ export interface stepDelayLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
+                      properties: any[]
+                      tag_names?: string[] | undefined
+                  }
+                  type: 'batch'
               }
             | {
                   condition: {
@@ -383,6 +423,14 @@ export interface stepDelayLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -451,6 +499,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string

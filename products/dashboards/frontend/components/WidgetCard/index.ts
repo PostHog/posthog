@@ -13,6 +13,7 @@ export {
     WIDGET_LIST_COUNT_ISSUES,
     WIDGET_LIST_COUNT_LOGS,
     WIDGET_LIST_COUNT_RECORDINGS,
+    WIDGET_LIST_COUNT_TICKETS,
     WidgetLoadingState,
 } from './WidgetCardBody'
 export {

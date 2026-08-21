@@ -95,6 +95,21 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+class _ShardedTableFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_table_type(self, node: ast.TableType) -> None:
+        if isinstance(node.table, EventsTable):
+            self.found = True
+
+
+def _select_reads_sharded_table(node: ast.Expr) -> bool:
+    finder = _ShardedTableFinder()
+    finder.visit(node)
+    return finder.found
+
+
 EMPTY_SCOPE = ast.SelectQueryType()
 
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
@@ -2342,8 +2357,9 @@ class Resolver(CloningVisitor):
         node.type = loop_type
 
         if isinstance(node.type, ast.ExpressionFieldType):
-            # only swap out expression fields in ClickHouse
-            if self.dialect == "clickhouse":
+            # HogQL preserves the virtual field name for display; execution dialects must expand
+            # the expression so its child fields resolve before the target printer sees them.
+            if self.dialect != "hogql":
                 new_expr = clone_expr(node.type.expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
@@ -2353,7 +2369,16 @@ class Resolver(CloningVisitor):
                         table_type = table_type.table_type
                     self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
-                new_node = self.visit(new_node)
+                try:
+                    new_node = self.visit(new_node)
+                except RecursionError:
+                    # Saved expressions are validated against a database that may not yet contain a
+                    # concurrently-saved sibling, so a mutually recursive pair can reach this point.
+                    # Surface it as a query error instead of a 500.
+                    raise QueryError(
+                        f'Expression field "{node.type.name}" is nested too deeply. '
+                        f"Expression fields can't reference themselves, directly or through another expression."
+                    )
 
                 if node.type.isolate_scope:
                     self.scopes.pop()
@@ -2526,6 +2551,19 @@ class Resolver(CloningVisitor):
             (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
             and isinstance(node.right, ast.SelectQuery)
             and (self._is_sessions_table(node.left) or self._select_reads_sessions(node.right))
+        ):
+            if node.op == ast.CompareOperationOp.In:
+                node.op = ast.CompareOperationOp.GlobalIn
+            else:
+                node.op = ast.CompareOperationOp.GlobalNotIn
+
+        # An IN-subquery reading a sharded table re-executes on every shard of a distributed
+        # outer scan, multiplying its cost by the shard count. GLOBAL IN builds the set once
+        # on the initiator and ships it to the shards, returning the same rows.
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and isinstance(node.right, (ast.SelectQuery, ast.SelectSetQuery))
+            and _select_reads_sharded_table(node.right)
         ):
             if node.op == ast.CompareOperationOp.In:
                 node.op = ast.CompareOperationOp.GlobalIn

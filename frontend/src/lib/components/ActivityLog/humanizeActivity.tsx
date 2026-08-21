@@ -165,6 +165,7 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plural: string }>> = {
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
+    [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
@@ -174,6 +175,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {

@@ -192,6 +192,38 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
+        propertyDefinitionsModel.actions.updatePropertyDefinitions({
+            'event/current_value': {
+                id: 'current_value',
+                name: 'current_value',
+                property_type: PropertyType.Numeric,
+                is_numerical: true,
+                is_seen_on_filtered_events: false,
+            },
+        })
+
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="current_value"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                    propertyTypeOverride={PropertyType.String}
+                    staticValues={[]}
+                />
+            </Provider>
+        )
+
+        const input = screen.getByRole('textbox')
+        await userEvent.type(input, 'enterprise')
+
+        expect(input).toHaveValue('enterprise')
+        expect(loadPropertyValuesSpy).not.toHaveBeenCalled()
+    })
+
     it('keeps numeric-only input for non-regex numeric properties', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/userId': {
@@ -220,6 +252,33 @@ describe('PropertyValue', () => {
         await userEvent.type(input, '7a.8$')
 
         expect(input).toHaveValue('7.8')
+    })
+
+    it('renders static values without fetching from the API', async () => {
+        // Guards the staticValues escape hatch: consumers whose events are not in
+        // ClickHouse (e.g. internal events) must get their statically known values,
+        // not values of same-named properties fetched from the events table.
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="scope"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                    staticValues={[{ name: 'FeatureFlag' }, { name: 'Insight' }]}
+                />
+            </Provider>
+        )
+
+        userEvent.click(screen.getByRole('textbox'))
+
+        expect(await screen.findByText('FeatureFlag')).toBeInTheDocument()
+        expect(screen.getByText('Insight')).toBeInTheDocument()
+
+        // Flush the load debounce window to catch a stray fetch
+        await new Promise((r) => setTimeout(r, 350))
+        expect(loadPropertyValuesSpy).not.toHaveBeenCalled()
     })
 
     it('renders a group `id` filter with the generic value editor, not the group-name picker', () => {

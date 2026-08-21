@@ -118,6 +118,17 @@ class TestIntercomSource:
             assert schema.supports_incremental is expected, name
             assert schema.supports_append is expected, name
 
+    def test_canonical_descriptions_cover_every_endpoint(self):
+        # Endpoints missing from the curated map fall back to LLM enrichment, which is
+        # both slower and less accurate than the vendor's own docs. Adding a table
+        # without its description is the easy thing to forget.
+        descriptions = self.source.get_canonical_descriptions()
+
+        assert set(descriptions) == set(INTERCOM_ENDPOINTS)
+        for name, entry in descriptions.items():
+            assert entry.get("description"), name
+            assert entry.get("columns"), name
+
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
 

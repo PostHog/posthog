@@ -265,10 +265,10 @@ describe('FeaturePreviewSceneGate', () => {
     describe('request access', () => {
         const CONFIG_WITH_SUPPORT: FeaturePreviewGateConfig = {
             ...BASE_CONFIG,
-            supportTargetArea: 'customer_analytics',
+            offerRequestAccess: true,
         }
 
-        test('does not show "Request access" when config has no supportTargetArea', () => {
+        test('does not show "Request access" when config does not offer it', () => {
             setupMocks({ earlyAccessFeatures: [] })
 
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
@@ -290,9 +290,7 @@ describe('FeaturePreviewSceneGate', () => {
             render(<FeaturePreviewSceneGate config={CONFIG_WITH_SUPPORT}>{CHILDREN}</FeaturePreviewSceneGate>)
             await userEvent.click(screen.getByText('Request access'))
 
-            expect(mockOpenSupportForm).toHaveBeenCalledWith(
-                expect.objectContaining({ kind: 'support', target_area: 'customer_analytics' })
-            )
+            expect(mockOpenSupportForm).toHaveBeenCalledWith(expect.objectContaining({ kind: 'support' }))
         })
     })
 

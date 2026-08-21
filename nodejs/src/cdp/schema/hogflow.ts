@@ -65,14 +65,38 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('batch'),
         filters: z.object({
+            // 'accounts' fans out one run per customer analytics account instead of per person
+            audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
             filter_test_accounts: z.boolean().optional(),
+            tag_names: z.array(z.string()).optional(),
+            assigned_to_user_ids: z.array(z.number()).optional(),
+            all_roles_unassigned: z.boolean().optional(),
         }),
     }),
     z.object({
         type: z.literal('data-warehouse-table'),
         // Dot-notated table name, matching the format produced by the Python CDPProducer
         // (see get_data_warehouse_table_name) so producer gating and trigger config use identical strings.
+        table_name: z.string(),
+        filters: z.object({
+            // Row-property filters only - warehouse-triggered workflows are person-less ("row-scoped")
+            properties: z.array(z.any()).optional(),
+        }),
+        // Optional row column used as the masking / dedup key in place of distinct_id
+        key_property: z.string().optional(),
+    }),
+    z.object({
+        type: z.literal('slack-message'),
+        filters: z.object({
+            // Message-property filters only. Channel is one of these rather than a field of its own,
+            // so it composes with poster and text conditions instead of being matched separately.
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('data-warehouse-view'),
+        // The materialized view's own name, which is also the name it is queryable by in HogQL.
         table_name: z.string(),
         filters: z.object({
             // Row-property filters only - warehouse-triggered workflows are person-less ("row-scoped")
@@ -293,6 +317,16 @@ export const HogFlowSchema = z.object({
     // epoch millis. Used to distinguish live edits from malformed-from-birth graphs.
     updated_at: z.union([z.number(), z.string(), z.date()]).optional(),
 })
+
+export type RowScopedTrigger = Extract<HogFlow['trigger'], { type: 'data-warehouse-table' | 'data-warehouse-view' }>
+
+/**
+ * A warehouse-row trigger produces one run per row, with the row's columns under
+ * `event.properties` and no person attached.
+ */
+export function isRowScopedTrigger(trigger: HogFlow['trigger']): trigger is RowScopedTrigger {
+    return trigger?.type === 'data-warehouse-table' || trigger?.type === 'data-warehouse-view'
+}
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {}

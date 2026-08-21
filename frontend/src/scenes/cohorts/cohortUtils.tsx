@@ -7,7 +7,7 @@ import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, getRowShape } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
@@ -374,7 +374,7 @@ export function validateGroup(
     return {
         values: criteria.map((c) => {
             const behavioralFilterType = criteriaToBehavioralFilterType(c)
-            const row = ROWS[behavioralFilterType]
+            const row = getRowShape(behavioralFilterType)
             let requiredFields = (row?.fields ?? []).filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
 
             // Edge case where property value is not required if operator is "is set" or "is not set"
@@ -603,7 +603,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
+    const { fields, ...apiProps } = getRowShape(criteriaToBehavioralFilterType(criteria)) ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {
@@ -639,7 +639,7 @@ export function criteriaToHumanSentence(
     actionsById: Partial<Record<string | number, ActionType>>
 ): React.ReactNode {
     const words: React.ReactNode[] = []
-    const data = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const data = getRowShape(criteriaToBehavioralFilterType(criteria))
 
     if (!data) {
         return <></>
