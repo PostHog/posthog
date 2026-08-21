@@ -100,7 +100,13 @@ describe('weekly slow tests report', () => {
         const slackFetch = async (url) => {
             calls.push(url)
             if (url.startsWith('users.list')) {
-                return { ok: true, members: [{ id: 'U1', profile: { login: 'adalovelace' } }] }
+                return {
+                    ok: true,
+                    members: [
+                        { id: 'U1', profile: { login: 'adalovelace' } },
+                        { id: 'U3', name: 'aturing' },
+                    ],
+                }
             }
             if (url.startsWith('users.lookupByEmail')) {
                 const email = new URL(`https://slack.com/api/${url}`).searchParams.get('email')
@@ -123,15 +129,11 @@ describe('weekly slow tests report', () => {
         assert.deepEqual(resolved, [
             { login: 'adalovelace', email: 'ada@example.com', slackId: 'U1' },
             { login: 'ghopper', email: 'grace@example.com', slackId: 'U2' },
-            { login: 'aturing', email: 'alan@example.com', slackId: null },
+            { login: 'aturing', email: 'alan@example.com', slackId: 'U3' },
         ])
         assert.deepEqual(
             calls,
-            [
-                'users.list',
-                'users.lookupByEmail?email=grace%40example.com',
-                'users.lookupByEmail?email=alan%40example.com',
-            ],
+            ['users.list', 'users.lookupByEmail?email=grace%40example.com'],
             'the member directory is fetched once for everyone; email lookup only fires for users it missed'
         )
     })

@@ -179,7 +179,8 @@ async function defaultSlackFetch(apiPath) {
     })
     const body = await res.text()
     if (!res.ok) {
-        throw new Error(`Slack ${apiPath} -> ${res.status}: ${body.slice(0, 200)}`)
+        // The path can carry a commit author's email (lookupByEmail) - keep it out of logs.
+        throw new Error(`Slack ${apiPath.split('?')[0]} -> ${res.status}: ${body.slice(0, 200)}`)
     }
     return JSON.parse(body)
 }
@@ -197,9 +198,15 @@ async function resolveSlackUsers(editors, slackFetch = defaultSlackFetch) {
             throw new Error(`Slack users.list failed: ${page.error}`)
         }
         for (const member of page.members || []) {
-            const slackLogin = member.profile?.login
-            if (slackLogin && !member.deleted) {
-                bySlackLogin.set(slackLogin.toLowerCase(), member.id)
+            if (member.deleted) {
+                continue
+            }
+            // `login` is a custom profile field some workspaces set to the GitHub handle; `name`
+            // is Slack's built-in username. Either earns a mention if it matches a GitHub login.
+            for (const slackLogin of [member.profile?.login, member.name]) {
+                if (slackLogin && !bySlackLogin.has(slackLogin.toLowerCase())) {
+                    bySlackLogin.set(slackLogin.toLowerCase(), member.id)
+                }
             }
         }
         cursor = page.response_metadata?.next_cursor || ''
