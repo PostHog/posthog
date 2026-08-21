@@ -43,7 +43,7 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], url_path="access", required_scopes=["llm_gateway:read"])
     def access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            decision = get_desktop_access_decision(cast(User, request.user), self.team)
+            decision = get_desktop_access_decision(cast(User, request.user), self.organization)
         except DesktopAccessResolutionError:
             return Response(
                 TaskRunErrorResponseSerializer(

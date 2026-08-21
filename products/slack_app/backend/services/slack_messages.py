@@ -690,7 +690,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
         )
         if user is None:
             return False
-        return get_desktop_access_decision(user, integration.team).allowed
+        return get_desktop_access_decision(user, integration.team.organization).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

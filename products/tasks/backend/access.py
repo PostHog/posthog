@@ -16,6 +16,7 @@ from ee.billing.billing_manager import (
 )
 
 if TYPE_CHECKING:
+    from posthog.models.organization import Organization
     from posthog.models.team.team import Team
 
 DESKTOP_ACCESS_GATE_FLAG = "posthog-desktop-access-gate"
@@ -35,18 +36,18 @@ class DesktopAccessDecision:
         return self.reason is None
 
 
-def _get_funding_status(user: User, team: "Team") -> OrganizationFundingStatus:
+def _get_funding_status(user: User, organization: "Organization") -> OrganizationFundingStatus:
     try:
-        return BillingManager(get_cached_instance_license(), user).get_funding_status(team.organization)
+        return BillingManager(get_cached_instance_license(), user).get_funding_status(organization)
     except FundingStatusUnavailable as error:
         raise DesktopAccessResolutionError("Could not resolve organization funding status") from error
 
 
-def get_desktop_access_decision(user: User, team: "Team") -> DesktopAccessDecision:
+def get_desktop_access_decision(user: User, organization: "Organization") -> DesktopAccessDecision:
     if not user or not user.is_authenticated or not user.distinct_id:
         raise DesktopAccessResolutionError("Authentication is required to evaluate Desktop access")
 
-    organization_id = str(team.organization_id)
+    organization_id = str(organization.id)
     groups = {"organization": organization_id}
     group_properties = {"organization": {"id": organization_id}}
     rollout_enabled = get_feature_flag_or_none(
@@ -79,7 +80,7 @@ def get_desktop_access_decision(user: User, team: "Team") -> DesktopAccessDecisi
         return DesktopAccessDecision()
 
     try:
-        funding_status = _get_funding_status(user, team)
+        funding_status = _get_funding_status(user, organization)
     except DesktopAccessResolutionError:
         observe_desktop_access_decision(outcome="resolution_failure")
         raise

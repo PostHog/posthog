@@ -551,14 +551,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=TaskCreateSerializer,
         responses={
             201: TaskSerializer,
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required to activate a pre-warmed cloud run",
-            ),
-            503: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
-            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -570,13 +562,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
-        can_activate_warm_run = (
-            serializer.validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
-            == tasks_facade.TaskOriginProduct.USER_CREATED
-            and "branch" in serializer.validated_data
-        )
-        if can_activate_warm_run and (access_response := code_access_required_response(request, self.team)):
-            return access_response
 
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
@@ -1045,7 +1030,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # "Discuss", scout chat), so the Desktop policy applies only to tasks whose Inbox
         # entitlement the server can't verify. See task_exempt_from_code_access.
         if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
-            access_response := code_access_required_response(request, self.team)
+            access_response := code_access_required_response(request, self.organization)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1122,7 +1107,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(status=status.HTTP_200_OK)
 
         # Warming is a Desktop-composer feature with no Inbox caller, so no exemption applies.
-        if access_response := code_access_required_response(request, self.team):
+        if access_response := code_access_required_response(request, self.organization):
             return access_response
 
         user_id = self._user_id()
@@ -1390,7 +1375,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
                 return _pi_cloud_runtime_disabled_response()
             if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-                access_response := code_access_required_response(request, self.team)
+                access_response := code_access_required_response(request, self.organization)
             ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1456,7 +1441,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Backstop: don't launch the cloud workflow without Desktop access or for an over-limit team.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.team)
+            access_response := code_access_required_response(request, self.organization)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -2431,7 +2416,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.team)
+            access_response := code_access_required_response(request, self.organization)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -2555,7 +2540,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Inbox discussion tasks are server-verifiable policy exemptions. Every other command
             # that starts or resumes model work follows the same Desktop policy as TaskViewSet.run.
             if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-                access_response := code_access_required_response(request, self.team)
+                access_response := code_access_required_response(request, self.organization)
             ):
                 return access_response
 
@@ -2636,7 +2621,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "get_state",
                 }
                 and not tasks_facade.task_exempt_from_code_access(task_id, self.team_id)
-                and (access_response := code_access_required_response(request, self.team))
+                and (access_response := code_access_required_response(request, self.organization))
             ):
                 return access_response
 
@@ -2934,7 +2919,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Resume also runs in cloud: gate before handoff.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
-            access_response := code_access_required_response(request, self.team)
+            access_response := code_access_required_response(request, self.organization)
         ):
             return access_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -3582,7 +3567,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             )
 
         try:
-            decision = tasks_access.get_desktop_access_decision(request.user, team)
+            decision = tasks_access.get_desktop_access_decision(request.user, team.organization)
         except tasks_access.DesktopAccessResolutionError:
             return Response(
                 TaskRunErrorResponseSerializer(

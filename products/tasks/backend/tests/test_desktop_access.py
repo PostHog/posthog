@@ -75,7 +75,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
             prepaid_credit_state=prepaid_credit_state,
         )
 
-        decision = get_desktop_access_decision(self.user, self.team)
+        decision = get_desktop_access_decision(self.user, self.organization)
 
         self.assertEqual(decision.allowed, expected_allowed)
         self.assertEqual(decision.reason, expected_reason)
@@ -84,7 +84,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def test_rollout_flag_off_grants_access_without_resolving_policy(self, mock_funding) -> None:
         self.mock_feature_flag.side_effect = [False]
 
-        decision = get_desktop_access_decision(self.user, self.team)
+        decision = get_desktop_access_decision(self.user, self.organization)
 
         self.assertTrue(decision.allowed)
         self.assertEqual(self.mock_feature_flag.call_count, 1)
@@ -95,7 +95,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.mock_feature_flag.side_effect = [None]
 
         with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.team)
+            get_desktop_access_decision(self.user, self.organization)
 
         self.assertEqual(self.mock_feature_flag.call_count, 1)
         mock_funding.assert_not_called()
@@ -104,7 +104,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
         self.mock_feature_flag.side_effect = [True, True]
 
-        decision = get_desktop_access_decision(self.user, self.team)
+        decision = get_desktop_access_decision(self.user, self.organization)
 
         self.assertTrue(decision.allowed)
         mock_funding.assert_not_called()
@@ -115,7 +115,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
     )
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_authenticator_scopes", return_value=[])
     def test_compute_gate_fails_closed_on_resolution_error(self, _mock_scopes, _mock_decision) -> None:
-        response = code_access_required_response(MagicMock(), self.team)
+        response = code_access_required_response(MagicMock(), self.organization)
 
         self.assertIsNotNone(response)
         assert response is not None
@@ -130,7 +130,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def test_internal_run_credentials_bypass_human_gate(self, _mock_scopes, mock_decision) -> None:
         request = MagicMock()
 
-        self.assertIsNone(code_access_required_response(request, self.team))
+        self.assertIsNone(code_access_required_response(request, self.organization))
         mock_decision.assert_not_called()
 
     @patch("products.tasks.backend.access._get_funding_status")
@@ -142,7 +142,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
             prepaid_credit_state=PrepaidCreditState.NONE,
         )
 
-        decision = get_desktop_access_decision(self.user, self.team)
+        decision = get_desktop_access_decision(self.user, self.organization)
 
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, DesktopAccessReason.STARTUP_PLAN)
@@ -152,7 +152,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.mock_feature_flag.side_effect = [True, flag_value]
 
         with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.team)
+            get_desktop_access_decision(self.user, self.organization)
 
     @patch(
         "products.tasks.backend.access._get_funding_status",
@@ -160,7 +160,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
     )
     def test_funding_failure_fails_closed(self, _mock_funding) -> None:
         with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.team)
+            get_desktop_access_decision(self.user, self.organization)
 
     @patch("products.tasks.backend.access._get_funding_status")
     def test_project_endpoint_is_scoped_to_each_organization(self, mock_funding) -> None:
@@ -172,8 +172,8 @@ class TestDesktopAccessPolicy(APIBaseTest):
             level=OrganizationMembership.Level.MEMBER,
         )
 
-        def funding_status(_user, team: Team) -> OrganizationFundingStatus:
-            if team.id == self.team.id:
+        def funding_status(_user, organization: Organization) -> OrganizationFundingStatus:
+            if organization.id == self.organization.id:
                 return OrganizationFundingStatus(
                     startup_program_label=None,
                     prepaid_credit_state=PrepaidCreditState.NONE,

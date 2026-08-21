@@ -13,7 +13,7 @@ from posthog.models import OAuthAccessToken
 from posthog.permissions import get_authenticator_scopes
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from posthog.models import Organization, User
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
@@ -171,15 +171,15 @@ def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Res
     )
 
 
-def code_access_required_response(request: Request, team: "Team") -> Response | None:
+def code_access_required_response(request: Request, organization: "Organization") -> Response | None:
     authenticator_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
     if "internal_run:read" in authenticator_scopes:
         return None
 
     try:
-        decision = get_desktop_access_decision(cast("User", request.user), team)
+        decision = get_desktop_access_decision(cast("User", request.user), organization)
     except DesktopAccessResolutionError:
-        logger.warning("desktop_access_resolution_failed", extra={"team_id": team.id})
+        logger.warning("desktop_access_resolution_failed", extra={"organization_id": organization.id})
         return Response(
             TaskRunErrorResponseSerializer(
                 {

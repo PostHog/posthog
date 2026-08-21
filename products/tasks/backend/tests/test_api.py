@@ -11990,20 +11990,6 @@ class TestCloudUsageGate(BaseTaskAPITest):
             status=status_value,
         )
 
-    def test_cloud_task_create_without_code_access_returns_403_before_warm_activation(self):
-        self.set_tasks_feature_flag(False)
-
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {"title": "Cloud task", "description": "Run this task", "branch": "main"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
-        self.assertFalse(Task.objects.filter(title="Cloud task").exists())
-
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
@@ -12586,8 +12572,8 @@ class TestUsageLimitResponse(TestCase):
         )
         request = MagicMock()
         request.successful_authenticator = None
-        team = MagicMock(id=1)
-        response = code_access_required_response(request, team)
+        organization = MagicMock(id=1)
+        response = code_access_required_response(request, organization)
 
         assert response is not None
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -83,7 +83,10 @@ class TestLoadRunFooter(SimpleTestCase):
 
 class TestViewerHasCodeAccess(SimpleTestCase):
     def _integration(self) -> Integration:
-        return cast(Integration, SimpleNamespace(config={}, integration_id="T1", id=1, team=object()))
+        return cast(
+            Integration,
+            SimpleNamespace(config={}, integration_id="T1", id=1, team=SimpleNamespace(organization=object())),
+        )
 
     @patch("products.tasks.backend.facade.access.get_desktop_access_decision")
     def test_no_slack_identity_means_no_access_without_consulting_the_flag(self, mock_has_access) -> None:
