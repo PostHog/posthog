@@ -732,6 +732,58 @@ class TestIterAnalyticsRowsFresh:
         assert mock_request.call_count == 1
         manager.save_state.assert_not_called()
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_later_success_does_not_advance_cursor_past_a_skipped_chunk(
+        self, mock_request, mock_entity_ids, mock_currency
+    ):
+        # A chunk that is skipped must stay retryable: a later chunk's success must not save a cursor
+        # past it, or resume would silently skip the failed chunk and lose its data.
+        mock_entity_ids.return_value = ["1"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = 500
+        mock_request.side_effect = [
+            requests.HTTPError("500 Server Error", response=error_response),
+            [{"CAMPAIGN_ID": "1", "DATE": "2024-02-01"}],
+            [{"CAMPAIGN_ID": "1", "DATE": "2024-03-01"}],
+        ]
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31"), ("2024-02-01", "2024-02-29"), ("2024-03-01", "2024-03-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"]],
+            ),
+        ):
+            yielded = list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The two later chunks still yielded despite the first chunk's 500.
+        assert len(yielded) == 2
+        # The cursor is frozen at the first skip, so resume restarts and retries the failed chunk.
+        manager.save_state.assert_not_called()
+
 
 class TestIterAnalyticsRowsResume:
     @mock.patch(
