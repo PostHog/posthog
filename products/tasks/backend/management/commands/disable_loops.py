@@ -61,7 +61,9 @@ class Command(BaseCommand):
         if not options["all"] and not has_filters:
             raise CommandError("Pass at least one filter (--loop-id, --team-id, --organization-id) or --all")
 
-        matched = self._apply_filters(Loop.objects.unscoped().filter(deleted=False), options)
+        # Validate --loop-id against deleted loops too, so a deleted loop's id is skipped rather than
+        # rejected as unknown; deleted loops are then excluded from the set we actually pause.
+        matched = self._apply_filters(Loop.objects.unscoped(), options).filter(deleted=False)
         to_pause = list(matched.filter(enabled=True).select_related("created_by").order_by("team_id", "created_at"))
         already_paused = matched.count() - len(to_pause)
 

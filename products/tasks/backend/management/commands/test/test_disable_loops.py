@@ -44,6 +44,7 @@ class TestDisableLoops(TestCase):
             "org_b": str(self.org_b.id),
             "loop_a2": str(self.loops["a2"].id),
             "loop_b1": str(self.loops["b1"].id),
+            "loop_a1_deleted": str(self.loops["a1-deleted"].id),
         }
 
     def _loop(self, team: Team, name: str, **overrides: object) -> Loop:
@@ -97,6 +98,7 @@ class TestDisableLoops(TestCase):
             ("teams", ["--team-id", "{team_a1}", "{team_a2}"], {"a1", "a2"}),
             ("organization", ["--organization-id", "{org_a}"], {"a1", "a2"}),
             ("loop_ids", ["--loop-id", "{loop_a2}", "{loop_b1}"], {"a2", "b1"}),
+            ("loop_ids_skip_deleted", ["--loop-id", "{loop_a2}", "{loop_a1_deleted}"], {"a2"}),
             ("team_and_organization_intersect", ["--team-id", "{team_a1}", "--organization-id", "{org_b}"], set()),
         ]
     )
