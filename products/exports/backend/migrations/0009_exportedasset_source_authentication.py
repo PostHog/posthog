@@ -14,7 +14,6 @@ class Migration(migrations.Migration):
                     ("session", "Session"),
                     ("personal_api_key", "Personal Api Key"),
                     ("oauth_access_token", "Oauth Access Token"),
-                    ("trusted_system", "Trusted System"),
                 ],
                 max_length=32,
                 null=True,

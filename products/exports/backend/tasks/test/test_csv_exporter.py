@@ -122,7 +122,7 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={"path": "/api/literally/anything", **extra_context},
-            source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
+            source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
         return asset
@@ -1656,7 +1656,7 @@ class TestCSVExporter(APIBaseTest):
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
                 export_context={"path": "/api/test/endpoint"},
-                source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
+                source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
             mocked_uuidt.return_value = "a-guid"

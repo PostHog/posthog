@@ -432,10 +432,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         if not exported_asset.source_oauth_access_token_id:
             _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
         token_payload["oauth_access_token_id"] = exported_asset.source_oauth_access_token_id
-    elif exported_asset.source_authentication not in {
-        ExportedAsset.SourceAuthentication.SESSION,
-        ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
-    }:
+    elif exported_asset.source_authentication != ExportedAsset.SourceAuthentication.SESSION:
         _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
     access_token = encode_jwt(
         token_payload,

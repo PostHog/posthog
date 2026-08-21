@@ -63,7 +63,6 @@ class ExportedAsset(models.Model):
         SESSION = "session"
         PERSONAL_API_KEY = "personal_api_key"
         OAUTH_ACCESS_TOKEN = "oauth_access_token"
-        TRUSTED_SYSTEM = "trusted_system"
 
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
