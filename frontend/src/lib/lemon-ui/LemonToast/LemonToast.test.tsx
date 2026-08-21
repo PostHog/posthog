@@ -37,29 +37,9 @@ describe('LemonToast', () => {
         expect(!!container.querySelector('[data-attr="toast-copy-button"]')).toBe(expected)
     })
 
-    // Backend error details end in raw docs URLs ("...speed it up: https://..."); the transform must
-    // keep the link clickable without leaving the lead-in colon dangling before the "Learn more" label.
-    it('folds a trailing URL into a "Learn more" link and closes the sentence', () => {
-        const { container } = render(
-            <>
-                {withClickableUrls(
-                    'Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries'
-                )}
-            </>
-        )
-
-        const link = container.querySelector('a')!
-        expect(link).toHaveAttribute(
-            'href',
-            'https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries'
-        )
-        expect(link).toHaveTextContent('Learn more')
-        expect(container).toHaveTextContent(
-            'Try a shorter date range or narrower filters, or see our docs for more ways to speed it up. Learn more'
-        )
-    })
-
-    it('links a mid-message URL in place without changing the text', () => {
+    // Wiring guard for the error toast path: the message must go through the trusted-only
+    // renderDetailWithLinks (URL linked in place, prose untouched), not a linkify-everything helper.
+    it('links a PostHog URL in place without changing the message text', () => {
         const { container } = render(
             <>{withClickableUrls('Visit https://posthog.com/docs to fix this, then retry.')}</>
         )
@@ -69,14 +49,11 @@ describe('LemonToast', () => {
         expect(container).toHaveTextContent('Visit https://posthog.com/docs to fix this, then retry.')
     })
 
-    // Error details can carry attacker-influenced text, so a non-posthog.com destination must stay
-    // visible as the link text instead of hiding behind the "Learn more" label.
-    it('keeps a trailing URL outside posthog.com visible as the link text', () => {
+    it('leaves a URL outside posthog.com as plain text', () => {
         const { container } = render(<>{withClickableUrls('More info: https://example.com/details')}</>)
 
-        const link = container.querySelector('a')!
-        expect(link).toHaveAttribute('href', 'https://example.com/details')
-        expect(link).toHaveTextContent('https://example.com/details')
+        expect(container.querySelector('a')).toBeNull()
+        expect(container).toHaveTextContent('More info: https://example.com/details')
     })
 
     it('returns a message without URLs unchanged', () => {
