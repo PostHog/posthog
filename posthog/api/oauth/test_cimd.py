@@ -18,10 +18,12 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
+    MAX_CONTACTS,
     CIMDFetchError,
     CIMDMetadataDocument,
     CIMDValidationError,
     _fetch_lock_key,
+    _resolve_contacts,
     _resolve_scopes,
     _update_cimd_application,
     apply_provisioning_defaults,
@@ -1455,6 +1457,27 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         self.assertEqual(app.optional_scopes, ["dashboard:read"])
         self.assertEqual(app.required_scopes, ["insight:read"])
 
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_contacts_persist_and_refresh_but_survive_an_absent_field(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(contacts=["ops@example.com"]), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        self.assertEqual(app.contacts, ["ops@example.com"])
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(contacts=["oncall@example.com"]), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert refreshed is not None
+        self.assertEqual(refreshed.contacts, ["oncall@example.com"])
+
+        # Dropping the field entirely leaves the stored address alone, so the only address we
+        # have for a partner does not disappear because a later document omitted it.
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        unchanged = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert unchanged is not None
+        self.assertEqual(unchanged.contacts, ["oncall@example.com"])
+
     # Both fields refresh together so the split never drifts: a metadata refresh rewrites
     # `optional_scopes` alongside `scopes`.
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -1560,3 +1583,32 @@ class TestResolveScopes(SimpleTestCase):
     def test_all_non_grantable_raises(self) -> None:
         with self.assertRaises(CIMDValidationError):
             _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})
+
+
+class TestResolveContacts(SimpleTestCase):
+    """`_resolve_contacts` parsing in isolation — no DB, so it runs without local services."""
+
+    def test_absent_or_malformed_field_returns_none(self) -> None:
+        self.assertIsNone(_resolve_contacts({}))
+        # Malformed partner JSON: a non-list value hits the runtime guard and returns None,
+        # so callers leave whatever is already stored alone.
+        self.assertIsNone(_resolve_contacts(cast(CIMDMetadataDocument, {"contacts": "ops@example.com"})))
+
+    @parameterized.expand(
+        [
+            ("undeliverable_entries_dropped", ["ops@example.com", "not-an-email"], ["ops@example.com"]),
+            ("non_strings_dropped", cast(list, ["ops@example.com", 42, None]), ["ops@example.com"]),
+            ("whitespace_trimmed", ["  ops@example.com  "], ["ops@example.com"]),
+            ("duplicates_collapsed", ["ops@example.com", "ops@example.com"], ["ops@example.com"]),
+            ("empty_list_stores_nothing", [], []),
+            ("all_undeliverable_stores_nothing", ["nope", ""], []),
+        ]
+    )
+    def test_partner_supplied_entries(self, _name: str, raw: list, expected: list[str]) -> None:
+        self.assertEqual(_resolve_contacts(cast(CIMDMetadataDocument, {"contacts": raw})), expected)
+
+    def test_capped(self) -> None:
+        raw = [f"ops{i}@example.com" for i in range(MAX_CONTACTS + 3)]
+        self.assertEqual(
+            len(cast(list, _resolve_contacts(cast(CIMDMetadataDocument, {"contacts": raw})))), MAX_CONTACTS
+        )

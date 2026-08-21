@@ -286,6 +286,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 readonly.append("optional_scopes")
                 # Also re-derived from the metadata document on each refresh.
                 readonly.append("jwks_uri")
+                readonly.append("contacts")
             return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
@@ -313,7 +314,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                         )
                     },
                 ),
-                ("Ownership", {"fields": ("user", "organization")}),
+                ("Ownership", {"fields": ("user", "organization", "contacts")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
                 (
                     "Provisioning",
