@@ -95,8 +95,8 @@ impl KafkaBillingUsageRecord {
             BillingUsageMode::Snapshot => "snapshot",
             BillingUsageMode::Unspecified => return Err(ValidationError::InvalidMode),
         };
-        // Outside DateTime64's range the Kafka engine table cannot parse the row, and
-        // with no kafka_skip_broken_messages that stalls every record behind it.
+        // This protects the Kafka engine rather than defining a billing-time policy. Tighten the
+        // accepted range when producers have an explicit backfill and future-skew contract.
         let event_timestamp = DateTime::from_timestamp_millis(record.event_timestamp_ms)
             .filter(|value| CLICKHOUSE_DATETIME64_YEARS.contains(&value.year()))
             .ok_or(ValidationError::InvalidTimestamp)?;

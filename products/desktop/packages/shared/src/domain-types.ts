@@ -1018,6 +1018,12 @@ export interface SignalTeamConfig {
   /** Team-wide default `channel_id|#channel-name` target for inbox notifications. `null` = no team default. */
   default_slack_notification_channel?: string | null;
   autostart_base_branches?: Record<string, string> | null;
+  /** Daily cap on new reports reaching the inbox, counted per project-timezone day. `null` = unlimited. */
+  max_reports_per_day?: number | null;
+  /** Reports that first became visible today. `0` when there is no cap. Read-only. */
+  reports_generated_today?: number;
+  /** Whether the cap is reached, pausing new reports until local midnight. `false` when there is no cap. Read-only. */
+  daily_report_limit_reached?: boolean;
   created_at: string;
   updated_at: string;
 }

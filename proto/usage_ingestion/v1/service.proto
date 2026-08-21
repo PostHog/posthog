@@ -21,7 +21,7 @@ enum BillingUsageMode {
 message BillingUsageRecord {
   // Stable UUID or producer-scoped identifier used for idempotent retries. A retry
   // must reuse record_id, version, and event_timestamp_ms; a correction gets a new
-  // version instead.
+  // version instead. A correction that moves event time is a distinct billable row.
   string record_id = 1;
   string producer_id = 2;
 
@@ -46,7 +46,9 @@ message IngestBillingUsageRequest {
 }
 
 message IngestBillingUsageResponse {
-  // Records were validated and submitted to Kafka. A retry after an unavailable
-  // response is safe because record_id is the deduplication identity.
+  // The service validates a whole batch before producing, so validation failures accept no
+  // records. The RPC waits for Kafka delivery confirmation, so callers must use it off their
+  // request-critical path. A retry after an unavailable response is safe because record_id is
+  // the deduplication identity, including when Kafka delivered only part of the batch.
   repeated string accepted_record_ids = 1;
 }

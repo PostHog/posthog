@@ -1131,7 +1131,7 @@ database "posthog" {
       cluster_name    = "posthog"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
-      sharding_key    = "sipHash64(team_id)"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
