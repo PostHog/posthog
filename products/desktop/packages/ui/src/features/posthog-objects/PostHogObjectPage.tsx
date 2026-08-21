@@ -27,7 +27,6 @@ import {
 } from "@posthog/ui/utils/objectKinds";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
-/** Headline numbers as a row of tiles; the page's first stop after the title. */
 function StatStrip({
   stats,
 }: {
@@ -162,7 +161,6 @@ export interface PostHogObjectViewProps {
   objectId: string;
   /** Shown while the preview loads or when the object has no live name. */
   fallbackName: string;
-  /** PostHog web URL for the object, when it has one. */
   url: string | null;
   /** Omitted when the page isn't backed by a run artifact (chip-opened). */
   occurrenceCount?: number;
