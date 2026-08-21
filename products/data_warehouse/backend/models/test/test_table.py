@@ -909,7 +909,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is True
 
-    def test_hogql_definition_sets_false_for_csv_with_none(self):
+    def test_hogql_definition_defaults_to_rfc_4180_for_csv_with_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
@@ -920,13 +920,14 @@ class TestTable(BaseTest):
                 columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
                 credential=credential,
             )
-        # Simulate detection having returned None (both failed)
+        # An unset option must resolve to RFC 4180 (doubled quotes), the same convention get_columns
+        # reads with, so describe and query agree.
         table.options.pop("csv_allow_double_quotes", None)
         table.save_base(raw=True)
 
         definition = table.hogql_definition()
         assert definition.top_level_settings is not None
-        assert definition.top_level_settings.format_csv_allow_double_quotes is False
+        assert definition.top_level_settings.format_csv_allow_double_quotes is True
 
     def test_hogql_definition_no_raw_settings_for_parquet(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

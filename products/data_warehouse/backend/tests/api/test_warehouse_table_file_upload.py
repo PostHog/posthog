@@ -224,6 +224,8 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert table.external_data_source is None
         assert table.credential is None
         assert table.format == "CSVWithNames"
+        # An uploaded CSV records RFC 4180 quoting so describe and query read it the same way.
+        assert table.csv_allow_double_quotes is True
         assert (
             table.url_pattern
             == f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"

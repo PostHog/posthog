@@ -302,7 +302,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             access_secret=access_secret,
         )
         table = DataWarehouseTable(**validated_data)
-        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
+        if table._is_csv_format():
             try:
                 table._validate_csv_double_quotes_setting()
             except Exception as err:
@@ -504,11 +504,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        if (
-            instance._is_csv_format()
-            and instance.csv_allow_double_quotes is not None
-            and instance.csv_allow_double_quotes != old_csv_allow_double_quotes
-        ):
+        if instance._is_csv_format() and instance.csv_allow_double_quotes != old_csv_allow_double_quotes:
             try:
                 instance._validate_csv_double_quotes_setting()
             except Exception as err:
@@ -764,6 +760,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             created_by=request.user if isinstance(request.user, User) else None,
             created_via=resolve_created_via(request),
         )
+        # The upload UI has no quote-convention picker, so record RFC 4180 (doubled quotes) — what
+        # spreadsheets export — so describe and query read the file the same way.
+        if table._is_csv_format():
+            table.options = {"csv_allow_double_quotes": True}
         try:
             table.columns = table.get_columns()
         except Exception as err:

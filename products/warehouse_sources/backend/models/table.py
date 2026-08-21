@@ -395,6 +395,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
 
+    def _effective_csv_allow_double_quotes(self) -> bool:
+        # Default to RFC 4180 (doubled quotes) when the option is unset. Spreadsheets export that
+        # convention, so it is right for most files, and it matches ClickHouse's own default.
+        setting = self.csv_allow_double_quotes
+        return setting if setting is not None else True
+
     def soft_delete(self):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -524,9 +530,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
             # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
             # so this SET stays until chdb is upgraded past that release.
-            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+            if self._is_csv_format():
                 chdb_query = (
-                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
+                    f"SET format_csv_allow_double_quotes = "
+                    f"{1 if self._effective_csv_allow_double_quotes() else 0}; {chdb_query}"
                 )
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
@@ -552,9 +559,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             for i in range(attempts):
                 try:
                     get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
-                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+                    if self._is_csv_format():
                         get_columns_settings["format_csv_allow_double_quotes"] = (
-                            1 if self.csv_allow_double_quotes else 0
+                            1 if self._effective_csv_allow_double_quotes() else 0
                         )
                     result = sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
@@ -951,9 +958,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         )
 
         if self._is_csv_format():
-            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
             table_def.top_level_settings = HogQLQuerySettings(
-                format_csv_allow_double_quotes=effective,
+                format_csv_allow_double_quotes=self._effective_csv_allow_double_quotes(),
             )
 
         return table_def
@@ -988,9 +994,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     )
 
     def _validate_csv_double_quotes_setting(self) -> None:
-        """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
+        """Validate the effective csv_allow_double_quotes setting by trying to parse data rows.
         Raises Exception with a helpful message if parsing fails."""
-        setting = self.csv_allow_double_quotes
+        setting = self._effective_csv_allow_double_quotes()
         tag_queries(
             team_id=self.team.pk,
             table_id=self.id,
