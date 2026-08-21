@@ -2,6 +2,7 @@ import uuid
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.admin import ModelAdmin
@@ -20,6 +21,12 @@ class TestExternalDataSourceAdmin(BaseTest):
         registered_admin = admin.site._registry.get(ExternalDataSource)
         assert isinstance(registered_admin, ExternalDataSourceAdmin)
         self.admin = cast(ModelAdmin, registered_admin)
+        # Product-scoped test runs keep some third-party admins registered while excluding their
+        # app URLs. The sidebar is unrelated to these model-admin assertions and cannot reverse
+        # those deliberately absent app URLs.
+        get_app_list_patcher = patch.object(admin.site, "get_app_list", return_value=[])
+        get_app_list_patcher.start()
+        self.addCleanup(get_app_list_patcher.stop)
 
     def _source(
         self,
