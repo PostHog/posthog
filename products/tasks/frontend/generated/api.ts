@@ -75,6 +75,7 @@ import type {
     TaskCommentsResponseApi,
     TaskCreateApi,
     TaskDetailDTOApi,
+    TaskHandoffRequestApi,
     TaskMentionsListParams,
     TaskPinRequestApi,
     TaskPinResponseApi,
@@ -107,6 +108,8 @@ import type {
     TaskRunPeerMessageRequestApi,
     TaskRunPeerMessageResponseApi,
     TaskRunPeersResponseApi,
+    TaskRunPostHogReferencesRequestApi,
+    TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -1340,6 +1343,28 @@ export const tasksCommentsRetrieve = async (
     })
 }
 
+export const getTasksHandoffCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/handoff/`
+}
+
+/**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+export const tasksHandoffCreate = async (
+    projectId: string,
+    id: string,
+    taskHandoffRequestApi: TaskHandoffRequestApi,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksHandoffCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskHandoffRequestApi),
+    })
+}
+
 export const getTasksPinCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/pin/`
 }
@@ -1780,6 +1805,32 @@ export const tasksRunsArtifactsPresignCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
     })
+}
+
+export const getTasksRunsArtifactsReferencesCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/references/`
+}
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPostHogReferencesRequestApi: TaskRunPostHogReferencesRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPostHogReferencesResponseApi> => {
+    return apiMutator<TaskRunPostHogReferencesResponseApi>(
+        getTasksRunsArtifactsReferencesCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPostHogReferencesRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {

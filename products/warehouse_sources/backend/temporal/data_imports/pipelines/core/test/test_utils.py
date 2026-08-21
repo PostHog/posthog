@@ -164,10 +164,20 @@ def test_table_from_py_list_inconsistent_types_with_none():
     )
 
 
-def test_table_from_py_list_inconsistent_types_with_str_and_dict():
-    table = table_from_py_list([{"column": "hello"}, {"column": {"field": 1}}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([{"column": "hello"}, {"column": {"field": 1}}], ["hello", '{"field":1}']),
+        # A third scalar type (e.g. int) alongside str and dict used to reach pa.array()
+        # unconverted and raise "ArrowTypeError: Expected bytes, got a 'int' object" — a free-form
+        # field that's sometimes a plain number is a real shape (e.g. an execution's JSON output).
+        ([{"column": "hello"}, {"column": {"field": 1}}, {"column": 5}], ["hello", '{"field":1}', "5"]),
+    ],
+)
+def test_table_from_py_list_inconsistent_types_with_str_and_dict(rows, expected):
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ["hello", '{"field":1}']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
