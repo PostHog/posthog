@@ -47,4 +47,15 @@ describe('userGithubIntegrationLogic', () => {
         expect(repoRequests).toEqual(expectedRequests)
         expect(logic.values.repositoriesTotal).toBe(712)
     })
+
+    it('clears the cached total when a reload starts so a scope change cannot show a stale count', async () => {
+        expect(logic.values.repositoriesTotal).toBe(712)
+
+        // A reload (e.g. after repository_selection flips via polling) drops the stale total
+        // immediately, before the refetch resolves.
+        logic.actions.loadRepositories()
+        expect(logic.values.repositoriesTotal).toBeNull()
+
+        await expectLogic(logic).toFinishAllListeners()
+    })
 })

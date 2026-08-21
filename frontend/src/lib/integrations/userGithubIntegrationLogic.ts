@@ -109,6 +109,9 @@ export const userGithubIntegrationLogic = kea<userGithubIntegrationLogicType>([
         repositoriesTotal: [
             null as number | null,
             {
+                // Clear the cached total when a reload starts so a scope change can't briefly (or, on a
+                // slow/failed refetch, indefinitely) show the previous selection's count.
+                loadRepositories: () => null,
                 loadRepositoriesPageSuccess: (state, { total }) => total ?? state,
             },
         ],
