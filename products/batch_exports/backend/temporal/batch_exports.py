@@ -21,7 +21,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
-from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_batch_export_run_failure
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -679,22 +678,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         finished_at=dt.datetime.now(dt.UTC),
         **update_params,
     )
-
-    if batch_export_run.status == BatchExportRun.Status.COMPLETED and batch_export_run.records_completed:
-        await asyncio.to_thread(
-            report_usage,
-            [
-                UsageRecord(
-                    record_id=f"batch-export:{batch_export_run.id}",
-                    producer_id="batch-exports",
-                    team_id=inputs.team_id,
-                    usage_key="batch_export_rows",
-                    unit="rows",
-                    quantity=batch_export_run.records_completed,
-                )
-            ],
-            site="batch_exports",
-        )
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
         # We should never get here as we do not have a retry limit.

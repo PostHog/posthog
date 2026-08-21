@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
@@ -29,7 +28,6 @@ import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { SessionBatchContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
-import { createRecordSessionUsageStep } from './session-usage-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import { createResolveKeyStep } from './session-resolve-key-step'
@@ -80,7 +78,6 @@ export interface SessionReplayPipelineConfig {
     topHog: TopHogRegistry
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
-    usageBatch?: UsageRecordBatch
 }
 
 /**
@@ -108,7 +105,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         sessionKeyResolutionMaxConcurrency,
         topHog,
         isDebugLoggingEnabled,
-        usageBatch,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
@@ -229,7 +225,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                             ]
                                                         )
                                                     )
-                                                    .pipe(createRecordSessionUsageStep(usageBatch))
                                             )
                                             .gather()
                                     )

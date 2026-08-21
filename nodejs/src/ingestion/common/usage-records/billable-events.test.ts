@@ -1,10 +1,4 @@
-import {
-    AI_EVENTS_USAGE_KEY,
-    EVENTS_USAGE_KEY,
-    SURVEY_RESPONSES_USAGE_KEY,
-    resolveAiUsageKey,
-    resolveAnalyticsUsageKey,
-} from './billable-events'
+import { AI_EVENTS_USAGE_KEY, EVENTS_USAGE_KEY, resolveAiUsageKey, resolveAnalyticsUsageKey } from './billable-events'
 
 describe('usage key resolvers', () => {
     it.each([
@@ -17,7 +11,7 @@ describe('usage key resolvers', () => {
         ['$ai_not_a_real_event', EVENTS_USAGE_KEY],
         ['$feature_flag_called', null],
         ['$experiment_exposure', null],
-        ['survey sent', SURVEY_RESPONSES_USAGE_KEY],
+        ['survey sent', null],
         ['$exception', null],
         ['$conversations_message_sent', null],
     ])('resolveAnalyticsUsageKey bills %s under %s', (event, expected) => {

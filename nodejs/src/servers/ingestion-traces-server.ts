@@ -2,8 +2,6 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -112,15 +110,10 @@ export class IngestionTracesServer implements NodeServer {
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
         serviceLoaders.push(async () => {
-            const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm'), {
-                unit: 'bytes',
-                isTeamEnabled: usageReportTeamMatcher(this.config, 'apm'),
-            })
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
-                usageBatch,
             })
             await consumer.start()
             return consumer.service
