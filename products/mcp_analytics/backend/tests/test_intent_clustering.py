@@ -569,7 +569,7 @@ class TestCapPerToolCallVolume:
 
         capped_rows, per_tool = cap_per_tool_call_volume(rows, max_calls_per_tool=10)
 
-        per_tool_count = {}
+        per_tool_count: dict[str, int] = {}
         for _, tool, _, _ in capped_rows:
             per_tool_count[tool] = per_tool_count.get(tool, 0) + 1
         assert per_tool_count["exec"] <= 10
