@@ -204,16 +204,24 @@ class TestManagedWarehouseTasks:
             ),
         ]
 
-    def test_periodic_wave_drops_expired_reconciliations(self) -> None:
+    def test_periodic_wave_drops_elapsed_slots_instead_of_catching_up(self) -> None:
+        wave_due_at = datetime.now(UTC) - timedelta(seconds=30)
         with patch(
             "products.data_warehouse.backend.tasks.tasks.reconcile_managed_warehouse_tables_task.apply_async"
         ) as apply_async:
             reconcile_managed_warehouse_tables_wave_task(
-                [{"team_id": 1, "organization_id": "org-a", "countdown": 0}],
-                (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+                [
+                    {"team_id": 1, "organization_id": "org-a", "countdown": 0},
+                    {"team_id": 2, "organization_id": "org-b", "countdown": 59},
+                ],
+                wave_due_at.isoformat(),
             )
 
-        apply_async.assert_not_called()
+        apply_async.assert_called_once_with(
+            kwargs={"team_id": 2, "organization_id": "org-b"},
+            eta=wave_due_at + timedelta(seconds=59),
+            expires=wave_due_at + timedelta(seconds=359),
+        )
 
     @pytest.mark.parametrize("memberships", [None, []])
     def test_periodic_sweep_schedules_nothing_without_memberships(self, memberships: list[object] | None) -> None:

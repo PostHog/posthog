@@ -100,7 +100,7 @@ def reconcile_managed_warehouse_tables_wave_task(
     for item in items:
         eta = wave_due_datetime + timedelta(seconds=item["countdown"])
         expires = eta + timedelta(seconds=MANAGED_WAREHOUSE_RECONCILE_EXPIRY_GRACE_SECONDS)
-        if expires <= datetime.now(UTC):
+        if eta <= datetime.now(UTC):
             continue
         reconcile_managed_warehouse_tables_task.apply_async(
             kwargs={"team_id": item["team_id"], "organization_id": item["organization_id"]},
