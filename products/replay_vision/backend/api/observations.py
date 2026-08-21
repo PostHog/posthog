@@ -54,8 +54,10 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
+    readable_observation_scanner_ids,
     scanner_for_reading_observations,
-    scanners_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
@@ -770,13 +772,23 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        # An experiment scanner's observations are that experiment's exposed sessions, so reading them
+        # needs experiment access too. Not-found, not 403: a denied experiment scanner reads as if it
+        # doesn't exist, matching the serializer's targeting redaction.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
         self._scanner_for_url_cache = scanner
         return scanner
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         scanner = self._scanner_for_url()
+        # `_scanner_for_url` gated the scanner's *current* experiment; this gates each row against the
+        # experiment recorded in its own snapshot, so retargeting can't surface historical rows the
+        # caller can't access.
         return (
-            queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
+            accessible_observations(
+                self.user_access_control, self.team_id, queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
+            )
             .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
@@ -809,9 +821,12 @@ class ReplayObservationViewSet(
 
     def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
         # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
-        # navigation started from a filtered table stays within the filtered set.
-        siblings = ReplayObservation.objects.filter(
-            team_id=observation.team_id, scanner_id=observation.scanner_id
+        # navigation started from a filtered table stays within the filtered set. Same snapshot gate
+        # as the list, so prev/next can't step onto a historical row the caller can't access.
+        siblings = accessible_observations(
+            self.user_access_control,
+            observation.team_id,
+            ReplayObservation.objects.filter(team_id=observation.team_id, scanner_id=observation.scanner_id),
         ).order_by("-created_at", "id")
         # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
         if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
@@ -1075,14 +1090,16 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
         # Observations inherit their scanner's RBAC. The generic access filter keys on the ReplayObservation
-        # row rather than its scanner, so scope explicitly to the scanners this caller can read.
-        readable_scanner_ids = list(
-            self.user_access_control.filter_queryset_by_access_level(
-                scanners_for_reading_observations(self.team_id)
-            ).values_list("id", flat=True)
-        )
+        # row rather than its scanner, so scope explicitly to the scanners this caller can read (current
+        # targeting included), then gate each row against the experiment in its own snapshot so a
+        # retargeted scanner can't surface historical rows the caller can't access.
+        readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
         queryset = (
-            queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
+            accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
+            )
             .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
