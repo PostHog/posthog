@@ -65,12 +65,15 @@ class DigestRunStatus(StrEnum):
 
 
 class ChannelResolutionSource(StrEnum):
-    # How a DigestChannel row came to exist.
+    # Why a digest run went to the channel it went to.
+    # No longer produced: routing comes from the repositories, so nobody sets a destination by hand.
+    # Retained because removing a member rewrites the choices list on every model that uses it.
     MANUAL = "manual"
+    # No declaration anywhere, so the slug matched a same-named Slack channel.
     SLACK_NAME_MATCH = "slack_name_match"
     # Repo declared its digest channel under digest: in .stamphog/policy.yml (logic/digest_config.py).
     STAMPHOG_CONFIG = "stamphog_config"
-    # Reserved for the future owners.yaml contact.slack step (PR #68872) — not implemented yet.
+    # A teams: entry in a root owners.yaml named the channel, either the repo's own or an inherited one.
     OWNERS_CONTACT = "owners_contact"
 
 

@@ -20,7 +20,7 @@ from slack_sdk.web import SlackResponse
 from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
-    from ..models import DigestChannel
+    from .channel_resolution import Destination
     from .digest import DigestSummary
 
 logger = structlog.get_logger(__name__)
@@ -127,7 +127,7 @@ def _build_fallback_text(summary: DigestSummary) -> str:
 
 def _post_message(
     slack: SlackIntegration,
-    digest_channel: DigestChannel,
+    destination: Destination,
     blocks: list[dict],
     text: str,
     thread_ts: str | None = None,
@@ -135,7 +135,7 @@ def _post_message(
     # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
     # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
     return slack.client.chat_postMessage(
-        channel=digest_channel.slack_channel_id,
+        channel=destination.channel_id,
         blocks=blocks,
         text=text,
         thread_ts=thread_ts,
@@ -145,7 +145,7 @@ def _post_message(
 
 
 def _post_details_thread(
-    slack: SlackIntegration, digest_channel: DigestChannel, summary: DigestSummary, thread_ts: str | None
+    slack: SlackIntegration, destination: Destination, summary: DigestSummary, thread_ts: str | None
 ) -> None:
     """Post the per-change lines under the lead. Never raises.
 
@@ -160,16 +160,16 @@ def _post_details_thread(
     if not thread_ts or not summary.prs:
         return
     try:
-        _post_message(slack, digest_channel, _detail_blocks(summary), _build_fallback_text(summary), thread_ts)
+        _post_message(slack, destination, _detail_blocks(summary), _build_fallback_text(summary), thread_ts)
     except SlackApiError as e:
         logger.warning(
             "stamphog_digest_thread_post_failed",
-            digest_channel_id=str(digest_channel.id),
+            slack_channel_id=destination.channel_id,
             error=str(e.response.get("error") or "unknown_error"),
         )
 
 
-def _join_channel(slack: SlackIntegration, digest_channel: DigestChannel) -> str | None:
+def _join_channel(slack: SlackIntegration, destination: Destination) -> str | None:
     """Join the channel so the retried post lands. Returns Slack's error code when it refused.
 
     A channel resolved by name match is one the app was never invited to, which is the normal state
@@ -184,49 +184,49 @@ def _join_channel(slack: SlackIntegration, digest_channel: DigestChannel) -> str
     refusal would fail a digest whose retry would have gone through.
     """
     try:
-        slack.client.conversations_join(channel=digest_channel.slack_channel_id)
+        slack.client.conversations_join(channel=destination.channel_id)
     except SlackApiError as e:
         error = str(e.response.get("error") or "unknown_error")
         if error == "already_in_channel":
             return None
-        logger.warning("stamphog_digest_join_failed", digest_channel_id=str(digest_channel.id), error=error)
+        logger.warning("stamphog_digest_join_failed", slack_channel_id=destination.channel_id, error=error)
         return error
     return None
 
 
-def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSummary) -> str | None:
-    """Post the digest to the channel's Slack destination. Returns the lead message ts, or None.
+def post_digest(
+    team_id: int, slack_integration_id: int, destination: Destination, summary: DigestSummary
+) -> str | None:
+    """Post the digest to its destination. Returns the lead message ts, or None.
 
     Two messages: the lead in the channel, then the per-change lines in a thread under it. Only the
     lead decides success, because the ts it returns is what the caller writes as proof-of-post.
     """
-    integration = Integration.objects.filter(
-        id=digest_channel.slack_integration_id, team_id=team_id, kind="slack"
-    ).first()
+    integration = Integration.objects.filter(id=slack_integration_id, team_id=team_id, kind="slack").first()
     if integration is None:
-        raise DigestSlackError(f"No slack integration {digest_channel.slack_integration_id} for team {team_id}")
+        raise DigestSlackError(f"No slack integration {slack_integration_id} for team {team_id}")
 
     slack = SlackIntegration(integration)
     lead_blocks = _lead_blocks(summary)
     lead_text = _lead_text(summary)
     try:
-        response = _post_message(slack, digest_channel, lead_blocks, lead_text)
+        response = _post_message(slack, destination, lead_blocks, lead_text)
     except SlackApiError as e:
         if e.response.get("error") != "not_in_channel":
             raise
         # Retry once behind the join. A refusal names both Slack's reason and the fix: the run is what
         # a human reads, and neither "invite the app" nor why the join failed is derivable from a
         # raw Slack error code.
-        join_error = _join_channel(slack, digest_channel)
+        join_error = _join_channel(slack, destination)
         if join_error is not None:
-            channel = digest_channel.slack_channel_name or digest_channel.slack_channel_id
+            channel = destination.channel_name or destination.channel_id
             raise DigestSlackError(
                 f"Couldn't post to #{channel}. PostHog isn't in the channel and couldn't join it: Slack said "
                 f"{join_error}. Invite the app with /invite @PostHog."
             ) from e
-        response = _post_message(slack, digest_channel, lead_blocks, lead_text)
+        response = _post_message(slack, destination, lead_blocks, lead_text)
 
     ts = response.get("ts")
     message_ts = str(ts) if ts else None
-    _post_details_thread(slack, digest_channel, summary, message_ts)
+    _post_details_thread(slack, destination, summary, message_ts)
     return message_ts
