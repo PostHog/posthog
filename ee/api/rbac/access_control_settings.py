@@ -701,4 +701,5 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             team=team,
             user_access_control=user_access_control,
             build_serializer=lambda instance: AccessControlSerializer(instance, data=data, context=context),
+            request=request,
         )

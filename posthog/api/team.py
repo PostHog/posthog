@@ -89,7 +89,11 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
+from posthog.rbac.access_control_api_mixin import (
+    AccessControlManagementViewSetMixin,
+    AccessControlSettingsViewSetMixin,
+    AccessControlViewSetMixin,
+)
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
@@ -2121,7 +2125,11 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
 
 
 class TeamViewSet(
-    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    AccessControlSettingsViewSetMixin,
+    AccessControlManagementViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     """
     Projects for the current organization.

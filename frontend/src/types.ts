@@ -5921,6 +5921,13 @@ export interface AccessControlTypeBase {
     access_level: AccessControlLevel | null
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
+    /** External system that owns this rule. Null when a person set it in PostHog. */
+    managed_by?: AccessControlManager | null
+    managed_at?: string | null
+}
+
+export enum AccessControlManager {
+    Terraform = 'terraform',
 }
 
 export interface AccessControlTypeProject extends AccessControlTypeBase {}
@@ -5973,6 +5980,9 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
+    /** Whether the project refuses changes to rules an external system manages. Applies per rule,
+     * so an object can hold both locked and editable rules. */
+    managed_rules_locked?: boolean
     /** The level and rule that apply while the object carries no override of its own; null when
      * nothing sits above the object (e.g. a project). */
     inherited_access?: InheritedAccessType | null

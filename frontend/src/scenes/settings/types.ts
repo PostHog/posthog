@@ -138,6 +138,7 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'display-name'
     | 'environment-access-control'
+    | 'environment-access-control-terraform'
     | 'environment-delete'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-cuped-enabled'

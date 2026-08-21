@@ -425,7 +425,9 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
         <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x, index) => (
-                    <div key={`${x.id}-${index}`} className="relative last:mb-4">
+                    // A setting with no title whose component renders nothing would otherwise still
+                    // claim the list's row gap, leaving a hole between the settings around it
+                    <div key={`${x.id}-${index}`} className="relative last:mb-4 empty:hidden">
                         {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
                                 {x.title}

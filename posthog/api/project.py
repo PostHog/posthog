@@ -123,6 +123,7 @@ from products.notifications.backend.facade.api import (
 )
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+from ee.api.rbac.access_control_management import AccessControlManagementViewSetMixin
 from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 
 logger = structlog.get_logger(__name__)
@@ -1311,7 +1312,11 @@ class ProjectBackwardCompatSerializer(
     ),
 )
 class ProjectViewSet(
-    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    AccessControlSettingsViewSetMixin,
+    AccessControlManagementViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
 ):
     """
     Projects for the current organization.

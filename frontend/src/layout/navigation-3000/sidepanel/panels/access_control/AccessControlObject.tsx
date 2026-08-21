@@ -40,7 +40,9 @@ import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './
 import { AccessLevelSelect } from './AccessLevelSelect'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
-    const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
+    const { canEditAccessControls, humanReadableResource, resource, hasLockedRules } = useValues(
+        accessControlLogic(props)
+    )
 
     const suffix = `this ${humanReadableResource}`
     const tooltipText = getAccessControlTooltip(resource)
@@ -69,6 +71,13 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                             </LemonBanner>
                         ) : null}
 
+                        {hasLockedRules ? (
+                            <LemonBanner type="info">
+                                Terraform manages some of the rules below. To change one, update your Terraform
+                                configuration and apply it.
+                            </LemonBanner>
+                        ) : null}
+
                         <div className="deprecated-space-y-2">
                             <h3>Default access to {suffix}</h3>
                             <AccessControlObjectDefaults />
@@ -88,8 +97,14 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlDefault, accessControls, accessControlsLoading, availableLevelsWithNone, inheritedAccess } =
-        useValues(accessControlLogic)
+    const {
+        accessControlDefault,
+        accessControls,
+        accessControlsLoading,
+        availableLevelsWithNone,
+        inheritedAccess,
+        lockedRuleReason,
+    } = useValues(accessControlLogic)
     const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -107,7 +122,8 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             level={accessControlDefault?.access_level ?? (inheritedAccess ? null : accessControls.default_access_level)}
             levels={availableLevelsWithNone}
             inherited={inheritedAccess}
-            disabledReason={accessControlsLoading ? 'Loading…' : undefined}
+            disabled={!!lockedRuleReason(accessControlDefault)}
+            disabledReason={accessControlsLoading ? 'Loading…' : lockedRuleReason(accessControlDefault)}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
                     updateAccessControlDefault(newValue)
@@ -127,6 +143,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
         accessControlsLoading,
         availableLevels,
         canEditAccessControls,
+        lockedRuleReason,
     } = useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -204,6 +221,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             size="small"
                             level={ac.access_level}
                             levels={availableLevels}
+                            disabled={!!lockedRuleReason(ac)}
+                            disabledReason={lockedRuleReason(ac)}
                             onChange={(level) =>
                                 void updateAccessControlMembers([{ member: ac.organization_member as string, level }])
                             }
@@ -219,6 +238,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 return ac.resource === 'organization' ? null : (
                     <RemoveAccessButton
                         subject="member"
+                        disabledReason={lockedRuleReason(ac)}
                         onConfirm={() =>
                             void updateAccessControlMembers([{ member: ac.organization_member as string, level: null }])
                         }
@@ -273,6 +293,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
         rolesById,
         availableLevels,
         canEditAccessControls,
+        lockedRuleReason,
     } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -314,14 +335,16 @@ function AccessControlObjectRoles(): JSX.Element | null {
             title: 'Level',
             key: 'level',
             width: 0,
-            render: (_, { access_level, role }) => {
+            render: (_, rule) => {
                 return (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
-                            level={access_level}
+                            level={rule.access_level}
                             levels={availableLevels}
-                            onChange={(level) => void updateAccessControlRoles([{ role, level }])}
+                            disabled={!!lockedRuleReason(rule)}
+                            disabledReason={lockedRuleReason(rule)}
+                            onChange={(level) => void updateAccessControlRoles([{ role: rule.role, level }])}
                         />
                     </div>
                 )
@@ -330,11 +353,12 @@ function AccessControlObjectRoles(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { role }) => {
+            render: (_, rule) => {
                 return (
                     <RemoveAccessButton
                         subject="role"
-                        onConfirm={() => void updateAccessControlRoles([{ role, level: null }])}
+                        disabledReason={lockedRuleReason(rule)}
+                        onConfirm={() => void updateAccessControlRoles([{ role: rule.role, level: null }])}
                     />
                 )
             },
@@ -392,15 +416,18 @@ function SimplLevelComponent(props: {
 }): JSX.Element | null {
     const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
 
+    // The permission gate wins over any caller-supplied reason, so a reason passed for
+    // some other purpose can never re-enable the control for someone who cannot edit
+    const permissionReason = !canEditAccessControls ? 'You cannot edit this' : undefined
+    const callerReason = props.disabled ? (props.disabledReason ?? 'You cannot edit this') : props.disabledReason
+
     return (
         <AccessLevelSelect
             size={props.size}
             level={props.level}
             levels={props.levels}
             onChange={props.onChange}
-            // The permission gate wins over any caller-supplied reason, so a reason passed for
-            // some other purpose can never re-enable the control for someone who cannot edit
-            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
+            disabledReason={permissionReason ?? callerReason}
             minimumLevel={minimumAccessLevel}
             inherited={props.inherited}
         />
@@ -410,9 +437,11 @@ function SimplLevelComponent(props: {
 function RemoveAccessButton({
     onConfirm,
     subject,
+    disabledReason,
 }: {
     onConfirm: () => void
     subject: 'member' | 'role'
+    disabledReason?: string
 }): JSX.Element {
     const { canEditAccessControls } = useValues(accessControlLogic)
 
@@ -420,7 +449,7 @@ function RemoveAccessButton({
         <LemonButton
             icon={<IconTrash />}
             size="small"
-            disabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
+            disabledReason={!canEditAccessControls ? 'You cannot edit this' : disabledReason}
             onClick={() =>
                 LemonDialog.open({
                     title: 'Remove access',
