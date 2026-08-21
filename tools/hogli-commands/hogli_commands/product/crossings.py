@@ -18,6 +18,7 @@ its fixtures would measure the fixture, not the coupling.
 
 from __future__ import annotations
 
+import os
 import re
 import ast
 import textwrap
@@ -49,7 +50,10 @@ MANAGERS: frozenset[str] = frozenset(
 )
 
 # Queryset terminals that return scalars, tuples, or dicts — never model instances.
-SCALAR_TERMINALS: frozenset[str] = frozenset({"values", "values_list", "count", "exists", "aggregate", "in_bulk"})
+SCALAR_TERMINALS: frozenset[str] = frozenset({"values", "values_list", "count", "exists", "aggregate"})
+
+# `_meta` attributes that lead back to a manager, so a chain through them is a queryset again.
+META_MANAGERS: frozenset[str] = frozenset({"default_manager", "base_manager"})
 
 # Queryset terminals that return exactly one model instance.
 SINGLE_TERMINALS: frozenset[str] = frozenset({"get", "first", "last", "earliest", "latest"})
@@ -124,10 +128,14 @@ class CrossingUse:
 # ---------------------------------------------------------------------------
 
 
+_REPO_PREFIX = f"{REPO_ROOT}{os.sep}"
+
+
 def _dotted_module(path: Path) -> str:
-    """Repo path -> dotted module name ('posthog/models/__init__.py' -> 'posthog.models')."""
-    rel = path.relative_to(REPO_ROOT).with_suffix("")
-    parts = list(rel.parts)
+    """Repo path -> dotted module name ('posthog/models/__init__.py' -> 'posthog.models').
+
+    String work on purpose: `Path.relative_to` is too slow for every file in the repo."""
+    parts = str(path).removeprefix(_REPO_PREFIX).removesuffix(".py").split(os.sep)
     if parts[-1] == "__init__":
         parts.pop()
     return ".".join(parts)
@@ -204,30 +212,39 @@ def _is_test_module(path: Path) -> bool:
     return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
 
 
-def _candidate_pattern(class_names: set[str]) -> re.Pattern[bytes]:
-    """Bytes pattern for the only three ways a file can reach a crossing class.
+@dataclass(frozen=True, slots=True)
+class _ImportEdge:
+    """One `from module import exported as bound`."""
 
-    A file binds the class through a `from … import Name` (parenthesized or not), reads it off a
-    module it plain-imported from the owning product, or names it in an `apps.get_model` string.
-    Anything else that merely mentions the name is prose, and never has to be parsed."""
-    names = b"|".join(sorted(re.escape(n).encode() for n in class_names))
-    return re.compile(
-        rb"from[ \t]+[.\w]+[ \t]+import[ \t]+(?:\([^)]*|[^(\n]*)\b(?:" + names + rb")\b"
-        rb"|^[ \t]*import[ \t]+products\."
-        rb"|get_model\([^)]*\b(?:" + names + rb")\b",
-        re.MULTILINE,
-    )
+    module: str
+    exported: str
+    bound: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ModuleAlias:
+    """A module bound to a local name, by `import a.b as c` or by `from a import b` when `a.b` is a module."""
+
+    alias: str
+    module: str
+
+
+@dataclass(frozen=True)
+class _ImportTable:
+    """Everything a file's import statements bind: names, and modules it may read names off."""
+
+    edges: tuple[_ImportEdge, ...]
+    module_aliases: tuple[_ModuleAlias, ...]
 
 
 @dataclass(frozen=True)
 class _Candidate:
-    """A file that can reach a crossing class, with its imports read but its body not yet parsed."""
+    """A scanned file with its imports read but its body not yet parsed."""
 
     path: Path
     dotted: str
-    source: bytes
-    imports: tuple[tuple[str, str, str], ...]  # (source module, exported name, name bound here)
-    module_aliases: tuple[tuple[str, str], ...]  # (local alias, plain-imported module)
+    imports: _ImportTable
+    mentions_get_model: bool
 
 
 # One import statement, parenthesized or not. Imports are the only thing the first pass reads, and
@@ -252,46 +269,49 @@ def _resolve_import_from(node: ast.ImportFrom, package: str) -> str | None:
     return f"{base}.{node.module}" if node.module else base
 
 
-def _read_imports(source: bytes, package: str) -> tuple[tuple[tuple[str, str, str], ...], tuple[tuple[str, str], ...]]:
-    """Import edges and plain-module aliases of a file, from its import statements alone.
+def _read_imports(source: bytes, package: str) -> _ImportTable:
+    """What a file's import statements bind, read from those statements alone.
 
     Deferred and `if TYPE_CHECKING` imports come along: the statements are lifted out of their
-    block and re-parsed at top level, which is all the relative level needs to resolve."""
+    block and re-parsed at top level, which is all the relative level needs to resolve.
+
+    `from a.b import c` binds a module when `a.b.c` is one, so every such name is recorded as a
+    module alias too; the scan keeps only the aliases whose module hands out a crossing class."""
     lifted = b"\n".join(match.group(0).lstrip() for match in _IMPORT_STATEMENT_RE.finditer(source))
     try:
         tree = ast.parse(lifted)
     except (SyntaxError, ValueError):
-        return (), ()
-    edges: list[tuple[str, str, str]] = []
-    aliases: list[tuple[str, str]] = []
+        return _ImportTable((), ())
+    edges: list[_ImportEdge] = []
+    aliases: list[_ModuleAlias] = []
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
             module = _resolve_import_from(node, package)
-            if module is not None:
-                edges.extend((module, alias.name, alias.asname or alias.name) for alias in node.names)
+            if module is None:
+                continue
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                edges.append(_ImportEdge(module, alias.name, bound))
+                aliases.append(_ModuleAlias(bound, f"{module}.{alias.name}"))
         elif isinstance(node, ast.Import):
-            aliases.extend((alias.asname or alias.name, alias.name) for alias in node.names)
-    return tuple(edges), tuple(aliases)
+            aliases.extend(_ModuleAlias(alias.asname or alias.name, alias.name) for alias in node.names)
+    return _ImportTable(tuple(edges), tuple(aliases))
 
 
-def _candidates(class_names: set[str]) -> list[_Candidate]:
-    """Every scanned .py file that can reach a crossing class.
+def _candidates() -> list[_Candidate]:
+    """Every scanned .py file, with its imports read.
 
-    The cheap text pre-filter plus the import-only parse keep the full AST pass — and so the
-    repo-invariant test — small."""
-    pattern = _candidate_pattern(class_names)
+    Reading imports only is what keeps the full AST pass — and so the repo-invariant test — small:
+    a file is parsed whole only once its imports show it can reach a crossing class."""
     found = []
     for root in SCANNED_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
             if SKIPPED_DIRS.intersection(path.parts):
                 continue
             source = path.read_bytes()
-            if not pattern.search(source):
-                continue
             dotted = _dotted_module(path)
             package = dotted if path.name == "__init__.py" else dotted.rsplit(".", 1)[0]
-            edges, aliases = _read_imports(source, package)
-            found.append(_Candidate(path, dotted, source, edges, aliases))
+            found.append(_Candidate(path, dotted, _read_imports(source, package), b"get_model" in source))
     return found
 
 
@@ -300,31 +320,42 @@ def _candidates(class_names: set[str]) -> list[_Candidate]:
 # ---------------------------------------------------------------------------
 
 
-def _origins(candidates: list[_Candidate], classes: list[CrossingClass]) -> dict[tuple[str, str], str]:
-    """(module, exported name) -> crossing label, for every path an import of the class can take.
+@dataclass(frozen=True, slots=True)
+class _Export:
+    """A name as one module hands it out."""
+
+    module: str
+    name: str
+
+
+def _origins(candidates: list[_Candidate], classes: list[CrossingClass]) -> dict[_Export, str]:
+    """Export -> crossing label, for every path an import of the class can take.
 
     Seeded with the defining module and grown to a fixpoint over re-exports, so `facade/models.py`,
     a package `__init__`, and a renaming alias all resolve back to the same class."""
-    origins: dict[tuple[str, str], str] = {(c.defining_module, c.class_name): c.label for c in classes}
+    origins: dict[_Export, str] = {_Export(c.defining_module, c.class_name): c.label for c in classes}
     while True:
         grew = False
         for candidate in candidates:
-            for module, exported, bound in candidate.imports:
-                label = origins.get((module, exported))
-                if label is not None and origins.get((candidate.dotted, bound)) != label:
-                    origins[(candidate.dotted, bound)] = label
+            for edge in candidate.imports.edges:
+                label = origins.get(_Export(edge.module, edge.exported))
+                if label is None:
+                    continue
+                local = _Export(candidate.dotted, edge.bound)
+                if origins.get(local) != label:
+                    origins[local] = label
                     grew = True
         if not grew:
             return origins
 
 
-def _bound_names(candidate: _Candidate, origins: dict[tuple[str, str], str]) -> dict[str, str]:
+def _bound_names(candidate: _Candidate, origins: dict[_Export, str]) -> dict[str, str]:
     """Local name -> crossing label, for every crossing class this file imported."""
     names = {}
-    for module, exported, bound in candidate.imports:
-        label = origins.get((module, exported))
+    for edge in candidate.imports.edges:
+        label = origins.get(_Export(edge.module, edge.exported))
         if label is not None:
-            names[bound] = label
+            names[edge.bound] = label
     return names
 
 
@@ -338,7 +369,7 @@ def _dotted_of(node: ast.expr) -> str | None:
 
 
 def _class_nodes(
-    tree: ast.Module, names: dict[str, str], module_aliases: dict[str, str], origins: dict[tuple[str, str], str]
+    tree: ast.Module, names: dict[str, str], module_aliases: dict[str, str], origins: dict[_Export, str]
 ) -> list[tuple[ast.expr, str]]:
     """Every expression node that names a crossing class, paired with its crossing label."""
     found: list[tuple[ast.expr, str]] = []
@@ -348,7 +379,7 @@ def _class_nodes(
         elif isinstance(node, ast.Attribute) and module_aliases:
             dotted = _dotted_of(node.value)
             module = module_aliases.get(dotted) if dotted else None
-            label = origins.get((module, node.attr)) if module else None
+            label = origins.get(_Export(module, node.attr)) if module else None
             if label is not None:
                 found.append((node, label))
     return found
@@ -446,7 +477,9 @@ def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
         if head == "DoesNotExist":
             return "exception"
         if head == "_meta":
-            return "_meta"
+            if len(methods) > 1 and methods[1] in META_MANAGERS:
+                return _manager_chain_kind(methods[2:], outer, parents)
+            return "_meta" if len(methods) == 1 or methods[1] != "managers" else "other(Attribute:_meta.managers)"
         if head in MANAGERS:
             return _manager_chain_kind(methods[1:], outer, parents)
         if head[:1].isupper():
@@ -469,17 +502,24 @@ def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
 
 
 def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], labels: set[str]) -> Counter[str]:
-    """`apps.get_model('label', 'Class')` and its `'label.Class'` form, which no import reveals."""
+    """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals."""
     found: Counter[str] = Counter()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or getattr(node.func, "attr", None) != "get_model":
             continue
         strings = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
-        if len(strings) == 2:
-            app_label, class_name = strings
-        elif len(strings) == 1 and "." in strings[0]:
-            app_label, class_name = strings[0].split(".", 1)
-        else:
+        keywords = {
+            k.arg: k.value.value
+            for k in node.keywords
+            if k.arg in ("app_label", "model_name")
+            and isinstance(k.value, ast.Constant)
+            and isinstance(k.value.value, str)
+        }
+        app_label = keywords.get("app_label", strings[0] if strings else None)
+        class_name = keywords.get("model_name", strings[1] if len(strings) > 1 else None)
+        if app_label is not None and class_name is None and "." in app_label:
+            app_label, class_name = app_label.split(".", 1)
+        if app_label is None or class_name is None:
             continue
         product = product_by_label.get(app_label)
         if product is not None and f"{product}.{class_name}" in labels:
@@ -492,15 +532,26 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], labels: 
 # ---------------------------------------------------------------------------
 
 
+def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names: set[str]) -> bool:
+    """Whether `alias.ClassName` appears in the text at all, for any module alias and crossing class.
+
+    Most files that alias a module handing out a crossing class never read the class off it, and
+    this check spares them the full parse."""
+    names = b"|".join(sorted(re.escape(n).encode() for n in class_names))
+    locals_ = b"|".join(sorted(re.escape(a).encode() for a in aliases))
+    return re.search(rb"\b(?:" + locals_ + rb")\.(?:" + names + rb")\b", source) is not None
+
+
 def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
     """Every use of every crossing class in consumer code, sorted, one entry per kind per module."""
     classes = crossing_classes(products)
     if not classes:
         return []
     owning_dir = {c.label: PRODUCTS_DIR / c.product for c in classes}
-    candidates = _candidates({c.class_name for c in classes})
+    class_names = {c.class_name for c in classes}
+    candidates = _candidates()
     origins = _origins(candidates, classes)
-    origin_modules = {module for module, _ in origins}
+    origin_modules = {export.module for export in origins}
     product_by_label = _app_labels()
 
     counts: dict[tuple[str, str, str], int] = defaultdict(int)
@@ -508,12 +559,17 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         if _is_test_module(candidate.path):
             continue
         names = _bound_names(candidate, origins)
-        aliases = {alias: module for alias, module in candidate.module_aliases if module in origin_modules}
-        reads_get_model = b"get_model" in candidate.source
-        if not names and not aliases and not reads_get_model:
+        aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
+        if not names and not aliases and not candidate.mentions_get_model:
             continue
         try:
-            tree = ast.parse(candidate.source)
+            source = candidate.path.read_bytes()
+        except OSError:
+            continue
+        if not names and not candidate.mentions_get_model and not _reads_class_off_module(source, aliases, class_names):
+            continue
+        try:
+            tree = ast.parse(source)
         except (SyntaxError, ValueError):
             continue
         class_nodes = _class_nodes(tree, names, aliases, origins)
@@ -523,7 +579,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
                 if candidate.path.is_relative_to(owning_dir[label]):
                     continue
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
-        if reads_get_model:
+        if candidate.mentions_get_model:
             for label, count in _get_model_uses(tree, product_by_label, set(owning_dir)).items():
                 if not candidate.path.is_relative_to(owning_dir[label]):
                     counts[(label, candidate.dotted, "get_model")] += count
@@ -578,7 +634,9 @@ def render_report(uses: list[CrossingUse], class_labels: Iterable[str] = ()) -> 
         for kind, kind_entries in sorted(by_kind.items(), key=lambda item: (-sum(u.count for u in item[1]), item[0])):
             lines.extend(_render_kind_block(kind, kind_entries))
         if good:
-            summary = Counter({use.kind: use.count for use in good})
+            summary: Counter[str] = Counter()
+            for use in good:
+                summary[use.kind] += use.count
             allowed = ", ".join(f"{kind} {count}" for kind, count in sorted(summary.items()))
             lines.extend(
                 textwrap.wrap(f"allowed: {allowed}", width=112, initial_indent="  ", subsequent_indent=" " * 6)

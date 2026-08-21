@@ -133,7 +133,7 @@ These shapes are allowed:
 - `X.DoesNotExist`;
 - a nested class attribute, such as `X.Status` or `X.PrivilegeLevel`;
 - `X._meta`;
-- a manager chain that ends in `values()`, `values_list()`, `count()`, `exists()`, `aggregate()`, or `in_bulk()`;
+- a manager chain that ends in `values()`, `values_list()`, `count()`, `exists()`, or `aggregate()`;
 - a manager chain that `Exists(...)` or `Subquery(...)` embeds.
 
 Every other use is disallowed.

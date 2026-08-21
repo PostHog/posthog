@@ -197,7 +197,7 @@ says nothing about what the consumer does with it. Two rules cover that:
 - **Default-deny.** A crossing class may appear in consumer code only in a shape
   the check calls instance-free: an annotation, `X.DoesNotExist`, a nested class
   attribute (`X.Status`), `X._meta`, a manager chain ending in
-  `values`/`values_list`/`count`/`exists`/`aggregate`/`in_bulk`, or a chain
+  `values`/`values_list`/`count`/`exists`/`aggregate`, or a chain
   embedded in `Exists(...)`/`Subquery(...)`. Anything else is disallowed.
 - **Move, don't permit.** Code that queries, serializes or writes a model belongs
   in that model's product. The remedy for a disallowed use is a move; the facade

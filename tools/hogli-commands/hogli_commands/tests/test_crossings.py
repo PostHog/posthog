@@ -17,17 +17,17 @@ ALERT = CrossingClass("alerts", "AlertConfiguration", "products.alerts.backend.m
 def _candidate(source: str, dotted: str = "posthog.api.consumer") -> crossings._Candidate:
     encoded = textwrap.dedent(source).encode()
     package = dotted.rsplit(".", 1)[0]
-    edges, aliases = crossings._read_imports(encoded, package)
-    return crossings._Candidate(Path(f"{dotted.replace('.', '/')}.py"), dotted, encoded, edges, aliases)
+    imports = crossings._read_imports(encoded, package)
+    return crossings._Candidate(Path(f"{dotted.replace('.', '/')}.py"), dotted, imports, b"get_model" in encoded)
 
 
 def classify(source: str) -> list[str]:
     candidate = _candidate(source)
     origins = crossings._origins([candidate], [ALERT])
     names = crossings._bound_names(candidate, origins)
-    modules = {module for module, _ in origins}
-    aliases = {alias: module for alias, module in candidate.module_aliases if module in modules}
-    tree = ast.parse(candidate.source)
+    modules = {export.module for export in origins}
+    aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in modules}
+    tree = ast.parse(textwrap.dedent(source))
     parents = crossings._parent_map(tree)
     return [classify_use(node, parents) for node, _ in crossings._class_nodes(tree, names, aliases, origins)]
 
@@ -46,6 +46,7 @@ class TestClassifyUse:
             ("try:\n    pass\nexcept AlertConfiguration.DoesNotExist:\n    pass", ["exception"]),
             ("s = AlertConfiguration.Status.FIRING", ["nested-class-attr(Status)"]),
             ("n = AlertConfiguration._meta.db_table", ["_meta"]),
+            ("f = AlertConfiguration._meta.get_field('insight')", ["_meta"]),
             (
                 "ids = AlertConfiguration.objects.filter(team=t).values_list('id', flat=True)",
                 ["scalar-chain(values_list)"],
@@ -54,6 +55,9 @@ class TestClassifyUse:
             ("q = Exists(AlertConfiguration.objects.filter(insight=OuterRef('pk')))", ["subquery(Exists)"]),
             # Disallowed: each of these puts a model instance, a write, or a lock in the consumer.
             ("a = AlertConfiguration.objects.get(pk=1)", ["instance-single"]),
+            ("a = AlertConfiguration._meta.default_manager.get(pk=1)", ["instance-single"]),
+            ("m = AlertConfiguration._meta.managers", ["other(Attribute:_meta.managers)"]),
+            ("by_id = AlertConfiguration.objects.in_bulk(ids)", ["instance-many(in_bulk)"]),
             ("a = AlertConfiguration.objects.filter(team=t).first()", ["instance-single"]),
             ("qs = AlertConfiguration.objects.filter(team=t)", ["instance-many(filter)"]),
             ("qs = AlertConfiguration.objects", ["instance-many(manager)"]),
@@ -101,6 +105,10 @@ class TestBindingPaths:
             "if TYPE_CHECKING:\n    from products.alerts.backend.models.alert import AlertConfiguration\nqs = AlertConfiguration.objects.filter(t=1)",
             "def f():\n    from products.alerts.backend.models.alert import AlertConfiguration\n    return AlertConfiguration.objects.filter(t=1)",
             "from products.alerts.backend.models.alert import (\n    AlertConfiguration,\n    Threshold,\n)\nqs = AlertConfiguration.objects.filter(t=1)",
+            "from products.alerts.backend.models import alert\nqs = alert.AlertConfiguration.objects.filter(t=1)",
+            "from products.alerts.backend.models import alert as alert_models\nqs = alert_models.AlertConfiguration.objects.filter(t=1)",
+            "import products.alerts.backend.models.alert\nqs = products.alerts.backend.models.alert.AlertConfiguration.objects.filter(t=1)",
+            "import products.alerts.backend.models.alert as alert_models\nqs = alert_models.AlertConfiguration.objects.filter(t=1)",
         ],
     )
     def test_every_import_shape_binds(self, source: str) -> None:
@@ -129,9 +137,15 @@ class TestBindingPaths:
 class TestGetModelStrings:
     @pytest.mark.parametrize(
         "call",
-        ["apps.get_model('alerts', 'AlertConfiguration')", "apps.get_model('alerts.AlertConfiguration')"],
+        [
+            "apps.get_model('alerts', 'AlertConfiguration')",
+            "apps.get_model('alerts.AlertConfiguration')",
+            "apps.get_model('alerts', model_name='AlertConfiguration')",
+            "apps.get_model(app_label='alerts', model_name='AlertConfiguration')",
+            "apps.get_model(model_name='AlertConfiguration', app_label='alerts')",
+        ],
     )
-    def test_both_string_forms_are_counted(self, call: str) -> None:
+    def test_every_string_form_is_counted(self, call: str) -> None:
         tree = ast.parse(f"m = {call}")
         found = crossings._get_model_uses(tree, {"alerts": "alerts"}, {"alerts.AlertConfiguration"})
         assert found == {"alerts.AlertConfiguration": 1}
@@ -139,3 +153,12 @@ class TestGetModelStrings:
     def test_unlisted_class_is_ignored(self) -> None:
         tree = ast.parse("m = apps.get_model('alerts', 'AlertCheck')")
         assert crossings._get_model_uses(tree, {"alerts": "alerts"}, {"alerts.AlertConfiguration"}) == {}
+
+
+class TestRenderReport:
+    def test_allowed_counts_sum_across_modules(self) -> None:
+        uses = [
+            crossings.CrossingUse("alerts.AlertConfiguration", "posthog.api.a", "annotation", 1),
+            crossings.CrossingUse("alerts.AlertConfiguration", "posthog.api.b", "annotation", 2),
+        ]
+        assert "allowed: annotation 3" in crossings.render_report(uses)
