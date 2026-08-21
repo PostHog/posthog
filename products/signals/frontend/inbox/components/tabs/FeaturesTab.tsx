@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconSearch } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
@@ -38,7 +38,7 @@ export function FeaturesTab(): JSX.Element {
     const { openDiscoveryModal, retryDiscovery } = useActions(featureDiscoveryLogic)
 
     const stagedFeatures = features.filter((feature) => feature.feature_stage === 'staged')
-    const ownedFeatures = features.filter((feature) => feature.feature_stage !== 'staged')
+    const liveFeatures = features.filter((feature) => feature.feature_stage !== 'staged')
     const activeDiscoveryRuns = discoveryRuns.filter(
         (run) => run.discovery_status === 'queued' || run.discovery_status === 'running'
     )
@@ -47,6 +47,22 @@ export function FeaturesTab(): JSX.Element {
         discoveryRuns[0]?.discovery_status === 'completed' && discoveryRuns[0].discovered_count === 0
             ? discoveryRuns[0]
             : undefined
+    const featureColumns = [
+        {
+            key: 'staged',
+            title: 'Staged features',
+            description: 'Review discovered features before making them live.',
+            emptyMessage: 'Discovered features will appear here.',
+            features: stagedFeatures,
+        },
+        {
+            key: 'live',
+            title: 'Live features',
+            description: 'Features PostHog monitors and improves over time.',
+            emptyMessage: 'Promote a staged feature or create a new one.',
+            features: liveFeatures,
+        },
+    ] as const
 
     const actionButtons = (
         <div className="flex items-center gap-2">
@@ -115,62 +131,57 @@ export function FeaturesTab(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {stagedFeatures.length > 0 && (
-                <section className="flex flex-col gap-2">
-                    <div>
-                        <h3 className="mb-0">Staged features</h3>
-                        <p className="mb-0 text-sm text-muted">Review discovered reports before promoting them.</p>
-                    </div>
-                    {stagedFeatures.map((feature) => (
-                        <LemonCard key={feature.id} className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between gap-2">
-                                <LemonButton
-                                    type="tertiary"
+            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                {featureColumns.map((column) => (
+                    <section key={column.key} className="flex min-w-0 flex-col gap-2">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="mb-0">{column.title}</h3>
+                                <LemonBadge.Number
+                                    count={column.features.length}
+                                    maxDigits={3}
+                                    showZero
                                     size="small"
-                                    className="-ml-2 font-semibold"
-                                    to={urls.inboxReport('features', feature.id)}
-                                >
-                                    {feature.title || 'Untitled feature'}
-                                </LemonButton>
-                                <LemonTag type="highlight">Staged</LemonTag>
+                                    status="muted"
+                                />
                             </div>
-                            {feature.summary && (
-                                <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>
-                            )}
-                            <TZLabel time={feature.updated_at} className="text-xs text-muted" />
-                        </LemonCard>
-                    ))}
-                </section>
-            )}
+                            <p className="mb-0 text-sm text-muted">{column.description}</p>
+                        </div>
 
-            {ownedFeatures.length > 0 && (
-                <section className="flex flex-col gap-2">
-                    {stagedFeatures.length > 0 && <h3 className="mb-0">Owned features</h3>}
-                    {ownedFeatures.map((feature) => (
-                        <LemonCard key={feature.id} className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between gap-2">
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    className="-ml-2 font-semibold"
+                        {column.features.length === 0 ? (
+                            <LemonCard hoverEffect={false} className="border-dashed p-4">
+                                <p className="mb-0 text-sm text-muted">{column.emptyMessage}</p>
+                            </LemonCard>
+                        ) : (
+                            column.features.map((feature) => (
+                                <Link
+                                    key={feature.id}
                                     to={urls.inboxReport('features', feature.id)}
+                                    className="block rounded text-inherit no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                 >
-                                    {feature.title || 'Untitled feature'}
-                                </LemonButton>
-                                {feature.is_planning ? (
-                                    <LemonTag type="warning">Planning</LemonTag>
-                                ) : (
-                                    <LemonTag>{feature.status}</LemonTag>
-                                )}
-                            </div>
-                            {feature.summary && (
-                                <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>
-                            )}
-                            <TZLabel time={feature.updated_at} className="text-xs text-muted" />
-                        </LemonCard>
-                    ))}
-                </section>
-            )}
+                                    <LemonCard className="flex flex-col gap-1 p-4">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <span className="min-w-0 break-words text-sm font-semibold leading-snug">
+                                                {feature.title || 'Untitled feature'}
+                                            </span>
+                                            {column.key === 'live' &&
+                                                (feature.is_planning ? (
+                                                    <LemonTag type="warning">Planning</LemonTag>
+                                                ) : (
+                                                    <LemonTag>{feature.status}</LemonTag>
+                                                ))}
+                                        </div>
+                                        {feature.summary && (
+                                            <span className="line-clamp-2 text-sm text-muted">{feature.summary}</span>
+                                        )}
+                                        <TZLabel time={feature.updated_at} className="text-xs text-muted" />
+                                    </LemonCard>
+                                </Link>
+                            ))
+                        )}
+                    </section>
+                ))}
+            </div>
             <NewFeatureModal />
             <FeatureDiscoveryModal />
         </div>
