@@ -142,6 +142,9 @@ tools:
                 description: ID of the loop's context channel.
             base_version:
                 input_schema: ChannelInstructionsBaseVersionSchema
+    desktop-access-retrieve:
+        operation: desktop_access_retrieve
+        enabled: false
     loops-create:
         operation: loops_create
         enabled: true
