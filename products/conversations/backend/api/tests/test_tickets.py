@@ -789,8 +789,8 @@ class TestTicketAPI(APIBaseTest):
         denormalized on the Ticket model, so no subqueries needed.
         Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages, assignments, and persons
-        for i in range(10):
+        # Two tickets are enough to detect a query that scales with the result count.
+        for i in range(2):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
@@ -829,8 +829,7 @@ class TestTicketAPI(APIBaseTest):
         with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should have original ticket + 10 new tickets = 11 total
-            self.assertEqual(response.json()["count"], 11)
+            self.assertEqual(response.json()["count"], 3)
             # Verify all denormalized fields are present
             for ticket_data in response.json()["results"]:
                 self.assertIn("message_count", ticket_data)
