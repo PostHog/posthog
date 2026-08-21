@@ -268,7 +268,7 @@ export const metricsLogic = kea<metricsLogicType>([
             {
                 // Walk every page: the tab badge counts proposed metrics across the whole catalog,
                 // and selection spans pages, so a single server page would hide the rest.
-                loadMetrics: async () => {
+                loadMetrics: async (_, breakpoint) => {
                     try {
                         const metrics: DataCatalogMetricApi[] = []
                         for (let offset = 0; ; offset += METRICS_PAGE_SIZE) {
@@ -282,6 +282,9 @@ export const metricsLogic = kea<metricsLogicType>([
                             }
                         }
                     } catch (error) {
+                        // Drop the failure if a newer load has already started: breakpoint() throws here
+                        // when this load is superseded, so a stale error never paints over fresher rows.
+                        breakpoint()
                         // A page can fail with a fetch error or an unreadable body. Show it in the tab
                         // rather than letting the rejection escape as an unhandled exception.
                         actions.setMetricsError(loadErrorMessage(error, 'Could not load metrics. Reload to try again.'))
