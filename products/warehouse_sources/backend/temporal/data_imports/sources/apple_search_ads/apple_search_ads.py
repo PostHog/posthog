@@ -308,8 +308,8 @@ def _report_start_date(
 
     configured = _to_date(start_date) if start_date else None
     if configured is not None:
-        # Floor the configured date so an implausibly old start can't fan the report out over
-        # thousands of empty windows and exhaust the import worker.
+        # Apple rejects a DAILY-granularity report whose startTime is more than 24 months in
+        # the past with a 400, so a configured date older than that is floored here.
         return max(configured, today - timedelta(days=MAX_INITIAL_LOOKBACK_DAYS))
     return today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS)
 

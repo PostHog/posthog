@@ -48,11 +48,13 @@ export interface issueFiltersLogicActions {
         key: string,
         value: boolean | number | string | null,
         operator?: PropertyOperator,
-        openConfig?: boolean
+        openConfig?: boolean,
+        replaceExisting?: boolean
     ) => {
         key: string
         openConfig: boolean
         operator: PropertyOperator
+        replaceExisting: boolean
         value: boolean | number | string | null
     }
     setDateRange: (
@@ -118,8 +120,9 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             key: string,
             value: string | number | boolean | null,
             operator: PropertyOperator = PropertyOperator.Exact,
-            openConfig: boolean = true
-        ) => ({ key, value, operator, openConfig }),
+            openConfig: boolean = true,
+            replaceExisting: boolean = false
+        ) => ({ key, value, operator, openConfig, replaceExisting }),
         setDateRange: (dateRange: DateRange, fromPreview: boolean = false) => ({ dateRange, fromPreview }),
         setSearchInput: (searchInput: string) => ({ searchInput }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
@@ -139,7 +142,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
         filterGroup: [
             DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
             {
-                addPropertyFilter: (filterGroup, { key, value, operator }) => {
+                addPropertyFilter: (filterGroup, { key, value, operator, replaceExisting }) => {
                     const firstValue = filterGroup.values[0]
                     const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
                         ? firstValue
@@ -153,16 +156,28 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                         operator,
                         ...(value === null ? {} : { value: [value] }),
                     }
-                    if (firstGroup.values.some((existingFilter) => equal(existingFilter, newFilter))) {
+                    if (
+                        !replaceExisting &&
+                        firstGroup.values.some((existingFilter) => equal(existingFilter, newFilter))
+                    ) {
+                        return filterGroup
+                    }
+                    const retainedFilters = replaceExisting
+                        ? firstGroup.values.filter(
+                              (existingFilter) =>
+                                  isUniversalGroupFilterLike(existingFilter) ||
+                                  existingFilter.type !== PropertyFilterType.Event ||
+                                  existingFilter.key !== key
+                          )
+                        : firstGroup.values
+                    const nextFilters = [...retainedFilters, newFilter]
+                    if (equal(firstGroup.values, nextFilters)) {
                         return filterGroup
                     }
 
                     return {
                         type: FilterLogicalOperator.And,
-                        values: [
-                            { ...firstGroup, values: [...firstGroup.values, newFilter] },
-                            ...filterGroup.values.slice(1),
-                        ],
+                        values: [{ ...firstGroup, values: nextFilters }, ...filterGroup.values.slice(1)],
                     }
                 },
                 setFilterGroup: (_, { filterGroup }) =>

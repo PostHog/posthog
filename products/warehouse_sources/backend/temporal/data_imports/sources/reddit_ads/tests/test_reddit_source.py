@@ -141,6 +141,10 @@ class TestRedditAdsSource:
             "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/09663b71-f301-484f-9b15-8d0e6fe69124/reports?page.size=100",
             "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
             "ValueError: Integration not found: 154683",
+            # A 400 on the profiles fan-out parent fetch (used by both the `profiles` schema and
+            # the `structured_posts` fan-out) never recovers on retry — the account id varies but
+            # the path/params suffix is stable across accounts.
+            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/d56c38c6-058a-4196-9795-284f820d27a6/profiles?page.size=100 | api error: code=400",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
@@ -153,6 +157,9 @@ class TestRedditAdsSource:
         [
             "500 Server Error for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
             "ConnectionError: Connection reset by peer",
+            # A 400 on a different endpoint is not covered by the profiles-specific pattern above —
+            # only the profiles fan-out parent fetch is known to fail deterministically like this.
+            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
         ],
     )
     def test_non_retryable_errors_does_not_match_transient(self, other_error):
