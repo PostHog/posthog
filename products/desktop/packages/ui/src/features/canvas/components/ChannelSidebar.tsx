@@ -434,6 +434,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     return match ? match[1] : null;
   }, [pathname]);
 
+  // Opening a report (feed card, deep link, old inbox link) cuts the sidebar
+  // over to Reports so the open report shows highlighted in its list. Only on
+  // report change — the user can still switch tabs while the report stays open.
+  useEffect(() => {
+    if (!reportsEnabled || !activeReportId) return;
+    setChosenTab({ channelId, tab: "report" });
+  }, [reportsEnabled, activeReportId, channelId]);
+
   // Pins sort to the top because a pin is a request not to lose the thing:
   // below the chosen order it would fall off the end of the cap. The cap is
   // applied to the flat list, before the sections, so the number of rows a
