@@ -135,6 +135,12 @@ class Channel(TeamScopedRootMixin):
     # level (see safe-django-migrations.md).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     name = models.CharField(max_length=128)
+    description = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Short human-written summary shown in the space's empty area and searched by the command palette.",
+    )
     channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
     # Null for ordinary channels. No dedicated unique constraint: provisioning still creates/adopts
     # the general channel by its fixed name, so task_channel_team_name_public_unique (team, name)

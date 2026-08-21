@@ -201,6 +201,7 @@ def index_channel(channel_id: Any, *, canonical_team_id: int | None = None) -> N
         kind=TaskSearchDocument.Kind.CHANNEL,
         source_key=str(channel.id),
         title=channel.name,
+        subtitle=channel.description,
         identifiers=[channel.name],
         channel_id=channel.id,
         metadata={"channel_type": channel.channel_type},
@@ -271,7 +272,13 @@ def task_artifact_saved(sender, instance: TaskArtifact, update_fields=None, **kw
 
 @receiver(post_save, sender=Channel)
 def channel_saved(sender, instance: Channel, update_fields=None, **kwargs) -> None:
-    if update_fields is not None and not set(update_fields) & {"name", "deleted", "channel_type", "created_by"}:
+    if update_fields is not None and not set(update_fields) & {
+        "name",
+        "description",
+        "deleted",
+        "channel_type",
+        "created_by",
+    }:
         return
     _after_commit(lambda: index_channel(instance.id))
 

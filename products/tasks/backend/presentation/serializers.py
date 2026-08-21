@@ -1795,6 +1795,7 @@ class ChannelSerializer(DataclassSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "channel_type",
             "github_integration",
             "repositories",
@@ -1833,6 +1834,16 @@ class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
     )
+    description = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Short summary of what the channel is for, shown in its empty area and searchable. "
+            "Applies only when this call creates the channel."
+        ),
+    )
     star = serializers.BooleanField(
         required=False,
         default=True,
@@ -1855,6 +1866,12 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=128,
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
+    )
+    description = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text="Short summary of what the channel is for, shown in its empty area and searchable.",
     )
     github_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.filter(kind="github"),

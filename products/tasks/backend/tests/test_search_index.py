@@ -8,6 +8,7 @@ from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun, 
 from products.tasks.backend.search_index import (
     MAX_INDEXED_ARTIFACTS,
     MAX_INDEXED_PR_URLS,
+    index_channel,
     index_task_artifact,
     index_task_run,
 )
@@ -201,6 +202,20 @@ class TestTaskSearchIndex(TransactionTestCase):
             )[0]["kind"],
             "task",
         )
+
+    def test_channel_description_is_searchable(self):
+        channel = Channel.objects.create(
+            team=self.team,
+            name="growth",
+            description="Experiments and funnels for activation",
+            created_by=self.user,
+        )
+        index_channel(channel.id)
+
+        result = search_tasks(self.team.id, self.user.id, "funnels")[0]
+        self.assertEqual(result["kind"], TaskSearchDocument.Kind.CHANNEL)
+        self.assertEqual(result["channel_id"], str(channel.id))
+        self.assertEqual(result["subtitle"], "Experiments and funnels for activation")
 
     def test_deleted_task_descendants_are_removed(self):
         task = self.make_task()

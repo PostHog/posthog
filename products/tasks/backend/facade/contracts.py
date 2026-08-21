@@ -205,6 +205,7 @@ class ChannelDTO:
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
     system_role: str | None = None
+    description: str = ""
 
 
 @dataclass(frozen=True)

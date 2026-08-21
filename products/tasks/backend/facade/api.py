@@ -6854,6 +6854,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
     return contracts.ChannelDTO(
         id=channel.id,
         name=channel.name,
+        description=channel.description,
         channel_type=channel.channel_type,
         system_role=channel.system_role,
         github_integration=channel.github_integration_id,
@@ -7005,12 +7006,15 @@ def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
         logger.exception("Failed to emit channel_created feed message", extra={"channel_id": str(channel.id)})
 
 
-def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool) -> contracts.ChannelDTO | None:
+def resolve_channel(
+    team_id: int, user_id: int | None, *, name: str, star: bool, description: str = ""
+) -> contracts.ChannelDTO | None:
     """Resolve-or-create a public channel by (normalized) name. ``None`` for empty names.
     The general name resolves the team's general space, which cannot then be renamed away.
     Emits a ``channel_created`` feed message the first time a channel is created, and (unless
     ``star`` is false) stars the channel for whoever created it. Resolving a channel that
-    already exists leaves the requester's star alone — only creation stars."""
+    already exists leaves the requester's star alone — only creation stars. ``description``
+    applies only when this call creates the channel; an existing channel keeps its own."""
     normalized = normalize_channel_name(name)
     if not normalized:
         return None
@@ -7026,7 +7030,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str, star: bool)
                 name=normalized,
                 channel_type=Channel.ChannelType.PUBLIC,
                 deleted=False,
-                defaults={"created_by_id": user_id},
+                defaults={"created_by_id": user_id, "description": description},
             )
         except IntegrityError:
             channel = Channel.objects.select_related("created_by").get(
@@ -7051,6 +7055,7 @@ def update_channel(
     user_id: int | None,
     *,
     name: str | None = None,
+    description: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
 ) -> contracts.ChannelDTO | str:
@@ -7072,6 +7077,9 @@ def update_channel(
             return "invalid_name"
         channel.name = normalized
         update_fields.append("name")
+    if description is not None:
+        channel.description = description.strip()
+        update_fields.append("description")
     if repositories is not None:
         channel.repositories = repositories
         channel.github_integration = github_integration if repositories else None
