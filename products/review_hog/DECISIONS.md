@@ -203,19 +203,26 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
   unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
   and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
-  through a shared plain function; the only new gate is that the payload's `installation.id` must map
-  to the configured team's GitHub integration. Same `start_review_pr_workflow(trigger_source="label")`.
+  through a shared plain function, plus two webhook-only gates: the payload's `installation.id` must map
+  to the configured team's GitHub integration, and the sender must be a human or the Stamphog App bot (the
+  Action's allowed-labeler policy; other bots are ignored and logged, the Action's comment-and-strip is
+  not ported). Same `start_review_pr_workflow(trigger_source="label")`.
 - **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
   is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
   label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
   already publishes through the PostHog GitHub App installation token, so that App's inlet is the
   right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
 - **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
-  handler does none of that. `USE_EXISTING` on the deterministic workflow id makes Action + webhook
-  firing together harmless, so the Action stays during rollout and is removed in a follow-up.
-- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler** (same
-  dispatcher bucket, same gates); they do not open a second inlet, and `signal-with-start` / per-PR
-  Schedules wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+  handler does none of that. It has no retry either, and GitHub does not redeliver on its own, so the
+  handler hands off to a retried Celery task that starts the workflow (Stamphog's shape) rather than
+  starting it in-request; until that hand-off is in, the Action's curl retries are the only durability.
+  `USE_EXISTING` on the deterministic workflow id makes Action + webhook firing together harmless, so
+  the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler module**:
+  `synchronize` in the same `pull_request` bucket, comments registered under their own event types
+  (`issue_comment`, `pull_request_review_comment` — the dispatcher routes strictly by `X-GitHub-Event`),
+  all sharing the gates. They do not open a second inlet, and `signal-with-start` / per-PR Schedules
+  wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
 
 ### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
 
