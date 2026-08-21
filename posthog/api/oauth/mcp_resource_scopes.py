@@ -87,6 +87,12 @@ def mcp_advertised_scopes() -> list[str]:
     return [scope for scope in get_oauth_scopes_supported() if ":" not in scope or scope in required]
 
 
+def mcp_advertised_resource_scopes() -> list[str]:
+    """`mcp_advertised_scopes()` without the identity scopes, which only ride an
+    OAuth access token and mean nothing on a Personal API Key."""
+    return [scope for scope in mcp_advertised_scopes() if ":" in scope]
+
+
 def build_oauth_mcp_consent_context(resource_url: str | None) -> OAuthMcpConsentContext | None:
     if not resource_url or not is_trusted_posthog_mcp_resource(resource_url):
         return None

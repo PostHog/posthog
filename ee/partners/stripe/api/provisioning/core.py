@@ -20,7 +20,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 import structlog
 
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.oauth.mcp_resource_scopes import mcp_advertised_scopes
+from posthog.api.oauth.mcp_resource_scopes import mcp_advertised_resource_scopes
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -634,7 +634,7 @@ def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | Non
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
-    pat_scopes = [scope for scope in mcp_advertised_scopes() if ":" in scope]
+    pat_scopes = mcp_advertised_resource_scopes()
     # TODO: latent bug - every call mints a new PAT without revoking earlier
     # ones, so rotate_credentials accumulates live keys instead of rotating
     # them. A correct fix needs a provenance marker on PersonalAPIKey (or the
