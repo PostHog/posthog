@@ -45,6 +45,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -201,10 +202,13 @@ class TestExternalDataSource(APIBaseTest):
         listed_schema = list_response.json()["results"][0]["schemas"][0]
         self.assertEqual(
             set(listed_schema.keys()),
-            {"id", "name", "label", "should_sync", "status", "latest_error", "table"},
+            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
         )
         self.assertEqual(listed_schema["table"]["row_count"], 42)
         self.assertEqual(listed_schema["table"]["name"], "Customers")
+        # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
+        # app treats every schema as needing an update and sends a redundant PATCH per toggle.
+        self.assertIn("sync_type", listed_schema)
 
         detail_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
         self.assertEqual(detail_response.status_code, 200)
@@ -248,6 +252,44 @@ class TestExternalDataSource(APIBaseTest):
             self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
 
         self.assertEqual(len(many_source_queries.captured_queries), len(one_source_queries.captured_queries))
+
+    def _make_credentialed_schema(self, source: ExternalDataSource, name: str) -> ExternalDataSchema:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key=f"key-{name}", access_secret=f"secret-{name}"
+        )
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            credential=credential,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.id, name=name, table=table, should_sync=True
+        )
+
+    def test_retrieve_query_count_does_not_scale_with_schema_count(self):
+        # Retrieve serializes columns (include_columns=True), and building them reads
+        # table.credential.access_key per schema. The prefetch must keep credentials joined on this
+        # path; if it stops, each schema adds a credential SELECT. Guards the N+1 on the detail page.
+        source = self._make_source("detail")
+        self._make_credentialed_schema(source, "first")
+
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/"
+        self.client.get(url)  # warm
+
+        with CaptureQueriesContext(connection) as one_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        for index in range(4):
+            self._make_credentialed_schema(source, f"more-{index}")
+
+        with CaptureQueriesContext(connection) as many_schema_queries:
+            assert self.client.get(url).status_code == 200
+
+        self.assertEqual(len(many_schema_queries.captured_queries), len(one_schema_queries.captured_queries))
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

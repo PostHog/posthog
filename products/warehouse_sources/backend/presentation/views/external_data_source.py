@@ -1524,12 +1524,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
                 .exclude(deleted=True)
-                .select_related("table__external_data_source")
+                # This is the update() response path, which serializes the full column shape
+                # (include_columns=True) — building columns reads table.credential.access_key per schema,
+                # so keep the credential joined here to avoid an N+1.
+                .select_related("table__credential", "table__external_data_source")
                 .order_by("name")
             )
             # `get_status`/`get_latest_error` derive the active/errored subset from this prefetch, so no
-            # separate `active_schemas` query is needed. `table__credential` is not read during
-            # serialization, so it is not joined.
+            # separate `active_schemas` query is needed.
             updated_source_any = cast(Any, updated_source)
             updated_source_any._prefetched_objects_cache = {"schemas": schemas}
 
@@ -2094,6 +2096,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         canonical_source = _canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
         queryset = _hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
 
+        # `table__credential` holds EncryptedTextField key material. The list never reads it (trimmed
+        # schema shape, include_columns=False), so joining it across every schema — tens of thousands on
+        # large sources — is pure waste there and is dropped. Every other action serializes columns
+        # (include_columns=True), and building them reads `table.credential.access_key` per schema
+        # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
+        schema_select = ["table__external_data_source"]
+        if self.action != "list":
+            schema_select.append("table__credential")
+
         return (
             queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
@@ -2109,16 +2120,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     )[:1],
                     to_attr="ordered_jobs",
                 ),
-                # The one place schemas are read during serialization. `table__credential` is deliberately
-                # NOT joined: it holds EncryptedTextField key material no list/retrieve serializer reads,
-                # and joining it across every schema (tens of thousands on large sources) was a major cost.
-                # `active_schemas` used to be a second prefetch over the same rows — it's now derived in
-                # Python from this one (see `_active_schemas`), so the schema table is scanned once.
+                # The one place schemas are read during serialization. `active_schemas` used to be a
+                # second prefetch over the same rows — it's now derived in Python from this one (see
+                # `_active_schemas`), so the schema table is scanned once.
                 Prefetch(
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
-                    .select_related("table__external_data_source")
+                    .select_related(*schema_select)
                     .order_by("name"),
                 ),
             )

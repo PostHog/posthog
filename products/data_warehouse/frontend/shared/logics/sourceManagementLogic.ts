@@ -41,9 +41,10 @@ import { sourcesDataLogic } from './sourcesDataLogic'
 
 // Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
 // list response can be very large (a source can have tens of thousands of schemas), so refetching it
-// every 10s when nothing is changing wastes server work and can pile up behind slow requests.
+// every 10s when nothing is changing wastes server work and can pile up behind slow requests. The idle
+// cadence still bounds how long a server-started sync (scheduled, not user-triggered) takes to appear.
 const REFRESH_INTERVAL = 10000
-const IDLE_REFRESH_INTERVAL = 30000
+const IDLE_REFRESH_INTERVAL = 15000
 
 const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSource> | null): boolean =>
     (sources?.results ?? []).some(

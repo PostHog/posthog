@@ -244,6 +244,16 @@ def _apply_primary_key_columns(
         )
 
 
+def schema_display_status(schema: ExternalDataSchema) -> str | None:
+    """The user-facing sync status, mapping the two billing-limit statuses to friendly labels.
+    Shared by the full and list schema serializers so the labels stay identical."""
+    if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+        return "Billing limits"
+    if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
+        return "Billing limits too low"
+    return schema.status
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -545,13 +555,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return attrs
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
-        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
-            return "Billing limits"
-
-        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
-            return "Billing limits too low"
-
-        return schema.status
+        return schema_display_status(schema)
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
@@ -1335,10 +1339,12 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     """Trimmed schema representation for the source LIST endpoint.
 
     The sources list embeds every schema of every source, and a large project can have tens of
-    thousands of schemas. The list only renders per-schema sync status, the sync toggle, the latest
-    error, and the synced table's row count and name — so this serializer emits just those fields.
-    It skips the column metadata, sync configuration, and per-schema SourceRegistry/HogQL work that
-    the full `ExternalDataSchemaSerializer` computes, which otherwise dominates the request.
+    thousands of schemas. This serializer emits only the fields the list consumers read: sync status,
+    the sync toggle, sync type, last sync, the latest error, and the synced table's name and row count.
+    It skips column metadata, the rest of the sync configuration, and the per-schema SourceRegistry/HogQL
+    work that the full `ExternalDataSchemaSerializer` computes, which otherwise dominates the request.
+    `sync_type` is kept as a plain stored field (no per-row recompute) because the PostHog Desktop app
+    reads it from this list to decide whether a schema needs an update.
     """
 
     table = serializers.SerializerMethodField(
@@ -1348,7 +1354,17 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSchema
-        fields = ["id", "name", "label", "should_sync", "status", "latest_error", "table"]
+        fields = [
+            "id",
+            "name",
+            "label",
+            "should_sync",
+            "status",
+            "sync_type",
+            "last_synced_at",
+            "latest_error",
+            "table",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(
@@ -1370,11 +1386,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
-        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
-            return "Billing limits"
-        if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW:
-            return "Billing limits too low"
-        return schema.status
+        return schema_display_status(schema)
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
