@@ -885,10 +885,9 @@ export const commentsLogic = kea<commentsLogicType>([
     selectors({
         key: [() => [(_, props) => props], (props): string => `${props.scope}-${props.item_id || ''}`],
 
-        // Every handler on the `comments` loader shares `commentsLoading`, including the background
-        // poll's `refreshComments` and the local writes. Only the very first load has nothing to put
-        // on screen; once `comments` is an array the thread is renderable, empty or not, so a
-        // surface that swaps in a skeleton on `commentsLoading` would flash it away on every poll.
+        // `commentsLoading` is shared by every handler on the `comments` loader, including the
+        // background poll's `refreshComments`, so a surface that swaps in a skeleton on it would
+        // flash away a thread that has already loaded.
         commentsInitialLoading: [
             (s) => [s.comments, s.commentsLoading],
             (comments: CommentType[] | null, commentsLoading: boolean): boolean => !comments && commentsLoading,

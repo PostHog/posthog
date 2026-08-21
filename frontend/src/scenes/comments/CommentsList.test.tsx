@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -12,16 +12,13 @@ import { commentsLogic } from './commentsLogic'
 
 const PROPS = { scope: ActivityScope.TICKET, item_id: 'ticket-1' }
 
-afterEach(cleanup)
-
 describe('CommentsList', () => {
-    // Loading, empty, and loaded are three different screens, and a thread that has already answered
-    // is never the first of them again. The ticket page refreshes this one every 20 seconds, and
-    // every handler on the `comments` loader shares one loading flag with the first fetch.
-    it('shows the empty state once loaded and keeps it through a background refresh', async () => {
+    let logic: ReturnType<typeof commentsLogic.build>
+    let answerFirstLoad: () => void = () => {}
+
+    beforeEach(() => {
         initKeaTests()
 
-        let answerFirstLoad: () => void = () => {}
         const firstLoadReached = new Promise<void>((resolve) => {
             answerFirstLoad = resolve
         })
@@ -35,9 +32,13 @@ describe('CommentsList', () => {
             },
         })
 
-        const logic = commentsLogic(PROPS)
+        logic = commentsLogic(PROPS)
         logic.mount()
+    })
 
+    // The background poll shares one loading flag with the first fetch, so a skeleton keyed off
+    // that flag takes the empty state off screen every time the poll runs.
+    it('shows the empty state once loaded and keeps it through a background refresh', async () => {
         render(
             <Provider>
                 <CommentsList {...PROPS} />
