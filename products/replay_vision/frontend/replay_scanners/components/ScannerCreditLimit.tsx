@@ -47,7 +47,7 @@ export function ScannerCreditLimit({ scannerId }: ScannerCreditLimitProps): JSX.
                                 <div className="w-40">
                                     <LemonInput
                                         type="number"
-                                        value={limit ?? undefined}
+                                        value={limit ?? NaN}
                                         onChange={(v) =>
                                             // The toggle is materialized on edit too, so clearing a loaded limit blocks the save.
                                             setScannerValues({
