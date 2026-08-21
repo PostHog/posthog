@@ -402,8 +402,51 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
         ):
             call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
 
-        assert OAuthAccessToken.objects.filter(pk=shared.pk).exists()
+        # The sibling keeps working, and this team can no longer reach anything through it.
+        shared.refresh_from_db()
+        assert shared.scoped_teams == [other_team.pk]
         assert not OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+
+    @patch("stripe.StripeClient")
+    def test_a_multi_team_legacy_credential_cannot_keep_reaching_this_team(self, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        other_team = Team.objects.create(organization=self.organization, name="Second team")
+        integration, _, _ = self._create_integration_with_token(
+            self.team, "acct_multi", self.old_app, created_by=self.user
+        )
+        # What a leaked legacy credential looks like after the provisioning refresh recomputes
+        # its scope: still on the orchestrator application, now covering more than one team.
+        widened = OAuthAccessToken.objects.create(
+            application=self.old_app,
+            token="ph_access_widened",
+            user=self.user,
+            expires=timezone.now() + timedelta(days=14),
+            scope="query:read",
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+        widened_refresh = OAuthRefreshToken.objects.create(
+            application=self.old_app,
+            token="ph_refresh_widened",
+            user=self.user,
+            access_token=widened,
+            scoped_teams=[self.team.pk, other_team.pk],
+        )
+
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=StringIO())
+
+        widened.refresh_from_db()
+        widened_refresh.refresh_from_db()
+        assert self.team.pk not in widened.scoped_teams
+        assert self.team.pk not in widened_refresh.scoped_teams
+        assert widened.scoped_teams == [other_team.pk]
 
     @parameterized.expand(
         [

@@ -54,15 +54,18 @@ def evict_team_oauth_tokens(
     *,
     keep_access_token_ids: Collection[int] = (),
 ) -> None:
-    """Remove every OAuth credential these applications hold for one team.
+    """Remove one team's access to every OAuth credential these applications hold.
 
     Refresh tokens are matched by application and team rather than through their access token.
     A rotation leaves its predecessor with `access_token` NULL, and the Stripe provisioning
     refresh sets no `source_refresh_token`, so a link-based match misses rows that stay
     replayable for REFRESH_TOKEN_GRACE_PERIOD_SECONDS.
 
-    Only credentials scoped to this team alone are removed. A provisioning token can be scoped
-    to several teams at once, and evicting one team must not strip the others.
+    A credential covering several teams is narrowed rather than deleted, because the Stripe
+    provisioning refresh recomputes a multi-team scope: deleting it would strip teams this
+    eviction was never asked to touch, and skipping it would leave this team reachable.
+    Narrowing never empties the list, since an empty `scoped_teams` reads as unrestricted;
+    a credential that covered only this team is deleted instead.
 
     Two locks, because the minting paths do not agree on one: `lock_oauth_connection` covers
     DOT's refresh, and the application row lock covers the Stripe provisioning refresh. Row
@@ -71,11 +74,11 @@ def evict_team_oauth_tokens(
     if not applications:
         return
 
-    scoped_to_team = {"application__in": applications, "scoped_teams": [team_id]}
+    covers_team = {"application__in": applications, "scoped_teams__contains": [team_id]}
 
     with transaction.atomic():
-        user_ids = set(OAuthAccessToken.objects.filter(**scoped_to_team).values_list("user_id", flat=True)) | set(
-            OAuthRefreshToken.objects.filter(**scoped_to_team).values_list("user_id", flat=True)
+        user_ids = set(OAuthAccessToken.objects.filter(**covers_team).values_list("user_id", flat=True)) | set(
+            OAuthRefreshToken.objects.filter(**covers_team).values_list("user_id", flat=True)
         )
         # Advisory lock before any row lock, and both in a fixed order, so this cannot deadlock
         # against a mint taking the same locks.
@@ -86,8 +89,22 @@ def evict_team_oauth_tokens(
         for application_id in sorted(application.id for application in applications):
             OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
-        OAuthRefreshToken.objects.filter(**scoped_to_team).exclude(access_token_id__in=keep_access_token_ids).delete()
-        OAuthAccessToken.objects.filter(**scoped_to_team).exclude(id__in=keep_access_token_ids).delete()
+        for model, keep_field in ((OAuthRefreshToken, "access_token_id"), (OAuthAccessToken, "id")):
+            shared = (
+                model.objects.filter(**covers_team)
+                .exclude(scoped_teams=[team_id])
+                .exclude(**{f"{keep_field}__in": keep_access_token_ids})
+            )
+            for token in shared:
+                token.scoped_teams = [scoped for scoped in token.scoped_teams if scoped != team_id]
+                token.save(update_fields=["scoped_teams"])
+
+        OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams=[team_id]).exclude(
+            access_token_id__in=keep_access_token_ids
+        ).delete()
+        OAuthAccessToken.objects.filter(application__in=applications, scoped_teams=[team_id]).exclude(
+            id__in=keep_access_token_ids
+        ).delete()
 
 
 class StripeIntegration:
