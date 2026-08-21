@@ -47,4 +47,16 @@ describe('getPasskeyErrorMessage', () => {
             'This passkey is not registered.'
         )
     })
+
+    // The webauthn endpoints return their messages as `{ error: ... }`, so ApiError keeps the text
+    // on `data.error`/`data.message` with `detail` null. A detail-only lookup would drop it and
+    // show the generic message, telling e.g. an SSO-only user to retry an action that cannot succeed.
+    it.each([
+        ['error field', { error: 'You can only login with SSO for this account.' }],
+        ['message field', { message: 'An account with this email already exists.' }],
+    ])('surfaces the server text from a webauthn `{ %s }` response body', (_label, body) => {
+        const expected = Object.values(body)[0]
+        const error = new ApiError(expected, 400, undefined, body)
+        expect(getPasskeyErrorMessage(error)).toBe(expected)
+    })
 })

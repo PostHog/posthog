@@ -38,10 +38,15 @@ export function getPasskeyErrorMessage(error: any, defaultMessage?: string): str
         return WEBAUTHN_ERROR_MESSAGES[error.name]
     }
 
-    // Only trust a server-provided `detail`. Falling back to `error.message` would surface the
-    // raw internal fallback string (e.g. "Non-OK response [POST ...] (status 503)") to the user.
-    if (error?.detail) {
-        return error.detail
+    // Read the server text from the parsed response body, never from the synthesized
+    // `error.message`, which holds the raw internal fallback string (e.g.
+    // "Non-OK response [POST ...] (status 503)") when the body was empty. The webauthn endpoints
+    // return their messages as `{ "error": ... }`, which ApiError keeps on `error.data` while
+    // leaving `detail` null, so a `detail`-only lookup would drop actionable text like the
+    // SSO-only or account-already-exists notices.
+    const serverMessage = error?.detail ?? error?.data?.error ?? error?.data?.message
+    if (typeof serverMessage === 'string' && serverMessage) {
+        return serverMessage
     }
 
     return defaultMessage ?? 'Passkey authentication failed. Please try again.'
