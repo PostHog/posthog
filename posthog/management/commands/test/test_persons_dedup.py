@@ -82,7 +82,6 @@ def _cleanup(conn: psycopg.Connection) -> None:
             (TEAM,),
         )
         cur.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s", (TEAM,))
-        cur.execute("DELETE FROM posthog_person_reconciliation_backup WHERE team_id = %s", (TEAM,))
         cur.execute("DELETE FROM posthog_person WHERE team_id = %s", (TEAM,))
 
 
@@ -187,16 +186,6 @@ def _orphaned_cohort_rows(conn: psycopg.Connection, cohort_id: int = 4242) -> in
         "AND NOT EXISTS (SELECT 1 FROM posthog_person p WHERE p.id = cp.person_id)",
         (cohort_id,),
     )
-
-
-def _add_recon_backup_row(conn: psycopg.Connection, person_id: int, uuid: str) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO posthog_person_reconciliation_backup "
-            "(job_id, team_id, person_id, uuid, properties, is_identified, created_at, pending_operations) "
-            "VALUES ('test-job', %s, %s, %s, '{}'::jsonb, false, now(), '{}'::jsonb)",
-            (TEAM, person_id, uuid),
-        )
 
 
 def _orphan_a_distinct_id(conn: psycopg.Connection, person_id: int) -> None:
@@ -560,36 +549,6 @@ class TestPersonsDedupRepair:
         assert _persons(persons_conn) == 1
         assert _cohort_rows(persons_conn) == 1
 
-    def test_deletes_an_orphan_the_reconciliation_backup_references_and_takes_the_backup_row(
-        self, persons_conn, tmp_path
-    ):
-        # A reconciliation backup row does not make a person live. Its restore path reads the
-        # person by id and treats a missing row as a skip, so refusing this delete only left a
-        # dead row behind, plus a backup row that would warn on every future restore and keep
-        # the deleted person's properties. Both go together now.
-        uuid = _uuid(27)
-        live = _add_person(persons_conn, uuid)
-        _add_distinct_id(persons_conn, live, "did-27")
-        held = _add_person(persons_conn, uuid)
-        _add_recon_backup_row(persons_conn, held, uuid)
-
-        _run("repair", tmp_path, apply=True)
-
-        assert _persons(persons_conn) == 1
-        assert _dup_groups(persons_conn) == 0
-        assert (
-            _count(
-                persons_conn,
-                "SELECT count(*) FROM posthog_person_reconciliation_backup WHERE team_id = %s",
-                (TEAM,),
-            )
-            == 0
-        ), "the backup row must not outlive the person it describes"
-        records = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
-        assert any(r["_kind"] == "reconciliation_backup" and r["person_id"] == held for r in records), (
-            "the backup row must be recoverable from the undo file"
-        )
-
     def test_deletes_an_orphan_stranded_inside_a_merge_required_group(self, persons_conn, tmp_path):
         # Two live rows need a real merge, which this command refuses. The third row owns no
         # mapping and is dead on exactly the same terms as any other orphan -- its deadness has
@@ -730,15 +689,13 @@ class TestPersonsDedupSurvivorSelection:
 
         assert list(tmp_path.glob("blocked_team_*.jsonl")) == []
 
-    def test_a_reconciliation_backup_row_does_not_claim_the_blocking_reason(self, persons_conn, tmp_path):
-        # The backup stopped refusing deletes, so it must not be named as the cause either.
-        # This group is held by its tombstone; attributing it to the backup would send the
-        # follow-up work at the wrong table.
+    def test_a_tombstoned_member_is_named_as_the_blocking_reason(self, persons_conn, tmp_path):
+        # A group whose only extra member is a tombstone is refused, and the reason has to name
+        # the tombstone so the follow-up work is not sent at the wrong table.
         uuid = _uuid(83)
         survivor = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, survivor, "did-83")
-        tombstoned = _add_person(persons_conn, uuid, is_deleted=True)
-        _add_recon_backup_row(persons_conn, tombstoned, uuid)
+        _add_person(persons_conn, uuid, is_deleted=True)
 
         _run("classify", tmp_path)
 
@@ -747,7 +704,6 @@ class TestPersonsDedupSurvivorSelection:
         ]
         assert len(records) == 1
         assert records[0]["reason"] == "tombstoned_member"
-        assert records[0]["recon_held"] == 1, "still reported, just not as the reason"
 
     def test_two_distinct_id_owners_are_blocked_even_when_one_is_unreachable(self, persons_conn, tmp_path):
         # live_owners is what refuses the group; reachable_owners only says whether the product
@@ -854,8 +810,7 @@ class TestPersonsDedupPrivilegePreflight:
     def test_every_table_the_command_deletes_from_is_probed_for_delete(self):
         # The preflight exists so a missing grant aborts before any work. It is only worth
         # that if it covers every table written to -- a DELETE added without a matching
-        # probe fails mid-transaction on the first team whose data reaches it, which is
-        # exactly how the reconciliation-backup delete shipped.
+        # probe fails mid-transaction on the first team whose data reaches it.
         deleted_tables = set()
         for name, sql in vars(persons_dedup_command).items():
             if not name.startswith("DELETE_") or not isinstance(sql, str):
@@ -981,7 +936,6 @@ class TestPersonsDedupClassifyCounters:
         held = _add_person(conn, _uuid(94))
         _add_cohort_member(conn, held)
         _add_flag_override(conn, held, "flag-94")
-        _add_recon_backup_row(conn, held, _uuid(94))
 
     def test_classify_reports_every_counter_for_every_group_shape(self, persons_conn, tmp_path):
         self._seed_every_shape(persons_conn)
@@ -1001,7 +955,6 @@ class TestPersonsDedupClassifyCounters:
         assert result["distinct_ids"] == 5
         assert result["cohort_rows"] == 1
         assert result["flag_overrides"] == 1
-        assert result["reconciliation_rows"] == 1
 
     def test_a_long_step_is_bracketed_so_progress_is_visible(self, persons_conn, tmp_path):
         # A census emits nothing while it runs, so without these a slow scan and a hung one
@@ -1197,7 +1150,6 @@ class TestPersonsDedupCensusSlicing:
             if shape == 4:
                 _add_cohort_member(conn, b)
                 _add_flag_override(conn, b, f"spread-flag-{shape}")
-                _add_recon_backup_row(conn, b, uuid)
 
     @pytest.mark.parametrize("slices", SLICES)
     def test_classify_reports_the_same_totals_at_any_slice_count(self, persons_conn, tmp_path, slices):
@@ -1218,7 +1170,6 @@ class TestPersonsDedupCensusSlicing:
             "distinct_ids": 5,
             "cohort_rows": 1,
             "flag_overrides": 1,
-            "reconciliation_rows": 1,
         }
         assert result["resolvable_groups"] == 3
 

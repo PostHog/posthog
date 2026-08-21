@@ -51,10 +51,9 @@ before every delete and again inside the transaction:
     posthog_persondistinctid              FK NO ACTION -> Postgres blocks the delete
     posthog_featureflaghashkeyoverride    FK CASCADE   -> silently removes overrides
     posthog_cohortpeople                  no FK        -> silently orphans rows
-    posthog_person_reconciliation_backup  no FK        -> silently orphans rows
 
-Only the first fails loudly, so the two without a foreign key are deleted explicitly and
-before the person row, letting a failure there abort before anything is lost. In production the
+Only the first fails loudly, so the one without a foreign key is deleted explicitly and before
+the person row, letting a failure there abort before anything is lost. In production the
 override FK is DEFERRABLE INITIALLY DEFERRED, so that cascade runs at COMMIT rather than at the
 DELETE, and the transaction's statement_timeout has to cover it.
 
@@ -142,10 +141,9 @@ PERSON_COLUMNS = (
     "is_deleted",
 )
 
-# Reference counts per member row of a duplicate group. n_recon is reported but does not
-# block a delete. The personhog lifecycle and shadow tables are deliberately not consulted:
-# their ACLs are owner-only, so a subquery against them fails with permission denied for the
-# operator role.
+# Reference counts per member row of a duplicate group. Only tables a live read path can reach
+# are consulted: the personhog lifecycle and shadow tables are owner-only, so a subquery against
+# them fails with permission denied for the operator role.
 _MEMBERS_CTE_TEMPLATE = """
 {dups}
 members AS (
@@ -163,9 +161,7 @@ members AS (
            (SELECT count(*) FROM posthog_cohortpeople cp
              WHERE cp.person_id = p.id) AS n_cohort,
            (SELECT count(*) FROM posthog_featureflaghashkeyoverride ff
-             WHERE ff.team_id = p.team_id AND ff.person_id = p.id) AS n_ff,
-           (SELECT count(*) FROM posthog_person_reconciliation_backup rb
-             WHERE rb.team_id = p.team_id AND rb.person_id = p.id) AS n_recon
+             WHERE ff.team_id = p.team_id AND ff.person_id = p.id) AS n_ff
     FROM posthog_person p
     JOIN dups d ON d.team_id = p.team_id AND d.uuid = p.uuid
     WHERE p.team_id = %(team)s
@@ -174,7 +170,7 @@ members AS (
 -- puts reachability ahead of it, so n_cohort and n_ff only ever break a tie between rows
 -- that are all unreachable. They look load-bearing for survivor choice and are not.
 scored AS (
-    SELECT *, (n_did + n_cohort + n_ff + n_recon) AS refs FROM members
+    SELECT *, (n_did + n_cohort + n_ff) AS refs FROM members
 ),
 ranked AS (
     SELECT *,
@@ -195,12 +191,10 @@ per_group AS (
            count(*) FILTER (WHERE n_did > 0) AS live_owners,
            count(*) FILTER (WHERE n_did_live > 0) AS reachable_owners,
            count(*) FILTER (WHERE is_deleted) AS tombstoned,
-           count(*) FILTER (WHERE n_recon > 0) AS recon_held,
            count(*) FILTER (WHERE refs > 0) AS referenced_members,
            sum(n_did)::bigint AS distinct_ids,
            sum(n_ff)::bigint AS flag_overrides,
            sum(n_cohort)::bigint AS cohort_rows,
-           sum(n_recon)::bigint AS recon_rows,
            count(*) FILTER (WHERE rn > 1 AND n_did = 0 AND NOT is_deleted) AS stageable
     FROM ranked GROUP BY uuid
 )
@@ -325,7 +319,6 @@ CLASSIFY_COLUMNS = (
     "distinct_ids",
     "cohort_rows",
     "flag_overrides",
-    "reconciliation_rows",
 )
 
 CLASSIFY_TAIL = """
@@ -339,8 +332,7 @@ SELECT
     COALESCE(sum(tombstoned), 0),
     COALESCE(sum(distinct_ids), 0),
     COALESCE(sum(cohort_rows), 0),
-    COALESCE(sum(flag_overrides), 0),
-    COALESCE(sum(recon_rows), 0)
+    COALESCE(sum(flag_overrides), 0)
 FROM per_group
 """
 
@@ -350,15 +342,10 @@ INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_deleted
 """
 
-# Repair: a non-survivor owning NO distinct IDs. Unreachable by definition, so its
-# feature-flag overrides, cohort rows and reconciliation backup are dead data that go with it.
-# n_did = 0 does more work than it looks: because it counts tombstoned mappings as well as live
-# ones, it excludes both rows a foreign key would refuse to delete and rows the product can
-# still resolve.
-#
-# A reconciliation backup row is not a reason to skip a delete. Its restore path reads the
-# person by id and returns early when the row is gone
-# (person_property_reconciliation_restore.py:326), which the caller counts as a skip.
+# Repair: a non-survivor owning NO distinct IDs. Unreachable by definition, so its feature-flag
+# overrides and cohort rows are dead data that go with it. n_did = 0 does more work than it
+# looks: because it counts tombstoned mappings as well as live ones, it excludes both rows a
+# foreign key would refuse to delete and rows the product can still resolve.
 _STAGE_UNREACHABLE_TAIL = f"""
 INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked
@@ -369,8 +356,8 @@ WHERE rn > 1
 
 # Groups repair cannot resolve, counted the way the staging query above decides: a group
 # with two live distinct-ID owners needs a real person merge, and a group that keeps more
-# than one member after every stageable victim is removed is held by something else
-# (reconciliation backup, or a tombstone this command deliberately will not touch).
+# than one member after every stageable victim is removed is held by a tombstone this command
+# deliberately will not touch.
 # verify uses this to tell "dedup is incomplete" from "this is the remainder we accept".
 COUNT_BLOCKED_TAIL = """
 SELECT count(*), count(*) FILTER (WHERE live_owners > 1 OR members - stageable > 1)
@@ -380,7 +367,7 @@ FROM per_group
 # Everything needed to resolve a group this command refuses, without re-deriving it: which
 # rows are in the group, which of them the product can still reach, what hangs off them, and
 # why it was refused. The merge work needs the reachable pair and the override count; the
-# reconciliation and tombstone cases need to be told apart from it.
+# tombstone case needs to be told apart from it.
 BLOCKED_DETAIL_TAIL = """,
 -- `ranked` is referenced more than once, so Postgres materializes it without an index.
 -- Aggregating the ids here costs one grouped pass; correlating a subquery against
@@ -393,15 +380,14 @@ group_ids AS (
 )
 SELECT g.uuid,
        -- Mirrors the WHERE below branch for branch, so the reason names the condition that
-       -- actually refused the group. A reconciliation backup row is reported but is never the
-       -- reason, because it does not refuse a delete. 'other' should be unreachable: the
-       -- survivor ranking puts any row owning a distinct ID first, so a group with one live
-       -- owner and no tombstone always resolves to a single member.
+       -- actually refused the group. 'other' should be unreachable: the survivor ranking puts
+       -- any row owning a distinct ID first, so a group with one live owner and no tombstone
+       -- always resolves to a single member.
        CASE WHEN g.reachable_owners > 1 THEN 'multiple_reachable_rows'
             WHEN g.live_owners > 1      THEN 'multiple_distinct_id_owners'
             WHEN g.tombstoned > 0       THEN 'tombstoned_member'
             ELSE 'other' END AS reason,
-       g.members, g.reachable_owners, g.live_owners, g.tombstoned, g.recon_held,
+       g.members, g.reachable_owners, g.live_owners, g.tombstoned,
        g.flag_overrides, g.cohort_rows,
        ids.member_ids, ids.reachable_ids
 FROM per_group g
@@ -526,10 +512,6 @@ UNION ALL
 SELECT 'cohortpeople', cp.id, cp.person_id, cp.cohort_id::text, NULL
 FROM posthog_cohortpeople cp
 JOIN {VICTIMS_TABLE}_batch b ON b.id = cp.person_id
-UNION ALL
-SELECT 'reconciliation_backup', NULL, rb.person_id, rb.job_id::text, rb.properties::text
-FROM posthog_person_reconciliation_backup rb
-JOIN {VICTIMS_TABLE}_batch b ON b.team_id = rb.team_id AND b.id = rb.person_id
 """
 
 # Cohort rows have no FK, so the cascade will not remove them. Delete explicitly, before
@@ -537,16 +519,6 @@ JOIN {VICTIMS_TABLE}_batch b ON b.team_id = rb.team_id AND b.id = rb.person_id
 DELETE_COHORT_SQL = f"""
 DELETE FROM posthog_cohortpeople cp
 USING {VICTIMS_TABLE}_batch b WHERE cp.person_id = b.id
-"""
-
-# Same shape, same reason: no FK, so nothing removes these for us. Left behind they would
-# warn on every future restore run and keep a deleted person's properties indefinitely.
-# The restore path already treats a missing person as a skip, so removing both together is
-# the outcome it would reach anyway.
-DELETE_RECON_BACKUP_SQL = f"""
-DELETE FROM posthog_person_reconciliation_backup rb
-USING {VICTIMS_TABLE}_batch b
-WHERE rb.team_id = b.team_id AND rb.person_id = b.id
 """
 
 # posthog_cohortpeople has no FK to posthog_person, so nothing at the database level
@@ -589,7 +561,6 @@ READ_PRIVILEGES = (
     ("posthog_persondistinctid", "SELECT"),
     ("posthog_featureflaghashkeyoverride", "SELECT"),
     ("posthog_cohortpeople", "SELECT"),
-    ("posthog_person_reconciliation_backup", "SELECT"),
 )
 # posthog_featureflaghashkeyoverride needs no DELETE: its rows go via the FK's ON DELETE
 # CASCADE, and Postgres runs referential actions as the referencing table's owner.
@@ -597,7 +568,6 @@ WRITE_PRIVILEGES = (
     *READ_PRIVILEGES,
     ("posthog_person", "DELETE"),
     ("posthog_cohortpeople", "DELETE"),
-    ("posthog_person_reconciliation_backup", "DELETE"),
 )
 
 # Aurora cancels a long read-only query on a reader with 40001, or drops the session with
@@ -980,7 +950,6 @@ class Command(BaseCommand):
         "reachable_owners",
         "live_owners",
         "tombstoned",
-        "recon_held",
         "flag_overrides",
         "cohort_rows",
         "member_ids",
@@ -1037,10 +1006,6 @@ class Command(BaseCommand):
                 "persons_dedup.needs_real_merge",
                 team_id=team,
                 groups=counts["groups_with_distinct_ids_on_multiple_rows"],
-            )
-        if counts["reconciliation_rows"]:
-            logger.warning(
-                "persons_dedup.reconciliation_backup_references", team_id=team, recon=counts["reconciliation_rows"]
             )
         if counts["tombstoned_members"]:
             logger.warning(
@@ -1298,7 +1263,6 @@ class Command(BaseCommand):
                         raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
 
                     cur.execute(DELETE_COHORT_SQL)
-                    cur.execute(DELETE_RECON_BACKUP_SQL)
                     cur.execute(DELETE_PERSONS_SQL, {"team": team})
                     removed = cur.rowcount
                     if removed != in_batch:
