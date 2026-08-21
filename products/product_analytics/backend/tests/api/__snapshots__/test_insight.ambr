@@ -595,7 +595,15 @@
          "posthog_insightvariable"."values_query",
          "posthog_insightvariable"."values_query_connection_id"
   FROM "posthog_insightvariable"
-  WHERE "posthog_insightvariable"."team_id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_insightvariable"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_insightvariable"."team_id" =
+           (SELECT U0."parent_team_id" AS "parent_team_id"
+            FROM "posthog_team" U0
+            WHERE U0."id" = 99999
+            LIMIT 1)
+         OR ("posthog_team"."parent_team_id" IS NULL
+             AND "posthog_insightvariable"."team_id" = 99999))
+  ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.14

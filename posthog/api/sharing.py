@@ -8,6 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Model, Q
 from django.shortcuts import render
+from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -443,7 +444,9 @@ class SharingConfigurationViewSet(
             except Notebook.DoesNotExist:
                 raise NotFound("Notebook not found.")
 
-        context["insight_variables"] = insight_variables_for_team(self.team.pk)
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
 
         return context
 
@@ -1027,7 +1030,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
             "get_team": lambda: resource.team,
-            "insight_variables": insight_variables_for_team(resource.team.pk),
+            "insight_variables": SimpleLazyObject(lambda: insight_variables_for_team(resource.team.pk)),
             "export_cache_keys": export_cache_keys,
             "shared_link_user": shared_link_user,
             # exported_data is embedded into the page with stdlib json.dumps, which cannot

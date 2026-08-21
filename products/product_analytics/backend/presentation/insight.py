@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Count, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
+from django.utils.functional import SimpleLazyObject
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -170,7 +171,7 @@ from products.product_analytics.backend.facade.api import (
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
-    record_insight_view,
+    record_insight_views,
     refresh_insight_views,
     with_last_viewed_at,
 )
@@ -828,7 +829,7 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
+        record_insight_views(team_id=team_id, user_id=request.user.pk, last_viewed_at_by_insight_id={insight.pk: now()})
 
         if placement is not None:
             for dashboard in placement.create_tiles(insight):
@@ -1834,7 +1835,9 @@ class InsightViewSet(
             # Sharing-token API refreshes authenticate as the shared-link viewer; expose it under
             # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
             context["shared_link_user"] = self.request.user
-        context["insight_variables"] = insight_variables_for_team(self.team.pk)
+        # Deferred: every insight and dashboard response carries this, but only payloads that
+        # hold variables read it, so resolving it eagerly costs a query on every list request.
+        context["insight_variables"] = SimpleLazyObject(lambda: insight_variables_for_team(self.team.pk))
         context["compute_surface"] = (
             ComputeSurface.INSIGHT_LIST if self.action == "list" else ComputeSurface.INSIGHT_DETAIL
         )
