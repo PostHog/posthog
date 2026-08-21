@@ -1,6 +1,7 @@
 from django.db import OperationalError
 
 from posthog.sync import database_sync_to_async
+from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
@@ -35,6 +36,11 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
         except OperationalError as e:
+            # Only a statement cancelled by statement_timeout (SQLSTATE 57014) is worth retrying with
+            # a narrower read. Let connection loss, shutdown, deadlocks, and the like reach the generic
+            # handler so they are logged and captured instead of mislabeled as a timeout.
+            if not is_query_canceled(e):
+                raise
             raise MaxToolTransientError(
                 "Reading the taxonomy timed out. This can happen on large projects. "
                 "You may retry, or read a narrower part of the taxonomy."

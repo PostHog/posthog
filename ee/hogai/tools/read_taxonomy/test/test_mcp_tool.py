@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from django.db import OperationalError
 
+from parameterized import parameterized
+
 from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
@@ -32,12 +34,22 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
 
         self.assertIsNotNone(content)
 
-    async def test_database_timeout_raises_transient_error(self):
+    @parameterized.expand(
+        [
+            ["statement timeout is retryable", "57014", MaxToolTransientError],
+            ["connection loss is not a timeout", "08006", OperationalError],
+        ]
+    )
+    async def test_operational_error_only_treats_statement_timeout_as_transient(
+        self, _name: str, sqlstate: str, expected_exception: type[Exception]
+    ):
+        error = OperationalError("database failure")
+        error.sqlstate = sqlstate  # type: ignore[attr-defined]
         with patch(
             "ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query",
-            side_effect=OperationalError("canceling statement due to statement timeout"),
+            side_effect=error,
         ):
-            with self.assertRaises(MaxToolTransientError):
+            with self.assertRaises(expected_exception):
                 await self.tool.execute(
                     ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "$pageview"}),
                 )
