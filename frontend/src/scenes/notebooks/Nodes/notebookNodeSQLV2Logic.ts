@@ -14,6 +14,7 @@ import {
 } from 'kea'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -36,6 +37,21 @@ export type SqlV2RunRef = {
     // the kernel namespace. The backend routes a SQL run to ClickHouse or the sandbox's DuckDB
     // based on which kinds the query actually references.
     kind: 'hogql' | 'local'
+}
+
+// Turn a run/result request failure into a message the user can act on. A 404 from the data
+// plane arrives as a bare backend string ("Notebook not found", "Query not found or expired",
+// "Not found") with no context, so name the object that is gone and what to do next. Every other
+// failure keeps its original message.
+export function sqlV2RunErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof ApiError && error.status === 404) {
+        const raw = (error.detail || error.message || '').toLowerCase()
+        if (raw.includes('notebook')) {
+            return 'This notebook could not be found. It may have been deleted.'
+        }
+        return 'This query result is no longer available. Run the cell again.'
+    }
+    return error instanceof Error ? error.message : fallback
 }
 
 // Map every sibling cell's dataframe name -> {node id, kind}, excluding the running node itself.
@@ -443,7 +459,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (error?.status === 409) {
                     lemonToast.info('This result was replaced by a newer run — showing the latest first page.')
                 } else {
-                    lemonToast.error(error?.detail || error?.message || 'Failed to fetch page')
+                    lemonToast.error(sqlV2RunErrorMessage(error, 'Failed to fetch page'))
                 }
                 // Either way the requested page never arrived — fall back to the envelope's
                 // first page rather than showing old rows under a new page number.
@@ -523,7 +539,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     actions.startPolling(run_id)
                 } catch (error) {
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to run query'))
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
@@ -639,7 +655,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (runId !== cache.activeRunId) {
                         return
                     }
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to fetch result'))
                     actions.stopPolling()
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 } finally {

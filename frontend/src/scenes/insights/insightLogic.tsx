@@ -123,6 +123,7 @@ export interface insightLogicValues {
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
     insightLoading: boolean
+    insightMissing: boolean
     insightName: string
     insightProps: InsightLogicProps
     insightSaving: boolean
@@ -311,6 +312,9 @@ export interface insightLogicActions {
         value: true
     }
     setAccessDeniedToInsight: () => {
+        value: true
+    }
+    setInsightMissing: () => {
         value: true
     }
     setInsight: (
@@ -599,6 +603,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
+        setInsightMissing: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
@@ -644,6 +649,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
 
                         if (!insight) {
+                            actions.setInsightMissing()
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
 
@@ -836,6 +842,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
+        insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
