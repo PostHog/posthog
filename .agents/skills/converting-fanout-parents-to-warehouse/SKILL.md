@@ -67,12 +67,15 @@ The diff for a qualified parent is deliberately small:
 
 ## Step 3 — test
 
-Sentry's suite (`sources/sentry/tests/test_sentry.py`) is the reference for shape; port the cases, not the vendor specifics:
+The machinery invariants — fallback gates, 404-ignore injection, flag-off behavior, resume checkpointing, filter validation, version pinning — are owned by the shared suites (`common/rest_source/tests/test_fanout.py`, `test_warehouse_parent.py`, `workflow_activities/tests/test_import_data_sync.py`).
+Do not re-test them per source; a conversion that copies those cases is testing the pipeline, not the conversion.
 
-- A required-parents contract test: `get_required_parent_schemas` returns the parent for converted children and `[]` for everything else. This is the test a reviewer reads to see the blast radius.
-- A both-paths parity test: identical rows out of the child with the parent mocked through the API path and through the warehouse reader.
-- Fallback tests: missing or unreadable parent table takes the API path; if the filter depends on a watermark, a full refresh (no watermark) must also take the API path.
-- If the child resumes, a checkpoint test pinning the parent's Delta version across the resume.
+A config-driven conversion adds exactly two things:
+
+- A required-parents contract test: `get_required_parent_schemas` returns the parent for converted children and `[]` for everything else, parameterized over the source's schemas. It is a checked statement of which children opted in — the blast radius a reviewer reads — so it cannot be shared.
+- A call into the shared parity harness in `common/rest_source/tests` with the source's own config: the harness fabricates parent rows from the child's fan-out config, serves them through the API path and through a temporary Delta table, and asserts the child emits identical rows both ways. This catches what generic-machinery tests structurally cannot — config-level mistakes such as a `resolve_field` the config doesn't fetch, an `include_from_parent` field whose physical type differs between paths, or a filter field the parent table stores unfilterably. If the harness doesn't exist yet, your conversion is the first config-driven one: build it in the shared tests as part of the conversion, not as a per-source copy.
+
+Custom-iterator children (no `DependentEndpointConfig`) can't ride the harness; they keep bespoke tests for their gating, filtering, and 404 handling — Sentry's suite (`sources/sentry/tests/test_sentry.py`) is the reference.
 
 ## Step 4 — validate and roll out
 
