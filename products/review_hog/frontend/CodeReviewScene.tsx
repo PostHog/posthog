@@ -61,6 +61,7 @@ import {
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { AdoptSkillModal } from './AdoptSkillModal'
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
@@ -1369,18 +1370,40 @@ function CreateYourOwnButton({ kind, label }: { kind: ReviewSkillKind; label: st
     const { creatingSkillKind } = useValues(reviewHogSettingsLogic)
     const { startSkillAuthorTask } = useActions(reviewHogSettingsLogic)
     return (
-        <div>
-            <LemonButton
-                type="secondary"
-                icon={<IconPlus />}
-                onClick={() => startSkillAuthorTask(kind)}
-                loading={creatingSkillKind === kind}
-                disabledReason={
-                    creatingSkillKind && creatingSkillKind !== kind ? 'Another authoring task is starting…' : undefined
-                }
-            >
-                {label}
-            </LemonButton>
+        <LemonButton
+            type="secondary"
+            icon={<IconPlus />}
+            onClick={() => startSkillAuthorTask(kind)}
+            loading={creatingSkillKind === kind}
+            disabledReason={
+                creatingSkillKind && creatingSkillKind !== kind ? 'Another authoring task is starting…' : undefined
+            }
+        >
+            {label}
+        </LemonButton>
+    )
+}
+
+function UseExistingSkillButton({ kind }: { kind: ReviewSkillKind }): JSX.Element {
+    const { openAdoptSkillModal } = useActions(reviewHogSettingsLogic)
+    return (
+        <LemonButton
+            type="secondary"
+            icon={<IconSearch />}
+            onClick={() => openAdoptSkillModal(kind)}
+            data-attr={`review-hog-adopt-skill-${kind}`}
+        >
+            Use an existing skill
+        </LemonButton>
+    )
+}
+
+/** The two ways to add a review skill, side by side under each kind's cards. */
+function AddSkillRow({ kind, createLabel }: { kind: ReviewSkillKind; createLabel: string }): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            <CreateYourOwnButton kind={kind} label={createLabel} />
+            <UseExistingSkillButton kind={kind} />
         </div>
     )
 }
@@ -1577,7 +1600,7 @@ function PerspectivesSection(): JSX.Element {
                     ))}
                 </div>
             )}
-            <CreateYourOwnButton kind="perspective" label="Create your own perspective" />
+            <AddSkillRow kind="perspective" createLabel="Create your own perspective" />
         </section>
     )
 }
@@ -1636,7 +1659,7 @@ function SingleActiveSection({
                     ))}
                 </div>
             )}
-            <CreateYourOwnButton kind={kind} label={createLabel} />
+            <AddSkillRow kind={kind} createLabel={createLabel} />
         </section>
     )
 }
@@ -1779,6 +1802,7 @@ export function CodeReviewScene(): JSX.Element {
                 <UrgencySection />
 
                 <SkillDrawer />
+                <AdoptSkillModal />
                 <ReviewDetailDrawer />
             </div>
         </SceneContent>

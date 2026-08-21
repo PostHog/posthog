@@ -134,6 +134,10 @@ export async function archiveTask(
 
     deps.cache.setArchivedTaskIds((old) => removeArchivedTaskId(old, taskId));
     deps.cache.setArchiveList((old) => removeArchivedTask(old, taskId));
+    // The rollback above assumes the failure left the task unarchived, which is
+    // a guess — the host may have stored the archive and failed afterwards. Ask
+    // it, so a task that is archived stays out of the sidebar either way.
+    deps.cache.invalidatePathFilter();
     if (wasPinned) {
       try {
         await deps.togglePin(taskId);

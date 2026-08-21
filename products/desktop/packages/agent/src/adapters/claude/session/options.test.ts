@@ -373,9 +373,10 @@ describe("buildSessionOptions", () => {
 
     it.each([
       {
-        name: "omits the team_id header when POSTHOG_PROJECT_ID is unset",
+        name: "omits the project-scope header when POSTHOG_PROJECT_ID is unset",
         projectId: undefined,
         existingHeaders: undefined,
+        bedrockGatewayVariant: undefined,
         expected: [
           "x-posthog-property-$ai_session_id: test-session",
           "x-posthog-use-bedrock-fallback: true",
@@ -385,6 +386,7 @@ describe("buildSessionOptions", () => {
         name: "forwards POSTHOG_PROJECT_ID as the gateway project scope",
         projectId: "42",
         existingHeaders: undefined,
+        bedrockGatewayVariant: undefined,
         expected: [
           "X-PostHog-Project-Id: 42",
           "x-posthog-property-$ai_session_id: test-session",
@@ -392,9 +394,10 @@ describe("buildSessionOptions", () => {
         ].join("\n"),
       },
       {
-        name: "preserves pre-existing custom headers ahead of the team_id header",
+        name: "preserves pre-existing custom headers ahead of the project-scope header",
         projectId: "42",
         existingHeaders: "x-posthog-property-task_id: task-abc",
+        bedrockGatewayVariant: undefined,
         expected: [
           "x-posthog-property-task_id: task-abc",
           "X-PostHog-Project-Id: 42",
@@ -402,19 +405,46 @@ describe("buildSessionOptions", () => {
           "x-posthog-use-bedrock-fallback: true",
         ].join("\n"),
       },
-    ])("$name", ({ projectId, existingHeaders, expected }) => {
-      if (projectId !== undefined) {
-        process.env.POSTHOG_PROJECT_ID = projectId;
-      }
-      if (existingHeaders !== undefined) {
-        process.env.ANTHROPIC_CUSTOM_HEADERS = existingHeaders;
-      }
+      {
+        name: "serves the session from Bedrock on the test variant, without the unreachable fallback header",
+        projectId: undefined,
+        existingHeaders: undefined,
+        bedrockGatewayVariant: "test" as const,
+        expected: [
+          "x-posthog-property-$ai_session_id: test-session",
+          "x-posthog-provider: bedrock",
+          "x-posthog-flag-bedrock-llm-gateway: test",
+        ].join("\n"),
+      },
+      {
+        name: "keeps the Bedrock failover and sends no provider header on the control variant",
+        projectId: undefined,
+        existingHeaders: undefined,
+        bedrockGatewayVariant: "control" as const,
+        expected: [
+          "x-posthog-property-$ai_session_id: test-session",
+          "x-posthog-use-bedrock-fallback: true",
+          "x-posthog-flag-bedrock-llm-gateway: control",
+        ].join("\n"),
+      },
+    ])(
+      "$name",
+      ({ projectId, existingHeaders, bedrockGatewayVariant, expected }) => {
+        if (projectId !== undefined) {
+          process.env.POSTHOG_PROJECT_ID = projectId;
+        }
+        if (existingHeaders !== undefined) {
+          process.env.ANTHROPIC_CUSTOM_HEADERS = existingHeaders;
+        }
 
-      const headers = buildSessionOptions(makeParams()).env
-        ?.ANTHROPIC_CUSTOM_HEADERS;
+        const headers = buildSessionOptions({
+          ...makeParams(),
+          bedrockGatewayVariant,
+        }).env?.ANTHROPIC_CUSTOM_HEADERS;
 
-      expect(headers).toBe(expected);
-    });
+        expect(headers).toBe(expected);
+      },
+    );
   });
 
   describe("gateway turn tracing env", () => {

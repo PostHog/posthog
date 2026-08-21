@@ -14,6 +14,11 @@ import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeRea
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
+import {
+  keepListForRoute,
+  showChannelList,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -112,10 +117,15 @@ function App({ devToolbar }: AppProps) {
     let cancelled = false;
     const loadInitialRoute = async (): Promise<void> => {
       try {
-        const href = await resolveStartupLocation(
+        const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,
         );
+        if (firstRun) {
+          showChannelList();
+          keepListForRoute(firstRun.generalChannelId);
+          useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
+        }
         router.history.replace(href);
         rememberStartupLocation(startupIdentity, href);
         await router.load();

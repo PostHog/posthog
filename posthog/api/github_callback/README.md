@@ -9,10 +9,10 @@ the integration records.
 
 There are two integration records, created by two related flows:
 
-| Record                                | Model                                | Created by                                                        | Used by                                        |
-| ------------------------------------- | ------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------- |
-| **Team** `Integration(kind="github")` | `posthog/models/integration.py`      | `team_services.create_team_github_integration_from_oauth_code`    | Tasks/Code, signals custom agents, deployments |
-| **Personal** `UserIntegration`        | `posthog/models/user_integration.py` | `personal_finish.github_link_complete` (`/complete/github-link/`) | per-user GitHub linking                        |
+| Record                                | Model                                 | Created by                                                        | Used by                                        |
+| ------------------------------------- | ------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- |
+| **Team** `Integration(kind="github")` | `posthog/models/integration/model.py` | `team_services.create_team_github_integration_from_oauth_code`    | Tasks/Code, signals custom agents, deployments |
+| **Personal** `UserIntegration`        | `posthog/models/user_integration.py`  | `personal_finish.github_link_complete` (`/complete/github-link/`) | per-user GitHub linking                        |
 
 Both are created from a GitHub App **installation** plus a user-to-server OAuth
 **code**. The App-as-App JWT (for installation tokens) is signed in

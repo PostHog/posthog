@@ -354,3 +354,12 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     error_msg = "Data API quota for property '123456789' still exhausted after 5 retries (retryable)"
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert any(pattern in error_msg for pattern in patterns)
+
+
+def test_retryable_errors_cover_connection_reset():
+    # `session.post()` in `_run_report` can raise this transport-level `requests.ConnectionError`
+    # directly, outside its own retry loop (which only handles `RefreshError` and HTTP-level
+    # failures) — must stay classified as retryable so it doesn't page as a bug.
+    error_msg = "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert error_message_matches(error_msg, patterns)

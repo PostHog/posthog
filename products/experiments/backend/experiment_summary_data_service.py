@@ -138,6 +138,18 @@ def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatu
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
 
 
+def order_metrics_by_uuid(metrics: list[dict], ordered_uuids: list | None) -> list[dict]:
+    """
+    Apply the UI's display order so metric numbering in the AI summary matches the
+    metrics list in the app. Metrics missing from the ordering keep their relative
+    position at the end.
+    """
+    if not ordered_uuids:
+        return metrics
+    position = {uuid: index for index, uuid in enumerate(ordered_uuids)}
+    return sorted(metrics, key=lambda metric: position.get(metric.get("uuid"), len(position)))
+
+
 class ExperimentSummaryDataService:
     def __init__(self, team, user):
         self._team = team
@@ -298,6 +310,9 @@ class ExperimentSummaryDataService:
                 primary_metrics.append(query)
             else:
                 secondary_metrics.append(query)
+
+        primary_metrics = order_metrics_by_uuid(primary_metrics, experiment.primary_metrics_ordered_uuids)
+        secondary_metrics = order_metrics_by_uuid(secondary_metrics, experiment.secondary_metrics_ordered_uuids)
 
         omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
             0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE

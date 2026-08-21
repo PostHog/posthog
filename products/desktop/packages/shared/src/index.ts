@@ -133,7 +133,9 @@ export {
   type CloudTaskSnapshotUpdate,
   type CloudTaskStatusUpdate,
   type CloudTaskUpdatePayload,
+  isSkillBundleArtifactMetadata,
   isTerminalStatus,
+  type PostHogObjectArtifactMetadata,
   type SignalReportPriority,
   type Task,
   type TaskRun,
@@ -210,6 +212,7 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
@@ -323,6 +326,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -338,30 +342,23 @@ export type {
 } from "./skills";
 export {
   DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  isIgnoredSkillEntry,
+  isIgnoredSkillPath,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
-export {
-  type CreateTaskAutomationOptions,
-  createTaskAutomationSchema,
-  type TaskAutomation,
-  type TaskAutomationList,
-  type TaskAutomationValidationErrorDetails,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  type UpdateTaskAutomationOptions,
-  updateTaskAutomationSchema,
-} from "./task-automation";
 export type {
   TaskCreationInput,
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   formatShortDayLabel,

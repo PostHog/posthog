@@ -13,6 +13,7 @@ from posthog.test.base import (
 )
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
@@ -252,6 +253,50 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             "targetEntity": entity("signed_up"),
             "returningEntity": entity("renewed"),
         }
+
+    def _activity_table_with_timestamp_type(self, column_type: str, occurred_at: list[object]) -> str:
+        person_ids = self._create_people()
+        suffix = "".join(c for c in column_type.lower() if c.isalnum())
+        return self._create_data_warehouse_table(
+            filename=f"warehouse_activity_ts_{suffix}.csv",
+            table_name=f"warehouse_activity_ts_{suffix}",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", occurred_at[0]],
+                [2, person_ids["user-2"], "signed_up", occurred_at[1]],
+                [3, person_ids["user-1"], "renewed", occurred_at[2]],
+                [4, person_ids["user-2"], "renewed", occurred_at[3]],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": column_type,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("integer", "Int64", [1735722000, 1735725600, 1735815600, 1735905600]),
+            (
+                "string",
+                "String",
+                ["2025-01-01 09:00:00", "2025-01-01 10:00:00", "2025-01-02 12:00:00", "2025-01-03 12:00:00"],
+            ),
+        ]
+    )
+    def test_non_datetime_timestamp_field_is_rejected(self, _name: str, column_type: str, occurred_at: list[object]):
+        # Both types reach toStartOfInterval and fail inside ClickHouse without this check, quoting
+        # generated SQL rather than naming the column the user picked.
+        table = self._activity_table_with_timestamp_type(column_type, occurred_at)
+
+        with self.assertRaisesMessage(ValidationError, "isn't a date or datetime column"):
+            self.run_query(
+                query={
+                    "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                    "retentionFilter": self._activity_retention_filter(table),
+                }
+            )
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_breakdown_by_warehouse_column(self):

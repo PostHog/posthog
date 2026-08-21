@@ -605,6 +605,26 @@ describe('replayScannerLogic', () => {
             info.mockRestore()
         })
 
+        // Leaving mid-wizard is routine (the recordings step links out to settings), so resuming has to
+        // land where the work was. Always returning to the first step reads as having lost the later ones.
+        it('resumes on the step the last edit was made on', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            const editorLogic = scannerEditorSceneLogic()
+            editorLogic.mount()
+            try {
+                editorLogic.actions.setStep('budget')
+                logic.actions.setScannerValues({ name: 'Drafted' })
+                logic.unmount()
+
+                info.mock.calls[0][1]?.button?.action?.()
+                expect(router.values.location.pathname).toContain(urls.replayVisionScannerBudget('new'))
+            } finally {
+                info.mockRestore()
+                editorLogic.unmount()
+                router.actions.push(urls.replayVision())
+            }
+        })
+
         it('stays quiet on the way out when the draft was only restored', async () => {
             logic.actions.setScannerValues({ name: 'Drafted' })
             logic.unmount()

@@ -1,11 +1,13 @@
 import importlib
+import threading
 from datetime import timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.db import close_old_connections
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -19,7 +21,15 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Channel,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+    TaskWorkflowDispatch,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -48,6 +58,142 @@ class TestFacadeImports(TestCase):
         self.assertIs(facade.TaskRunEnvironment, TaskRun.Environment)
         self.assertIs(facade.TaskOriginProduct, Task.OriginProduct)
         self.assertIs(facade.SandboxNetworkAccessLevel, SandboxEnvironment.NetworkAccessLevel)
+
+
+class TestTaskHandoffConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.owner = User.objects.create_user(email="owner@example.com", first_name="Owner", password="password")
+        self.recipient = User.objects.create_user(
+            email="recipient@example.com", first_name="Recipient", password="password"
+        )
+        self.organization.members.add(self.owner, self.recipient)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="Race task",
+            description="Run later",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.owner,
+        )
+
+    def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
+        create_reached = threading.Event()
+        handoff_finished = threading.Event()
+        results: list[contracts.TaskRunCreateResult | None] = []
+        errors: list[BaseException] = []
+        original_create_run = Task.create_run
+
+        def delayed_create_run(
+            task: Task,
+            environment: TaskRun.Environment | None = None,
+            mode: str = "background",
+            extra_state: dict | None = None,
+            branch: str | None = None,
+        ) -> TaskRun:
+            create_reached.set()
+            if not handoff_finished.wait(timeout=10):
+                raise TimeoutError("handoff did not finish")
+            return original_create_run(
+                task,
+                environment=environment,
+                mode=mode,
+                extra_state=extra_state,
+                branch=branch,
+            )
+
+        def bootstrap() -> None:
+            close_old_connections()
+            try:
+                results.append(facade.bootstrap_task_run(self.task.id, self.team.id, self.owner.id, validated_data={}))
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        with patch.object(Task, "create_run", new=delayed_create_run):
+            thread = threading.Thread(target=bootstrap)
+            thread.start()
+            self.assertTrue(create_reached.wait(timeout=10))
+            handoff = facade.handoff_task(
+                self.task.id,
+                self.team.id,
+                self.owner.id,
+                target_user_id=self.recipient.id,
+            )
+            handoff_finished.set()
+            thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(handoff)
+        self.assertEqual(results, [None])
+        self.assertFalse(TaskRun.objects.filter(task=self.task).exists())
+
+    def test_handoff_waits_for_in_flight_task_update(self) -> None:
+        update_at_save = threading.Event()
+        allow_update_save = threading.Event()
+        update_saved = threading.Event()
+        handoff_finished = threading.Event()
+        errors: list[BaseException] = []
+        original_save = Task.save
+
+        def delayed_save(task: Task, *args: Any, **kwargs: Any) -> None:
+            if task.id == self.task.id and task.title == "Updated title" and not update_saved.is_set():
+                update_at_save.set()
+                if not allow_update_save.wait(timeout=10):
+                    raise TimeoutError("update save was not released")
+                result = original_save(task, *args, **kwargs)
+                update_saved.set()
+                return result
+            return original_save(task, *args, **kwargs)
+
+        def update() -> None:
+            close_old_connections()
+            try:
+                facade.update_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    validated_data={"title": "Updated title"},
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                close_old_connections()
+
+        def handoff() -> None:
+            close_old_connections()
+            try:
+                facade.handoff_task(
+                    self.task.id,
+                    self.team.id,
+                    self.owner.id,
+                    target_user_id=self.recipient.id,
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                handoff_finished.set()
+                close_old_connections()
+
+        with patch.object(Task, "save", new=delayed_save):
+            update_thread = threading.Thread(target=update)
+            update_thread.start()
+            self.assertTrue(update_at_save.wait(timeout=10))
+            handoff_thread = threading.Thread(target=handoff)
+            handoff_thread.start()
+            self.assertFalse(handoff_finished.wait(timeout=1))
+            allow_update_save.set()
+            update_thread.join(timeout=10)
+            handoff_thread.join(timeout=10)
+
+        self.assertFalse(update_thread.is_alive())
+        self.assertFalse(handoff_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.title, "Updated title")
+        self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
 class TestFacadeReadsAndMappers(TestCase):
@@ -106,6 +252,20 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNotNone(facade.get_task_run(run.id, team_id=self.team.id))
         self.assertIsNone(facade.get_task_run(run.id, team_id=other_team.id))
         self.assertIsNone(facade.get_task_run("00000000-0000-0000-0000-000000000000"))
+
+    def test_resume_in_cloud_rejects_run_from_previous_owner(self):
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        outcome, resumed_run, _ = facade.resume_task_run_in_cloud(
+            run.id,
+            task.id,
+            self.team.id,
+            self.user.id,
+        )
+
+        self.assertEqual(outcome, "ownership_changed")
+        self.assertIsNone(resumed_run)
 
     def test_task_exists_and_visibility(self):
         task = self._make_task()
@@ -572,6 +732,39 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
 
+    def test_cloud_sweep_guard_uses_dispatch_enqueue_time(self):
+        task = self._make_task()
+        now = django_timezone.now()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=TaskRun.Environment.CLOUD,
+        )
+        TaskRun.objects.filter(pk=run.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        dispatch = TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            workflow_id=run.workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.RESTART,
+            payload={},
+            enqueued_at=now - timedelta(minutes=5),
+        )
+        TaskWorkflowDispatch.objects.for_team(self.team.id).filter(pk=dispatch.pk).update(
+            created_at=now - timedelta(hours=50)
+        )
+
+        stale_ids = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24),
+            limit=100,
+            created_hard_cap=timedelta(hours=48),
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        self.assertNotIn(run.id, stale_ids)
+
     def test_update_task_run_state(self):
         task = self._make_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED, state={"mode": "bg"})
@@ -818,6 +1011,12 @@ class TestFacadeReadsAndMappers(TestCase):
                 .values_list("id", flat=True)
             ),
             [first],
+        )
+        # Callers outside Desktop file tasks through here, so an unstamped system space
+        # would escape from this path.
+        self.assertEqual(
+            Channel.objects.unscoped().get(id=first).system_role,
+            Channel.SystemRole.PERSONAL,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -1202,3 +1401,80 @@ class TestSelfDrivingQuotaRefreshDispatch(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             facade._refresh_self_driving_quota_for_pr(run, None)
         task_mock.delay.assert_not_called()
+
+
+class TestApplyTaskRunModelConfig(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Config Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Config Team")
+        cls.user = User.objects.create(email="config@test.com", distinct_id="config-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "sandbox_url": "https://sandbox"},
+        )
+
+    def _apply(self, run: TaskRun, **kwargs) -> bool:
+        return facade.apply_task_run_model_config(run.id, run.task_id, self.team.id, **kwargs)
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_sends_the_model_before_the_effort_and_records_both(self, send_mock):
+        # Which efforts exist depends on the model, so the agent-server has to see the
+        # model change first or it validates the effort against the outgoing one.
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+
+        applied = self._apply(run, model="claude-fable-5", reasoning_effort="xhigh")
+
+        self.assertTrue(applied)
+        self.assertEqual(
+            [(c.args[1], c.args[2]) for c in send_mock.call_args_list],
+            [("model", "claude-fable-5"), ("effort", "xhigh")],
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-fable-5")
+        self.assertEqual(run.state["reasoning_effort"], "xhigh")
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_rejected_model_leaves_the_effort_alone(self, send_mock):
+        # The agent-server rejects a model its harness can't drive. Sending the effort
+        # anyway would half-apply a single request onto the model the author didn't ask for.
+        send_mock.return_value = MagicMock(success=False, error="Invalid value for config option model")
+        run = self._run()
+
+        applied = self._apply(run, model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        self.assertFalse(applied)
+        self.assertEqual(send_mock.call_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-sonnet-4-6")
+        self.assertNotIn("reasoning_effort", run.state)
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value="'x' is not available.")
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_gated_model_never_reaches_the_sandbox(self, send_mock, _access_mock):
+        run = self._run()
+
+        self.assertFalse(self._apply(run, model="claude-fable-5", actor_user_id=self.user.id))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
+        self.assertFalse(self._apply(self._run()))
+        send_mock.assert_not_called()
