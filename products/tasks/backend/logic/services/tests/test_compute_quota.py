@@ -15,6 +15,16 @@ from products.tasks.backend.logic.services.compute_quota import (
 from products.tasks.backend.models import Loop, Task, TaskClientProvenance
 
 
+class TestBillableCompute:
+    def test_canvas_is_billable_desktop_compute(self):
+        assert is_billable_compute(
+            origin_product=Task.OriginProduct.CANVAS,
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            source_loop_id=None,
+            source_loop_internal=None,
+        )
+
+
 @pytest.mark.django_db
 class TestComputeQuota:
     @pytest.fixture(autouse=True)

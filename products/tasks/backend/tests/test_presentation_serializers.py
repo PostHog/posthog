@@ -59,6 +59,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             ("image_builder", True),
             ("signals_scout", True),
             ("user_created", False),
+            ("canvas", False),
         ]
     )
     def test_internal_only_origins_are_rejected(self, origin_product: str, expected_rejected: bool) -> None:

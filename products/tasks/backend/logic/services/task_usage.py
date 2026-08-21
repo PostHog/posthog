@@ -23,6 +23,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.tasks.backend.logic.services.compute_quota import DIRECT_BILLABLE_ORIGIN_PRODUCTS
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     calculate_sandbox_compute_cost,
@@ -171,7 +172,7 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
             user_attributed_at__isnull=False,
         )
         .filter(
-            Q(origin_product=Task.OriginProduct.USER_CREATED)
+            Q(origin_product__in=DIRECT_BILLABLE_ORIGIN_PRODUCTS)
             | Q(
                 origin_product=Task.OriginProduct.LOOP,
                 task_run__task__loop__isnull=False,

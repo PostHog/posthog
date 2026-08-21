@@ -227,6 +227,7 @@ export class CanvasApplicationService {
             ? CANVAS_PREFERRED_REASONING
             : undefined),
         allowNoRepo: true,
+        originProduct: "canvas",
         channelContext: input.channelContext,
         channelName: input.channelName,
         channelId: input.channelId,

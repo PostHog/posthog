@@ -1084,6 +1084,12 @@ class TestGetTaskProcessingContextActivity:
                 False,
                 True,
             ),
+            (
+                "canvas",
+                {"origin_products": ["user_created"], "default_base_origin_products": ["user_created"]},
+                False,
+                True,
+            ),
             # default-base alone (no origin_products) is enough for a no-custom-image run.
             ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
             # the waiver is scoped per origin — an unlisted origin still gets gVisor.

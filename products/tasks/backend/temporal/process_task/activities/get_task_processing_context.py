@@ -56,7 +56,9 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_pr_authorship_mode,
     get_task_run_credential_user,
     is_slack_interaction_state,
+    is_user_driven_origin_product,
     resolve_user_github_integration_for_task,
+    sandbox_policy_origin_product,
 )
 
 
@@ -240,9 +242,9 @@ class TaskProcessingContext:
         )
 
     def _is_user_origin(self) -> bool:
-        return not self.origin_product or self.origin_product in (
-            Task.OriginProduct.USER_CREATED.value,
-            Task.OriginProduct.IMAGE_BUILDER.value,
+        return (
+            is_user_driven_origin_product(self.origin_product)
+            or self.origin_product == Task.OriginProduct.IMAGE_BUILDER.value
         )
 
     def max_run_duration(self) -> timedelta | None:
@@ -562,8 +564,11 @@ def _resolve_modal_vm_sandbox(
         origin_rollout_percentages = vm_sandbox_origin_rollout_percentages(payload)
         default_custom_image = vm_sandbox_default_custom_image(payload)
 
-    origin_in_percentage_rollout = vm_sandbox_origin_in_rollout(origin_product, run_id, origin_rollout_percentages)
-    origin_allows_default_base = origin_product in default_base_origins or origin_in_percentage_rollout
+    policy_origin_product = sandbox_policy_origin_product(origin_product)
+    origin_in_percentage_rollout = vm_sandbox_origin_in_rollout(
+        policy_origin_product, run_id, origin_rollout_percentages
+    )
+    origin_allows_default_base = policy_origin_product in default_base_origins or origin_in_percentage_rollout
 
     # Custom images are VM-only, so VM historically required one. image_builder always
     # runs on VM (it builds images on that base); origins in the default-base allowlist
@@ -588,7 +593,7 @@ def _resolve_modal_vm_sandbox(
         )
         return VmSandboxDecision(use_vm_sandbox=state_override)
 
-    result = origin_product in allowed_origins or origin_allows_default_base
+    result = policy_origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,

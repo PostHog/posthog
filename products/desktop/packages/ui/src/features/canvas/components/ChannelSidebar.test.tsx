@@ -181,14 +181,14 @@ describe("ChannelSidebar", () => {
     expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
   });
 
-  it("gives up a source filter the space you moved to has none of", async () => {
+  it("filters canvas generation sessions and gives up the filter in a space with none", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     mocks.items = [
       item({
-        key: "task:slack",
-        id: "slack",
-        title: "Filed from Slack",
-        source: "slack",
+        key: "task:canvas",
+        id: "canvas",
+        title: "Generate signup canvas",
+        source: "canvas",
       }),
       item({ key: "task:local", id: "local", title: "Started here" }),
     ];
@@ -197,11 +197,12 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Filter" }));
     await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Slack" }),
+      await screen.findByRole("menuitemradio", { name: "Canvas" }),
     );
+    expect(screen.getByText("Generate signup canvas")).toBeInTheDocument();
     expect(screen.queryByText("Started here")).not.toBeInTheDocument();
 
-    // A space with no Slack sessions: the option that narrowed the list is no
+    // A space with no canvas sessions: the option that narrowed the list is no
     // longer in the menu, so the filter must not be what empties it.
     mocks.items = [
       item({ key: "task:other", id: "other", title: "Somewhere else" }),

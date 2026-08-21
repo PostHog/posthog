@@ -897,6 +897,23 @@ describe("TaskCreationSaga", () => {
     expect(createTaskRunMock).not.toHaveBeenCalled();
   });
 
+  it("forwards the origin product for task creation", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    const saga = makeSaga({ createTask: createTaskMock });
+
+    const result = await saga.run({
+      content: "Build a canvas",
+      workspaceMode: "local",
+      allowNoRepo: true,
+      originProduct: "canvas",
+    });
+
+    expect(result.success).toBe(true);
+    expect(createTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({ origin_product: "canvas" }),
+    );
+  });
+
   it("uses the selected user GitHub integration for cloud task creation", async () => {
     const createdTask = createTask({
       github_user_integration: "user-integration-123",

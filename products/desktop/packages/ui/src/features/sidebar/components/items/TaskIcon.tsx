@@ -13,6 +13,7 @@ import {
   Lifebuoy,
   Pause,
   PushPin,
+  ShapesIcon,
   SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -42,6 +43,7 @@ export const ICON_SIZE = 12;
 // the default status icon. Extend this when a new origin needs its own badge.
 type OriginProductMeta = { Icon: typeof SlackLogo; label: string };
 const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
+  canvas: { Icon: ShapesIcon, label: "Canvas" },
   slack: { Icon: SlackLogo, label: "Slack" },
   signal_report: { Icon: Broadcast, label: "Signals" },
   signals_scout: { Icon: Binoculars, label: "Signals scout" },

@@ -33,10 +33,16 @@ class TestResolveInactivityTimeout(SimpleTestCase):
     def test_posthog_ai_origin_constant_matches_model_enum(self):
         self.assertEqual(POSTHOG_AI_ORIGIN_PRODUCT, Task.OriginProduct.POSTHOG_AI.value)
 
+    @parameterized.expand(
+        [
+            ("posthog_ai", POSTHOG_AI_ORIGIN_PRODUCT, POSTHOG_AI_IDLE_TIMEOUT_SECONDS),
+            ("canvas", Task.OriginProduct.CANVAS, INACTIVITY_TIMEOUT_USER_SECONDS),
+        ]
+    )
     @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
-    def test_context_forwards_its_origin_to_the_resolver(self):
-        # Guards the wiring, not the resolver: dropping `origin_product=` at this call site
-        # would leave every resolver case green while PostHog AI silently fell back to 30 minutes.
+    def test_context_applies_the_origin_timeout(self, _name, origin_product, expected_seconds):
+        # Guards the context wiring because resolver-only cases cannot catch a dropped origin
+        # or a wrong user-origin classification.
         context = TaskProcessingContext(
             task_id="task-id",
             run_id="run-id",
@@ -46,9 +52,9 @@ class TestResolveInactivityTimeout(SimpleTestCase):
             github_integration_id=123,
             repository="explore-science/paper-wizard-frontend",
             distinct_id="distinct",
-            origin_product=POSTHOG_AI_ORIGIN_PRODUCT,
+            origin_product=origin_product,
         )
-        self.assertEqual(context.inactivity_timeout(), timedelta(seconds=POSTHOG_AI_IDLE_TIMEOUT_SECONDS))
+        self.assertEqual(context.inactivity_timeout(), timedelta(seconds=expected_seconds))
 
     @override_settings(TEST=True, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
     def test_test_default_is_short_regardless_of_origin(self):

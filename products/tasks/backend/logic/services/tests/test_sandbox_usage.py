@@ -365,17 +365,21 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             memory_gib_second_usd=memory_gib_second_usd,
         )
 
-    def test_billable_compute_requires_trusted_desktop_user_created_snapshot(self):
+    def test_billable_compute_requires_trusted_desktop_user_driven_snapshot(self):
         self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        self._session(
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            origin_product=Task.OriginProduct.CANVAS,
+        )
         for origin in (Task.OriginProduct.SLACK, Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.LOOP, None):
             self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP, origin_product=origin)
         self._session(client_provenance=None)
 
         usage = get_billable_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
 
-        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
-        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
-        assert usage.credits == [(self.team.id, 2016)]
+        assert usage.cpu_millicore_seconds == [(self.team.id, 28_800_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 117_964_800)]
+        assert usage.credits == [(self.team.id, 4032)]
 
     def test_billable_compute_includes_user_loops_and_excludes_internal_loops(self):
         self._loop_session(internal=False)

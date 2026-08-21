@@ -95,13 +95,17 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             cpu_core_second_usd=Decimal("0.01"),
             memory_gib_second_usd=Decimal("0.01"),
         )
-        for provenance in (TaskClientProvenance.POSTHOG_DESKTOP, None):
+        for provenance, origin_product in (
+            (TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.USER_CREATED),
+            (TaskClientProvenance.POSTHOG_DESKTOP, Task.OriginProduct.CANVAS),
+            (None, Task.OriginProduct.USER_CREATED),
+        ):
             run = TaskRun.objects.create(task=self.task, team=self.team)
             SandboxSession.objects.unscoped().create(
                 team=self.team,
                 task_run=run,
-                sandbox_id=f"sandbox-{provenance or 'untrusted'}",
-                origin_product=Task.OriginProduct.USER_CREATED,
+                sandbox_id=f"sandbox-{origin_product}-{provenance or 'untrusted'}",
+                origin_product=origin_product,
                 client_provenance=provenance,
                 cpu_cores=1,
                 memory_gb=1,
@@ -124,7 +128,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 task_created_at=self.task.created_at,
             )
 
-        assert usage.compute_cost_usd == Decimal("0.20")
+        assert usage.compute_cost_usd == Decimal("0.40")
 
     def test_usage_is_reported_before_the_first_rate_card_takes_effect(self) -> None:
         rate_start = datetime(2026, 8, 1, tzinfo=UTC)

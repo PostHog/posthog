@@ -73,7 +73,16 @@ class RunSource(StrEnum):
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
-USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "canvas", "slack")
+USER_DRIVEN_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "canvas")
+
+
+def is_user_driven_origin_product(origin_product: str | None) -> bool:
+    return not origin_product or origin_product in USER_DRIVEN_ORIGIN_PRODUCTS
+
+
+def sandbox_policy_origin_product(origin_product: str | None) -> str | None:
+    return "user_created" if origin_product == "canvas" else origin_product
 
 
 class RuntimeAdapter(StrEnum):
