@@ -2533,8 +2533,10 @@ class TestExperimentService(APIBaseTest):
 
         dup = service.duplicate_experiment(source)
 
-        assert dup.exposure_criteria.get("filterTestAccounts") is True
-        assert "properties" not in dup.exposure_criteria
+        criteria = dup.exposure_criteria
+        assert criteria is not None
+        assert criteria.get("filterTestAccounts") is True
+        assert "properties" not in criteria
 
     def test_duplicate_experiment_generates_unique_name(self):
         self._create_flag(key="dup-unique-1")
