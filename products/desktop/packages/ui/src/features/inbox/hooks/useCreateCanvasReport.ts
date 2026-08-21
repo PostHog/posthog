@@ -78,6 +78,9 @@ export function useCreateCanvasReport({
     reportId,
     reportTitle,
     cloudRepository,
+    // The server resolves the repo from the report itself, same as Discuss; no
+    // client-side repo gate applies to building a canvas.
+    allowMissingRepository: true,
     loggerScope: "create-canvas-report",
     copy: {
       loadingTitle: "Starting canvas task...",

@@ -8,6 +8,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
@@ -137,18 +139,27 @@ export function ReportFilterControls({
               {/* Labels crash outside a group (Base UI MenuGroupLabel). */}
               <DropdownMenuGroup>
                 <DropdownMenuLabel>Status</DropdownMenuLabel>
-                {STATUS_FILTERS.map(({ value, label }) => (
-                  <DropdownMenuCheckboxItem
-                    key={value}
-                    checked={filters.status === value}
-                    closeOnClick={false}
-                    onCheckedChange={() =>
-                      onChange({ ...filters, status: value })
-                    }
-                  >
-                    {label}
-                  </DropdownMenuCheckboxItem>
-                ))}
+                {/* Status is one choice, so it reads as radios; priority below
+                    stacks, so it keeps checkboxes. */}
+                <DropdownMenuRadioGroup
+                  value={filters.status}
+                  onValueChange={(value) =>
+                    onChange({
+                      ...filters,
+                      status: value as ReportStatusFilter,
+                    })
+                  }
+                >
+                  {STATUS_FILTERS.map(({ value, label }) => (
+                    <DropdownMenuRadioItem
+                      key={value}
+                      value={value}
+                      closeOnClick={false}
+                    >
+                      {label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>

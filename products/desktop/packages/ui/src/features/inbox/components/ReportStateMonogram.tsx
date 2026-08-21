@@ -1,5 +1,6 @@
 import { FileTextIcon } from "@phosphor-icons/react";
 import { isAgentRunReport } from "@posthog/core/inbox/reportMembership";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import {
   resolveRunVariant,
@@ -28,23 +29,38 @@ export function ReportStateMonogram({ report }: { report: SignalReport }) {
   const runState = reportRunState(report);
   if (!runState) {
     return (
-      <div
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-(--radius-1) bg-(--gray-2) text-(--gray-9) ring-(--gray-4) ring-1 ring-inset"
-        role="img"
-        aria-label="Report"
-      >
-        <FileTextIcon size={13} />
-      </div>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <div
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-(--radius-1) bg-(--gray-2) text-(--gray-9) ring-(--gray-4) ring-1 ring-inset"
+              role="img"
+              aria-label="Report"
+            />
+          }
+        >
+          <FileTextIcon size={13} />
+        </TooltipTrigger>
+        <TooltipContent side="top">Report</TooltipContent>
+      </Tooltip>
     );
   }
   return (
-    <div
-      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${runState.orbClass}`}
-      role="img"
-      aria-label={runState.ariaLabel}
-      title={runState.label}
-    >
-      <span className={`block h-1.5 w-1.5 rounded-full ${runState.dotClass}`} />
-    </div>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${runState.orbClass}`}
+            role="img"
+            aria-label={runState.ariaLabel}
+          />
+        }
+      >
+        <span
+          className={`block h-1.5 w-1.5 rounded-full ${runState.dotClass}`}
+        />
+      </TooltipTrigger>
+      <TooltipContent side="top">{`Agent ${runState.label.toLowerCase()}`}</TooltipContent>
+    </Tooltip>
   );
 }
