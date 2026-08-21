@@ -1879,13 +1879,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.taskState.clear();
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
-    // Nothing from before the boundary should be able to reach the fresh
-    // session: reset the plan/notification state ExitPlanMode falls back
-    // to when its tool input omits an explicit plan, so a stale (possibly
-    // repo-injected) pre-clear plan can't resurface after approval.
+    // Nothing from before the boundary should reach the fresh session.
     session.notificationHistory.length = 0;
     session.lastPlanFilePath = undefined;
-    session.lastPlanContent = undefined;
     this.fileContentCache = {};
 
     // Only broadcast (and thus persist) the "/clear" prompt once the new
@@ -2256,6 +2252,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
+      // A new planning cycle must not resolve against the prior cycle's plan
+      // file. Left set, an ExitPlanMode before this cycle's first plan write
+      // reads the old file, which passes validation and gets approved.
+      this.session.lastPlanFilePath = undefined;
     }
     try {
       await this.session.query.setPermissionMode(
@@ -2811,6 +2811,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
+          // Same reason as applySessionMode: a new cycle must not inherit the
+          // prior cycle's plan file.
+          this.session.lastPlanFilePath = undefined;
         }
       }
       await this.updateConfigOption("mode", newMode);

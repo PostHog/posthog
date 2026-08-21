@@ -1,21 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 
-/** "Tell PostHog AI what you want to accomplish" box on the template step and the zero-scanner
- * empty state: drafts a full scanner from the stated goal and drops the user into the details
- * step to review it. */
-export function ScannerGoalDraft({
-    gateSubmit,
-}: {
-    // Lets pre-consent surfaces interpose the AI consent popover before the draft request fires.
-    gateSubmit?: (proceed: () => void) => void
-}): JSX.Element {
+/** "Tell PostHog AI what you want to accomplish" box on the template step: drafts a full scanner
+ * from the stated goal and drops the user into the details step to review it. */
+export function ScannerGoalDraft(): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const logic = replayScannerLogic({ id: 'new' })
     const { goalDraftInput, goalDraftLoading } = useValues(logic)
@@ -23,17 +20,20 @@ export function ScannerGoalDraft({
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
 
     const handleSubmit = (): void => {
         if (editDisabledReason || !goalDraftInput.trim() || goalDraftLoading) {
             return
         }
-        const proceed = (): void => draftScannerFromGoal(goalDraftInput.trim())
-        if (gateSubmit) {
-            gateSubmit(proceed)
-        } else {
-            proceed()
+        // Drafting calls an AI endpoint the backend rejects without org consent; interpose the
+        // popover instead of letting the request 400.
+        if (!dataProcessingAccepted) {
+            setConsentRequested(true)
+            return
         }
+        draftScannerFromGoal(goalDraftInput.trim())
     }
 
     return (
@@ -68,20 +68,33 @@ export function ScannerGoalDraft({
                             <IconSparkles className="text-ai size-3.5" />
                             <span>PostHog AI</span>
                         </div>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconArrowRight />}
-                            loading={goalDraftLoading}
-                            onClick={handleSubmit}
-                            disabledReason={
-                                editDisabledReason ??
-                                (!goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined)
-                            }
-                            data-attr="vision-goal-draft-submit"
+                        <AIConsentPopoverWrapper
+                            placement="bottom-end"
+                            showArrow
+                            ignoreDismissal
+                            hideTrainingDisclaimer
+                            hidden={!consentRequested}
+                            onApprove={() => {
+                                setConsentRequested(false)
+                                draftScannerFromGoal(goalDraftInput.trim())
+                            }}
+                            onDismiss={() => setConsentRequested(false)}
                         >
-                            Set up with AI
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconArrowRight />}
+                                loading={goalDraftLoading}
+                                onClick={handleSubmit}
+                                disabledReason={
+                                    editDisabledReason ??
+                                    (!goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined)
+                                }
+                                data-attr="vision-goal-draft-submit"
+                            >
+                                Set up with AI
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
                     </div>
                 </label>
             </div>

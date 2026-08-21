@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.13.3 — 2026-08-20
+
+### Patch changes
+
+- [ee7d6424091](https://github.com/PostHog/posthog/commit/ee7d642409193f1dd781651c931991a70497712e) Linux release binaries now embed a GNU build id, so native crash reports from the CLI can be matched to uploaded debug symbols. — Thanks @ablaszkiewicz!
+
 ## 0.13.2 — 2026-08-20
 
 ### Patch changes

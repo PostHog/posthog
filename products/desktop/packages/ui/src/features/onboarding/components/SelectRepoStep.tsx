@@ -11,7 +11,7 @@ import { cn } from "@posthog/quill";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Box, Button, Flex, Text } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { builderHog } from "../../../assets/hedgehogs";
 import { OnboardingHogTip } from "../../../primitives/OnboardingHogTip";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
@@ -29,7 +29,12 @@ interface SelectRepoStepProps {
   detectedRepo: DetectedRepo | null;
   isDetectingRepo: boolean;
   onDirectoryChange: (path: string) => void;
+  selectedCloudRepo: string | null;
+  onCloudRepoChange: (repo: string | null) => void;
+  hasGithubIntegration: boolean | undefined;
 }
+
+type RepoSource = "github" | "local";
 
 export function SelectRepoStep({
   onComplete,
@@ -38,6 +43,9 @@ export function SelectRepoStep({
   detectedRepo,
   isDetectingRepo,
   onDirectoryChange,
+  selectedCloudRepo,
+  onCloudRepoChange,
+  hasGithubIntegration,
 }: SelectRepoStepProps) {
   const { localWorkspaces } = useHostCapabilities();
   const {
@@ -47,10 +55,23 @@ export function SelectRepoStep({
     refreshRepositories,
   } = useUserRepositoryIntegration();
 
+  // `null` follows the default source until the user switches explicitly.
+  const [chosenSource, setChosenSource] = useState<RepoSource | null>(null);
+  const showSourceSwitch = localWorkspaces && hasGithubIntegration === true;
+  const repoSource: RepoSource = !localWorkspaces
+    ? "github"
+    : (chosenSource ?? (hasGithubIntegration ? "github" : "local"));
+
   const repoMatchesGitHub = useMemo(
     () => repoMatchesGitHubRepos(detectedRepo, repositories),
     [detectedRepo, repositories],
   );
+
+  // Cloud-only hosts keep the picked repo in selectedDirectory.
+  const hasSelection =
+    localWorkspaces && repoSource === "github"
+      ? !!selectedCloudRepo
+      : !!selectedDirectory;
 
   return (
     <Flex align="center" height="100%" px="8">
@@ -104,31 +125,62 @@ export function SelectRepoStep({
                         </Text>
                       </Flex>
                       <Text className="text-(--gray-11) text-sm">
-                        {localWorkspaces
-                          ? "Select a single repository folder, not a parent folder that contains multiple repos."
-                          : "Pick a repository from your connected GitHub organizations."}
+                        {repoSource === "github"
+                          ? "Pick a repository from your connected GitHub organizations. Tasks on it run in cloud sandboxes."
+                          : "Select a single repository folder, not a parent folder that contains multiple repos."}
                       </Text>
                     </Flex>
-                    {localWorkspaces ? (
-                      <FolderPicker
-                        variant="field"
-                        value={selectedDirectory}
-                        onChange={onDirectoryChange}
-                        placeholder="Select repository..."
-                      />
-                    ) : (
+                    {repoSource === "github" ? (
                       <GitHubRepoPicker
-                        value={selectedDirectory || null}
-                        onChange={(repo) => onDirectoryChange(repo ?? "")}
+                        value={
+                          localWorkspaces
+                            ? selectedCloudRepo
+                            : selectedDirectory || null
+                        }
+                        onChange={(repo) =>
+                          localWorkspaces
+                            ? onCloudRepoChange(repo)
+                            : onDirectoryChange(repo ?? "")
+                        }
                         repositories={repositories}
                         isLoading={isLoadingRepos}
                         onRefresh={refreshRepositories}
                         isRefreshing={isRefreshingRepos}
                         placeholder="Select repository..."
                       />
+                    ) : (
+                      <FolderPicker
+                        variant="field"
+                        value={selectedDirectory}
+                        onChange={onDirectoryChange}
+                        placeholder="Select repository..."
+                      />
+                    )}
+                    {showSourceSwitch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextSource =
+                            repoSource === "github" ? "local" : "github";
+                          // Clear the source being left so a later Skip cannot
+                          // silently assign or persist a repo the user
+                          // navigated away from.
+                          if (nextSource === "local") {
+                            onCloudRepoChange(null);
+                          } else {
+                            onDirectoryChange("");
+                          }
+                          setChosenSource(nextSource);
+                        }}
+                        className="cursor-pointer self-start border-0 bg-transparent p-0 text-(--gray-10) text-[13px] underline hover:text-(--gray-11)"
+                      >
+                        {repoSource === "github"
+                          ? "Use a local folder instead"
+                          : "Back to GitHub repos"}
+                      </button>
                     )}
                     <AnimatePresence mode="wait">
-                      {localWorkspaces && isDetectingRepo && (
+                      {repoSource === "local" && isDetectingRepo && (
                         <motion.div
                           key="detecting"
                           initial={{ opacity: 0 }}
@@ -147,7 +199,7 @@ export function SelectRepoStep({
                           </Flex>
                         </motion.div>
                       )}
-                      {localWorkspaces &&
+                      {repoSource === "local" &&
                         !isDetectingRepo &&
                         selectedDirectory &&
                         detectedRepo && (
@@ -183,7 +235,7 @@ export function SelectRepoStep({
                             </Flex>
                           </motion.div>
                         )}
-                      {localWorkspaces &&
+                      {repoSource === "local" &&
                         !isDetectingRepo &&
                         selectedDirectory &&
                         !detectedRepo && (
@@ -236,7 +288,7 @@ export function SelectRepoStep({
             <ArrowLeft size={16} weight="bold" />
             Back
           </Button>
-          {selectedDirectory ? (
+          {hasSelection ? (
             <Button size="3" onClick={() => onComplete(false)}>
               Get started
               <ArrowRight size={16} weight="bold" />
