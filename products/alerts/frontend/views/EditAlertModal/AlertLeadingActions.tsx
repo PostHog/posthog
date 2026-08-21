@@ -1,3 +1,4 @@
+import { IconClock, IconX } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -18,6 +19,7 @@ interface AlertLeadingActionsProps {
     onDeleteAlert: () => void
     onSnoozeAlert: (snoozeUntil: string) => void
     onClearSnooze: () => void
+    clearSnoozeLoading: boolean
     onSendTestDelivery: () => void
     testDeliveryLoading: boolean
     testDeliveryDisabledReason?: string
@@ -30,6 +32,7 @@ export function AlertLeadingActions({
     onDeleteAlert,
     onSnoozeAlert,
     onClearSnooze,
+    clearSnoozeLoading,
     onSendTestDelivery,
     testDeliveryLoading,
     testDeliveryDisabledReason,
@@ -59,11 +62,14 @@ export function AlertLeadingActions({
                     Delete alert
                 </LemonButton>
             ) : null}
-            <SnoozeButton
-                onChange={onSnoozeAlert}
-                value={alert?.snoozed_until}
-                disabledReason={alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'}
-            />
+            {alert?.state !== AlertState.SNOOZED ? (
+                <SnoozeButton
+                    onChange={onSnoozeAlert}
+                    disabledReason={
+                        alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
+                    }
+                />
+            ) : null}
             {showTestDelivery ? (
                 <LemonButton
                     type="secondary"
@@ -75,14 +81,23 @@ export function AlertLeadingActions({
                 </LemonButton>
             ) : null}
             {alert?.state === AlertState.SNOOZED ? (
-                <LemonButton
-                    type="secondary"
-                    status="default"
-                    onClick={onClearSnooze}
-                    tooltip={`Currently snoozed until ${formatDate(dayjs(alert.snoozed_until), 'MMM D, HH:mm')}`}
-                >
-                    Clear snooze
-                </LemonButton>
+                <div className="flex items-center gap-1.5 text-sm text-muted-alt">
+                    <IconClock className="size-4" />
+                    <span>
+                        {alert.snoozed_until
+                            ? `Snoozed until ${formatDate(dayjs(alert.snoozed_until), 'MMM D, HH:mm')}`
+                            : 'Snoozed'}
+                    </span>
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={onClearSnooze}
+                        loading={clearSnoozeLoading}
+                        tooltip="Unsnooze alert"
+                        aria-label="Unsnooze alert"
+                    />
+                </div>
             ) : null}
         </div>
     )

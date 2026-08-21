@@ -28,6 +28,7 @@ describe('AlertLeadingActions', () => {
                 onDeleteAlert={() => {}}
                 onSnoozeAlert={() => {}}
                 onClearSnooze={() => {}}
+                clearSnoozeLoading={false}
                 onSendTestDelivery={() => {}}
                 testDeliveryLoading={false}
                 showTestDelivery={false}
@@ -40,5 +41,32 @@ describe('AlertLeadingActions', () => {
             return
         }
         expect(deleteAction).toBeNull()
+    })
+
+    it('shows the snoozed state and unsnooze action instead of the snooze control', () => {
+        const snoozedAlert = {
+            ...alert,
+            state: AlertState.SNOOZED,
+            snoozed_until: '2026-08-21T14:30:00Z',
+        } as AlertType
+
+        render(
+            <AlertLeadingActions
+                alertForm={alertForm}
+                alert={snoozedAlert}
+                onDeleteAlert={() => {}}
+                onSnoozeAlert={() => {}}
+                onClearSnooze={() => {}}
+                clearSnoozeLoading={false}
+                onSendTestDelivery={() => {}}
+                testDeliveryLoading={false}
+                showTestDelivery={false}
+            />
+        )
+
+        expect(screen.getByText(/Snoozed until/)).not.toBeNull()
+        expect(screen.getByLabelText('Unsnooze alert')).not.toBeNull()
+        expect(screen.queryByText('Snooze until')).toBeNull()
+        expect(screen.queryByText('Clear snooze')).toBeNull()
     })
 })
