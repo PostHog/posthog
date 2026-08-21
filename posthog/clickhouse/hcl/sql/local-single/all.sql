@@ -1534,7 +1534,7 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, event_timestamp, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -3237,7 +3237,7 @@ CREATE TABLE posthog.writable_billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', sipHash64(team_id));
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.writable_cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -5524,7 +5524,7 @@ CREATE TABLE posthog.billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', sipHash64(team_id));
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,

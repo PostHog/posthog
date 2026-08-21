@@ -36,7 +36,12 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_deep_sweep_failure, record_sweep_outcome
+from products.replay_vision.backend.temporal.metrics import (
+    record_candidate_page_full,
+    record_deep_candidates,
+    record_deep_sweep_failure,
+    record_sweep_outcome,
+)
 from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -109,10 +114,10 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    fetched = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
-    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
-    saturated = len(fetched) == limit
+    batch = candidate_query.run_batch(limit)
+    fetched = batch.matched
+    if batch.saturated:
+        record_candidate_page_full()
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
@@ -178,16 +183,18 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
         priming_candidates = [c for c in priming_candidates if c.session_id not in stuck]
 
+    if deep_candidates:
+        record_deep_candidates(len(deep_candidates))
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
         candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
     )
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=saturated,
+        saturated=batch.saturated,
         swept_through=candidate_query.settle_cutoff,
-        keyset_end=fetched[-1].session_end if fetched else None,
-        keyset_session_id=fetched[-1].session_id if fetched else "",
+        keyset_end=batch.keyset_end,
+        keyset_session_id=batch.keyset_session_id,
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],

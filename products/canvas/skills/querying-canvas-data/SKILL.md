@@ -165,6 +165,17 @@ const entries = await ph.state.list({ scope: 'shared' }) // [{ scope, key, value
 - 256 keys per scope. Store big data in PostHog (insights, the warehouse) and reference it.
 - State is team-visible application data — never secrets, never viewer PII.
 
+When a user asks about a canvas's current progress or settings, do not infer them from source alone.
+Call `canvas-state-retrieve` with the canvas id after reading its source. It returns shared state plus
+the authenticated user's own user-scoped state for canvases in public channels or their personal
+channel. Use `canvas-state-set` when the user asks to change those values; read first, preserve
+unrelated keys, and use the scope the canvas source expects.
+
+Canvas discussions use the generic comment tools. Read them with `comments-list` filtered to
+`scope=desktop_canvas`, the canvas id as `item_id`, and its `discussion_task_id` as `task_id`. Create
+a root comment or reply with `comments-create`, using the same scope and ids (put the task id in
+`item_context.taskId`). The same public-channel and personal-channel visibility rules apply.
+
 ## PostHog writes — ph.actions
 
 `ph.actions.invoke(verb, payload)` writes into PostHog as the viewer. Declare every verb in

@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -27,6 +28,7 @@ from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandb
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
+    increment_agent_server_readiness_retry,
     record_agent_server_session_init_ms,
     record_boot_total_ms,
     record_network_enforcement,
@@ -619,18 +621,48 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
     ):
         sandbox = Sandbox.get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
+        attempt = current_activity_attempt()
+        runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
 
         try:
-            runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
             with StepTimer(
                 "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             ) as ready_timer:
-                sandbox.wait_for_agent_server_ready(agentsh_domains)
+                if attempt == 1:
+                    sandbox.wait_for_agent_server_ready(agentsh_domains)
+                else:
+                    logger.warning(
+                        "agent_server_readiness_retry_recovery",
+                        task_id=ctx.task_id,
+                        run_id=ctx.run_id,
+                        sandbox_id=input.sandbox_id,
+                        attempt=attempt,
+                    )
+                    _ensure_repository_on_disk(ctx, sandbox)
+                    params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+                    _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
         except Exception:
+            if attempt > 1:
+                increment_agent_server_readiness_retry(
+                    attempt,
+                    "failed",
+                    boot_path=input.boot_path,
+                    origin_product=ctx.origin_product,
+                    runtime=runtime,
+                )
             if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
+
+        if attempt > 1:
+            increment_agent_server_readiness_retry(
+                attempt,
+                "succeeded",
+                boot_path=input.boot_path,
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+            )
 
         _record_network_enforcement_observation(ctx)
 
