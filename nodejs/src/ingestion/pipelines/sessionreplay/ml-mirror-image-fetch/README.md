@@ -447,6 +447,31 @@ ai_research_session_replay_image_fetch_retry_1h
 
 ## 17. Fetcher to scrubber message format
 
+**17.1** The fetcher publishes one Kafka record for each successful image fetch.
+
+**17.2** The record key is the UTF-8 `imageurl:<hash>` ref from requirement 13.5.
+
+**17.3** The record value is the response body as binary data. The value contains the bytes received after HTTP message framing is removed and before any `Content-Encoding` is decoded. It has no JSON envelope, base64 encoding, or other framing.
+
+**17.4** The record has these Kafka headers:
+
+| Header             | Value                                                                                                  |
+|--------------------|--------------------------------------------------------------------------------------------------------|
+| `content-type`     | The normalized media type accepted under requirement 14.10, in lowercase and without parameters       |
+| `content-encoding` | The response content codings in the order in which the server applied them, normalized to lowercase    |
+
+**17.5** The fetcher omits `content-encoding` when the response has no content coding or specifies `identity`. The scrubber treats a missing header as `identity`.
+
+**17.6** The scrubber decodes the content codings in reverse order. It refuses an unsupported or malformed coding. It must enforce its uncompressed input limit while it decodes the value.
+
+**17.7** After content decoding, the scrubber checks that the bytes match `content-type` before it sends them to the image scrubber.
+
+**17.8** Existing inline image records keep their current format: the key is an `image:<pseudo-team>:<hash>` ref, the value is the raw image bytes, and no transport headers are required.
+
+**17.9** A dead-letter record and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
+
+**17.10** The producer, topic, dead-letter topic, and consumers must accept the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead.
+
 ## External specifications
 
 | Specification                                                                                                            | What it governs here                                                                                                                                                 |

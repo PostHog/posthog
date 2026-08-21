@@ -16,7 +16,13 @@ The mirror currently sends an image to the scrub topic with the ref as the Kafka
 
 The fetcher does not publish images yet. The server enforces dry-run mode.
 
-Define the new record in section 17 of the README before implementing this path. One candidate design keeps the response body as the Kafka value and puts the schema version, media type, and content encoding in Kafka headers. Confirm that all retry and dead-letter paths preserve these headers before selecting this design.
+Publish the fetched response body in the Kafka value and add the headers from section 17. The current fetcher requests `identity` and refuses another content coding. Change it to accept the codings it advertises and pass the encoded response body to Kafka.
+
+Change the scrubber to accept a global `imageurl:` ref. Decode its `content-encoding` with an uncompressed-size limit, then check its bytes against `content-type` before scrubbing it.
+
+The current dead-letter sink rebuilds the headers from diagnostic data, and its replay keeps only the replay counter. Change both paths to preserve `content-type` and `content-encoding`.
+
+The image-fetch producer currently uses the default Kafka message limit because its configuration has no `message.max.bytes` setting. Size the producer and both topics for the response-body limit plus the maximum record overhead.
 
 ## Durable completion
 
