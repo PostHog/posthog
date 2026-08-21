@@ -127,6 +127,19 @@ class TestReenrichmentSelection(BaseTest):
 
         assert self._select() == []
 
+    def test_selection_backfills_the_cap_when_the_oldest_rows_fail_identity_filtering(self):
+        for i in range(3):
+            unusable = self._org_with_member(f"person{i}@gmail.com")
+            self._prime(unusable, latest_fetch_days_ago=60 + i, first_fetch_days_ago=70 + i)
+
+        usable_orgs = [self._org_with_member(f"founder{i}@usable.example") for i in range(2)]
+        for usable in usable_orgs:
+            self._prime(usable, latest_fetch_days_ago=31, first_fetch_days_ago=40)
+
+        candidates = self._select(cap=2)
+
+        assert {c["organization_id"] for c in candidates} == {str(o.id) for o in usable_orgs}
+
     def test_a_new_fetch_resets_the_thirty_day_clock(self):
         organization = self._org_with_member("reset@clock.example")
         self._prime(organization, latest_fetch_days_ago=31, first_fetch_days_ago=40)
@@ -140,6 +153,7 @@ class TestReenrichmentSelection(BaseTest):
         assert self._select() == []
 
 
+@override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=True)
 class TestReenrichOrganizationActivity(BaseTest):
     def _run(self, outcome: EnrichmentOutcome) -> tuple[dict, MagicMock, AsyncMock]:
         pha_client = MagicMock()
@@ -198,5 +212,21 @@ class TestReenrichOrganizationActivity(BaseTest):
             )
 
         assert result == {"matched": False, "skipped": "organization_deleted"}
+        enrich.assert_not_awaited()
+        pha_client.capture.assert_not_called()
+
+    @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False)
+    def test_skips_an_in_flight_org_when_the_kill_switch_flips_off(self):
+        pha_client = MagicMock()
+        enrich = AsyncMock()
+        with (
+            patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
+        ):
+            result = async_to_sync(reenrich_organization_activity)(
+                ReenrichOrgInputs(organization_id=str(self.organization.id), distinct_id="signer", domain="stripe.com")
+            )
+
+        assert result == {"matched": False, "skipped": "kill_switch"}
         enrich.assert_not_awaited()
         pha_client.capture.assert_not_called()

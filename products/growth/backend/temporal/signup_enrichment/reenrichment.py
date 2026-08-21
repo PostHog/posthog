@@ -57,6 +57,11 @@ SELECT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=5)
 # signup user left and nobody can stand in for the signup identity.
 _SIGNUP_MEMBERSHIP_WINDOW = dt.timedelta(minutes=5)
 
+# Orgs that fail identity filtering never get a new fetch row, so they'd otherwise re-occupy
+# a cap slot on every run. Over-fetch the window so the cap can still be filled from what
+# survives filtering, without making the query unbounded.
+_SELECTION_OVERFETCH_MULTIPLIER = 3
+
 
 @dataclasses.dataclass(frozen=True)
 class IcpReenrichmentSweepInputs:
@@ -117,7 +122,7 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
                 latest_fetch__lte=now - dt.timedelta(days=MIN_DAYS_SINCE_LAST_FETCH),
                 first_fetch__gt=now - dt.timedelta(days=MAX_DAYS_SINCE_FIRST_FETCH),
             )
-            .order_by("latest_fetch")[:cap]
+            .order_by("latest_fetch")[: cap * _SELECTION_OVERFETCH_MULTIPLIER]
         )
 
         roles = {
@@ -152,6 +157,8 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
                     "role_at_organization": roles.get(organization_id),
                 }
             )
+            if len(candidates) >= cap:
+                break
         return candidates
 
     candidates = await sync_to_async(_select)()
@@ -163,6 +170,8 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 @close_db_connections
 async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
     """One org through the standard enrichment path, recheck-style, with its own event."""
+    from django.conf import settings  # noqa: PLC0415 — heavy imports kept off the workflow module path
+
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
     from posthog.models.organization import Organization  # noqa: PLC0415
@@ -171,6 +180,12 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
+
+    # Re-checked here, not just at selection: a run can span hours, and this is the only
+    # gate standing between a flipped-off switch and further paid Harmonic calls.
+    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+        logger.info("icp_reenrichment_skipped_kill_switch")
+        return {"matched": False, "skipped": "kill_switch"}
 
     # Selection can be hours stale by the tail of a run, and the enrichment FKs skip DB
     # constraints — without this recheck, an org deleted mid-sweep would get its rows and
