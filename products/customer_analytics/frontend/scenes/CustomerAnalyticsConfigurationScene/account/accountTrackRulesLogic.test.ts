@@ -58,6 +58,11 @@ describe('accountTrackRulesLogic', () => {
 
     afterEach(() => logic.unmount())
 
+    it('disables saving when the draft matches the saved configuration', () => {
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+        expect(logic.values.canSave).toBe(false)
+    })
+
     it('marks a preview stale as soon as the draft changes', async () => {
         mockPreview.mockResolvedValue({
             config_version: 3,

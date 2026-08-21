@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -6,10 +7,13 @@ import {
     LemonButton,
     LemonCard,
     LemonDivider,
+    LemonSegmentedButton,
     LemonSwitch,
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,6 +22,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { urls } from 'scenes/urls'
 
 import { PropertyFilterType, PropertyOperator, type AnyPropertyFilter } from '~/types'
 
@@ -33,6 +38,7 @@ import type {
     AccountTrackRuleConditionApi,
     AccountTrackRuleGroupApi,
     AccountTrackRuleRunViewApi,
+    AccountTrackRuleSampleApi,
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -146,7 +152,7 @@ export function AccountTrackRules(): JSX.Element {
             </div>
 
             {draft.groups.map((group, index) => (
-                <LemonCard key={index} className="p-4 flex flex-col gap-3">
+                <LemonCard key={index} hoverEffect={false} className="p-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                         <div>
                             <span className="font-semibold">Group {index + 1}</span>
@@ -203,9 +209,6 @@ export function AccountTrackRules(): JSX.Element {
                 </LemonButton>
             </div>
 
-            {hasUnsavedChanges && (
-                <LemonBanner type="info">This draft differs from saved version {config?.version ?? 0}.</LemonBanner>
-            )}
             {previewResponse && !previewIsCurrent && (
                 <LemonBanner type="warning">
                     The last preview is stale. Save and preview the current version.
@@ -273,6 +276,41 @@ export function AccountTrackRules(): JSX.Element {
     )
 }
 
+const PREVIEW_METRICS = [
+    {
+        key: 'eligible_active',
+        label: 'Eligible active',
+        tooltip: 'Active accounts evaluated by this preview. Churned accounts are not eligible.',
+    },
+    {
+        key: 'tracked',
+        label: 'Tracked',
+        tooltip: 'Eligible accounts that match at least one group and will remain tracked or be restored.',
+    },
+    {
+        key: 'ignored',
+        label: 'Ignored',
+        tooltip: 'Eligible accounts that do not match any group and will remain ignored or become ignored.',
+    },
+    {
+        key: 'newly_ignored',
+        label: 'Newly ignored',
+        tooltip: 'Currently tracked accounts that will become ignored when this preview is applied.',
+    },
+    {
+        key: 'restored',
+        label: 'Restored',
+        tooltip: 'Currently ignored accounts that will become tracked when this preview is applied.',
+    },
+    {
+        key: 'skipped_churned',
+        label: 'Churned skipped',
+        tooltip: 'Churned accounts excluded from evaluation. Applying these rules will not change them.',
+    },
+] as const
+
+type PreviewSampleKind = 'included' | 'excluded'
+
 function PreviewResult({
     preview,
     current,
@@ -280,41 +318,67 @@ function PreviewResult({
     preview: NonNullable<accountTrackRulesLogicValues['previewResponse']>
     current: boolean
 }): JSX.Element {
-    const counts = [
-        ['Eligible active', preview.eligible_active],
-        ['Tracked', preview.tracked],
-        ['Ignored', preview.ignored],
-        ['Newly ignored', preview.newly_ignored],
-        ['Restored', preview.restored],
-        ['Churned skipped', preview.skipped_churned],
-    ] as const
-    return (
-        <LemonCard className="p-4 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-                <span className="font-semibold">Preview for version {preview.config_version}</span>
-                <LemonTag type={current ? 'success' : 'warning'}>{current ? 'Current' : 'Stale'}</LemonTag>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {counts.map(([label, value]) => (
-                    <div key={label}>
-                        <div className="text-xs text-secondary">{label}</div>
-                        <div className="text-lg font-semibold">{value.toLocaleString()}</div>
-                    </div>
-                ))}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                <SampleList title="Tracked sample" names={preview.tracked_samples.map(({ name }) => name)} />
-                <SampleList title="Ignored sample" names={preview.ignored_samples.map(({ name }) => name)} />
-            </div>
-        </LemonCard>
-    )
-}
+    const [sampleKind, setSampleKind] = useState<PreviewSampleKind>('included')
+    const samples = sampleKind === 'included' ? preview.tracked_samples : preview.ignored_samples
+    const total = sampleKind === 'included' ? preview.tracked : preview.ignored
+    const columns: LemonTableColumns<AccountTrackRuleSampleApi> = [
+        {
+            title: 'Account',
+            render: (_, account) => <Link to={urls.customerAnalyticsAccount(account.id)}>{account.name}</Link>,
+        },
+        {
+            title: 'Account ID',
+            dataIndex: 'id',
+        },
+    ]
 
-function SampleList({ title, names }: { title: string; names: readonly string[] }): JSX.Element {
     return (
-        <div>
-            <div className="font-medium">{title}</div>
-            <div className="text-secondary">{names.length ? names.join(', ') : 'No accounts'}</div>
+        <div className="flex flex-col gap-3">
+            <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="font-semibold">Preview for version {preview.config_version}</span>
+                    <LemonTag type={current ? 'success' : 'warning'}>{current ? 'Current' : 'Stale'}</LemonTag>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {PREVIEW_METRICS.map(({ key, label, tooltip }) => (
+                        <div key={key}>
+                            <Tooltip title={tooltip}>
+                                <span className="text-xs text-secondary cursor-help border-b border-dotted">
+                                    {label}
+                                </span>
+                            </Tooltip>
+                            <div className="text-lg font-semibold">{preview[key].toLocaleString()}</div>
+                        </div>
+                    ))}
+                </div>
+            </LemonCard>
+
+            <LemonCard hoverEffect={false} className="p-0 overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                        <div className="font-semibold">Preview results</div>
+                        <div className="text-xs text-secondary">
+                            Showing {samples.length.toLocaleString()} sample accounts of {total.toLocaleString()}{' '}
+                            {sampleKind}
+                        </div>
+                    </div>
+                    <LemonSegmentedButton<PreviewSampleKind>
+                        value={sampleKind}
+                        onChange={setSampleKind}
+                        options={[
+                            { value: 'included', label: 'Included' },
+                            { value: 'excluded', label: 'Excluded' },
+                        ]}
+                        size="small"
+                    />
+                </div>
+                <LemonTable
+                    dataSource={[...samples]}
+                    columns={columns}
+                    emptyState={`No ${sampleKind} accounts`}
+                    className="border-t"
+                />
+            </LemonCard>
         </div>
     )
 }
