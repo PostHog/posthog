@@ -22,17 +22,20 @@ import { useState } from "react";
 
 interface SlackWorkspaceConnectionProps {
   isLoading?: boolean;
+  /** When false, omit the connect-another button (a parent header renders it). */
+  showConnectAnother?: boolean;
 }
 
 export function SlackWorkspaceConnection({
   isLoading = false,
+  showConnectAnother = true,
 }: SlackWorkspaceConnectionProps) {
   const { slackIntegrations, hasSlackIntegration } = useIntegrationSelectors();
   const slackConnect = useSlackConnect();
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 py-1">
+      <div className="flex items-center gap-2 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-3">
         <Spinner />
         <Text size="xs" variant="muted">
           Loading Slack…
@@ -44,47 +47,46 @@ export function SlackWorkspaceConnection({
   if (hasSlackIntegration) {
     return (
       <div className="flex flex-col gap-2">
-        {slackIntegrations.map((integration) => (
-          <SlackWorkspaceRow key={integration.id} integration={integration} />
-        ))}
-        <div className="flex">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={slackConnect.isConnecting}
-            onClick={() => {
-              void slackConnect.connect();
-            }}
-          >
-            {slackConnect.isConnecting
-              ? "Waiting for Slack…"
-              : "Connect another workspace"}
-          </Button>
+        <div className="divide-y divide-(--gray-4) rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)">
+          {slackIntegrations.map((integration) => (
+            <SlackWorkspaceRow key={integration.id} integration={integration} />
+          ))}
         </div>
+        {showConnectAnother ? (
+          <div className="flex">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={slackConnect.isConnecting}
+              onClick={() => {
+                void slackConnect.connect();
+              }}
+            >
+              {slackConnect.isConnecting
+                ? "Waiting for Slack…"
+                : "Connect another workspace"}
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="shrink-0 text-(--gray-11)">
-          <SlackLogoIcon size={20} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          <Text size="sm" weight="medium">
-            Slack workspace
-          </Text>
-          <Text size="xs" variant="muted" className="leading-snug">
-            Connect a workspace so reports can post to channels and reviewers
-            get pinged.
-          </Text>
-        </div>
+    <div className="flex min-h-11 items-center justify-between gap-6 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-3.5 py-2">
+      <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+        <span className="font-medium text-[13px] text-gray-12 leading-5">
+          No Slack workspace connected yet
+        </span>
+        <span className="text-[12px] text-gray-10 leading-snug">
+          Connect a workspace so reports can post to channels and reviewers get
+          pinged.
+        </span>
       </div>
       <Button
         type="button"
-        variant="outline"
+        variant="primary"
         size="sm"
         className="shrink-0"
         disabled={slackConnect.isConnecting}
@@ -149,20 +151,21 @@ function SlackWorkspaceRow({ integration }: { integration: Integration }) {
 
   return (
     <>
-      <div className="flex items-center gap-3 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5">
-        <div className="shrink-0 text-(--gray-11)">
-          <SlackLogoIcon size={24} />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <Text size="sm">
-            <span className="font-medium">Connected</span> to{" "}
-            <span className="font-medium">{workspaceName}</span>
-          </Text>
-          {createdAt ? (
-            <Text size="xs" variant="muted">
-              Connected {formatRelativeTimeLong(createdAt)}
-            </Text>
-          ) : null}
+      <div className="flex min-h-11 items-center justify-between gap-6 px-3.5 py-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="shrink-0 text-(--gray-11)">
+            <SlackLogoIcon size={24} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+              {workspaceName}
+            </span>
+            {createdAt ? (
+              <span className="truncate text-[12px] text-gray-10 leading-snug">
+                Connected {formatRelativeTimeLong(createdAt)}
+              </span>
+            ) : null}
+          </div>
         </div>
         {isAdmin === true ? (
           <Button
