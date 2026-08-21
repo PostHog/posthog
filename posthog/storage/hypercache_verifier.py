@@ -95,7 +95,7 @@ def _fetch_team_batch(base_qs: QuerySet[Team], last_id: int, chunk_size: int) ->
         ) from e
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerificationResult:
     """Result of verifying all teams' caches."""
 
