@@ -1934,7 +1934,9 @@ class FeatureFlagSerializer(
         # the tombstone instead — same scheme as the soft-delete update path.
         # Only safe when no active dependent references it; re-check that
         # invariant and error clearly if violated.
-        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
+        # select_related("team") because the replay-link check below reads `flag.team.project_id`,
+        # which the filter's join doesn't select.
+        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.select_related("team").filter(
             key=key,
             team__project_id=self.context["project_id"],
             deleted=True,
@@ -1943,23 +1945,38 @@ class FeatureFlagSerializer(
             soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
 
         for flag in soft_deleted_qs:
+            if teams_linking_flag(flag).exists():
+                # Hard-deleting fires no save, so nothing relinks the teams gating replay on
+                # this tombstone and they keep the key the new flag is about to claim. Rename
+                # instead and `relink_teams_on_key_change` moves them onto the tombstone. The
+                # blocker check still runs first: renaming a flag an active dependent references
+                # would silently break that dependent, whether or not a team links it for replay.
+                self._raise_if_key_reuse_blocked(flag)
+                flag.key = flag.tombstoned_key()
+                flag.save(update_fields=["key"])
+                continue
             try:
                 flag.delete()
             except (deletion.RestrictedError, deletion.ProtectedError):
-                blockers = []
-                active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
-                if active_experiment_ids:
-                    blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
-                eaf_count = flag.features.count()
-                if eaf_count:
-                    blockers.append(f"{eaf_count} early access feature(s)")
-                if blockers:
-                    raise exceptions.ValidationError(
-                        f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
-                        f"referenced by {' and '.join(blockers)}. Please contact support."
-                    )
+                self._raise_if_key_reuse_blocked(flag)
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
+
+    def _raise_if_key_reuse_blocked(self, flag: FeatureFlag) -> None:
+        # An active dependent (Experiment via RESTRICT, EarlyAccessFeature via PROTECT) means the
+        # tombstone can't be freed without silently breaking that dependent, so refuse the reuse.
+        blockers = []
+        active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
+        if active_experiment_ids:
+            blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
+        eaf_count = flag.features.count()
+        if eaf_count:
+            blockers.append(f"{eaf_count} early access feature(s)")
+        if blockers:
+            raise exceptions.ValidationError(
+                f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
+                f"referenced by {' and '.join(blockers)}. Please contact support."
+            )
 
     def _reraise_duplicate_key_violation(self, exc: IntegrityError) -> NoReturn:
         # The "unique key for team" DB constraint is the authoritative guard on key

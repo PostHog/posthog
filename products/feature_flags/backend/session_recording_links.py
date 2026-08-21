@@ -11,13 +11,15 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import QuerySet
+from django.db.models.signals import post_save, pre_save
+from django.dispatch import receiver
 
 import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +27,20 @@ logger = structlog.get_logger(__name__)
 REPLAY_LINKED_FLAG_DELETE_ERROR = (
     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
 )
+
+
+def linked_flag_id(linked_flag: Any) -> int | None:
+    """The flag id a stored replay link points at, or None when it holds no usable one."""
+    if not isinstance(linked_flag, dict):
+        return None
+    stored_id = linked_flag.get("id")
+    # The column is schemaless, so anything an API client or the admin's JSON widget sent can be
+    # here. Only an int is usable, and every other shape is left for the caller to handle rather
+    # than coerced. `bool` is excluded explicitly because it subclasses `int`, so `{"id": true}`
+    # would otherwise read as a link to flag 1.
+    if isinstance(stored_id, bool) or not isinstance(stored_id, int):
+        return None
+    return stored_id
 
 
 def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
@@ -72,6 +88,8 @@ def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> N
             .values_list("session_recording_linked_flag", flat=True)
             .first()
         )
+        # Don't route this through `linked_flag_id`: it stays loose to match the jsonb comparison
+        # `teams_linking_flag` selected on, where a stored float id equals an int one.
         if not isinstance(linked_flag, dict) or linked_flag.get("id") != expected_flag_id:
             # Someone pointed the team at a different flag since the caller looked it up; that
             # edit isn't ours to touch, and this rename has nothing left to fix here.
@@ -116,17 +134,51 @@ def relink_teams(feature_flag: FeatureFlag) -> None:
             capture_exception()
 
 
-@mutable_receiver(model_activity_signal, sender=FeatureFlag)
-def relink_teams_on_key_change(
-    sender: Any, before_update: FeatureFlag | None, after_update: FeatureFlag | None, **kwargs: Any
+_KEY_BEFORE_SAVE_ATTR = "_replay_link_key_before_save"
+_KEY_FIELD = frozenset({"key"})
+
+
+@receiver(pre_save, sender=FeatureFlag)
+def capture_replay_link_key_before_save(
+    sender: type[FeatureFlag],
+    instance: FeatureFlag,
+    raw: bool = False,
+    update_fields: frozenset[str] | None = None,
+    **kwargs: Any,
 ) -> None:
-    # Wired to the model signal rather than to FeatureFlagSerializer so renames from the Django
-    # admin, a shell, or a Celery task keep the link intact too. `before_update` is None on create;
-    # `after_update` is None on delete.
-    if before_update is None or after_update is None or before_update.key == after_update.key:
+    # Its own snapshot rather than sharing the one `flag_version_sync` takes: relinking must
+    # not hinge on which fields another feature happens to watch.
+    # objects_including_soft_deleted so the tombstone rename a soft-deleted flag gets when
+    # `_free_key_held_by_soft_deleted_flags` frees its key for reuse is captured too.
+    capture_fields_before_save(
+        instance,
+        FeatureFlag.objects_including_soft_deleted,
+        _KEY_FIELD,
+        attr=_KEY_BEFORE_SAVE_ATTR,
+        update_fields=update_fields,
+        raw=raw,
+    )
+
+
+@receiver(post_save, sender=FeatureFlag)
+def relink_teams_on_key_change(
+    sender: type[FeatureFlag],
+    instance: FeatureFlag,
+    created: bool = False,
+    raw: bool = False,
+    **kwargs: Any,
+) -> None:
+    # Wired to plain model signals rather than to FeatureFlagSerializer so renames from the
+    # Django admin, a shell, or a Celery task keep the link intact too, and rather than to
+    # model_activity_signal because activity logging is tunable in ways recording must not
+    # inherit: `mute_selected_signals()` and the activity-log `signal_exclusions` can both
+    # silently drop that signal, and a skipped relink turns replay off for every linking team.
+    # The snapshot is only a change detector; `relink_teams` re-reads the stored key itself.
+    key_changed = snapshot_if_changed(instance, attr=_KEY_BEFORE_SAVE_ATTR) is not None
+    if raw or created or not key_changed:
         return
 
-    # Unlike `repair_replay_linked_flag_keys`, this has no `after_update.deleted` guard, including
+    # Unlike `repair_replay_linked_flag_keys`, this has no `instance.deleted` guard, including
     # for the tombstone rename `_free_key_held_by_soft_deleted_flags` does when freeing a
     # soft-deleted flag's key for reuse. That's intentional: relinking still rewrites a team's
     # stored key to the flag's new, id-suffixed tombstone, which no live flag's key can equal.
@@ -136,4 +188,4 @@ def relink_teams_on_key_change(
     # Deferred to commit because the serializer renames inside a transaction that holds
     # `select_for_update` on the flag row, and taking team locks in that window invites deadlocks.
     # Outside a transaction (admin, shell) `on_commit` runs the callback immediately.
-    transaction.on_commit(lambda: relink_teams(after_update))
+    transaction.on_commit(lambda: relink_teams(instance))
