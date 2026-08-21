@@ -171,7 +171,9 @@ export function WorkflowsTable(): JSX.Element {
                     <LemonTableLink
                         to={urls.workflow(item.id, 'workflow')}
                         title={item.name}
-                        description={item.description}
+                        description={
+                            item.description ? <span className="line-clamp-2">{item.description}</span> : undefined
+                        }
                     />
                 )
             },
@@ -228,11 +230,12 @@ export function WorkflowsTable(): JSX.Element {
                     <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
+                            successMetricNames={['triggered']}
                             forceParams={{
                                 appSource: 'hog_flow',
                                 appSourceId: id,
-                                metricKind: ['success', 'failure'],
-                                breakdownBy: 'metric_kind',
+                                metricName: ['triggered'],
+                                breakdownBy: 'metric_name',
                                 interval: 'day',
                                 dateFrom: '-7d',
                             }}
