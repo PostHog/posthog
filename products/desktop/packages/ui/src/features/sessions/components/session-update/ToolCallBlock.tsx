@@ -22,7 +22,12 @@ import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
 } from "./identifiers";
-import { isUploadArtifactCall, readCreatedPrUrl } from "./inlineArtifacts";
+import {
+  isShowActionsCall,
+  isUploadArtifactCall,
+  readCreatedPrUrl,
+} from "./inlineArtifacts";
+import { ShowActionsCard } from "./ShowActionsCard";
 import { SubagentToolView } from "./SubagentToolView";
 
 interface ToolCallBlockProps extends ToolViewProps {
@@ -57,6 +62,16 @@ export function ToolCallBlock({
       <Box className={chatChrome ? "" : "pl-3"}>
         <UploadedArtifactCard {...props} />
       </Box>
+    );
+  }
+
+  // The buttons are the point of the call, not a step it took, so they take the
+  // row instead of a tool header the user would have to expand.
+  if (isShowActionsCall(toolCall._meta)) {
+    return (
+      <div className={chatChrome ? "" : "pl-3"}>
+        <ShowActionsCard {...props} />
+      </div>
     );
   }
 

@@ -1,10 +1,51 @@
-import { readMcpToolDescriptor } from "@posthog/shared";
+import { agentActionSchema } from "@posthog/core/agent-actions/schemas";
+import { type AgentAction, readMcpToolDescriptor } from "@posthog/shared";
 
 const UPLOAD_ARTIFACT_TOOL = "upload_artifact";
+const SHOW_ACTIONS_TOOL = "show_actions";
 
 /** The agent's `upload_artifact` call, which delivers a file to the artifacts panel. */
 export function isUploadArtifactCall(meta: unknown): boolean {
   return readMcpToolDescriptor(meta)?.tool === UPLOAD_ARTIFACT_TOOL;
+}
+
+/** The agent's `show_actions` call, which offers the user buttons rather than a file. */
+export function isShowActionsCall(meta: unknown): boolean {
+  return readMcpToolDescriptor(meta)?.tool === SHOW_ACTIONS_TOOL;
+}
+
+/** One button a `show_actions` call is offering: its text, and the verb behind it. */
+export interface ShowActionButton {
+  label: string;
+  action: AgentAction;
+}
+
+function readLabel(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const { label } = entry as { label?: unknown };
+  return typeof label === "string" && label.trim() ? label.trim() : null;
+}
+
+/**
+ * The buttons to draw for a `show_actions` call. Every action is re-validated
+ * against `agentActionSchema` — the same schema the host's dispatch accepts —
+ * so an action that could never open anything is dropped instead of drawn as a
+ * dead button. `label` is the card's own text and never reaches a link, so it
+ * is read separately from the verb the schema declares.
+ */
+export function readShowActions(rawInput: unknown): ShowActionButton[] {
+  if (!rawInput || typeof rawInput !== "object") return [];
+  const { actions } = rawInput as { actions?: unknown };
+  if (!Array.isArray(actions)) return [];
+
+  const buttons: ShowActionButton[] = [];
+  for (const entry of actions) {
+    const parsed = agentActionSchema.safeParse(entry);
+    const label = readLabel(entry);
+    if (!parsed.success || !label) continue;
+    buttons.push({ label, action: parsed.data });
+  }
+  return buttons;
 }
 
 /** The download name the upload will land under: the given name, else the file's own. */
