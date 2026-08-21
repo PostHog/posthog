@@ -1,6 +1,7 @@
 import io
 import random
 import string
+import asyncio
 import collections.abc
 
 import pytest
@@ -128,6 +129,48 @@ async def test_non_arrow_stream_raises_readable_error(payload: bytes):
     assert "Arrow" in message
     # The server's own text is what a reader needs, so it must reach the message.
     assert "DB::Exception" in message
+
+
+class RaiseAfterChunk:
+    """Yield one chunk, then raise instead of ending cleanly.
+
+    Models a truncated or aborted body: the underlying stream raises its own read error mid-way
+    rather than signalling clean EOF with StopAsyncIteration.
+    """
+
+    def __init__(self, first_chunk: bytes, error: BaseException) -> None:
+        self._first_chunk = first_chunk
+        self._error = error
+        self._sent = False
+
+    def __aiter__(self) -> "RaiseAfterChunk":
+        return self
+
+    async def __anext__(self) -> bytes:
+        if self._sent:
+            raise self._error
+        self._sent = True
+        return self._first_chunk
+
+
+async def test_non_arrow_stream_surfaces_error_when_preview_read_breaks():
+    """A body that breaks mid-preview must still surface the buffered server text, not the transport error."""
+    stream = RaiseAfterChunk(b"Code: 241. DB::Exception: Memory limit exceeded", ConnectionError("stream aborted"))
+    reader = asyncpa.AsyncMessageReader(stream)
+
+    with pytest.raises(asyncpa.InvalidMessageFormat) as exc_info:
+        await reader.read_next_message()
+
+    assert "DB::Exception" in str(exc_info.value)
+
+
+async def test_preview_read_does_not_swallow_cancellation():
+    """The best-effort preview must let cancellation propagate, not turn it into a format error."""
+    stream = RaiseAfterChunk(b"Code: 241. DB::Exception: Memory limit exceeded", asyncio.CancelledError())
+    reader = asyncpa.AsyncMessageReader(stream)
+
+    with pytest.raises(asyncio.CancelledError):
+        await reader.read_next_message()
 
 
 @pytest.mark.parametrize("batches_before_resume", [1, 5, 10])

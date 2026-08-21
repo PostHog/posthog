@@ -105,11 +105,16 @@ class AsyncMessageReader:
     async def read_preview(self) -> bytes:
         """Pull a little more of the stream so an error can show what actually arrived.
 
-        Best-effort: a short stream just yields fewer bytes.
+        Best-effort: this only enriches an error we are about to raise. A short stream ends with
+        StopAsyncIteration, but a truncated or aborted body raises a transport error instead (an
+        aiohttp payload error from ClickHouse, a botocore streaming error from S3), and letting
+        that escape would replace the readable format error with a byte-level transport complaint.
+        So fall back to whatever is already buffered on any Exception. Cancellation is a
+        BaseException, so it still propagates.
         """
         try:
             await self.read_until(INVALID_PREFIX_PREVIEW_BYTES)
-        except StopAsyncIteration:
+        except Exception:
             pass
         return bytes(self._buffer[:INVALID_PREFIX_PREVIEW_BYTES])
 
