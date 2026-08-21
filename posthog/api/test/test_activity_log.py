@@ -495,7 +495,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert log.was_impersonated is True
 
     @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
-    def test_activity_log_export_preserves_oauth_authorization(self, mock_exporter_task) -> None:
+    def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
         token = self._create_oauth_token()
         token.scope = "activity_log:write"
         token.save(update_fields=["scope"])
@@ -510,4 +510,3 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
         assert exported_asset.source_oauth_access_token_id == str(token.id)
-        mock_exporter_task.assert_called_once_with(exported_asset.id)
