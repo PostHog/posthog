@@ -304,7 +304,6 @@ class TestRelaySlackMessage(TestCase):
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
         return_value=True,
     )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -319,7 +318,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         mock_requests_post,
-        _mock_canvas_file_flag,
         _mock_living_artifacts_flag,
     ):
         artifact, storage_path = self._create_pending_slack_file_artifact(
@@ -360,7 +358,6 @@ class TestRelaySlackMessage(TestCase):
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
         return_value=True,
     )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -381,7 +378,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
         _mock_living_artifacts_flag,
     ):
         # posthog_url must be SITE_URL-origin, or it is treated as untrusted caller metadata
@@ -456,7 +452,6 @@ class TestRelaySlackMessage(TestCase):
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
         return_value=True,
     )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -472,7 +467,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
         _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
@@ -513,7 +507,6 @@ class TestRelaySlackMessage(TestCase):
         "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
         return_value=True,
     )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -528,7 +521,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
         _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(

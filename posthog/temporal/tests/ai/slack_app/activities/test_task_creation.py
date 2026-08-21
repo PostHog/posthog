@@ -80,34 +80,27 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
 
 
 @pytest.mark.parametrize(
-    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode,expected_charts",
+    "living_enabled,granted_scopes,expected_mode,expected_charts",
     [
-        (True, True, "chat:write,canvases:write,files:write", "canvas_file", True),
-        (True, True, "chat:write,canvases:write", "message", True),
-        (True, True, "chat:write", "message", True),
-        (True, False, "chat:write,canvases:write,files:write", "message", False),
-        (False, True, "chat:write,canvases:write,files:write", "none", False),
+        (True, "chat:write,canvases:write,files:write", "canvas_file", True),
+        (True, "chat:write,canvases:write", "message", True),
+        (True, "chat:write", "message", True),
+        (False, "chat:write,canvases:write,files:write", "none", False),
     ],
 )
 def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
-    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode, expected_charts
+    living_enabled, granted_scopes, expected_mode, expected_charts
 ):
     # The agent offers whatever this state says, so it must never claim more than the
-    # workspace has: canvas/file needs its flag AND both scopes AND the umbrella gate,
-    # or the agent promises an artifact the adapters then reject. Charts clear on the flag
-    # and the umbrella gate alone, which is why the two rows with the flag on but a scope
-    # missing still get charts while dropping to message mode.
+    # workspace has: canvas/file needs both scopes AND the umbrella gate, or the agent
+    # promises an artifact the adapters then reject. Charts clear on the umbrella gate
+    # alone, which is why the rows with a scope missing still get charts while dropping
+    # to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
-    with (
-        patch(
-            "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
-            return_value=living_enabled,
-        ),
-        patch(
-            "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
-            return_value=canvas_flag_enabled,
-        ),
+    with patch(
+        "products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled",
+        return_value=living_enabled,
     ):
         assert _artifact_delivery_state_updates(integration) == {
             "slack_artifact_delivery": expected_mode,

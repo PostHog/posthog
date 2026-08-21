@@ -34,9 +34,6 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# Both scopes are approved (see posthog/helpers/slack_scopes.py), so the canvas and file adapters
-# stay behind the slack-app-canvas-file-artifacts flag: scope checks alone would turn the feature
-# on for every install that has them, with no rollout control.
 SLACK_CANVAS_SCOPE = "canvases:write"
 SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"
@@ -653,11 +650,6 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
-        if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError(
-                "Slack canvas delivery is not enabled for this workspace: you do not have this capability. "
-                "Use adapter=slack_message and deliver the content as text instead."
-            )
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_CANVAS_SCOPE}))
         if missing_scopes:
@@ -778,11 +770,6 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
-        if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError(
-                "Slack file delivery is not enabled for this workspace: you do not have this capability. "
-                "Use adapter=slack_message and summarize the result as text instead."
-            )
         slack_integration = _slack_integration_for_mapping(mapping)
         resolved_content_type = content_type or _guess_content_type(name)
         # Chart images deliver as image blocks referencing a PostHog-hosted url, which needs no
@@ -890,10 +877,6 @@ def deliver_pending_slack_file_artifacts(
 
     if not _living_artifacts_enabled_for_mapping(mapping):
         logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
-        return result
-
-    if not _canvas_file_artifacts_enabled(mapping):
-        logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
         return result
 
     slack_integration = _slack_integration_for_mapping(mapping)
@@ -1503,12 +1486,6 @@ def _require_living_artifacts_enabled(run: TaskRun) -> None:
             "Living artifacts are not enabled for this Slack workspace: you cannot create or deliver "
             "artifacts on this run. Deliver results as plain text in your reply instead."
         )
-
-
-def _canvas_file_artifacts_enabled(mapping: Any) -> bool:
-    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
-
-    return is_slack_app_canvas_file_artifacts_enabled(mapping.integration)
 
 
 def _slack_client_for_mapping(mapping: Any):
