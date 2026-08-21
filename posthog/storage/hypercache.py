@@ -170,6 +170,7 @@ class HyperCache:
         namespace: str,
         value: str,
         load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
+        bucket: str | None,
         token_based: bool = False,
         hashed_credential_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
@@ -183,6 +184,8 @@ class HyperCache:
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+        if s3_enabled and bucket is None:
+            raise ValueError("bucket is required unless s3_enabled is False")
 
         self.namespace = namespace
         self.value = value
@@ -201,6 +204,7 @@ class HyperCache:
         # entries whose staleness bound depends on expiry — an S3 copy never expires, so
         # it would restore a stale value past every redis expiry.
         self.s3_enabled = s3_enabled
+        self.bucket = bucket
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -279,7 +283,7 @@ class HyperCache:
 
         try:
             if self.s3_enabled:
-                data = object_storage.read(cache_key, missing_ok=True)
+                data = object_storage.read(cache_key, bucket=self.bucket, missing_ok=True)
                 if data:
                     response = json.loads(data)
                     HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
@@ -586,7 +590,7 @@ class HyperCache:
                 # Always delete ETag key to clean up stale ETags from when enable_etag was True
                 self.cache_client.delete(self.get_etag_key(key))
             if "s3" in kinds and self.s3_enabled:
-                object_storage.delete(self.get_cache_key(key))
+                object_storage.delete(self.get_cache_key(key), bucket=self.bucket)
         finally:
             self._remove_expiry_tracking(key)
 
@@ -658,10 +662,10 @@ class HyperCache:
         """
         key = self.get_cache_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            object_storage.delete(key)
+            object_storage.delete(key, bucket=self.bucket)
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
-            object_storage.write(key, json.dumps(data, sort_keys=True))
+            object_storage.write(key, json.dumps(data, sort_keys=True), bucket=self.bucket)
 
     def _remove_expiry_tracking(self, key: KeyType) -> None:
         """

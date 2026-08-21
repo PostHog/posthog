@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import QuerySet
@@ -476,6 +477,7 @@ surveys_hypercache = HyperCache(
     namespace="surveys",
     value="surveys.json",
     load_fn=lambda key: _get_surveys_response(HyperCache.team_from_key(key)),
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     token_based=True,
 )
 
