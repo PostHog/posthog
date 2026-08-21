@@ -17,7 +17,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     UNSCORED_SURFACING_SCORE,
     SessionRecordingListFromQuery,
@@ -178,6 +178,10 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
+        # The principal the recordings query runs as, for the experiment_exposure filter's access
+        # check. The sweep passes the scanner's creator; a None principal makes that check refuse a
+        # query carrying an exposure filter. A query without one is unaffected either way.
+        user: User | None = None,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
@@ -236,6 +240,7 @@ class ScannerCandidateQuery:
         self._inner = SessionRecordingListFromQuery(
             team=team,
             query=inner_query,
+            user=user,
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
@@ -521,6 +526,10 @@ class WindowedCandidateQuery:
         # Tags this caller's reads in `system.query_log`; required so a new caller names itself.
         query_type: str,
         sampling_rate: float,
+        # The principal the recordings query runs as, for the experiment_exposure filter's access
+        # check. The backfill passes whoever launched it; a None principal makes that check refuse a
+        # query carrying an exposure filter. A query without one is unaffected either way.
+        user: User | None = None,
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
@@ -581,6 +590,7 @@ class WindowedCandidateQuery:
         self._inner = SessionRecordingListFromQuery(
             team=team,
             query=inner_query,
+            user=user,
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
