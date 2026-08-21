@@ -89,8 +89,10 @@ run_hclexp -version > "$OUTDIR/hclexp-version.txt" 2>&1 \
   || echo "WARN: hclexp -version unavailable (older image?) — see $OUTDIR/hclexp-version.txt" >&2
 chmod 0644 "$OUTDIR/hclexp-version.txt" 2>/dev/null || true
 
-rc=0
-for spec in "${ROLES[@]}"; do
+# Introspect every role at once: each write targets its own $ENV-$role.hcl, so the
+# roles are independent and the wall clock is the slowest single node, not their sum.
+dump_role() {
+  local spec="$1" role dhost dport ddb uc host port db out
   read -r role dhost dport ddb <<<"$spec"
   uc="$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')"
   eval "host=\"\${${uc}_HOST:-$dhost}\""
@@ -108,9 +110,19 @@ for spec in "${ROLES[@]}"; do
         -user "$CH_USER" -password "$CH_PASSWORD" \
         -node "$role" -exclude "$EXCLUDE" -out - > "$out"; then
     echo "FAIL: introspect $ENV/$role ($host:$port/$db)" >&2
-    rc=1
+    return 1
   fi
   chmod 0644 "$out" 2>/dev/null || true  # readable by the nonroot container in check-live
+}
+
+rc=0
+pids=()
+for spec in "${ROLES[@]}"; do
+  dump_role "$spec" &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+  wait "$pid" || rc=1
 done
 
 echo "$OUTDIR"
