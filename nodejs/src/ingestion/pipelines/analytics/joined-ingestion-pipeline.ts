@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -36,7 +37,6 @@ import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
@@ -74,7 +74,7 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
-    createEventUsageBatch?: () => EventUsageBatch
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -121,7 +121,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
-        createEventUsageBatch = () => new EventUsageBatch(null, () => false),
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     const {

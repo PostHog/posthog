@@ -11,6 +11,7 @@ import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -28,7 +29,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
@@ -226,10 +226,10 @@ export class ErrorTrackingServer implements NodeServer {
                     redisPool: this.redisPool!,
                     personRepository,
                     createEventUsageBatch: () =>
-                        new EventUsageBatch(
-                            createUsageIngestionClient(this.config, 'exceptions'),
-                            usageReportTeamMatcher(this.config, 'exceptions')
-                        ),
+                        new UsageRecordBatch(createUsageIngestionClient(this.config, 'exceptions'), {
+                            unit: 'events',
+                            isTeamEnabled: usageReportTeamMatcher(this.config, 'exceptions'),
+                        }),
                 }
             )
             await consumer.start()

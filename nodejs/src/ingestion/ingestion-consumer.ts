@@ -26,6 +26,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
@@ -41,7 +42,6 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -386,10 +386,10 @@ export class IngestionConsumer {
         return new HealthCheckResultOk()
     }
 
-    private createEventUsageBatch(): () => EventUsageBatch {
+    private createEventUsageBatch(): () => UsageRecordBatch {
         const client = createUsageIngestionClient(this.config, 'events')
         const isTeamEnabled = usageReportTeamMatcher(this.config, 'events')
-        return () => new EventUsageBatch(client, isTeamEnabled)
+        return () => new UsageRecordBatch(client, { unit: 'events', isTeamEnabled })
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {

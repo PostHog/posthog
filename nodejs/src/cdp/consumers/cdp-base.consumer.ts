@@ -132,11 +132,12 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         // through `cdpProducerRegistry.disconnectAll()`.
     }
 
-    public stop(): Promise<void> {
+    public async stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
+        // Billing records live only in memory until this flush, so a graceful stop has to drain them.
+        await this.cdpUsageReporter.flush()
         logger.info('👍', `${this.name} - stopped!`)
-        return Promise.resolve()
     }
 
     public abstract isHealthy(): HealthCheckResult

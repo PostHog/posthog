@@ -5,10 +5,12 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
@@ -49,12 +51,10 @@ import {
     createRecordEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveAiUsageKey } from '~/ingestion/common/usage-records/billable-events'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
-import { AI_EVENT_TYPES } from './ai-event-types'
 import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import {
@@ -91,7 +91,7 @@ export interface AiIngestionPipelineConfig {
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
-    createEventUsageBatch?: () => EventUsageBatch
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 interface AiIngestionPipelineInput {
@@ -139,7 +139,7 @@ export function createAiIngestionPipeline<
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
-        createEventUsageBatch = () => new EventUsageBatch(null, () => false),
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     return (

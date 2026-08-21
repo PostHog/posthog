@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -21,7 +22,6 @@ import { createProcessPersonsStep } from '~/ingestion/common/steps/event-process
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { createRecordEventUsageStep } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -55,7 +55,7 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
-    eventUsageBatch: EventUsageBatch
+    eventUsageBatch: UsageRecordBatch
 }
 
 export interface EventSubpipelineConfig {

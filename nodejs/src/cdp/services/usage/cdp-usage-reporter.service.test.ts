@@ -21,7 +21,7 @@ describe('CdpUsageReporterService', () => {
         jest.useRealTimers()
     })
 
-    it('collapses repeats of a record ID into one billed invocation', async () => {
+    it('bills a retried invocation once', async () => {
         const reporter = new CdpUsageReporterService(client, () => true)
         reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
         reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
@@ -31,7 +31,7 @@ describe('CdpUsageReporterService', () => {
             expect.objectContaining({
                 recordId: 'event:abc',
                 teamId: 1,
-                quantity: 2,
+                quantity: 1,
                 usageKey: 'cdp_billable_invocations',
                 dimensions: { kind: 'destination' },
             }),
