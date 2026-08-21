@@ -8,7 +8,7 @@ export interface MainFocusUrlInput {
     /** Whether the panel is running the new PostHog AI view rather than the legacy Max chat. */
     isNewView: boolean
     /** The run the new view's panel has open, if any. */
-    activeCreation?: ActiveCreation | null
+    activeCreation: ActiveCreation | null
     /** The conversation the legacy view has open, if any. */
     conversationId: string | null
 }

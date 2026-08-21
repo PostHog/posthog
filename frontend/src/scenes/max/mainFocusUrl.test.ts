@@ -21,13 +21,13 @@ describe('mainFocusUrl', () => {
             { isNewView: true, activeCreation: { streamKey: 'draft-1' }, conversationId: null },
             null,
         ],
-        ['new view with nothing open', { isNewView: true, conversationId: null }, '/ai'],
+        ['new view with nothing open', { isNewView: true, activeCreation: null, conversationId: null }, '/ai'],
         [
             'legacy view with a chat open',
-            { isNewView: false, conversationId: 'conversation-1' },
+            { isNewView: false, activeCreation: null, conversationId: 'conversation-1' },
             '/ai?chat=conversation-1',
         ],
-        ['legacy view with nothing open', { isNewView: false, conversationId: null }, '/ai'],
+        ['legacy view with nothing open', { isNewView: false, activeCreation: null, conversationId: null }, '/ai'],
     ]
 
     it.each(cases)('opens what the panel is showing: %s', (_name, input, expected) => {
