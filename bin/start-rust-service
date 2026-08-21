@@ -223,6 +223,21 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  usage-ingestion)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export USAGE_INGESTION_DATABASE_URL="${USAGE_INGESTION_DATABASE_URL:-$DEFAULT_PG}"
+    # db 2 keeps the team-organization HyperCache off the keyspaces flags (db 1) and the app use.
+    export USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL="${USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL:-redis://redis7:6379/2}"
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    # The HyperCache reader falls back to S3 when Redis misses, so the bucket is required.
+    export OBJECT_STORAGE_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
+    export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://objectstorage:19000}"
+    export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-object_storage_root_user}"
+    export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-object_storage_root_password}"
+    export DEBUG=1
+    ;;
+
   batch-import-worker)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
