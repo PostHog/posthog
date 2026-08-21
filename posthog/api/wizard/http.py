@@ -20,7 +20,7 @@ from openai.types.chat import (
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter
-from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework import exceptions, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
@@ -31,7 +31,12 @@ from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.llm.wizard_gateway_token import (
+    WizardGatewayMintError,
+    mint_wizard_gateway_token,
+    wizard_gateway_configured,
+)
+from posthog.models import Team, User
 from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import (
@@ -384,6 +389,77 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError(f"Model '{model}' is not supported.")
 
         return Response({"data": response_data})
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="gateway_token",
+        throttle_classes=[SetupWizardQueryRateThrottle],
+    )
+    def gateway_token(self, request: Request) -> Response:
+        """Mint a scoped gateway token for a wizard run against the Go ai-gateway.
+
+        The CLI calls this after OAuth and uses the returned phe_ (pinned
+        product=wizard / obo=<customer org>, capped, expiring) as its gateway
+        bearer, re-calling near expiry. 404 when unconfigured or the rollout
+        flag is off for this org — the CLI treats any non-200 as "stay on the
+        legacy gateway", so rollout percentage is controlled here without a CLI
+        release.
+        """
+        if not wizard_gateway_configured():
+            raise exceptions.NotFound("Wizard gateway tokens are not available.")
+
+        authenticator = OAuthAccessTokenAuthentication()
+        result = authenticator.authenticate(request)
+        if not result:
+            raise AuthenticationFailed("Invalid access token.")
+        user, _ = result
+        if not user:
+            raise AuthenticationFailed("Invalid access token.")
+
+        # Literal scope check, mirroring the gateway ("*" must not subsume it).
+        # llm_gateway:read is a privileged scope that only reaches a token
+        # through an explicit app scope ceiling (the wizard's own OAuth app),
+        # so this doubles as the application check.
+        if "llm_gateway:read" not in (authenticator.access_token.scopes or []):
+            raise AuthenticationFailed("Access token lacks the gateway scope.")
+
+        scoped_team_ids = authenticator.access_token.scoped_teams or []
+        if len(scoped_team_ids) != 1:
+            raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
+        team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
+        if team is None:
+            raise exceptions.NotFound(ERROR_PROJECT_NOT_FOUND)
+
+        distinct_id = str(user.distinct_id)
+        if not posthoganalytics.feature_enabled(
+            "wizard-gateway-v2",
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
+
+        try:
+            minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id)
+        except WizardGatewayMintError as e:
+            capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
+            return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(
+            {
+                "token": minted["token"],
+                "expires_at": minted["expires_at"],
+                "cap_usd": minted.get("cap_usd"),
+                "gateway_url": settings.WIZARD_GATEWAY_URL,
+                # For the CLI's run-metadata blob, so dashboards keep a team
+                # breakdown next to the org-level obo attribution.
+                "team_id": team.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(
         methods=["POST"],

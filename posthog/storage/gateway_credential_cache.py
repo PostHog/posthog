@@ -68,6 +68,16 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "revoked_at",
 ]
 
+# Internal-product posture (gateway-defined, internal/auth/gateway_credential.go):
+# billable:false marks spend the gateway stamps $ai_billable=false (PostHog-funded
+# products like the setup wizard); tier feeds the gateway's rate-limit/shed bucket.
+# Both are settings-driven maps rather than Team columns: they apply to a handful
+# of internal teams, and a settings change takes effect on the hourly full
+# reprojection without signal wiring.
+BILLABLE_KEY = "billable"
+TIER_KEY = "tier"
+GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
+
 # Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
 # fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
 # so we validate at the write surfaces instead of relying on the clamp.
@@ -289,7 +299,27 @@ def _policy_for_credential(
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 
+    # Omit both posture fields unless set: absent means billable / tier-unknown
+    # on the gateway side, so blobs for ordinary teams stay byte-identical.
+    if team.id in _non_billable_team_ids():
+        policy[BILLABLE_KEY] = False
+    tier = _team_tier_overrides().get(str(team.id))
+    if tier in GATEWAY_KNOWN_TIERS:
+        policy[TIER_KEY] = tier
+
     return policy
+
+
+def _non_billable_team_ids() -> set[int]:
+    """Teams whose gateway spend is PostHog-funded (never customer-billable).
+    Read per call so tests can override_settings without cache poking."""
+    raw = getattr(settings, "AI_GATEWAY_NON_BILLABLE_TEAM_IDS", []) or []
+    return {int(team_id) for team_id in raw}
+
+
+def _team_tier_overrides() -> dict[str, str]:
+    """Explicit team_id (string) -> tier map for the gateway's rate-limit bucket."""
+    return getattr(settings, "AI_GATEWAY_TEAM_TIER_OVERRIDES", {}) or {}
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
