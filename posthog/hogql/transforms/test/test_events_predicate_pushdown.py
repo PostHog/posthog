@@ -146,7 +146,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
             )
-            context.restricted_properties = {("email", PropertyDefinition.Type.EVENT)}
+            context.restricted_properties = {("email", PropertyDefinition.Type.EVENT, None)}
             query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
             return pretty_print_in_tests(query, self.team.pk)
 

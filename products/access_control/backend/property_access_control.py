@@ -36,7 +36,7 @@ from ee.models.rbac.role import RoleMembership
 # (`task_prerun` / `task_postrun`); callers running outside those boundaries (management
 # commands, ad-hoc scripts, code paths we haven't instrumented) simply pay the query cost
 # rather than risk stale authorization data.
-_restriction_cache_var: ContextVar[dict[tuple[int, int | None], set[tuple[str, int]]] | None] = ContextVar(
+_restriction_cache_var: ContextVar[dict[tuple[int, int | None], set[tuple[str, int, int | None]]] | None] = ContextVar(
     "property_access_restriction_cache", default=None
 )
 
@@ -97,6 +97,7 @@ __all__ = [
     "get_non_writable_property_names",
     "get_property_access_level",
     "get_restricted_properties_for_team",
+    "get_restricted_properties_with_group_type_index_for_team",
     "get_restricted_property_names",
     "is_property_access_control_enabled",
     "strip_restricted_properties",
@@ -276,14 +277,14 @@ def get_non_writable_property_names(
     return non_writable
 
 
-def get_restricted_properties_for_team(
+def get_restricted_properties_with_group_type_index_for_team(
     *,
     user: User | SyntheticUser | SharedLinkUser | None,
     team: Team | None = None,
     team_id: int | None = None,
-) -> set[tuple[str, int]]:
+) -> set[tuple[str, int, int | None]]:
     """
-    Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
+    Returns the set of (property_name, property_type, group_type_index) tuples that are restricted for the given user.
     This is designed to be called once per query to batch-load all restrictions rather than checking one property
     at a time.
 
@@ -298,7 +299,7 @@ def get_restricted_properties_for_team(
     :param team_id: The team's id, for callers that don't have the instance loaded. Pass exactly one of
         ``team`` and ``team_id``.
 
-    :returns: A set of (property_name, property_definition_type) tuples that are restricted.
+    :returns: Restricted property metadata. ``group_type_index`` is only set for group properties.
     """
     # Shared-link user and synthetic user have no membership to resolve restrictions against;
     # treat them as userless so only the default rules apply.
@@ -321,7 +322,7 @@ def get_restricted_properties_for_team(
 
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
     if not is_property_access_control_enabled(team=team, team_id=team_id):
-        empty_no_feature: set[tuple[str, int]] = set()
+        empty_no_feature: set[tuple[str, int, int | None]] = set()
         if cache is not None:
             cache[cache_key] = empty_no_feature
         return empty_no_feature
@@ -333,7 +334,7 @@ def get_restricted_properties_for_team(
     )
 
     if not rules.exists():
-        empty: set[tuple[str, int]] = set()
+        empty: set[tuple[str, int, int | None]] = set()
         if cache is not None:
             cache[cache_key] = empty
         return empty
@@ -367,7 +368,7 @@ def get_restricted_properties_for_team(
             RoleMembership.objects.filter(organization_member=membership).values_list("role_id", flat=True)
         )
 
-    restricted: set[tuple[str, int]] = set()
+    restricted: set[tuple[str, int, int | None]] = set()
 
     for _prop_def_id, prop_rules in rules_by_property.items():
         prop_def = prop_rules[0].property_definition
@@ -377,11 +378,22 @@ def get_restricted_properties_for_team(
             user_role_ids=user_role_ids,
         )
         if prop_def is not None and not level.grants_access():
-            restricted.add((prop_def.name, prop_def.type))
+            restricted.add((prop_def.name, prop_def.type, prop_def.group_type_index))
 
     if cache is not None:
         cache[cache_key] = restricted
     return restricted
+
+
+def get_restricted_properties_for_team(
+    *,
+    user: User | SyntheticUser | SharedLinkUser | None,
+    team: Team | None = None,
+    team_id: int | None = None,
+) -> set[tuple[str, int]]:
+    """Return restricted property names and types for callers that do not need group index scope."""
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team=team, team_id=team_id)
+    return {(name, property_type) for name, property_type, _group_type_index in restrictions}
 
 
 def _resolve_access_level(

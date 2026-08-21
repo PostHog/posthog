@@ -130,10 +130,10 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
-    # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
+    # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
-    restricted_properties: Optional[set[tuple[str, int]]] = None
+    restricted_properties: Optional[set[tuple[str, int, int | None]]] = None
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.

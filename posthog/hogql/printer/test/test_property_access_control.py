@@ -383,6 +383,26 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "'arr'" not in sql
         assert not any("arr" in str(v) for v in values.values())
 
+    def test_system_groups_properties_blob_strips_restricted_keys(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties FROM system.groups")
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_denied_system_group_property_read_is_not_extracted(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties.arr FROM system.groups")
+        assert "JSONExtract" not in sql
+        assert "'arr'" not in sql
+        assert not any("arr" in str(value) for value in values.values())
+
+    def test_group_restriction_only_applies_to_matching_group_type(self):
+        self._restrict_group_property(group_type_index=0)
+        sql = self._compile_select("SELECT goe_1.properties.arr FROM events")
+        assert "JSONExtract" in sql
+        assert "arr" in sql
+
     @parameterized.expand(
         [
             ("groups_lazy_join", "SELECT group_0.properties FROM events"),

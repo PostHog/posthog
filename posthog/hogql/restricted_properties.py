@@ -2,6 +2,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
@@ -24,7 +25,9 @@ RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+def restricted_property_keys_for_table_type(
+    table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
+) -> set[str]:
     """Top-level property names restricted by property-level access control for a table, or an empty set.
 
     Single source of truth shared by the ClickHouse printer (which JSONDropKeys-wraps the blob) and the property
@@ -56,14 +59,14 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
         prop_def_type = PropertyDefinition.Type.PERSON
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
+        group_type_index = table.group_index
     elif isinstance(table, EventsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, (GroupsTable, RawGroupsTable)):
-        # Group property definitions are per group type index, but `context.restricted_properties` carries only
-        # (name, type) — so a restricted name is declined for every group type. Over-restricting one group type's
-        # property on another is the fail-closed direction; the alternative leaks the restricted value.
+    elif isinstance(table, (GroupsTable, RawGroupsTable)) or (
+        isinstance(table, PostgresTable) and table.postgres_table_name == "posthog_group"
+    ):
         prop_def_type = PropertyDefinition.Type.GROUP
     else:
         # PropertyDefinition.Type.SESSION is deliberately absent: the sessions tables expose each session property as
@@ -72,4 +75,13 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
         # blob-key drop.
         return set()
 
-    return {name for name, ptype in context.restricted_properties if ptype == prop_def_type}
+    return {
+        name
+        for name, ptype, restricted_group_type_index in context.restricted_properties
+        if ptype == prop_def_type
+        and (
+            prop_def_type != PropertyDefinition.Type.GROUP
+            or group_type_index is None
+            or restricted_group_type_index == group_type_index
+        )
+    }

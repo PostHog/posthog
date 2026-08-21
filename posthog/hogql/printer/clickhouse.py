@@ -586,7 +586,14 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field.name not in RESTRICTABLE_JSON_BLOB_COLUMNS:
             return field_sql
 
-        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
+        group_type_index = None
+        group_column_match = re.fullmatch(r"group(\d+)_properties", resolved_field.name)
+        if group_column_match:
+            group_type_index = int(group_column_match.group(1))
+
+        keys_to_drop = restricted_property_keys_for_table_type(
+            type.table_type, self.context, group_type_index=group_type_index
+        )
         if not keys_to_drop:
             return field_sql
 
