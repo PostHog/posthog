@@ -18,7 +18,6 @@ from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
-    DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
     DEFAULT_CANDIDATE_LIMIT,
     EXCLUDED_SESSIONS_QUERY_TYPE,
     SWEEP_EVENTS_LOOKBACK,
@@ -37,7 +36,12 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_deep_sweep_failure, record_sweep_outcome
+from products.replay_vision.backend.temporal.metrics import (
+    record_candidate_page_full,
+    record_deep_candidates,
+    record_deep_sweep_failure,
+    record_sweep_outcome,
+)
 from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -112,6 +116,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     batch = candidate_query.run_batch(limit)
     fetched = batch.matched
+    if batch.saturated:
+        record_candidate_page_full()
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
@@ -177,6 +183,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
         priming_candidates = [c for c in priming_candidates if c.session_id not in stuck]
 
+    if deep_candidates:
+        record_deep_candidates(len(deep_candidates))
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
         candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
@@ -355,14 +363,13 @@ def _deep_sweep(
     # Stamped before the query, so a pass that times out still counts against the cadence. Queryset
     # update rather than save(): `updated_at` means "the scanner was edited", which the skip above reads.
     ReplayScanner.objects.filter(pk=scanner.id).update(deep_attempted_at=now)
-    batch = deep_query.run_batch(limit, scan_query_type=DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE)
-    deep_candidates = batch.matched
+    deep_candidates = deep_query.run()
 
-    if batch.saturated and batch.keyset_end is not None:
-        # More left in this window than the tick could take, so resume from where it stopped rather
-        # than re-walking. Oldest-first means everything below that point is covered, which is what
-        # lets the watermark move at all here.
-        progress = _DeepProgress(swept_through=batch.keyset_end, seen_session_id=batch.keyset_session_id)
+    if len(deep_candidates) == limit:
+        # Filled up, so resume from the last row rather than re-walking. Oldest-first means everything
+        # below it is covered, which is what lets the watermark move at all here.
+        last = deep_candidates[-1]
+        progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
     else:
         progress = _DeepProgress(swept_through=window_end)
     if deep_candidates:

@@ -4,6 +4,10 @@ import pytest
 
 from parameterized import parameterized
 
+from posthog.schema import RecordingsQuery
+
+from posthog.hogql import ast
+
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
@@ -11,6 +15,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
     build_candidate_batch,
+    run_correlated_batch,
     session_in_predicates,
 )
 
@@ -21,6 +26,21 @@ def _sessions(count: int, prefix: str = "s") -> list[CandidateSession]:
     return [
         CandidateSession(session_id=f"{prefix}-{i}", session_end=_T0 + dt.timedelta(seconds=i)) for i in range(count)
     ]
+
+
+def _bounds_sessions(node: ast.Expr | None) -> bool:
+    """Whether the outer query restricts `sessions.session_id` to a fixed list."""
+    if node is None:
+        return False
+    if (
+        isinstance(node, ast.CompareOperation)
+        and node.op == ast.CompareOperationOp.In
+        and isinstance(node.left, ast.Field)
+        and node.left.chain[-1] == "session_id"
+        and isinstance(node.right, ast.Constant)
+    ):
+        return True
+    return any(_bounds_sessions(e) for e in (getattr(node, "exprs", None) or []))
 
 
 class TestBuildCandidateBatch:
@@ -66,7 +86,9 @@ class TestBuildCandidateBatch:
 
 @pytest.mark.django_db
 class TestSessionInPredicates:
-    def _query(self, *, filter_test_accounts: bool, with_event_filter: bool) -> ScannerCandidateQuery:
+    def _query(
+        self, *, filter_test_accounts: bool, with_event_filter: bool, operand: str = "AND"
+    ) -> ScannerCandidateQuery:
         org = Organization.objects.create(name="predicate-test-org")
         team = Team.objects.create(
             organization=org,
@@ -75,11 +97,9 @@ class TestSessionInPredicates:
                 {"key": "$host", "type": "event", "value": "app.example.com", "operator": "icontains"}
             ],
         )
-        query: dict = {"kind": "RecordingsQuery", "filter_test_accounts": filter_test_accounts}
+        query: dict = {"kind": "RecordingsQuery", "filter_test_accounts": filter_test_accounts, "operand": operand}
         if with_event_filter:
             query["properties"] = [{"key": "plan", "type": "event", "value": "pro", "operator": "exact"}]
-        from posthog.schema import RecordingsQuery  # noqa: PLC0415
-
         return ScannerCandidateQuery(
             team=team,
             query=RecordingsQuery.model_validate(query),
@@ -96,6 +116,27 @@ class TestSessionInPredicates:
         predicates = session_in_predicates(self._query(filter_test_accounts=True, with_event_filter=True).get_query())
 
         assert len(predicates) == 2
+
+    def test_an_or_filter_still_bounds_the_match_query_to_the_scanned_page(self) -> None:
+        # With operand OR a session can match through a non-event branch, which the subquery
+        # restriction never sees. Without the outer bound the match set runs past the page the
+        # keyset is computed from, so the walk advances over sessions it never correlated.
+        candidate_query = self._query(filter_test_accounts=False, with_event_filter=True, operand="OR")
+        executed: list[ast.SelectQuery] = []
+
+        def execute(query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
+            executed.append(query)
+            return [CandidateSession(session_id="sess-a", session_end=_T0)] if len(executed) == 1 else []
+
+        run_correlated_batch(
+            build=candidate_query.get_query,
+            execute=execute,
+            scan_query_type="scan",
+            match_query_type="match",
+            dispatch_limit=10,
+        )
+
+        assert _bounds_sessions(executed[1].where)
 
     def test_a_scanner_without_event_filters_has_nothing_to_correlate(self) -> None:
         predicates = session_in_predicates(self._query(filter_test_accounts=False, with_event_filter=False).get_query())

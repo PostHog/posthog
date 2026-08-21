@@ -92,21 +92,11 @@ def _wire_batch(mock_query: MagicMock) -> None:
     meaning (keyset at the last fetched row, saturated when the batch filled).
     """
 
-    def run_batch(dispatch_limit: int) -> CandidateBatch:
+    def run_batch(dispatch_limit: int, **_: object) -> CandidateBatch:
         fetched = mock_query.return_value.run() or []
         return build_candidate_batch(fetched, fetched, dispatch_limit, dispatch_limit)
 
     mock_query.return_value.run_batch.side_effect = run_batch
-
-
-def _wire_deep_batch(mock_deep: MagicMock) -> None:
-    """Same shim for the catch-up pass, whose run_batch takes a scan tag."""
-
-    def run_batch(dispatch_limit: int, *, scan_query_type: str) -> CandidateBatch:
-        fetched = mock_deep.return_value.run() or []
-        return build_candidate_batch(fetched, fetched, dispatch_limit, dispatch_limit)
-
-    mock_deep.return_value.run_batch.side_effect = run_batch
 
 
 @contextmanager
@@ -120,7 +110,6 @@ def _patched_queries() -> Iterator[tuple[MagicMock, MagicMock]]:
         MockQuery.return_value.matches_on_events.return_value = True
         MockDeep.return_value.run.return_value = []
         _wire_batch(MockQuery)
-        _wire_deep_batch(MockDeep)
         yield MockQuery, MockDeep
 
 

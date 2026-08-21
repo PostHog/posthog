@@ -13,6 +13,7 @@ from posthog.schema import RecordingsQuery
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -46,31 +47,23 @@ SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
 BACKFILL_CANDIDATE_QUERY_TYPE = "ReplayVisionBackfillCandidateQuery"
 BACKFILL_COUNT_QUERY_TYPE = "ReplayVisionBackfillCountQuery"
 DEEP_SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionDeepSweepCandidateQuery"
-DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE = "ReplayVisionDeepSweepCandidateScanQuery"
 SWEEP_CANDIDATE_QUERY_TYPE = "ReplayVisionScannerCandidateQuery"
 SWEEP_CANDIDATE_SCAN_QUERY_TYPE = "ReplayVisionScannerCandidateScanQuery"
 EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionExcludedSessionsQuery"
 BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE = "ReplayVisionBackfillExcludedSessionsQuery"
 
-# Every tag the frequent sweep emits. The read meter charges its throttle on exactly this set, so a
-# new sweep query that is not listed here spends unmetered and the scanner never throttles for it.
+# The candidate-selection tags the read meter charges the frequent sweep's throttle on. A new
+# selection query that is not listed here spends unmetered and never stretches the cadence. The
+# one-shot priming query is deliberately outside it.
 FAST_SWEEP_QUERY_TYPES = [
     SWEEP_CANDIDATE_QUERY_TYPE,
     SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
     EXCLUDED_SESSIONS_QUERY_TYPE,
 ]
-# Same contract for the catch-up pass, which throttles on its own bucket.
-DEEP_SWEEP_QUERY_TYPES = [
-    DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
-    DEEP_SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
-]
 
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
-# Guards the predicate walk against a pathological filter tree.
-_MAX_PREDICATE_DEPTH = 8
-
 DEFAULT_CANDIDATE_LIMIT = 5_000
 # How many sessions one tick pulls from the replay table before asking the events table about them.
 # The `$session_id` bloom filter stops discriminating once the list gets long: measured against
@@ -352,6 +345,10 @@ def run_correlated_batch(
     session_ids = [c.session_id for c in considered]
     for predicate in session_in_predicates(matching):
         _restrict_to_sessions(predicate, session_ids)
+    # Also bound the outer query to the page. A filter whose operand is OR can match a session
+    # through a non-event branch, which the subquery restriction never sees; without this the match
+    # set could run past the page the keyset is computed from.
+    _restrict_outer_to_sessions(matching, session_ids)
     matching.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
     matched = execute(matching, match_query_type)
     return build_candidate_batch(considered, matched, dispatch_limit, CANDIDATE_SCAN_LIMIT)
@@ -367,19 +364,22 @@ def session_in_predicates(query: ast.SelectQuery) -> list[ast.CompareOperation]:
     inner = query.select_from.table if query.select_from else None
     if not isinstance(inner, ast.SelectQuery):
         return []
-    return _collect_session_in(inner.where)
+    collector = _SessionInCollector()
+    collector.visit(inner.where)
+    return collector.found
 
 
-def _collect_session_in(node: ast.Expr | None, depth: int = 0) -> list[ast.CompareOperation]:
-    if node is None or depth > _MAX_PREDICATE_DEPTH:
-        return []
-    found: list[ast.CompareOperation] = []
-    for expr in getattr(node, "exprs", None) or []:
-        if _is_session_in(expr):
-            found.append(expr)
-        else:
-            found.extend(_collect_session_in(expr, depth + 1))
-    return found
+class _SessionInCollector(TraversingVisitor):
+    """Collects the session-in predicates without descending into the subqueries they carry."""
+
+    def __init__(self) -> None:
+        self.found: list[ast.CompareOperation] = []
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if _is_session_in(node):
+            self.found.append(node)
+            return
+        super().visit_compare_operation(node)
 
 
 def _is_session_in(expr: ast.Expr) -> bool:
@@ -408,6 +408,15 @@ def _restrict_to_sessions(predicate: ast.CompareOperation, session_ids: list[str
         op=ast.CompareOperationOp.In, left=session_expr, right=ast.Constant(value=session_ids)
     )
     subquery.where = ast.And(exprs=[subquery.where, restriction]) if subquery.where else restriction
+
+
+def _restrict_outer_to_sessions(query: ast.SelectQuery, session_ids: list[str]) -> None:
+    restriction = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["sessions", "session_id"]),
+        right=ast.Constant(value=session_ids),
+    )
+    query.where = ast.And(exprs=[query.where, restriction]) if query.where else restriction
 
 
 def build_candidate_batch(
@@ -584,16 +593,6 @@ class WindowedCandidateQuery:
     @tracer.start_as_current_span("WindowedCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
         return self._execute(self.get_query(), self._query_type)
-
-    @tracer.start_as_current_span("WindowedCandidateQuery.run_batch")
-    def run_batch(self, dispatch_limit: int, *, scan_query_type: str) -> CandidateBatch:
-        return run_correlated_batch(
-            build=self.get_query,
-            execute=self._execute,
-            scan_query_type=scan_query_type,
-            match_query_type=self._query_type,
-            dispatch_limit=dispatch_limit,
-        )
 
     def _execute(self, query: ast.SelectQuery, query_type: str) -> list[CandidateSession]:
         rows = execute_candidate_query(

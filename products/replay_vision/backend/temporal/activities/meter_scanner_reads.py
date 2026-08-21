@@ -8,7 +8,7 @@ from posthog.clickhouse.workload import Workload
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
-    DEEP_SWEEP_QUERY_TYPES,
+    DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
     FAST_SWEEP_QUERY_TYPES,
 )
 from products.replay_vision.backend.temporal.constants import DEEP_SPEND_WINDOW_DAYS
@@ -20,17 +20,12 @@ from products.replay_vision.backend.temporal.read_meter_types import MeterScanne
 # lands in its (re-scanned, complete) hour bucket.
 _FULL_HOURS_RESCANNED = 2
 
-# Metered positively rather than by subtraction: a backfill runs under the same scanner id, so
-# anything not named here is not charged to the frequent sweep's cadence. The list is owned by the
-# query module, so a new sweep query cannot be added without joining the meter's set.
-_FAST_QUERY_TYPES = FAST_SWEEP_QUERY_TYPES
-
 _READ_BYTES_BY_SCANNER_HOUR_SQL = """
 SELECT
     JSONExtractString(log_comment, 'scanner_id') AS scanner_id,
     toStartOfHour(toTimeZone(event_time, 'UTC')) AS hour,
     sum(read_bytes) AS total_read_bytes,
-    sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') IN %(deep_query_types)s) AS deep_read_bytes,
+    sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') = %(deep_query_type)s) AS deep_read_bytes,
     sumIf(read_bytes, JSONExtractString(log_comment, 'query_type') IN %(fast_query_types)s) AS fast_read_bytes
 FROM clusterAllReplicas(%(cluster)s, system.query_log)
 WHERE event_date >= today() - 1
@@ -60,8 +55,8 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
         {
             "cluster": settings.CLICKHOUSE_CLUSTER,
             "since": since,
-            "deep_query_types": DEEP_SWEEP_QUERY_TYPES,
-            "fast_query_types": _FAST_QUERY_TYPES,
+            "deep_query_type": DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
+            "fast_query_types": FAST_SWEEP_QUERY_TYPES,
         },
         workload=Workload.OFFLINE,
         settings={"max_execution_time": 120, "skip_unavailable_shards": 1},
