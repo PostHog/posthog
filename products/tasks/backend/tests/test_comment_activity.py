@@ -299,7 +299,7 @@ class TestCommentActivity(CommentActivityTestCase):
 
         assert not TaskCommentActivity.objects.filter(comment=second_reply, user=mentioned).exists()
 
-    def test_marking_one_comment_read_keeps_sibling_notifications_unread(self):
+    def test_changing_one_comment_read_state_keeps_sibling_notifications_unchanged(self):
         first = self._comment(content="first")
         second = self._comment(content="second")
         self._record_activity(first)
@@ -313,13 +313,16 @@ class TestCommentActivity(CommentActivityTestCase):
             activity_at=first.created_at,
         )
 
-        tasks_facade.mark_task_activity_read(
-            self.team.id,
-            self.author.id,
-            [(self.task.id, first.created_at, first_activity.id)],
-        )
+        activity_marker = [(self.task.id, first.created_at, first_activity.id)]
+        tasks_facade.mark_task_activity_read(self.team.id, self.author.id, activity_marker)
 
         first_activity.refresh_from_db()
         assert first_activity.read_at is not None
+        assert TaskCommentActivity.objects.get(comment=second, user=self.author).read_at is None
+        assert TaskActivity.objects.get(team=self.team, user=self.author, task=self.task).read_at is None
+
+        tasks_facade.mark_task_activity_unread(self.team.id, self.author.id, activity_marker)
+
+        assert TaskCommentActivity.objects.get(comment=first, user=self.author).read_at is None
         assert TaskCommentActivity.objects.get(comment=second, user=self.author).read_at is None
         assert TaskActivity.objects.get(team=self.team, user=self.author, task=self.task).read_at is None

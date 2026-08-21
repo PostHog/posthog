@@ -33,6 +33,8 @@ from products.tasks.backend.presentation.serializers import (
     ProvisionedChannelsSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
+    TaskActivityMarkUnreadResponseSerializer,
+    TaskActivityMarkUnreadSerializer,
     TaskActivityPageSerializer,
     TaskActivityQuerySerializer,
     TaskActivitySerializer,
@@ -532,6 +534,33 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
             }
         )
+
+    @extend_schema(
+        request=TaskActivityMarkUnreadSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkUnreadResponseSerializer, description="Updated unread total"),
+        },
+        summary="Mark task activity unread",
+        description=(
+            "Restore the unread state for collapsed task activity through task timestamps and individual comment "
+            "activity through activity IDs."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="mark_unread", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskActivityMarkUnreadSerializer)
+    def mark_unread(self, request, *args, **kwargs):
+        activities = [
+            (activity["task_id"], activity["seen_before"], activity.get("activity_id"))
+            for activity in request.validated_data["activities"]
+        ]
+        marked_unread = tasks_facade.mark_task_activity_unread(self.team_id, self._user_id(), activities)
+        result = TaskActivityMarkUnreadResponseSerializer(
+            {
+                "marked_unread": marked_unread,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
+        return Response(result.data)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
