@@ -28,22 +28,12 @@ import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/Ac
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderChip,
-  PageHeaderDescription,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo } from "react";
@@ -214,11 +204,14 @@ export function ActivityRow({
   );
 }
 
-// The Activity page: every task the viewer is involved in — created, mentioned
-// in, or messaged in — newest activity first. Rows clear as they are opened, not
-// when the page is; merely landing here shouldn't dismiss what you haven't read.
+// The Activity page for the code layout: every task the viewer is involved in —
+// created, mentioned in, or messaged in — newest activity first. Rows clear as
+// they are opened, not when the page is; merely landing here shouldn't dismiss
+// what you haven't read.
+//
+// The spaces layout has no page: the feed is the column beside the rail
+// (ChannelsSidebar) and /website/activity's pane is whatever you picked from it.
 export function ActivityView() {
-  const spacesLayout = useChannelsLayout();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const {
@@ -312,7 +305,7 @@ export function ActivityView() {
             <EmptyDescription>
               {unreadsOnly
                 ? "You're all caught up."
-                : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
+                : "Task updates and comment notifications across channels appear here."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -338,35 +331,6 @@ export function ActivityView() {
       </>
     );
 
-  if (spacesLayout) {
-    return (
-      <div className="flex h-full min-h-0 flex-col bg-gray-1">
-        <PageHeader>
-          <PageHeaderHeading>
-            <PageHeaderTitleRow>
-              <PageHeaderTitle>Activity</PageHeaderTitle>
-              {unreadCount > 0 && (
-                <PageHeaderChip icon={<BellIcon size={12} weight="fill" />}>
-                  {unreadCount} unread
-                </PageHeaderChip>
-              )}
-              <PageHeaderActions>
-                {unreadCount > 0 && markAllReadButton}
-                <ActivityUnreadsToggle />
-              </PageHeaderActions>
-            </PageHeaderTitleRow>
-            <PageHeaderDescription>
-              Task updates and comment notifications across spaces.
-            </PageHeaderDescription>
-          </PageHeaderHeading>
-        </PageHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full overflow-y-auto bg-gray-1">
       <div className="mx-auto w-full max-w-[680px] px-4 py-6">
@@ -376,8 +340,7 @@ export function ActivityView() {
               Activity
             </Text>
             <Text size="2" className="block text-muted-foreground">
-              Task updates and comment notifications across{" "}
-              {spacesLayout ? "spaces" : "channels"}.
+              Task updates and comment notifications across channels.
             </Text>
           </div>
           <div className="flex shrink-0 items-center gap-2">

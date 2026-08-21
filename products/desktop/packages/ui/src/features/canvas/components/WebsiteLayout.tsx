@@ -24,7 +24,6 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { ActivityDetailPane } from "@posthog/ui/features/canvas/components/ActivityDetailPane";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
@@ -42,7 +41,6 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -357,9 +355,8 @@ export function WebsiteLayout() {
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
 
-  // Activity reads a task into this pane without routing, so the session is
-  // not always the one in the URL.
-  const { showsActivityDetail } = useRailSurface();
+  // Activity reads a task into its pane off the feed, so the session is not
+  // always the one in the URL.
   const { taskId, channelId: taskChannelId } = useActiveSession();
 
   const rightPanelOpen = useRightPanelOpen(taskId);
@@ -456,7 +453,7 @@ export function WebsiteLayout() {
             it. */}
         <div className="isolate min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-            {showsActivityDetail ? <ActivityDetailPane /> : <Outlet />}
+            <Outlet />
           </MentionAvailabilityProvider>
         </div>
         {/* One panel at a time at the right of the content: the session's
