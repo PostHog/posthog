@@ -438,7 +438,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
     access_token = encode_jwt(
         token_payload,
         datetime.timedelta(minutes=15),
-        PosthogJwtAudience.IMPERSONATED_USER,
+        PosthogJwtAudience.DELEGATED_USER,
     )
     total = 0
     while total < CSV_EXPORT_LIMIT:

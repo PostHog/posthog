@@ -711,7 +711,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             source_authentication = get_export_source_authentication(request.successful_authenticator)
             if source_authentication is None:
                 return Response(
-                    {"error": "API path exports do not support this authentication method."},
+                    {"error": "Exports from API endpoints do not support this authentication method."},
                     status=400,
                 )
 

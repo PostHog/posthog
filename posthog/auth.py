@@ -483,12 +483,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
-    personal_api_key: PersonalAPIKey | None = None
-    oauth_access_token: OAuthAccessToken | None = None
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        self.personal_api_key = None
-        self.oauth_access_token = None
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -497,35 +493,6 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
-                        personal_api_key_id = info.get("personal_api_key_id")
-                        if personal_api_key_id:
-                            try:
-                                self.personal_api_key = PersonalAPIKey.objects.get(
-                                    id=personal_api_key_id,
-                                    user_id=user.id,
-                                    user__is_active=True,
-                                )
-                            except PersonalAPIKey.DoesNotExist as error:
-                                raise AuthenticationFailed(
-                                    detail="Source personal API key is no longer valid."
-                                ) from error
-                        oauth_access_token_id = info.get("oauth_access_token_id")
-                        if oauth_access_token_id:
-                            try:
-                                self.oauth_access_token = OAuthAccessToken.objects.select_related(
-                                    "user", "application"
-                                ).get(
-                                    id=oauth_access_token_id,
-                                    user_id=user.id,
-                                    user__is_active=True,
-                                    application__isnull=False,
-                                    expires__gt=timezone.now(),
-                                )
-                            except OAuthAccessToken.DoesNotExist as error:
-                                raise AuthenticationFailed(
-                                    detail="Source OAuth access token is no longer valid."
-                                ) from error
-                            OAuthAccessTokenAuthentication()._enforce_toolbar_access(self.oauth_access_token)
                         return (user, None)
                     except AuthenticationFailed:
                         raise
@@ -990,6 +957,80 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request):
         return self.keyword
+
+
+def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[str, Any] | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+    authorization_match = re.match(r"^Bearer\s+(\S.+)$", authorization)
+    if not authorization_match:
+        return None
+    try:
+        return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
+    except (jwt.DecodeError, jwt.InvalidAudienceError):
+        return None
+    except jwt.InvalidTokenError as error:
+        raise AuthenticationFailed(detail="Token invalid.") from error
+
+
+class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        personal_api_key_id = claims.get("personal_api_key_id") if claims is not None else None
+        if not personal_api_key_id:
+            return None
+        try:
+            personal_api_key = PersonalAPIKey.objects.select_related("user").get(
+                id=personal_api_key_id,
+                user_id=claims["id"],
+                user__is_active=True,
+            )
+        except (KeyError, PersonalAPIKey.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+
+        self.personal_api_key = personal_api_key
+        tag_authentication(
+            user_id=personal_api_key.user.pk,
+            team_id=personal_api_key.user.current_team_id,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            api_key_mask=personal_api_key.mask_value,
+            api_key_label=personal_api_key.label,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(personal_api_key.user)
+        return personal_api_key.user, None
+
+
+class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        oauth_access_token_id = claims.get("oauth_access_token_id") if claims is not None else None
+        if not oauth_access_token_id:
+            return None
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(
+                id=oauth_access_token_id,
+                user_id=claims["id"],
+                user__is_active=True,
+                application__isnull=False,
+                expires__gt=timezone.now(),
+            )
+        except (KeyError, OAuthAccessToken.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
+
+        self._enforce_toolbar_access(access_token)
+        self.access_token = access_token
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+        return access_token.user, None
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):

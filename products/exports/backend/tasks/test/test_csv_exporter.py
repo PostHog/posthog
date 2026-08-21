@@ -13,6 +13,7 @@ from unittest.mock import ANY, MagicMock, Mock, patch
 from django.test import override_settings
 from django.utils.timezone import now
 
+import jwt
 from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
@@ -361,8 +362,10 @@ class TestCSVExporter(APIBaseTest):
         csv_exporter.export_tabular(exported_asset)
 
         access_token = patched_api_call.call_args.args[0]
-        claims = decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
+        claims = decode_jwt(access_token, PosthogJwtAudience.DELEGATED_USER)
         assert claims["personal_api_key_id"] == "source-key-id"
+        with pytest.raises(jwt.InvalidAudienceError):
+            decode_jwt(access_token, PosthogJwtAudience.IMPERSONATED_USER)
 
     def test_path_based_export_rejects_missing_authentication_source(self) -> None:
         exported_asset = self._create_asset()

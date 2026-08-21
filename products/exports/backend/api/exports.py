@@ -122,7 +122,9 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if export_context.get("path") and (
             str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
         ):
-            raise ValidationError({"export_context": ["API path exports only support GET requests without a body."]})
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints only support GET requests without a request body."]}
+            )
         # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
         # and rejecting it here would 400 exports that never touch a recording.
         session_recording_id = export_context.get("session_recording_id")
@@ -204,7 +206,9 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if source_authentication is not None:
             validated_data.update(source_authentication)
         elif (validated_data.get("export_context") or {}).get("path"):
-            raise ValidationError({"export_context": ["API path exports do not support this authentication method."]})
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints do not support this authentication method."]}
+            )
         self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
 

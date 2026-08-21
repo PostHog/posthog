@@ -619,8 +619,6 @@ def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey |
         return authenticator.personal_api_key
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return authenticator.access_token
-    if isinstance(authenticator, JwtAuthentication):
-        return authenticator.personal_api_key or authenticator.oauth_access_token
     return None
 
 

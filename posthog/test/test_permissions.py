@@ -686,6 +686,7 @@ class TestDelegatedJwtPermissions(BaseTest):
         source_authentication: str,
         scopes: list[str],
         scoped_teams: list[int] | None = None,
+        scoped_organizations: list[str] | None = None,
     ) -> tuple[str, PersonalAPIKey | OAuthAccessToken]:
         token_payload: dict[str, str | int] = {"id": self.user.id}
         if source_authentication == "personal_api_key":
@@ -695,6 +696,7 @@ class TestDelegatedJwtPermissions(BaseTest):
                 secure_value=hash_key_value(generate_random_token_personal()),
                 scopes=scopes,
                 scoped_teams=scoped_teams,
+                scoped_organizations=scoped_organizations,
             )
             token_payload["personal_api_key_id"] = credential.id
         else:
@@ -714,13 +716,14 @@ class TestDelegatedJwtPermissions(BaseTest):
                 expires=timezone.now() + timedelta(hours=1),
                 scope=" ".join(scopes),
                 scoped_teams=scoped_teams,
+                scoped_organizations=scoped_organizations,
             )
             token_payload["oauth_access_token_id"] = str(credential.id)
 
         worker_token = encode_jwt(
             token_payload,
             timedelta(minutes=15),
-            PosthogJwtAudience.IMPERSONATED_USER,
+            PosthogJwtAudience.DELEGATED_USER,
         )
         return worker_token, credential
 
@@ -768,6 +771,22 @@ class TestDelegatedJwtPermissions(BaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_delegated_personal_api_key_filters_organization_list(self) -> None:
+        other_organization, _, _ = Organization.objects.bootstrap(self.user)
+        worker_token, _credential = self._create_delegated_token(
+            "personal_api_key",
+            scopes=["*"],
+            scoped_organizations=[str(other_organization.id)],
+        )
+
+        response = self.client.get(
+            "/api/organizations/",
+            headers={"authorization": f"Bearer {worker_token}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {organization["id"] for organization in response.json()["results"]} == {str(other_organization.id)}
 
 
 class TestOAuthAccessTokenAPIScopePermission(BaseTest):

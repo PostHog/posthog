@@ -12,8 +12,8 @@ class Migration(migrations.Migration):
                 blank=True,
                 choices=[
                     ("session", "Session"),
-                    ("personal_api_key", "Personal Api Key"),
-                    ("oauth_access_token", "Oauth Access Token"),
+                    ("personal_api_key", "Personal API key"),
+                    ("oauth_access_token", "OAuth access token"),
                 ],
                 max_length=32,
                 null=True,
