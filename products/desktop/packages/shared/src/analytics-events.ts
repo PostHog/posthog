@@ -305,6 +305,20 @@ export interface SidebarReorderedProperties {
   to_index: number;
 }
 
+export interface TaskListGroupingChangedProperties {
+  group_by: "repository" | "date";
+  sort_by: "updated" | "created" | "alpha";
+  /** Which list was regrouped: the app sidebar's, or a space's session list. */
+  surface: "sidebar" | "space";
+}
+
+export interface TaskListAppearanceChangedProperties {
+  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_field_count: number;
+  /** Which list it was changed from. The setting applies to both. */
+  surface: "sidebar" | "space";
+}
+
 export interface BrainrotActivatedProperties {
   /** Grid layout preset, e.g. "2x2". */
   layout: string;
@@ -548,6 +562,15 @@ export interface OnboardingGithubConnectFailedProperties {
   error_type?: string;
 }
 
+export interface OnboardingGithubConnectPendingAdminProperties {
+  flow_type: OnboardingGithubConnectFlow;
+}
+
+export interface OnboardingGithubConnectAbandonedProperties {
+  flow_type: OnboardingGithubConnectFlow;
+  seconds_since_started: number;
+}
+
 export interface OnboardingAbandonedProperties {
   last_step_id: OnboardingStepId;
   duration_seconds: number;
@@ -671,12 +694,13 @@ export interface InboxViewedProperties {
   actionability_not_actionable_count: number;
   actionability_unknown_count: number;
   /**
-   * Tab badge counts shown in the v2 inbox header on load — the actual numbers
-   * the user sees (Pull requests / Reports / Runs). Optional: only the desktop
-   * v2 shell populates these; the mobile event omits them.
+   * Tab badge counts shown in the inbox header on load — the actual numbers
+   * the user sees (Pull requests / Reports), sent whatever tab is open. Distinct
+   * from `report_count`, which is only the loaded rows of the active tab.
+   * Optional: the mobile event omits them.
    */
-  pulls_count?: number;
-  reports_count?: number;
+  pulls_tab_count?: number;
+  reports_tab_count?: number;
 }
 
 export interface InboxReportOpenedProperties {
@@ -1335,7 +1359,7 @@ export const ANALYTICS_EVENTS = {
   APP_QUIT: "App quit",
 
   // Authentication
-  USER_LOGGED_IN: "User logged in",
+  USER_LOGGED_IN: "Desktop user logged in",
   USER_LOGGED_OUT: "User logged out",
 
   // Task management
@@ -1387,6 +1411,8 @@ export const ANALYTICS_EVENTS = {
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
   SIDEBAR_REORDERED: "Sidebar reordered",
+  TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
+  TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1421,6 +1447,9 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
+  ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
+    "Onboarding github connect pending admin",
+  ONBOARDING_GITHUB_CONNECT_ABANDONED: "Onboarding github connect abandoned",
   ONBOARDING_GITHUB_CONNECTED: "Onboarding github connected",
   ONBOARDING_CLI_CHECK_COMPLETED: "Onboarding cli check completed",
   ONBOARDING_CLI_RUN_COMPLETED: "Onboarding cli run completed",
@@ -1570,6 +1599,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
@@ -1604,6 +1635,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
+  [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_ABANDONED]: OnboardingGithubConnectAbandonedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECTED]: never;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_CHECK_COMPLETED]: OnboardingCliCheckCompletedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_CLI_RUN_COMPLETED]: OnboardingCliRunCompletedProperties;

@@ -7,6 +7,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     CustomHostnameStatus,
     _parse_hostname,
+    parse_cloudflare_error_code,
 )
 
 # Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
@@ -111,3 +112,21 @@ class TestParseHostnameStatuses(SimpleTestCase):
     def test_an_unmodeled_hostname_status_is_not_active(self):
         info = _parse_hostname(_hostname_payload(status="some_future_status"))
         self.assertNotEqual(info.status, CustomHostnameStatus.ACTIVE)
+
+
+class TestParseCloudflareErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("html_error_page", "<h1>Error 1014</h1> Ray ID: abc", 1014),
+            ("plain_text_body", "error code: 1014", 1014),
+            ("lowercase", "error 1014", 1014),
+            ("colon_separator", "Error: 1014", 1014),
+            ("other_code", "Error 1000 Access denied", 1000),
+            ("five_digit_code", "error code: 10140", None),
+            ("no_code", "403 Forbidden", None),
+            ("empty", "", None),
+            ("non_string", None, None),
+        ]
+    )
+    def test_extracts_error_code(self, _name, body, expected):
+        self.assertEqual(parse_cloudflare_error_code(body), expected)

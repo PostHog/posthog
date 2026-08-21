@@ -112,6 +112,7 @@ describe("archiveTask", () => {
     expect(harness.ids).not.toContain(TASK_ID);
     expect(harness.list).toEqual([]);
     expect(harness.deps.togglePin).toHaveBeenCalledWith(TASK_ID);
+    expect(harness.deps.cache.invalidatePathFilter).toHaveBeenCalled();
   });
 
   it("archives when reading task pins fails", async () => {

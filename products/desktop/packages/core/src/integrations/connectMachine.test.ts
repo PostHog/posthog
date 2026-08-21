@@ -77,6 +77,7 @@ describe("invalidation keys", () => {
       ["integrations", "list"],
       ["user-github-integrations"],
       ["github_login"],
+      ["github-install-requests"],
     ]);
   });
 

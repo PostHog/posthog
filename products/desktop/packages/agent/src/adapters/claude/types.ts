@@ -10,6 +10,7 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
@@ -91,7 +92,6 @@ export type Session = BaseSession & {
   cwd: string;
   taskRunId?: string;
   lastPlanFilePath?: string;
-  lastPlanContent?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */
   fastModeEnabled: boolean;
@@ -233,6 +233,12 @@ export type NewSessionMeta = {
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  /**
+   * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
+   * session from Bedrock through the gateway. Only the desktop resolves this,
+   * so headless runs leave it unset and keep the gateway's default provider.
+   */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
   jsonSchema?: Record<string, unknown> | null;
   mcpToolApprovals?: McpToolApprovals;
   posthogExecPermissionRegex?: string;

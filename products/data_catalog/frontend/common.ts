@@ -44,6 +44,13 @@ export const METRIC_DESCRIPTION_MAX_LENGTH = 1000
 // Mirrors MAX_MARKDOWN_DEFINITION_LENGTH enforced in products/data_catalog/backend/logic/validation.py.
 export const METRIC_MARKDOWN_MAX_LENGTH = 20000
 
+// Mirrors METRIC_BULK_MAX enforced in products/data_catalog/backend/logic/metrics.py.
+export const METRIC_BULK_MAX = 100
+
+export function metricCount(count: number): string {
+    return `${count} ${count === 1 ? 'metric' : 'metrics'}`
+}
+
 export function validateMetricDescription(description: string): string | undefined {
     if (description.length > METRIC_DESCRIPTION_MAX_LENGTH) {
         return `Keep the description under ${METRIC_DESCRIPTION_MAX_LENGTH} characters. Say what the metric means in a few sentences.`

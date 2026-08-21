@@ -52,9 +52,8 @@ from products.dashboards.backend.api.dashboard import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -658,7 +657,128 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
-    @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_tile_spacing_is_saved_and_duplicated(self, _mock_enabled: MagicMock):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"grid_spacing": "relaxed"})
+        self.assertEqual(updated["customization"], {"tile_spacing": "relaxed"})
+
+        Dashboard.objects.filter(id=dashboard_id).update(customization={"show_legend": False})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"grid_spacing": "wide"})
+        self.assertEqual(updated["customization"], {"tile_spacing": "wide"})
+
+        copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
+        self.assertEqual(copied["customization"], {"tile_spacing": "wide"})
+        self.assertEqual(
+            Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
+        )
+
+    @parameterized.expand([("horizontal",), ("stable",)])
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_layout_compaction_is_saved_and_duplicated(
+        self, layout_compaction: str, _mock_enabled: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
+        self.assertEqual(updated["customization"], {"layout_compaction": layout_compaction})
+
+        copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
+        self.assertEqual(copied["customization"], {"layout_compaction": layout_compaction})
+        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_layout_compaction_reports_every_mode_change(
+        self, _mock_enabled: MagicMock, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "horizontal"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "vertical"})
+
+        compaction_calls = [
+            call
+            for call in mock_report_user_action.call_args_list
+            if call.args[1] == "dashboard grid compaction configured"
+        ]
+        self.assertEqual(len(compaction_calls), 2)
+        self.assertEqual(
+            compaction_calls[0].args[2],
+            {
+                "dashboard_id": dashboard_id,
+                "previous_layout_compaction": "vertical",
+                "layout_compaction": "horizontal",
+            },
+        )
+        self.assertEqual(
+            compaction_calls[1].args[2],
+            {
+                "dashboard_id": dashboard_id,
+                "previous_layout_compaction": "horizontal",
+                "layout_compaction": "vertical",
+            },
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_tile_spacing_recovers_from_malformed_customization(self, _mock_enabled: MagicMock):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", customization=[])
+
+        retrieved = self.dashboard_api.get_dashboard(dashboard.id)
+        self.assertEqual(retrieved["customization"], {})
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard.id, {"grid_spacing": "condensed"})
+        self.assertEqual(updated["customization"], {"tile_spacing": "condensed"})
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
+    def test_dashboard_tile_spacing_requires_feature_flag(self, _mock_enabled: MagicMock):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "relaxed"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response["attr"], "grid_spacing")
+        self.assertEqual(response["detail"], "Tile density isn't available.")
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
+    def test_dashboard_layout_compaction_requires_feature_flag(self, _mock_enabled: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"layout_compaction": "horizontal"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response["attr"], "layout_compaction")
+        self.assertEqual(response["detail"], "Tile movement settings aren't available.")
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_tile_spacing_requires_a_known_preset(self, _mock_enabled: MagicMock):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "extra-wide"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response["attr"], "grid_spacing")
+
+    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
+    def test_dashboard_layout_compaction_requires_a_known_mode(self, _mock_enabled: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"layout_compaction": "none"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(response["attr"], "layout_compaction")
+
+    @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_update_dashboard_does_not_record_cache_outcomes(
         self,
