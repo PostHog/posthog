@@ -43,11 +43,6 @@ import { useEffect, useId, useRef, useState } from "react";
 // Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
-// The short space description shown in the space's empty area and searched by
-// the command palette. Distinct from the CONTEXT.md seed the describe step asks
-// for — this one is stored on the channel itself.
-const MAX_SPACE_DESCRIPTION_LENGTH = 200;
-
 const DESCRIPTION_EXAMPLES = [
   "Feature flags help teams control feature access, target specific users, and manage gradual rollouts.",
   "The onboarding experience guides new customers from creating an account to completing their first successful setup.",
@@ -136,7 +131,6 @@ export function CreateChannelModal({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [spaceDescription, setSpaceDescription] = useState("");
   const [repositories, setRepositories] = useState<string[]>([]);
   const [repositoryIntegration, setRepositoryIntegration] = useState<
     number | null
@@ -167,7 +161,6 @@ export function CreateChannelModal({
     if (open) {
       setName("");
       setDescription("");
-      setSpaceDescription("");
       setRepositories([]);
       setRepositoryIntegration(null);
       setStar(true);
@@ -177,10 +170,7 @@ export function CreateChannelModal({
 
   const trimmedName = normalizeChannelName(name);
   const trimmedDescription = description.trim();
-  const trimmedSpaceDescription = spaceDescription.trim();
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
-  const spaceDescriptionRemaining =
-    MAX_SPACE_DESCRIPTION_LENGTH - spaceDescription.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
   const busy = isCreating || isStarting || linkRepositories.isPending;
@@ -205,15 +195,11 @@ export function CreateChannelModal({
   const submitCreate = async (linkSelectedRepositories: boolean) => {
     let contextId: string;
     try {
-      const channel = await createChannel(trimmedName, {
-        star,
-        description: trimmedSpaceDescription || undefined,
-      });
+      const channel = await createChannel(trimmedName, { star });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
         surface: "sidebar",
         channel_id: channel.id,
-        has_description: trimmedSpaceDescription.length > 0,
         success: true,
       });
       contextId = channel.id;
@@ -429,31 +415,6 @@ export function CreateChannelModal({
                     {remaining} left
                   </span>
                 )}
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="space-description">
-                  Description{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (optional)
-                  </span>
-                </FieldLabel>
-                <Textarea
-                  id="space-description"
-                  rows={2}
-                  className="text-xs leading-4"
-                  value={spaceDescription}
-                  placeholder={`What's this ${spacesLayout ? "space" : "channel"} for?`}
-                  maxLength={MAX_SPACE_DESCRIPTION_LENGTH}
-                  disabled={busy}
-                  onChange={(e) => setSpaceDescription(e.target.value)}
-                />
-                <FieldDescription>
-                  Shown at the top of the {spacesLayout ? "space" : "channel"}{" "}
-                  and searchable from the command palette.
-                </FieldDescription>
-                <span className="text-gray-9 text-xs tabular-nums">
-                  {spaceDescriptionRemaining} left
-                </span>
               </Field>
             </DialogBody>
 

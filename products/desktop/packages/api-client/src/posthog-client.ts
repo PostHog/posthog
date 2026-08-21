@@ -2614,11 +2614,11 @@ export class PostHogAPIClient {
   }
 
   // Resolve-or-create a public channel by name (idempotent server-side). `star`
-  // and `description` only apply when this call creates the channel; an
-  // existing one keeps the requester's star and its own description as they were.
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
   async resolveTaskChannel(
     name: string,
-    options: { star: boolean; description?: string },
+    options: { star: boolean },
   ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2627,11 +2627,7 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
       overrides: {
-        body: JSON.stringify({
-          name,
-          star: options.star,
-          ...(options.description ? { description: options.description } : {}),
-        }),
+        body: JSON.stringify({ name, star: options.star }),
       },
     });
     if (!response.ok) {

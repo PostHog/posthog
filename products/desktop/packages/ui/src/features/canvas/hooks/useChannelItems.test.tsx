@@ -103,7 +103,6 @@ function channel(over: Partial<Channel> = {}): Channel {
   return {
     id: "c1",
     name: "eng",
-    description: "",
     channelType: "public",
     starred: false,
     repositories: [],
