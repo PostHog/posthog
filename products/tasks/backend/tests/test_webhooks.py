@@ -226,6 +226,26 @@ class TestGitHubPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_delivery_without_installation_falls_back_to_unscoped_lookup(self, mock_capture, mock_get_secret):
+        # Deliveries carrying no installation block keep the legacy full-table lookup, so the
+        # match must not regress. The counter is how we see how much of that traffic is left.
+        mock_get_secret.return_value = self.webhook_secret
+        labels = {"scoped": "false"}
+        before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
+
+        payload = {
+            "action": "closed",
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123", "merged": True},
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_capture.call_args[1]["properties"]["run_id"], str(self.task_run.id))
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_publishes_stream_events(self, mock_capture, mock_get_secret):
         # A live installation-progress view only learns about the merge through the stream;
         # recording output.pr_merged without publishing leaves the UI stuck on "opened".
@@ -1284,6 +1304,45 @@ class TestExternalPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_run_in_another_team_does_not_claim_the_delivery(self, mock_capture, mock_get_secret):
+        # The run lookup is scoped to the installation's teams, so a run belonging to an
+        # unrelated team cannot claim a PR URL it happens to share. Unscoped, the full-table
+        # scan would have matched it and emitted the event as pr_source="task".
+        mock_get_secret.return_value = self.webhook_secret
+        other_org = Organization.objects.create(name="Unrelated Org")
+        other_team = Team.objects.create(organization=other_org, name="Unrelated Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Unrelated Task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="acme/widgets",
+        )
+        TaskRun.objects.create(
+            task=other_task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/x",
+            state={"verified_pr_urls": ["https://github.com/acme/widgets/pull/7"]},
+            output={"pr_url": "https://github.com/acme/widgets/pull/7"},
+        )
+        labels = {"scoped": "true"}
+        before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
+        # Creating the fixtures above already captured task_created through the same module.
+        mock_capture.reset_mock()
+
+        response = self._post(self._external_payload("opened", merged=False))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_called_once()
+        properties = mock_capture.call_args[1]["properties"]
+        self.assertEqual(properties["pr_source"], "external")
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertIsNone(properties["run_id"])
+        self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         other_team = Team.objects.create(organization=self.organization, name="Other External Team")
@@ -1356,6 +1415,28 @@ class TestFindTaskRun(TestCase):
             state={"verified_pr_urls": [pr_url]},
         )
         self.assertEqual(find_task_run(pr_url=pr_url), active_run)
+
+    def test_team_scope_excludes_runs_from_other_teams(self):
+        # team_ids comes from the delivery's installation. Every leg has to honour it, both
+        # so another customer's run can't be matched and so the scan rides the team_id index.
+        pr_url = "https://github.com/posthog/posthog/pull/900"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/scoped",
+            output={"pr_url": pr_url, "head_branches": [{"repository": "posthog/posthog", "branch": "signed/scoped"}]},
+            state={"verified_pr_urls": [pr_url]},
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        for kwargs in (
+            {"pr_url": pr_url},
+            {"branch": "feature/scoped", "repository": "posthog/posthog"},
+            {"branch": "signed/scoped", "repository": "posthog/posthog"},
+        ):
+            self.assertEqual(find_task_run(**kwargs, team_ids=[self.team.id]), run)
+            self.assertIsNone(find_task_run(**kwargs, team_ids=[other_team.id]))
 
     def test_pr_url_does_not_match_other_repositories(self):
         pr_url = "https://github.com/posthog/posthog/pull/322"

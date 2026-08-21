@@ -295,6 +295,16 @@ GITHUB_WEBHOOK_ATTRIBUTION_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+# scoped: "true" when the delivery's installation resolved to at least one team, so the
+# TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
+# unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
+# shrink in production before considering anything stricter.
+GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_run_lookup_total",
+    "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
+    labelnames=["scoped"],
+)
+
 GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
 GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
 
@@ -305,6 +315,10 @@ def observe_github_webhook_pr_event_dropped(*, analytics_event: str, reason: Git
 
 def observe_github_webhook_attribution(*, outcome: GitHubWebhookAttributionOutcome) -> None:
     GITHUB_WEBHOOK_ATTRIBUTION_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
+    GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
 def _metric_label(value: object | None) -> str:

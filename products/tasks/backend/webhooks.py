@@ -22,7 +22,11 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
-from products.tasks.backend.metrics import observe_github_webhook_attribution, observe_github_webhook_pr_event_dropped
+from products.tasks.backend.metrics import (
+    observe_github_webhook_attribution,
+    observe_github_webhook_pr_event_dropped,
+    observe_github_webhook_task_run_lookup,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
@@ -46,15 +50,30 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
+    team_ids: list[int] | None = None,
 ) -> TaskRun | None:
+    """Find the TaskRun a GitHub webhook belongs to, preferably scoped to ``team_ids``.
+
+    Every leg below filters on a JSON containment or a plain ``branch`` value, none of which
+    is indexed, so an unscoped lookup walks all of ``posthog_task_run`` three times per
+    delivery. ``team_id`` is a plain FK and therefore already indexed: passing the teams the
+    webhook's installation belongs to turns those walks into index scans. When the caller
+    cannot resolve any team the old unscoped behaviour is kept, just counted.
+    """
     repository = repository.strip() if repository else None
+
+    observe_github_webhook_task_run_lookup(scoped=bool(team_ids))
+    if not team_ids:
+        logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
+
+    candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(state__verified_pr_urls__contains=[pr_url])
+        runs = candidates.filter(state__verified_pr_urls__contains=[pr_url])
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -82,7 +101,7 @@ def find_task_run(
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(
+            candidates.filter(
                 _run_repository_filter(repository),
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
@@ -98,7 +117,7 @@ def find_task_run(
         # cannot represent nested repositories or multiple PR branches.
         head_branch = {"repository": repository.lower(), "branch": branch}
         task_run = (
-            TaskRun.objects.filter(
+            candidates.filter(
                 _run_repository_filter(repository),
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
@@ -115,7 +134,7 @@ def find_task_run(
         # (post-merge events for bound runs resolve via the pr_url leg above).
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
-                TaskRun.objects.filter(
+                candidates.filter(
                     _run_repository_filter(repository),
                     state__wizard_head_branch=branch,
                     task__deleted=False,
@@ -210,7 +229,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    task_run = find_task_run(
+        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_installation_team_ids(payload)
+    )
     claimed_pr_urls = (
         read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
     )
@@ -317,7 +338,9 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
 
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    task_run = find_task_run(
+        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_installation_team_ids(payload)
+    )
 
     # One review submission = one event; GitHub redeliveries collapse on the review id.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:pr_reviewed:{review.get('id')}"))
@@ -779,19 +802,29 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         logger.warning("github_pr_webhook_capture_failed", analytics_event=analytics_event, error=str(e))
 
 
-def _resolve_external_team(payload: dict) -> Team | None:
+def _installation_team_ids(payload: dict) -> list[int]:
+    """Teams the delivery's GitHub installation is connected to, in deterministic order.
+
+    Empty when the payload carries no installation id or no Integration matches it — the
+    lookups that take this fall back to their unscoped behaviour in that case.
+    """
     installation_id = (payload.get("installation") or {}).get("id")
     if installation_id is None:
-        return None
+        return []
 
     # One installation can map to multiple teams; order_by makes attribution deterministic.
-    integration = (
+    return list(
         Integration.objects.filter(kind="github", integration_id=str(installation_id))
-        .select_related("team")
         .order_by("team_id")
-        .first()
+        .values_list("team_id", flat=True)
     )
-    return integration.team if integration else None
+
+
+def _resolve_external_team(payload: dict) -> Team | None:
+    team_ids = _installation_team_ids(payload)
+    if not team_ids:
+        return None
+    return Team.objects.filter(pk=team_ids[0]).first()
 
 
 def _transition_signal_reports_for_task(
