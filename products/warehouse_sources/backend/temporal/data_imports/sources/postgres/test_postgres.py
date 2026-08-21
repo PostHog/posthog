@@ -1833,6 +1833,16 @@ class TestIsConnectionDroppedError:
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
             # server-side rejection. Transient; the reconnect must catch it.
             psycopg.OperationalError("connection is bad: no error details available"),
+            # Neon's compute-side walsender loses connectivity to a safekeeper (the storage-tier
+            # peer holding the WAL) and surfaces it as a generic XX000 InternalError_, not the
+            # libpq/Supavisor signatures above. Transient — a safekeeper failover or network blip —
+            # so the reconnect must catch it. Hostname/port are volatile and excluded from the match.
+            psycopg.errors.InternalError_(
+                "[walsender] Failed to read WAL (req_lsn=0/1000000, len=8192): failed to connect to "
+                "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
+                'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
+                "failed: server closed the connection unexpectedly"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
