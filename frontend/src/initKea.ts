@@ -34,7 +34,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
-    'loadRecordingComments', // Gracefully handled in the recording player; a reload reloads the comments
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
