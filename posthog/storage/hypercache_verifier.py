@@ -228,11 +228,14 @@ def verify_and_fix_all_teams(
                 last_team_id=teams[-1].id,
             )
 
-        # Wind down at a batch boundary once the deadline passes, so the run defers
-        # its remaining teams to the next cycle instead of being SIGKILLed mid-batch
-        # past the hard time limit (which reports nothing). Only defer when teams
-        # actually remain: a deadline that trips on the final batch has already
-        # covered every team, so it completed rather than winding down early.
+        # Wind down at a batch boundary once the deadline passes, so the run ends
+        # cleanly and records the wind-down instead of being SIGKILLed mid-batch past
+        # the hard time limit (which reports nothing). The cursor is not persisted, so
+        # the next cycle restarts from id 0 rather than resuming here: a run that winds
+        # down repeatedly leaves the same tail of high-id teams unverified until it can
+        # finish within the deadline. Only wind down when teams actually remain: a
+        # deadline that trips on the final batch has already covered every team, so it
+        # completed rather than winding down early.
         if stop_time is not None and time.monotonic() > stop_time and _fetch_team_batch(base_qs, teams[-1].id, 1):
             result.wound_down_early = True
             logger.warning(
