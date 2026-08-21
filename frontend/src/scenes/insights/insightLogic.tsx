@@ -19,7 +19,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
-import { isTransientServerError } from 'lib/api-error'
+import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -1273,7 +1273,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 // Nothing downstream reports this: the copy is created by a plain listener rather than
                 // a loader, so without a toast here a failure is indistinguishable from a dead button.
                 lemonToast.error(e.detail ?? 'Could not duplicate insight')
-                posthog.captureException(e)
+                if (shouldReportApiFailure(e)) {
+                    posthog.captureException(e)
+                }
             } finally {
                 actions.duplicateInsightComplete()
             }
