@@ -261,9 +261,11 @@ impl Normalization {
         }
         if self.mask_token_segments {
             // Runs before `basename_only` so the token is caught whether it is the basename
-            // (a document-URL frame source) or a middle segment.
+            // (a document-URL frame source) or a middle segment. Splits on both separators to
+            // match `basename_only`, so a Windows path is segmented rather than treated as one
+            // token — otherwise a token-like parent directory would wipe an unrelated basename.
             out = out
-                .split('/')
+                .split(['/', '\\'])
                 .map(|seg| if segment_is_token(seg) { "*" } else { seg })
                 .collect::<Vec<_>>()
                 .join("/");
@@ -832,6 +834,34 @@ mod test {
             value(FingerprintVersion::V3, with_source(source_a)),
             value(FingerprintVersion::V3, with_source(source_b)),
             "V3 masks the token, so it merges the two URLs"
+        );
+    }
+
+    #[test]
+    fn v3_segments_windows_paths_before_masking() {
+        // The token step must split a `\`-delimited path the same way `basename_only` does. If it
+        // treats the whole Windows path as one segment, a token-like parent directory wipes the
+        // basename to `*` and two unrelated routes merge.
+        let source_a = "C:\\build12345\\checkout";
+        let source_b = "C:\\build67890\\profile";
+        let with_source = |source: &str| {
+            vec![exception(
+                "Error",
+                "boom",
+                resolved_stack(vec![frame(
+                    "foo",
+                    Some(source),
+                    Some("foo"),
+                    true,
+                    true,
+                    Some(1),
+                )]),
+            )]
+        };
+        assert_ne!(
+            value(FingerprintVersion::V3, with_source(source_a)),
+            value(FingerprintVersion::V3, with_source(source_b)),
+            "distinct Windows basenames under token-like directories must not merge"
         );
     }
 
