@@ -12,16 +12,21 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
 from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
     DigestPRSummary,
     DigestSummary,
+    _capped_summary,
     _parse_llm_response,
     summarize_merged_prs,
 )
+from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
 from products.stamphog.backend.models import (
     DigestChannel,
     DigestRun,
@@ -44,10 +49,13 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim)."""
-    return DigestSummary(
-        intro=f"{len(prs)} merged.",
-        prs=[
+    keeps nothing is its own path (the digest posts nothing and releases the claim).
+
+    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
+    truncation a real run would."""
+    return _capped_summary(
+        len(prs),
+        [
             DigestPRSummary(
                 pr_number=pr.pr_number,
                 title=pr.title,
@@ -73,6 +81,9 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
             team_id=team_id,
             repo_config=repo_config,
             pr_number=number,
+            title=f"Change number {number}",
+            author_login="devex-dev",
+            pr_url=f"https://github.com/{REPO}/pull/{number}",
             merged_at=timezone.now(),
         )
         PullRequestAudience.objects.for_team(team_id).create(
@@ -269,6 +280,28 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
+    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
+    # digest that never showed it and no later digest can reach it. The overflow has to go back to
+    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+    overflow = 2
+    channel_id = _seed_channel_and_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+    ):
+        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    assert post.called
+    posted = post.call_args.args[2]
+    assert len(posted.prs) == MAX_DIGEST_PRS
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     # A Slack failure must not hide the PRs: they're claimed before posting, so on failure they have
     # to be unlinked again (the retry query filters digest_run__isnull=True). Otherwise they'd stay
@@ -410,9 +443,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps(
-        {"intro": "two", "prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]}
-    )
+    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
 
     with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
         summary = summarize_merged_prs(prs)
@@ -427,9 +458,9 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
 
 @parameterized.expand(
     [
-        ("empty_list_is_intentional_filtering", '{"intro": "quiet week", "prs": []}', True),
-        ("unrecognizable_entries_are_not", '{"intro": "x", "prs": [{"index": 99}, "junk"]}', False),
-        ("missing_key_is_not", '{"intro": "x"}', False),
+        ("empty_list_is_intentional_filtering", '{"prs": []}', True),
+        ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
+        ("missing_key_is_not", '{"summary": "x"}', False),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -442,3 +473,90 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     else:
         with pytest.raises(ValueError):
             _parse_llm_response(content, prs_by_index)
+
+
+def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> MagicMock:
+    """SlackIntegration stand-in whose post fails with ``post_error`` until the app has joined."""
+    stub = MagicMock()
+
+    def post(**kwargs: Any) -> dict[str, Any]:
+        if not joined:
+            raise SlackApiError(post_error, {"ok": False, "error": post_error})
+        return {"ok": True, "ts": "9999.1"}
+
+    def join(channel: str) -> dict[str, Any]:
+        if join_error:
+            # already_in_channel means somebody else already put the app in there, so the retried
+            # post has to succeed — the stub records the membership before raising.
+            if join_error == "already_in_channel":
+                joined.append(channel)
+            raise SlackApiError(join_error, {"ok": False, "error": join_error})
+        joined.append(channel)
+        return {"ok": True}
+
+    stub.client.chat_postMessage.side_effect = post
+    stub.client.conversations_join.side_effect = join
+    return stub
+
+
+@pytest.mark.parametrize(
+    "post_error,join_error,expected_error,joined",
+    [
+        ("not_in_channel", None, None, ["C1"]),
+        ("not_in_channel", "already_in_channel", None, ["C1"]),
+        ("not_in_channel", "missing_scope", DigestSlackError, []),
+        ("channel_not_found", None, SlackApiError, []),
+    ],
+    ids=[
+        "joins_then_posts",
+        "already_in_channel_counts_as_joined",
+        "refused_join_names_the_reason_and_the_invite",
+        "other_slack_errors_propagate",
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
+    team, post_error: str, join_error: str | None, expected_error: type[Exception] | None, joined: list[str]
+) -> None:
+    # An auto-provisioned channel is matched off the workspace list, so the app is not a member of it
+    # and the first post comes back not_in_channel. Joining is what makes that post land, and a
+    # concurrent worker joining first (already_in_channel) must not fail a digest whose retry would
+    # have gone through. A genuine refusal names Slack's reason and the invite, because neither is
+    # derivable from an error code by the person reading the run.
+    integration = Integration.objects.create(
+        team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+    )
+    channel = DigestChannel.objects.for_team(team.id).create(
+        team_id=team.id,
+        audience_key=AUDIENCE,
+        slack_integration_id=integration.id,
+        slack_channel_id="C1",
+        slack_channel_name="team-devex",
+    )
+    summary = DigestSummary(
+        considered=1,
+        prs=[
+            DigestPRSummary(
+                pr_number=1,
+                title="Add util helper",
+                url="https://github.com/acme/widgets/pull/1",
+                author_login="devex-dev",
+                summary="Add util helper",
+                repository=REPO,
+            )
+        ],
+    )
+    actually_joined: list[str] = []
+    stub = _slack_stub(post_error, join_error, actually_joined)
+
+    with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", return_value=stub):
+        if expected_error is None:
+            assert post_digest(team.id, channel, summary) == "9999.1"
+        else:
+            with pytest.raises(expected_error) as caught:
+                post_digest(team.id, channel, summary)
+            if expected_error is DigestSlackError:
+                assert "/invite @PostHog" in str(caught.value)
+                assert str(join_error) in str(caught.value)
+
+    assert actually_joined == joined

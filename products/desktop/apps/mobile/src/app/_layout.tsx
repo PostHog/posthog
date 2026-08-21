@@ -128,35 +128,6 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
         options={{ presentation: "modal", headerShown: false }}
       />
       <Stack.Screen
-        name="automation/index"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          title: "Create automation",
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
-      />
-      <Stack.Screen
-        name="automation/create"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          title: "New automation",
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
-      />
-      <Stack.Screen
-        name="automation/[id]"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
-      />
-      <Stack.Screen
         name="pr-diff"
         options={{
           presentation: "modal",

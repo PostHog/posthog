@@ -215,7 +215,10 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
-- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind the `tasks-glm-baseten-inference` flag. Do not enable the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
+- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-model` flag.
+  Deliberately not `tasks-glm-baseten-inference`: that one only moves GLM 5.2 traffic onto Baseten, so sharing it would grant 5.3 by proxy the moment 5.2 routing changed.
+  GLM 5.3 has no open weights released yet, so the flag is not created: the access gate fails closed, keeping the model blocked server-side and hidden in every picker.
+  Do not create the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
 
 Provider configuration:
@@ -224,7 +227,7 @@ Provider configuration:
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-The `tasks-glm-baseten-inference` feature flag routes matching users to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
+The `tasks-glm-baseten-inference` feature flag routes matching users' GLM 5.2 traffic to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
 
 Two knobs opt traffic into Modal (OR semantics, both default off):
 
@@ -275,6 +278,10 @@ cold-cache requests. Grants cache for 15 minutes and denials for 60 seconds, so 
 locks an entitled user out for at most a minute after their cached grant expires.
 `LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
+`signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
+Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.
+The PostHog Code application ids are no longer accepted for `signals`, so a region whose runs still mint under the Code app rejects every Signals OAuth run at the gateway.
+
 ### Adding a new product
 
 1. **Add to `PRODUCTS`** in `src/llm_gateway/products/config.py`:
@@ -323,6 +330,25 @@ Per-user cost caps using a burst + sustained pattern. Configured in `DEFAULT_USE
 Products without an explicit entry fall back to the **default: $100/24h burst, $1000/30d sustained**.
 
 User-level limits only apply when an `end_user_id` is present (OAuth token holder, or `user` param in the request body).
+
+### Per-run limits
+
+A sandbox agent run can spend a whole window's budget in one conversation, because the person driving it decides when it ends.
+`DEFAULT_SANDBOX_TASK_COST_LIMITS` caps the total spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
+
+```python
+"my_budget": ProductCostLimit(limit_usd=50.0, window_seconds=604800)  # $50 per run
+```
+
+Opt-in — a budget with no entry has no per-run ceiling, and a token with no task binding is never metered here.
+
+### Budget keys
+
+The three limits above are usually keyed by product, but a product that serves both our own scheduled work and a button a customer can press needs two budgets rather than one.
+`resolve_cost_key` picks the budget from the token's scopes, which are minted server-side, instead of from the product in the URL, which the caller chooses.
+
+Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
+`signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
 
 ## Error handling
 

@@ -6,6 +6,7 @@ import { IconBook, IconGear } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -43,6 +44,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const manualUrl = config.manualSetupUrl ?? config.docsUrl
     const Hedgehog = config.hedgehog
     const Preview = config.Preview
+    const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
     const { primaryAction } = config
     const primaryActionButton = primaryAction ? (
@@ -82,82 +84,102 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 } as React.CSSProperties
             }
         >
-            <div className="mx-auto flex w-full min-w-0 max-w-[36rem] flex-col justify-center gap-4 px-6">
-                <div className="flex flex-col items-start gap-3">
-                    {Hedgehog ? <Hedgehog className="w-32 shrink-0" /> : null}
-                    <div className="inline-flex items-center gap-2.5 text-4xl font-bold [&_svg]:text-[2.25rem]">
-                        <span className={ACCENT_TEXT}>{config.icon}</span>
-                        <span>{config.productName}</span>
+            <div
+                className={cn(
+                    'mx-auto flex w-full min-w-0 justify-center gap-8 px-6',
+                    hedgehogBeside ? 'max-w-[56rem] items-center' : 'max-w-[36rem]'
+                )}
+            >
+                {Hedgehog && hedgehogBeside ? <Hedgehog className="hidden w-72 shrink-0 xl:block" /> : null}
+                <div className="flex min-w-0 max-w-[36rem] flex-col justify-center gap-4">
+                    <div className="flex flex-col items-start gap-3">
+                        {Hedgehog && !hedgehogBeside ? <Hedgehog className="w-32 shrink-0" /> : null}
+                        <div className="inline-flex items-center gap-2.5 text-4xl font-bold [&_svg]:text-[2.25rem]">
+                            <span className={ACCENT_TEXT}>{config.icon}</span>
+                            <span>{config.productName}</span>
+                        </div>
                     </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                    <h2 className="text-xl font-semibold m-0">{text.headline}</h2>
-                    <p className="text-secondary text-sm m-0">{text.lead}</p>
-                </div>
+                    <div className="flex flex-col gap-1">
+                        <h2 className="text-xl font-semibold m-0">{text.headline}</h2>
+                        <p className="text-secondary text-sm m-0">{text.lead}</p>
+                    </div>
 
-                {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
+                    {text.hint ? <div className="text-xs text-tertiary mt-2">{text.hint}</div> : null}
 
-                {showWizard ? (
-                    <TerminalCard
-                        command={wizardCommand}
-                        copyLabel={`${config.productName} wizard command`}
-                        onCopy={() => captureClick('wizard command copied')}
-                    />
-                ) : config.PrimaryAction ? (
-                    <config.PrimaryAction />
-                ) : guardedPrimaryAction ? (
-                    guardedPrimaryAction
-                ) : manualUrl ? (
-                    <LemonButton
-                        type="primary"
-                        to={manualUrl}
-                        targetBlank
-                        className="self-start"
-                        onClick={() => captureClick('manual setup clicked')}
-                        data-attr="product-empty-state-manual-setup"
-                    >
-                        Set up {config.productName}
-                    </LemonButton>
-                ) : null}
-
-                {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
-
-                <div className="flex items-center gap-4">
-                    {showWizard && manualUrl ? (
+                    {showWizard ? (
+                        <>
+                            <TerminalCard
+                                command={wizardCommand}
+                                copyLabel={`${config.productName} wizard command`}
+                                onCopy={() => captureClick('wizard command copied')}
+                            />
+                            {guardedPrimaryAction ? (
+                                <>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-px flex-1 bg-border-primary" />
+                                        <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                                        <div className="h-px flex-1 bg-border-primary" />
+                                    </div>
+                                    {guardedPrimaryAction}
+                                </>
+                            ) : null}
+                        </>
+                    ) : config.PrimaryAction ? (
+                        <config.PrimaryAction />
+                    ) : guardedPrimaryAction ? (
+                        guardedPrimaryAction
+                    ) : manualUrl ? (
                         <LemonButton
-                            type="secondary"
-                            icon={<IconGear />}
+                            type="primary"
                             to={manualUrl}
                             targetBlank
+                            className="self-start"
                             onClick={() => captureClick('manual setup clicked')}
                             data-attr="product-empty-state-manual-setup"
                         >
-                            Configure manually
+                            Set up {config.productName}
                         </LemonButton>
                     ) : null}
-                    {config.docsUrl ? (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconBook />}
-                            to={config.docsUrl}
-                            targetBlank
-                            onClick={() => captureClick('docs clicked')}
-                            data-attr="product-empty-state-docs"
-                        >
-                            Read the docs
-                        </LemonButton>
-                    ) : null}
-                    {config.skippable !== false ? (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={skipEmptyState}
-                            data-attr="product-empty-state-skip"
-                        >
-                            Skip for now
-                        </LemonButton>
-                    ) : null}
+
+                    {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
+
+                    <div className="flex items-center gap-4">
+                        {showWizard && !primaryActionButton && manualUrl ? (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconGear />}
+                                to={manualUrl}
+                                targetBlank
+                                onClick={() => captureClick('manual setup clicked')}
+                                data-attr="product-empty-state-manual-setup"
+                            >
+                                Configure manually
+                            </LemonButton>
+                        ) : null}
+                        {config.docsUrl ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconBook />}
+                                to={config.docsUrl}
+                                targetBlank
+                                onClick={() => captureClick('docs clicked')}
+                                data-attr="product-empty-state-docs"
+                            >
+                                Read the docs
+                            </LemonButton>
+                        ) : null}
+                        {config.skippable !== false ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={skipEmptyState}
+                                data-attr="product-empty-state-skip"
+                            >
+                                Skip for now
+                            </LemonButton>
+                        ) : null}
+                    </div>
                 </div>
             </div>
 

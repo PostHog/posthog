@@ -254,12 +254,14 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
         None,
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,

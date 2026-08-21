@@ -38,6 +38,8 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
@@ -96,7 +98,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
-        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -192,7 +193,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const { width, containerRef, mounted } = useContainerWidth()
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({
+            layoutEditMode,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            updateLayouts,
+        })
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
@@ -244,7 +249,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
+    const margin = useMemo(
+        () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
+        [gridGap, spacingFactor]
+    )
+
     const getInsertMenuItems = useCallback(
         (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
             dashboard
@@ -692,7 +702,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                    {isEditablePlacement && (
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}

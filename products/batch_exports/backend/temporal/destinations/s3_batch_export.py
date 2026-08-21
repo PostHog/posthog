@@ -165,7 +165,7 @@ async def _get_s3_integration(
     )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
@@ -180,8 +180,8 @@ class S3InsertInputs(BatchExportInsertInputs):
     # at run time; otherwise the inline credentials below are used (legacy path).
     integration_id: int | None = None
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_session_token: str | None = None
+    aws_secret_access_key: str | None = dataclasses.field(default=None, repr=False)
+    aws_session_token: str | None = dataclasses.field(default=None, repr=False)
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -735,7 +735,7 @@ class ConcurrentS3Consumer(Consumer):
     concurrent uploads and the memory buffer.
     """
 
-    UPLOAD_PART_MAX_ATTEMPTS: int = 5
+    UPLOAD_PART_MAX_ATTEMPTS: int = 10
     MAX_RETRY_DELAY: float = 32.0
     INITIAL_RETRY_DELAY: float = 1.0
     EXPONENTIAL_BACKOFF_COEFFICIENT: float = 2.0

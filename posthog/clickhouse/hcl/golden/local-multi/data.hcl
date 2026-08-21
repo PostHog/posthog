@@ -6159,49 +6159,49 @@ database "posthog" {
       default = "timestamp"
     }
     column "$group_0" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_0"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_0"
     }
     column "$group_1" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_1"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_1"
     }
     column "$group_2" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_2"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_2"
     }
     column "$group_3" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_3"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_3"
     }
     column "$group_4" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_4"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      comment = "column_materializer::$group_4"
     }
     column "flag_key" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
-      comment      = "column_materializer::properties::$feature_flag"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag"
     }
     column "response" {
-      type         = "LowCardinality(String)"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
-      comment      = "column_materializer::properties::$feature_flag_response"
+      type    = "LowCardinality(String)"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag_response"
     }
     column "session_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::properties::$session_id"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$session_id"
     }
     column "request_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::properties::$feature_flag_request_id"
+      type    = "String"
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+      comment = "column_materializer::properties::$feature_flag_request_id"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -9796,6 +9796,9 @@ database "posthog" {
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
@@ -9812,9 +9815,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     engine "distributed" {
       cluster_name    = "posthog"

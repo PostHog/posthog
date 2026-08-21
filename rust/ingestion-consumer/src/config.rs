@@ -1,3 +1,4 @@
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
@@ -95,6 +96,15 @@ pub struct Config {
     #[envconfig(default = "102400")]
     pub kafka_consumer_queued_max_messages_kbytes: u32,
 
+    /// How often librdkafka emits its internal statistics snapshot to the
+    /// consumer's `stats` callback (milliseconds), which exports the
+    /// `kafka_consumer_*` gauges. `0` disables the callback entirely. The
+    /// callback runs on a librdkafka thread and only walks the assigned
+    /// partitions and connected brokers, so 15s is cheap; lower it only when
+    /// actively debugging queue growth.
+    #[envconfig(default = "15000")]
+    pub kafka_consumer_statistics_interval_ms: u32,
+
     /// Pod hostname from K8s, used as client.id and group.instance.id
     /// for sticky partition assignment (same as Node.js hostname())
     #[envconfig(from = "HOSTNAME")]
@@ -116,6 +126,29 @@ pub struct Config {
     /// Matches Node.js CONSUMER_BATCH_SIZE default.
     #[envconfig(default = "500")]
     pub consumer_batch_size: usize,
+
+    /// Maximum payload bytes to collect before dispatching a batch, in KiB.
+    /// `0` (default) disables the bound, leaving collection count-only.
+    ///
+    /// Resident memory is `CONSUMER_MAX_BACKGROUND_TASKS x batch x event size`,
+    /// doubled while a sub-batch is in flight, so a count-only cap only bounds
+    /// memory if every lane's event size is known and stable. It is not: measured
+    /// mean payloads across analytics lanes span ~1KB to ~43KB, a 45x spread, and
+    /// the same `CONSUMER_BATCH_SIZE` therefore means 45x the memory on one lane
+    /// versus another. This bound restates the limit in the unit that actually
+    /// constrains the pod, so one value is safe everywhere.
+    ///
+    /// Whichever bound is reached first ends collection. The count cap stays
+    /// useful as a downstream-shape guard (worker request size, per-batch
+    /// overhead); this one is the memory guard. Checked before appending, so a
+    /// batch always carries at least one message and overshoot is bounded by a
+    /// single message (itself capped by `fetch.message.max.bytes`).
+    ///
+    /// Default is off so that rolling this image out changes no lane's batch
+    /// composition; lanes opt in where their memory arithmetic is already
+    /// written down.
+    #[envconfig(from = "CONSUMER_BATCH_SIZE_KB", default = "0")]
+    pub consumer_batch_size_kb: usize,
 
     /// Maximum time to wait while collecting a batch (milliseconds)
     #[envconfig(default = "500")]
@@ -334,6 +367,9 @@ pub struct Config {
     /// default labels. The lag-based KEDA autoscaler selects on this label.
     #[envconfig(from = "INGESTION_LANE")]
     pub ingestion_lane: Option<String>,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -412,6 +448,12 @@ impl Config {
         .set(
             "fetch.message.max.bytes",
             &self.kafka_consumer_fetch_message_max_bytes.to_string(),
+        )
+        // Set before the env-override loop below so
+        // KAFKA_CONSUMER_STATISTICS_INTERVAL_MS stays authoritative.
+        .set(
+            "statistics.interval.ms",
+            &self.kafka_consumer_statistics_interval_ms.to_string(),
         );
 
         if !self.kafka_client_rack.is_empty() {

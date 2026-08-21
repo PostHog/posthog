@@ -39,7 +39,7 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
-from posthog.rbac.user_access_control import get_project_scoped_visible_membership_ids
+from posthog.rbac.subject_access_control import get_project_scoped_visible_membership_ids
 from posthog.utils import posthoganalytics
 
 tracer = trace.get_tracer(__name__)

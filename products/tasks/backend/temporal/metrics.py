@@ -229,6 +229,17 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
+def increment_pr_babysit_snapshot(outcome: str, *, pr_state: str = "unknown") -> None:
+    try:
+        meter = _metric_meter({"outcome": outcome, "pr_state": pr_state})
+        meter.create_counter(
+            "tasks_pr_babysit_snapshot",
+            "PR babysit snapshot fetches for the PR follow-up loop, by outcome",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def record_sandbox_created(
     runtime: str,
     image_kind: str,

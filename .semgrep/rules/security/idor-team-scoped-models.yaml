@@ -64,6 +64,7 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
+                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -161,6 +162,7 @@ rules:
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
+                              |ErrorTrackingSeverityRule
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -181,6 +183,7 @@ rules:
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
+                              |FeatureRequestEvidence
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -333,6 +336,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
@@ -433,6 +437,7 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
+                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -530,6 +535,7 @@ rules:
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
+                        |ErrorTrackingSeverityRule
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
@@ -550,6 +556,7 @@ rules:
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink
+                        |FeatureRequestEvidence
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -696,6 +703,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskWorkflowDispatch
                         |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
@@ -824,6 +832,7 @@ rules:
                               |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -895,6 +904,7 @@ rules:
                         |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
