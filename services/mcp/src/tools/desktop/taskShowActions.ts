@@ -37,9 +37,9 @@ const OpenCanvasActionSchema = z.object({
     canvas_id: z.string().min(1).describe('Id of the canvas to open. Required.'),
 })
 
-// The card builds every link itself from these fields. There is deliberately no URL
-// parameter: this tool is called by agents whose context can contain untrusted text, and
-// an arbitrary URL the user is invited to click is a phishing primitive.
+// There is deliberately no URL parameter: this tool is called by agents whose context can
+// contain untrusted text, and an arbitrary URL the user is invited to click is a phishing
+// primitive. The host builds every link from these typed fields instead.
 const schema = z.object({
     actions: z
         .array(z.discriminatedUnion('kind', [ComposeActionSchema, OpenSpaceActionSchema, OpenCanvasActionSchema]))

@@ -150,9 +150,8 @@ export const openLinkInput = z.object({
 });
 
 /**
- * A deep-link action a card asks the host to take. The card is sandboxed HTML
- * any MCP server can supply, so it sends the verb and the verb's own fields and
- * never a URL — the host builds the link for its own build's scheme.
+ * A deep-link action a card asks the host to take. The card sends the verb and
+ * the verb's own fields, never a URL; the host builds the link itself.
  */
 export const mcpAppActionSchema = z.discriminatedUnion("kind", [
   z.object({

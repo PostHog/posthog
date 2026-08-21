@@ -128,11 +128,9 @@ export type NewTaskLinkPayload =
     } & NewTaskSharedParams);
 
 /**
- * An action an MCP App card offers the user, as the card sends it to the host.
- *
- * A card is sandboxed HTML that any MCP server can supply, so it never hands the
- * host a URL. It sends the verb and the verb's own fields, and the host builds
- * the link with {@link buildActionUrl} using the scheme its own build registered.
+ * An action an MCP App card offers the user. A card is sandboxed HTML any MCP
+ * server can supply, so it sends the verb and the verb's own fields rather than
+ * a URL, and the host builds the link with {@link buildActionUrl}.
  */
 export interface McpAppComposeAction {
   kind: "compose";
@@ -191,7 +189,5 @@ export function buildActionUrl(
         ? `${scheme}://canvas/${channelId}/${canvasId}`
         : null;
     }
-    default:
-      return null;
   }
 }

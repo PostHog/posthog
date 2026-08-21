@@ -77,10 +77,8 @@ export const mcpAppsRouter = router({
       ctx.container.get<McpAppsService>(MCP_APPS_SERVICE).openLink(input.url),
     ),
 
-  // A card is sandboxed HTML any MCP server can supply, so it sends the verb it
-  // wants, never a URL. The host builds the link for the scheme its own build
-  // registered — dev builds answer to posthog-code-dev — and dispatches it
-  // through the handler OS-delivered links take.
+  // Takes a verb rather than a URL, so a card supplied by any MCP server cannot
+  // pick where a click lands.
   openAction: publicProcedure
     .input(openActionInput)
     .mutation(({ ctx, input }) => {

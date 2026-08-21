@@ -1,10 +1,6 @@
 /**
- * Action shapes for the `task-show-actions` card.
- *
- * The card never receives or builds a URL. Each action is a typed verb, and the
- * host turns it into a deep link for the scheme its own build registered, so a
- * tool call — including one an agent made after reading untrusted page text —
- * cannot hand the host an arbitrary URL to open.
+ * Action shapes for the `task-show-actions` card. Each action is a typed verb
+ * the host turns into a deep link, so the card never receives or builds a URL.
  */
 
 export interface ComposeAction {
@@ -30,6 +26,5 @@ export interface OpenCanvasAction {
 export type ShowAction = ComposeAction | OpenSpaceAction | OpenCanvasAction
 
 export interface ShowActionsData {
-    actions?: ShowAction[]
-    _posthogUrl?: string
+    actions: ShowAction[]
 }

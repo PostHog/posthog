@@ -7,7 +7,7 @@ import parserRecipeCreate from './aiObservability/parserRecipeCreate'
 import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
-// Desktop (surfaces clickable actions in PostHog Desktop)
+// Desktop
 import taskShowActions from './desktop/taskShowActions'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'

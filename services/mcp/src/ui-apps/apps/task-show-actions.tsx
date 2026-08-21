@@ -13,8 +13,7 @@ import type { ShowAction, ShowActionsData } from './task-show-actions-links'
 /**
  * A PostHog extension to the MCP Apps protocol. The spec's `ui/open-link` would
  * have this sandbox choose the URL the host then opens; sending the verb instead
- * leaves the host deciding what a click can reach, and lets it pick the deep-link
- * scheme its own build registered.
+ * leaves the host deciding what a click can reach.
  */
 const OPEN_ACTION_METHOD = 'posthog/open-action'
 
@@ -32,22 +31,13 @@ function sendAction(app: App | null, action: ShowAction): void {
     )
 }
 
-interface TaskShowActionsCardProps {
+function TaskShowActionsCard({
+    actions,
+    onAction,
+}: {
     actions: ShowAction[]
     onAction: (action: ShowAction) => void
-}
-
-export function TaskShowActionsCard({ actions, onAction }: TaskShowActionsCardProps): ReactElement {
-    if (actions.length === 0) {
-        return (
-            <Card className="m-4">
-                <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">No actions to show.</p>
-                </CardContent>
-            </Card>
-        )
-    }
-
+}): ReactElement {
     return (
         <Card className="m-4">
             <CardContent className="flex flex-wrap gap-2 p-4">
@@ -65,7 +55,7 @@ function TaskShowActionsApp(): ReactElement {
     return (
         <AppWrapper<ShowActionsData> appName="PostHog Actions">
             {({ data, app }) => (
-                <TaskShowActionsCard actions={data?.actions ?? []} onAction={(action) => sendAction(app, action)} />
+                <TaskShowActionsCard actions={data!.actions} onAction={(action) => sendAction(app, action)} />
             )}
         </AppWrapper>
     )
