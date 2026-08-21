@@ -12,7 +12,7 @@ from hogli_commands.product import crossings
 from hogli_commands.product.crossings import CrossingClass, classify_use, kind_is_allowed
 
 ALERT = CrossingClass("alerts", "AlertConfiguration", "products.alerts.backend.models.alert")
-LOOKUP = crossings._label_lookup({ALERT.label})
+LOOKUP = {ALERT.label.lower(): ALERT.label}
 
 
 def _candidate(source: str, dotted: str = "posthog.api.consumer") -> crossings._Candidate:

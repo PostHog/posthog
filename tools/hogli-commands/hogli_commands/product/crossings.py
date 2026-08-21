@@ -34,6 +34,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from .ast_helpers import ast_parse_safe, get_model_names
 from .isolation import MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
 
@@ -164,9 +165,8 @@ def _model_modules(product: str) -> Iterator[Path]:
 def _defining_module(product: str, class_name: str) -> str | None:
     """The dotted module whose top level defines `class_name`, searched across the model surface."""
     for path in _model_modules(product):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
-        except (SyntaxError, OSError):
+        tree = ast_parse_safe(path)
+        if tree is None:
             continue
         if any(isinstance(node, ast.ClassDef) and node.name == class_name for node in tree.body):
             return _dotted_module(path)
@@ -210,21 +210,6 @@ def _app_labels() -> dict[str, str]:
     return labels
 
 
-def _classes_on_model_surface(product: str) -> Iterator[str]:
-    """Every class the product declares at the top level of its model surface.
-
-    Non-model classes come along, which costs nothing: `apps.get_model` raises `LookupError` for a
-    name the app registry does not hold, so no call site can name one."""
-    for path in _model_modules(product):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
-        except (SyntaxError, OSError):
-            continue
-        for node in tree.body:
-            if isinstance(node, ast.ClassDef):
-                yield node.name
-
-
 def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str]:
     """`product.Class` -> owning product, for every model class a product's app registers.
 
@@ -232,10 +217,12 @@ def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str
     through the app registry, so neither tach nor import-linter sees the edge and the watched-models
     allowance never had to name the class. The label scan therefore covers every product model, not
     only the allowance ones. A product without an `apps.py` registers nothing and is skipped."""
-    registered = sorted(set(_app_labels().values()))
-    wanted = registered if products is None else [p for p in registered if p in set(products)]
+    registered = set(_app_labels().values())
+    wanted = registered if products is None else registered & set(products)
     return {
-        f"{product}.{class_name}": product for product in wanted for class_name in _classes_on_model_surface(product)
+        f"{product}.{class_name}": product
+        for product in sorted(wanted)
+        for class_name in get_model_names(PRODUCTS_DIR / product / "backend")
     }
 
 
@@ -244,9 +231,10 @@ def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str
 # ---------------------------------------------------------------------------
 
 
-def _is_test_module(path: Path) -> bool:
-    """Tests reach concrete classes through testing doors, so they are not consumers."""
-    if "test" in path.parts or "tests" in path.parts:
+def _is_out_of_scope_module(path: Path) -> bool:
+    """Tests reach concrete classes through testing doors, so they are not consumers. A migration
+    reaches a model through the historical registry, which is the only way a migration can."""
+    if "test" in path.parts or "tests" in path.parts or "migrations" in path.parts:
         return True
     return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
 
@@ -549,14 +537,6 @@ def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
     return f"other({type(parent).__name__})"
 
 
-def _label_lookup(labels: Iterable[str]) -> dict[str, str]:
-    """Lowercased `product.class` -> the label as written.
-
-    Django resolves a model name case-insensitively, so the get_model scan matches on the lowered
-    form. Built once per scan, because every file that mentions `get_model` looks through it."""
-    return {label.lower(): label for label in labels}
-
-
 def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by_lower: dict[str, str]) -> Counter[str]:
     """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals."""
     found: Counter[str] = Counter()
@@ -613,11 +593,12 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     origins = _origins(candidates, classes)
     origin_modules = {export.module for export in origins}
     product_by_label = _app_labels()
-    label_by_lower = _label_lookup(owning_dir)
+    # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
+    label_by_lower = {label.lower(): label for label in owning_dir}
 
     counts: dict[tuple[str, str, str], int] = defaultdict(int)
     for candidate in candidates:
-        if _is_test_module(candidate.path):
+        if _is_out_of_scope_module(candidate.path):
             continue
         names = _bound_names(candidate, origins)
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
@@ -720,7 +701,8 @@ BASELINE_HEADER = """\
 # Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
-# Test modules are out of scope on both channels.
+# Test modules and migrations are out of scope on both channels: a migration reaches a model
+# through the historical registry, which is the only way a migration can.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

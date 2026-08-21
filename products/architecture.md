@@ -151,6 +151,7 @@ The consumer keeps the orchestration and the ids.
 It leaves no import edge, so tach and import-linter cannot see it.
 The scan therefore does not stop at the watched-models allowance on this channel: a reference from outside the owning product to any class on any product's model surface is counted as the disallowed kind `get_model`.
 Test modules stay out of scope, so a core test fixture may keep using the pattern.
+Migrations stay out of scope too: a migration reaches a model through the historical registry, and that is the only way a migration can.
 Production code may not add one.
 
 **The ratchet.**

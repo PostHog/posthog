@@ -207,7 +207,8 @@ says nothing about what the consumer does with it. Two rules cover that:
 `apps.get_model('label', 'Class')` is counted too, and for **every** product model,
 not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
 Test modules stay out of scope, so the fixture escape hatch this skill recommends
-for core tests still works; production code may not add a call.
+for core tests still works. Migrations stay out too: the historical registry is the
+only way a migration can reach a model. Production code may not add a call.
 
 `hogli product:crossings <product>` lists a product's crossing classes with every
 consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
