@@ -574,13 +574,17 @@ class OAuthAccessToken(AbstractAccessToken):
     )
 
     # The authorization grant this token came from, in the sense RFC 7009 section 2.1 uses when it
-    # scopes a revocation to "all access tokens based on the same authorization grant". DOT already
-    # stamps a `token_family` on every refresh token (a fresh UUID per authorization-code exchange,
-    # inherited across rotations), and this column carries the same value onto the access token so a
-    # revoke can find the grant's tokens without walking a FK chain. `source_refresh_token` cannot
-    # serve that purpose: it is a OneToOne, so the non-rotating refresh branch in
-    # `OAuthTokenView._save_bearer_token` has to leave it null for sibling rows to stay addressable.
-    # Null only on rows minted before this column existed.
+    # scopes a revocation to "all access tokens based on the same authorization grant". The column
+    # name is DOT's, not the spec's: DOT stamps a `token_family` on every refresh token (a fresh
+    # UUID per authorization-code exchange, inherited across rotations), and this column carries the
+    # same value onto the access token. RFC 9700 section 4.14.2 describes the mechanism, as a way to
+    # "determine the grant to which a refresh token belongs, and by extension, all refresh tokens
+    # that need to be revoked".
+    #
+    # `source_refresh_token` cannot serve that purpose: it is a OneToOne, so the non-rotating
+    # refresh branch in `OAuthTokenView._save_bearer_token` has to leave it null for sibling rows to
+    # stay addressable. Null on rows minted before this column existed, and on the provisioning
+    # paths that build tokens directly rather than through `OAuthTokenView`.
     token_family: models.UUIDField = models.UUIDField(null=True, blank=True, editable=False)
 
 
@@ -855,9 +859,10 @@ def revoke_oauth_grant_session(refresh_token: OAuthRefreshToken) -> None:
     """
     family = refresh_token.token_family
     if family is None:
-        # Unreachable for anything `OAuthTokenView._create_refresh_token` minted, which always
-        # stamps a family. A row that predates that still has to be revoked somehow, and an
-        # unattributable token gets the conservative treatment rather than a partial one.
+        # `OAuthTokenView._create_refresh_token` always stamps a family, but the partner
+        # provisioning flows in ee/ build OAuthRefreshToken rows directly and do not, and neither
+        # did anything minted before OAuthAccessToken.token_family existed. A token with no grant to
+        # select gets the conservative treatment rather than a partial revoke.
         revoke_oauth_session(refresh_token=refresh_token)
         return
 
