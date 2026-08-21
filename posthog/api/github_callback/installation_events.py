@@ -146,17 +146,29 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     installation_id = str(installation_id)
-    rows: list[Integration | UserIntegration] = [
-        *Integration.objects.filter(kind="github", integration_id=installation_id),
-        *UserIntegration.objects.filter(kind="github", integration_id=installation_id),
+    # Load only the columns we touch. The unbounded repository_cache blob and the encrypted
+    # sensitive_config (decrypted eagerly on load) are skipped so a widely shared installation
+    # can't spike a web worker's memory here. Writes go out as one bulk_update per model instead
+    # of a save per row — which also skips the (no-op for github) push-config post_save signal,
+    # avoiding a per-row lazy load of the deferred `kind`.
+    team_changed = [
+        row
+        for row in Integration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
+        if row.config.get("repository_selection") != repository_selection
     ]
-    updated = 0
-    for row in rows:
-        if row.config.get("repository_selection") == repository_selection:
-            continue
+    user_changed = [
+        row
+        for row in UserIntegration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
+        if row.config.get("repository_selection") != repository_selection
+    ]
+    changed: list[Integration | UserIntegration] = [*team_changed, *user_changed]
+    for row in changed:
         row.config = {**row.config, "repository_selection": repository_selection}
-        row.save(update_fields=["config"])
-        updated += 1
+    if team_changed:
+        Integration.objects.bulk_update(team_changed, ["config"])
+    if user_changed:
+        UserIntegration.objects.bulk_update(user_changed, ["config"])
+    updated = len(changed)
 
     invalidate_github_repository_caches_for_installation(installation_id)
 
