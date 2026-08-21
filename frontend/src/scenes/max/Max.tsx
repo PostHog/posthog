@@ -123,7 +123,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const openAsMainFocusUrl = mainFocusUrl({
         isNewView,
-        activeTaskId: panelActiveCreation?.taskId,
+        activeCreation: panelActiveCreation,
         conversationId,
     })
 
@@ -230,7 +230,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={openAsMainFocusUrl}
+                    to={openAsMainFocusUrl ?? undefined}
+                    disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
                     onClick={() => {
                         closeSidePanel()
                     }}

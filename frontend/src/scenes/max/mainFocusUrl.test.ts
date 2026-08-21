@@ -1,13 +1,25 @@
 import { MainFocusUrlInput, mainFocusUrl } from './mainFocusUrl'
 
 describe('mainFocusUrl', () => {
-    // The first row is the reported bug: the new view's panel has a run open, but its `conversationId`
-    // is always null, so deriving the link from the conversation alone sends the user to a blank `/ai`.
-    const cases: [string, MainFocusUrlInput, string][] = [
+    const cases: [string, MainFocusUrlInput, string | null][] = [
         [
             'new view with a run open',
-            { isNewView: true, activeTaskId: 'task-1', conversationId: null },
+            {
+                isNewView: true,
+                activeCreation: { streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' },
+                conversationId: null,
+            },
+            '/tasks/task-1?runId=run-1',
+        ],
+        [
+            'new view with a run that never started',
+            { isNewView: true, activeCreation: { streamKey: 'run-1', taskId: 'task-1' }, conversationId: null },
             '/tasks/task-1',
+        ],
+        [
+            'new view with a task still being created',
+            { isNewView: true, activeCreation: { streamKey: 'draft-1' }, conversationId: null },
+            null,
         ],
         ['new view with nothing open', { isNewView: true, conversationId: null }, '/ai'],
         [
