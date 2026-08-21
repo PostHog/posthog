@@ -190,9 +190,8 @@ export function NavRail() {
   };
   const railPane = useNavRailStore((s) => s.pane);
   const setRailPane = useNavRailStore((s) => s.setPane);
-  const inWebsiteTree = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
-  });
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const inWebsiteTree = pathname.startsWith("/website");
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const destinations = visibleRailDestinations({
@@ -214,8 +213,10 @@ export function NavRail() {
       onPick?.({ inWebsiteTree });
     };
 
-  // Deps are the route, not every render: Spaces and Activity leave the URL
-  // alone, and re-deriving would snap the pane back to the screen behind them.
+  // Keyed on the path, not on the pane it derives: two routes can share a
+  // destination, and a move between them still has to pull the rail off
+  // Activity. Not keyed on every render either, or picking Spaces or Activity
+  // would snap straight back to the screen behind them.
   const routePane = paneForView(view.type);
   useEffect(() => {
     setRailPane(routePane);

@@ -6,7 +6,6 @@ import {
   showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { showSpacesRailPane } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
@@ -32,9 +31,6 @@ export function ChannelRouteSync() {
       return;
     }
     setCurrentChannel(routeChannelId);
-    // Landing on a channel is a request to see the tree it lives in, so the
-    // rail comes back off Activity with it.
-    showSpacesRailPane();
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
     // Unless the navigation said otherwise: opening a session from the list's

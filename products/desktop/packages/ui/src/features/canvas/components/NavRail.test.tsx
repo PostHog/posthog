@@ -196,6 +196,23 @@ describe("NavRail", () => {
     ]);
   });
 
+  // Two routes can share a destination, so the pane it derives does not change
+  // between them. Moving from one to the other still has to leave Activity.
+  it("leaves Activity when the route moves inside the space it was over", async () => {
+    const user = userEvent.setup();
+    mocks.pathname = "/website/chan-1/tasks/task-a";
+    mocks.view = { type: "task-detail" };
+    const { rerender } = render(<NavRail />);
+
+    await user.click(screen.getByLabelText("Activity"));
+    expect(useNavRailStore.getState().pane).toBe("activity");
+
+    mocks.pathname = "/website/chan-1/tasks/task-b";
+    rerender(<NavRail />);
+
+    expect(useNavRailStore.getState().pane).toBe("spaces");
+  });
+
   it("counts a channel or task as part of Spaces", () => {
     mocks.view = { type: "task-detail" };
     render(<NavRail />);

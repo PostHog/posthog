@@ -27,7 +27,3 @@ export const useNavRailStore = create<NavRailState>()((set) => ({
   pane: "spaces",
   setPane: (pane) => set({ pane }),
 }));
-
-export function showSpacesRailPane(): void {
-  useNavRailStore.getState().setPane("spaces");
-}
