@@ -19,7 +19,7 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply, thread_permalink
 
 logger = structlog.get_logger(__name__)
 
@@ -248,21 +248,6 @@ def _upload_prepared_slack_attachments(
 
     uploaded, _manifest = result
     return uploaded, skipped_messages
-
-
-def _slack_permalink(slack: Any, channel: str, thread_ts: str) -> str | None:
-    """Permalink for a thread, or ``None`` if Slack won't give us one.
-
-    Best-effort by design: a permalink is a convenience link on the task and a
-    pointer in a forked run's context block, never something the run depends on.
-    """
-    try:
-        resp = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
-        if resp.get("ok"):
-            return resp["permalink"]
-    except Exception:
-        logger.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
-    return None
 
 
 def _build_posthog_code_task_description(
@@ -635,7 +620,7 @@ def create_posthog_code_task_for_repo_activity(
     fork_channel, fork_thread_ts = inputs.fork_source_channel, inputs.fork_source_thread_ts
     is_fork = bool(fork_channel and fork_thread_ts)
     fork_source_permalink = (
-        _slack_permalink(slack, fork_channel, fork_thread_ts) if fork_channel and fork_thread_ts else None
+        thread_permalink(slack, fork_channel, fork_thread_ts) if fork_channel and fork_thread_ts else None
     )
     description = _build_posthog_code_task_description(
         user_text,
@@ -657,7 +642,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # Points at the thread the agent answers in — the DM for a fork, not the thread
     # the context came from. It backs the task's "open in Slack" link.
-    slack_thread_url = _slack_permalink(slack, channel, thread_ts)
+    slack_thread_url = thread_permalink(slack, channel, thread_ts)
 
     # Slack tasks can intentionally start without an attached repository. Keep
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.

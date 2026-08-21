@@ -55,17 +55,16 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
     is_ext_shared_channel: bool = False
-    # Set only on a forked run (the "Fork to DM" message shortcut). The workflow
+    # Set only on a forked run. The workflow
     # runs against a DM thread — that pair owns the task, the mapping, the answer
     # and every follow-up — but reads its `<slack_thread_context>` from the channel
     # thread the user forked, which these two point at. Unset everywhere else, so
     # the two pairs coincide and the fork branch is invisible.
     fork_source_channel: str | None = None
     fork_source_thread_ts: str | None = None
-    # Repository carried over from the forked thread's own task, when it had one.
-    # A fork's prompt is generic, so the repo cascade has nothing to match on and
-    # would fall through to the discovery agent and then the picker — in a DM, for
-    # someone who asked for an explanation. `None` means "run the normal cascade".
+    # Repository carried over from the forked thread's own task, when it had one: the
+    # fork is about that thread, so it belongs on the repo the thread was already
+    # about. `None` means "run the normal cascade".
     fork_repository: str | None = None
     # The forked thread's own task, when it had one. Named in the context block so the
     # agent can pull that task's runs, logs and artifacts if the question needs more

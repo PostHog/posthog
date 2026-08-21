@@ -86,19 +86,6 @@ def _task_update_chunk(
     return chunk
 
 
-def _block_text(block: dict[str, Any]) -> str:
-    """The plain text of a footer block, whichever shape it took.
-
-    The footer is a `context` block normally and a `section` when it carries the fork
-    menu, since context blocks reject interactive elements. Callers that need the
-    notification fallback shouldn't have to know which.
-    """
-    if "text" in block:
-        return block["text"].get("text", "")
-    elements = block.get("elements") or [{}]
-    return elements[0].get("text", "")
-
-
 def _format_task_error(error: str) -> str:
     error = error.strip()
     if not error:
@@ -161,6 +148,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._footer_flag: bool | None = None
+        self._fork_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -242,7 +230,11 @@ class SlackThreadHandler:
         bargain `_footer_block` makes.
         """
         integration = self._get_integration()
-        if not is_slack_app_forking_enabled(integration):
+        # Memoized like the sibling gates: a reply asks for this up to three times, and
+        # the flag is evaluated remotely.
+        if self._fork_flag is None:
+            self._fork_flag = is_slack_app_forking_enabled(integration)
+        if not self._fork_flag:
             return None
         return fork_menu_element(integration.id)
 
@@ -579,7 +571,7 @@ class SlackThreadHandler:
         if menu:
             blocks.append(fork_menu_actions_block(menu))
         try:
-            self._post_in_thread(text=_block_text(footer), blocks=blocks)
+            self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 

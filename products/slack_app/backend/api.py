@@ -45,11 +45,7 @@ from posthog.temporal.ai.slack_app import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
-from posthog.temporal.ai.slack_app.slack_app_fork import (
-    FORK_THREAD_CALLBACK_ID,
-    SlackAppForkThreadWorkflow,
-    build_fork_payload,
-)
+from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
@@ -248,7 +244,6 @@ class RulesCommand:
         "remove",
         "help",
         "deprecated_default_repo",
-        "fork",
         "project_show",
         "project_set",
         "project_set_workspace",
@@ -257,9 +252,6 @@ class RulesCommand:
     repository: str | None = None
     rule_numbers: list[int] | None = None
     project_team_id: int | None = None
-    # `fork`'s trailing text — the question to open the forked DM with. ``None``
-    # for a bare `fork`, which gets a default "catch me up" ask instead.
-    fork_prompt: str | None = None
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -829,13 +821,6 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
-
-    # `fork` takes the rest of the line as the question to open the forked DM with.
-    # Bare `fork` gets a default ask, so the trailing text is optional.
-    fork_match = re.fullmatch(r"fork(?:\s+(.*))?", cleaned, flags=re.IGNORECASE | re.DOTALL)
-    if fork_match is not None:
-        prompt = (fork_match.group(1) or "").strip()
-        return RulesCommand(action="fork", fork_prompt=prompt or None)
 
     # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
     # fall through into the explicit-repo cascade and spawn a junk task.
@@ -1809,21 +1794,19 @@ def _handle_assistant_dm_message(
     # that says otherwise. Consumed once — the run it starts writes a thread mapping,
     # and every later message is a follow-up against that.
     pending = get_pending_fork(integration.id, channel_id, thread_ts)
+    fork_kwargs: dict[str, Any] = {}
     if pending:
         clear_pending_fork(integration.id, channel_id, thread_ts)
-        return _start_mention_workflow(
-            agent_event,
-            integration,
-            slack_team_id,
-            event_id,
-            posthog_user=posthog_user,
-            is_ext_shared_channel=pending.is_ext_shared,
-            fork_source_channel=pending.source_channel,
-            fork_source_thread_ts=pending.source_thread_ts,
-            fork_repository=pending.repository,
-            fork_source_task_id=pending.task_id,
-        )
-    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
+        fork_kwargs = {
+            "is_ext_shared_channel": pending.is_ext_shared,
+            "fork_source_channel": pending.source_channel,
+            "fork_source_thread_ts": pending.source_thread_ts,
+            "fork_repository": pending.repository,
+            "fork_source_task_id": pending.task_id,
+        }
+    return _start_mention_workflow(
+        agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user, **fork_kwargs
+    )
 
 
 def _route_assistant_event(
@@ -2238,31 +2221,7 @@ def route_posthog_code_event_to_relevant_region(
 
         # Rules command is meaningful only when the user actually typed
         # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and (parsed_command := parse_rules_command(event.get("text", ""))):
-            # `fork` acts on the thread it was typed in and answers in a DM, so it
-            # takes the fork workflow rather than the command workflow, which replies
-            # in-thread. At the channel root there is no discussion to fork.
-            if parsed_command.action == "fork":
-                if channel_str and thread_ts_str and thread_ts_str != event.get("ts"):
-                    _start_fork_workflow(
-                        build_fork_payload(
-                            channel=channel_str,
-                            thread_ts=thread_ts_str,
-                            slack_user_id=slack_user_id_str,
-                            slack_team_id=slack_team_id,
-                            prompt=parsed_command.fork_prompt,
-                        ),
-                        workflow_key=thread_ts_str,
-                    )
-                elif channel_str:
-                    _post_slack_user_ephemeral(
-                        SlackIntegration(probe),
-                        channel_str,
-                        slack_user_id_str,
-                        None,
-                        "`@PostHog fork` works inside a thread — tag me on the discussion you want to dig into.",
-                    )
-                return ROUTE_HANDLED_LOCALLY
+        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
@@ -3348,10 +3307,10 @@ def _start_mention_workflow(
     classifier activity at the top of its body and short-circuits if the
     mapping is gone by the time the followup activity runs.
 
-    The ``fork_source_*`` pair marks a run started from the "Fork to DM" shortcut,
-    where the thread being answered (a DM) and the thread supplying the context
-    (the forked channel thread) differ. They suppress the same two side effects:
-    nobody mentioned us, and the DM seed message can't be resolving a picker.
+    The ``fork_source_*`` fields mark a forked run, where the thread being answered
+    (a DM) and the thread supplying the context (the forked channel thread) differ.
+    They suppress the same two side effects: nobody mentioned us, and a reply in a
+    forked DM can't be resolving a picker.
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
     if not untagged_followup and not is_fork:
@@ -4618,22 +4577,20 @@ def _post_insight_alert_snooze_modal_confirmation(
         logger.warning("insight_alert_snooze_modal_confirm_failed")
 
 
-def _is_fork_thread_interactivity(payload: dict, payload_type: str) -> bool:
-    """True for a "Fork to DM" message shortcut click."""
-    return payload_type == "message_action" and payload.get("callback_id") == FORK_THREAD_CALLBACK_ID
+def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
+    """Hand the fork to Temporal and ack immediately.
 
-
-def _start_fork_workflow(payload: dict, *, workflow_key: str) -> None:
-    """Hand a fork request to Temporal.
-
-    Every fork surface acks Slack within three seconds and does the real work —
-    resolving the user, reading the thread, opening the DM — durably. ``workflow_key``
-    identifies the thread being forked, so asking twice for the same thread reuses
-    the running fork instead of opening a second DM about the same conversation.
+    Everything the fork does — resolving the user, reading the thread, opening the DM —
+    is too slow for Slack's three-second interactivity budget, so this only dispatches.
+    The id is keyed on the thread being forked, not the reply the menu hangs off, so
+    forking twice from the same discussion reuses the running fork instead of opening a
+    second DM about it.
     """
+    message = payload.get("message", {}) or {}
     team_id = payload.get("team", {}).get("id", "")
     user_id = payload.get("user", {}).get("id", "")
-    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{workflow_key}"
+    source_ts = message.get("thread_ts") or message.get("ts", "")
+    workflow_id = f"slack-app-fork-thread:{team_id}:{user_id}:{source_ts}"
     try:
         client = sync_connect()
         asyncio.run(
@@ -4648,12 +4605,6 @@ def _start_fork_workflow(payload: dict, *, workflow_key: str) -> None:
         )
     except Exception as e:
         logger.warning("slack_app_fork_submit_start_failed", workflow_id=workflow_id, error=str(e))
-
-
-def _handle_fork_thread_submit(payload: dict) -> HttpResponse:
-    message = payload.get("message", {}) or {}
-    source_ts = message.get("thread_ts") or message.get("ts", "")
-    _start_fork_workflow(payload, workflow_key=source_ts)
     return HttpResponse(status=200)
 
 
@@ -4755,15 +4706,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and _is_fork_thread_interactivity(payload, payload_type):
-        # Message shortcuts carry no block_id and no action value, so there is no
-        # per-row hint to route on — same shape as the AI-settings clicks above.
-        # Authorization (org membership, project access, channel approval) is
-        # enforced in the fork activity, not here.
-        local = Integration.objects.filter(
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
@@ -4838,9 +4780,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         if payload.get("view", {}).get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
             return _handle_insight_alert_snooze_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
-
-    if _is_fork_thread_interactivity(payload, payload_type):
-        return _handle_fork_thread_submit(payload)
 
     if payload_type == "block_actions":
         actions = payload.get("actions", [])

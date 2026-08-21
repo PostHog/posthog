@@ -53,18 +53,11 @@ def store_pending_fork(integration_id: int, dm_channel: str, thread_ts: str, for
     # Stored as a plain dict rather than the model so an entry written before a field
     # was added or renamed can't fail to load — `get_pending_fork` validates on the way
     # back out and treats anything it no longer understands as absent.
-    try:
-        cache.set(_key(integration_id, dm_channel, thread_ts), fork.model_dump(), timeout=FORK_CONTEXT_TTL_SECONDS)
-    except Exception:
-        logger.warning("slack_app_fork_context_store_failed", dm_channel=dm_channel, thread_ts=thread_ts)
+    cache.set(_key(integration_id, dm_channel, thread_ts), fork.model_dump(), timeout=FORK_CONTEXT_TTL_SECONDS)
 
 
 def get_pending_fork(integration_id: int, dm_channel: str, thread_ts: str) -> PendingFork | None:
-    try:
-        value = cache.get(_key(integration_id, dm_channel, thread_ts))
-    except Exception:
-        logger.warning("slack_app_fork_context_read_failed", dm_channel=dm_channel, thread_ts=thread_ts)
-        return None
+    value = cache.get(_key(integration_id, dm_channel, thread_ts))
     if not isinstance(value, dict):
         return None
     try:
@@ -81,7 +74,4 @@ def clear_pending_fork(integration_id: int, dm_channel: str, thread_ts: str) -> 
     later message is a follow-up against that. Leaving the entry would re-apply the
     forked thread as fresh context to a message that already has its own history.
     """
-    try:
-        cache.delete(_key(integration_id, dm_channel, thread_ts))
-    except Exception:
-        logger.warning("slack_app_fork_context_clear_failed", dm_channel=dm_channel, thread_ts=thread_ts)
+    cache.delete(_key(integration_id, dm_channel, thread_ts))

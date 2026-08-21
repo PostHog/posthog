@@ -499,8 +499,13 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         return RunFooter()
 
 
-def footer_text(footer: RunFooter, configure_url: str | None = None) -> str:
-    """The footer's segments joined, or `""` when the run has nothing to say about itself."""
+def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
+    """The footer as a `context` block, or `None` when there is nothing to say.
+
+    The answer itself is the message, so this is muted rather than competing with the
+    prose. A run with no links and no pinned model contributes no segments and gets no
+    trailing line at all.
+    """
     segments: list[str] = []
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View on web>")
@@ -510,20 +515,9 @@ def footer_text(footer: RunFooter, configure_url: str | None = None) -> str:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
-    return " · ".join(segments)
-
-
-def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
-    """The footer as a `context` block, or `None` when there is nothing to say.
-
-    The answer itself is the message, so this is muted rather than competing with the
-    prose. A run with no links and no pinned model contributes no segments and gets no
-    trailing line at all.
-    """
-    text = footer_text(footer, configure_url)
-    if not text:
+    if not segments:
         return None
-    return context_block(text)
+    return context_block(" · ".join(segments))
 
 
 def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
@@ -537,7 +531,6 @@ def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
 
 
 FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
-FORK_TO_DM_OPTION = "fork_to_dm"
 
 
 def fork_menu_element(integration_id: int) -> dict[str, Any]:
@@ -563,10 +556,25 @@ def fork_menu_element(integration_id: int) -> dict[str, Any]:
         "options": [
             {
                 "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": json.dumps({"integration_id": integration_id, "option": FORK_TO_DM_OPTION}),
+                "value": json.dumps({"integration_id": integration_id}),
             }
         ],
     }
+
+
+def thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    """Permalink for a thread, or `None` if Slack won't give us one.
+
+    Best-effort by design: a permalink is a convenience link on a task and a pointer in
+    a forked run's context, never something a run depends on.
+    """
+    try:
+        response = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        if response.get("ok"):
+            return response["permalink"]
+    except Exception:
+        logger.warning("slack_app_permalink_failed", channel=channel, thread_ts=thread_ts)
+    return None
 
 
 def context_block(text: str) -> dict[str, Any]:

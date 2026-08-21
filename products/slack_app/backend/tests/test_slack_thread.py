@@ -562,9 +562,7 @@ class TestDeletedTriggerMessage(SimpleTestCase):
 
 
 class TestForkMenuOnReplies(SimpleTestCase):
-    """The menu has to ride the non-streamed answer too. It first shipped only on the
-    streamed path and on the chart-delivery footer, so a workspace on the plain-post
-    path saw no affordance at all."""
+    """Where the fork menu attaches, on the plain-post path."""
 
     def _handler(self) -> SlackThreadHandler:
         context = SlackThreadContext(

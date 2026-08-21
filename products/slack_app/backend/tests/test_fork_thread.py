@@ -12,7 +12,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.slack_app_fork import FORK_THREAD_CALLBACK_ID, process_slack_app_fork_thread_payload
+from posthog.temporal.ai.slack_app.slack_app_fork import process_slack_app_fork_thread_payload
 
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
 from products.slack_app.backend.services.fork_context import PendingFork, get_pending_fork, store_pending_fork
@@ -23,6 +23,7 @@ _FORK_MODULE = "posthog.temporal.ai.slack_app.slack_app_fork"
 
 class TestForkThreadPayload(TestCase):
     def setUp(self):
+        cache.clear()
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
@@ -36,8 +37,7 @@ class TestForkThreadPayload(TestCase):
 
     def _payload(self, **overrides) -> dict:
         payload = {
-            "type": "message_action",
-            "callback_id": FORK_THREAD_CALLBACK_ID,
+            "type": "block_actions",
             "user": {"id": "U_ALICE"},
             "team": {"id": "T_SLACK"},
             "channel": {"id": "C_SOURCE"},
@@ -65,7 +65,8 @@ class TestForkThreadPayload(TestCase):
 
     def _run(self, payload: dict, slack: MagicMock, *, flag: bool = True):
         """Drive the payload with the Slack client and flag stubbed, returning the
-        patched ``_start_mention_workflow`` and ephemeral poster for assertions."""
+        patched ephemeral poster. Nothing runs at fork time — the DM asks first — so
+        assertions are on what was posted and what was parked."""
         with (
             patch("posthog.models.integration.SlackIntegration", return_value=slack),
             patch("products.slack_app.backend.feature_flags.is_slack_app_forking_enabled", return_value=flag),
@@ -73,24 +74,19 @@ class TestForkThreadPayload(TestCase):
             # which is slow and tears down connections other tests are still using.
             patch("products.slack_app.backend.analytics.capture_slack_event"),
             patch(f"{_FORK_MODULE}._ephemeral") as ephemeral,
-            patch("products.slack_app.backend.api._start_mention_workflow") as start,
-            patch(
-                "products.slack_app.backend.api.resolve_posthog_user_from_event",
-                return_value=self.user,
-            ),
+            patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
             patch("products.slack_app.backend.api.get_slack_email_for_user", return_value=self.user.email),
         ):
             process_slack_app_fork_thread_payload(payload)
-        return start, ephemeral
+        return ephemeral
 
-    def test_a_fork_with_no_question_asks_instead_of_running(self):
+    def test_a_fork_asks_instead_of_running(self):
         # The menu has nowhere to type a question, so guessing at one would spend a
         # sandbox run on an ask the user never made.
         slack = self._slack_mock()
 
-        start, ephemeral = self._run(self._payload(), slack)
+        ephemeral = self._run(self._payload(), slack)
 
-        start.assert_not_called()
         seed = slack.client.chat_postMessage.call_args
         assert seed.kwargs["channel"] == "U_ALICE"
         assert "What do you want to dig into?" in seed.kwargs["text"]
@@ -121,25 +117,6 @@ class TestForkThreadPayload(TestCase):
 
         blocks = slack.client.chat_postMessage.call_args.kwargs["blocks"]
         assert ":thread: *Slack thread*" in blocks[0]["text"]["text"]
-
-    def test_a_fork_carrying_a_question_runs_against_the_source_thread(self):
-        slack = self._slack_mock()
-
-        start, _ = self._run(self._payload(fork_prompt="why is the retry loop double-counting?"), slack)
-
-        start.assert_called_once()
-        event, integration, slack_team_id, _event_id = start.call_args.args
-        kwargs = start.call_args.kwargs
-        # The run answers in the DM…
-        assert event["channel"] == "D_ALICE"
-        assert event["thread_ts"] == "999.1"
-        assert event["text"] == "why is the retry loop double-counting?"
-        # …while reading its context from the channel thread that was forked. The
-        # clicked message's own ts is ignored in favour of its thread root.
-        assert kwargs["fork_source_channel"] == "C_SOURCE"
-        assert kwargs["fork_source_thread_ts"] == "111.1"
-        assert integration == self.integration
-        assert slack_team_id == "T_SLACK"
 
     def test_nothing_is_posted_into_the_source_channel(self):
         # The whole point is asking without an audience. Only the DM may be posted to;
@@ -178,14 +155,21 @@ class TestForkThreadPayload(TestCase):
             mentioning_slack_user_id="U_BOB",
         )
 
-        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock())
+        self._run(self._payload(), self._slack_mock())
 
-        assert start.call_args.kwargs["fork_repository"] == "posthog/posthog"
+        parked = get_pending_fork(self.integration.id, "D_ALICE", "999.1")
+        assert parked is not None
+        assert parked.repository == "posthog/posthog"
+        assert parked.task_id == str(task.id)
 
     def test_no_mapping_leaves_repository_to_the_cascade(self):
-        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock())
+        # Forking a thread the agent has never worked in has no task to inherit from.
+        self._run(self._payload(), self._slack_mock())
 
-        assert start.call_args.kwargs["fork_repository"] is None
+        parked = get_pending_fork(self.integration.id, "D_ALICE", "999.1")
+        assert parked is not None
+        assert parked.repository is None
+        assert parked.task_id is None
 
     def test_ext_shared_source_is_inherited_by_the_dm_run(self):
         """A DM is never ext-shared, so without inheritance a fork would launder
@@ -198,9 +182,10 @@ class TestForkThreadPayload(TestCase):
             approved_at="2026-01-01T00:00:00Z",
         )
 
-        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock(ext_shared=True))
+        self._run(self._payload(), self._slack_mock(ext_shared=True))
 
-        assert start.call_args.kwargs["is_ext_shared_channel"] is True
+        parked = get_pending_fork(self.integration.id, "D_ALICE", "999.1")
+        assert parked is not None and parked.is_ext_shared is True
 
     @parameterized.expand(
         [
@@ -209,17 +194,17 @@ class TestForkThreadPayload(TestCase):
             ("bot_not_in_channel", {}, {"readable": False}),
         ]
     )
-    def test_refusals_create_no_run(self, _name, run_kwargs, slack_kwargs):
+    def test_refusals_open_no_dm(self, _name, run_kwargs, slack_kwargs):
         slack = self._slack_mock(**slack_kwargs)
 
-        start, _ = self._run(self._payload(), slack, **run_kwargs)
+        self._run(self._payload(), slack, **run_kwargs)
 
-        start.assert_not_called()
         slack.client.chat_postMessage.assert_not_called()
+        assert get_pending_fork(self.integration.id, "D_ALICE", "999.1") is None
 
     def test_flag_off_stays_silent(self):
         """A workspace outside the rollout should not learn the feature exists."""
-        _, ephemeral = self._run(self._payload(), self._slack_mock(), flag=False)
+        ephemeral = self._run(self._payload(), self._slack_mock(), flag=False)
 
         ephemeral.assert_not_called()
 
@@ -234,129 +219,15 @@ class TestForkThreadPayload(TestCase):
     def test_malformed_payload_is_dropped(self, _name, overrides):
         slack = self._slack_mock()
 
-        start, _ = self._run(self._payload(**overrides), slack)
+        self._run(self._payload(**overrides), slack)
 
-        start.assert_not_called()
-
-
-class TestForkThreadInteractivityDispatch(TestCase):
-    """The webhook must recognise the shortcut and hand it straight to Temporal —
-    Slack drops the interaction if the ack takes longer than three seconds, so
-    nothing but dispatch may happen inline."""
-
-    def setUp(self):
-        self.client = APIClient()
-        self.signing_secret = "posthog-code-test-secret"
-        self.org = Organization.objects.create(name="TestOrg")
-        self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        Integration.objects.create(team=self.team, kind="slack", integration_id="T12345", config={})
-
-    def _post(self, payload: dict):
-        body_str = f"payload={json.dumps({'team': {'id': 'T12345'}, **payload})}"
-        signed = sign_slack_request(body_str.encode(), self.signing_secret)
-        return self.client.post(
-            "/slack/interactivity-callback/",
-            data=body_str,
-            content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signed.signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
-        )
-
-    def _shortcut(self, **overrides) -> dict:
-        payload = {
-            "type": "message_action",
-            "callback_id": FORK_THREAD_CALLBACK_ID,
-            "user": {"id": "U_ALICE"},
-            "channel": {"id": "C_SOURCE"},
-            "message": {"ts": "111.2", "thread_ts": "111.1"},
-        }
-        payload.update(overrides)
-        return payload
-
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.api.sync_connect")
-    def test_shortcut_dispatches_workflow_keyed_on_the_forked_thread(self, mock_connect, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_client = MagicMock()
-        mock_connect.return_value = mock_client
-
-        response = self._post(self._shortcut())
-
-        assert response.status_code == 200
-        mock_client.start_workflow.assert_called_once()
-        # Keyed on the thread root, not the clicked message: forking two replies in
-        # the same discussion is the same fork, and must not open two DM threads.
-        assert mock_client.start_workflow.call_args.kwargs["id"] == "slack-app-fork-thread:T12345:U_ALICE:111.1"
-
-    @parameterized.expand(
-        [
-            ("other_callback_id", {"callback_id": "something_else"}),
-            ("no_callback_id", {"callback_id": None}),
-        ]
-    )
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.api.sync_connect")
-    def test_unrelated_message_action_is_ignored(self, _name, overrides, mock_connect, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-
-        response = self._post(self._shortcut(**overrides))
-
-        assert response.status_code == 200
-        mock_connect.assert_not_called()
-
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.api.sync_connect")
-    def test_shortcut_from_an_unknown_workspace_is_not_claimed(self, mock_connect, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        body_str = f"payload={json.dumps({**self._shortcut(), 'team': {'id': 'T_UNKNOWN'}})}"
-        signed = sign_slack_request(body_str.encode(), self.signing_secret)
-
-        response = self.client.post(
-            "/slack/interactivity-callback/",
-            data=body_str,
-            content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signed.signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
-        )
-
-        assert response.status_code == 200
-        mock_connect.assert_not_called()
+        slack.client.chat_postMessage.assert_not_called()
 
 
-class TestForkCommandParsing(TestCase):
-    def test_fork_parses_from_both_surfaces(self):
-        from products.slack_app.backend.api import parse_rules_command
-
-        for text in ("fork", "FORK", "<@UBOT> fork"):
-            parsed = parse_rules_command(text)
-            assert parsed is not None, text
-            assert parsed.action == "fork", text
-
-    def test_trailing_text_becomes_the_forked_runs_question(self):
-        from products.slack_app.backend.api import parse_rules_command
-
-        parsed = parse_rules_command("fork why does the retry loop double-count?")
-        assert parsed is not None
-        assert parsed.action == "fork"
-        assert parsed.fork_prompt == "why does the retry loop double-count?"
-
-    def test_bare_fork_carries_no_question(self):
-        # `None` is what makes the activity fall back to the default "catch me up" ask.
-        from products.slack_app.backend.api import parse_rules_command
-
-        parsed = parse_rules_command("fork")
-        assert parsed is not None and parsed.fork_prompt is None
-
-    def test_a_word_merely_starting_with_fork_is_not_the_command(self):
-        from products.slack_app.backend.api import parse_rules_command
-
-        assert parse_rules_command("forking hell") is None
-
-
-class TestForkButtonDispatch(TestCase):
-    """The button under a finished reply is the no-configuration trigger: it needs no
-    manifest change, and a `block_actions` payload already carries the channel, the
-    thread the reply sits in, and a private `response_url`."""
+class TestForkMenuDispatch(TestCase):
+    """The menu under a finished reply needs no Slack configuration: a `block_actions`
+    payload already carries the channel, the thread the reply sits in, and a private
+    `response_url`."""
 
     def setUp(self):
         self.client = APIClient()
