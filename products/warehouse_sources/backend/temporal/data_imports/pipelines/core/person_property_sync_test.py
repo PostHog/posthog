@@ -44,6 +44,23 @@ class TestBuildBundles:
             ("a", {"plan_tier": "pro"})
         ]
 
+    @parameterized.expand(
+        [
+            ("nested_dict", {"custom_attributes": {"plan": "pro"}}, "pro"),
+            ("nested_json_string", {"custom_attributes": '{"plan": "pro"}'}, "pro"),
+            ("deep_path", {"a": {"b": {"c": "v"}}}, "v"),
+            ("missing_leaf", {"custom_attributes": {"other": 1}}, None),
+            ("path_into_scalar", {"custom_attributes": "pro"}, None),
+            ("missing_root", {"other": {"plan": "pro"}}, None),
+        ]
+    )
+    def test_json_path_key_extracts_nested_value(self, _name, row, expected):
+        # A dotted key reads the root column then walks the JSON path into it, so one nested column
+        # (e.g. Intercom's custom_attributes) can feed several properties.
+        map_key = "a.b.c" if "a" in row else "custom_attributes.plan"
+        bundles = pps.build_bundles([{"distinct_id": "u", **row}], "distinct_id", {map_key: "plan_tier"})
+        assert bundles == ([("u", {"plan_tier": expected})] if expected is not None else [])
+
     def test_coerces_non_json_scalars_so_the_produce_can_serialize(self):
         # A timestamp column arrives as a datetime and a numeric column as a Decimal; the Kafka
         # producer serializes intents with plain json.dumps, so these must be coerced or it crashes.
@@ -152,6 +169,72 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_email_match_produces_on_distinct_id_and_snapshots_by_email(self):
+        # The subtle correctness point of email matching: intents are keyed by the resolved distinct_id,
+        # but the snapshot must be keyed by the row's email so an unchanged row is skipped next run.
+        team = MagicMock(api_token="tok", project_id=7)
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="email",
+            column_property_map={"plan": "plan_tier"},
+            match_mode="email",
+        )
+        rows = [{"email": "e1@x.com", "plan": "pro"}, {"email": "none@x.com", "plan": "free"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}.get_distinct_ids_mapped_by_email", return_value={"e1@x.com": "did1"}),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        produced_items = produce.call_args.args[3]
+        assert produced_items == [("did1", {"plan_tier": "pro"})]
+        assert result.per_source[0].existing == 1
+        assert result.per_source[0].skipped_missing_person == 1
+        assert write_snapshot.await_args is not None
+        assert set(write_snapshot.await_args.args[4]) == {"e1@x.com"}
+
+    @pytest.mark.asyncio
+    async def test_email_case_variant_rows_collapse_to_one_person(self):
+        # Two rows whose email differs only by case resolve to the same person. They must collapse to a
+        # single produce with a deterministic last-row winner, and one lowercased snapshot key — else
+        # each variant diffs independently and the surviving value drifts across runs.
+        team = MagicMock(api_token="tok", project_id=7)
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="email",
+            column_property_map={"plan": "plan_tier"},
+            match_mode="email",
+        )
+        rows = [{"email": "User@X.com", "plan": "pro"}, {"email": "user@x.com", "plan": "enterprise"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}.get_distinct_ids_mapped_by_email", return_value={"user@x.com": "did1"}),
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert produce.call_args.args[3] == [("did1", {"plan_tier": "enterprise"})]
+        assert write_snapshot.await_args is not None
+        assert set(write_snapshot.await_args.args[4]) == {"user@x.com"}
+
+    @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=None),
@@ -163,6 +246,32 @@ class TestRunOrchestration:
         assert result.sources == 0
         read.assert_not_awaited()
         clear.assert_not_awaited()
+
+
+class TestResolveTargets:
+    """Mapping changed rows to the intents to produce, per match mode."""
+
+    def _distinct_id_source(self):
+        return PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "tier"})
+
+    def _email_source(self):
+        return PersonPropertySyncSource("s1", "d1", "email", {"plan": "tier"}, match_mode="email")
+
+    def test_distinct_id_keeps_existing_and_produces_on_the_key(self):
+        changed = [("a", {"tier": "pro"}), ("ghost", {"tier": "x"})]
+        with patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}):
+            to_send, resolved = pps._resolve_targets(9, self._distinct_id_source(), changed)
+        assert to_send == [("a", {"tier": "pro"})]
+        assert resolved == {"a"}
+
+    def test_email_remaps_to_distinct_id_and_drops_unmatched(self):
+        # An email match produces on the resolved person's distinct_id, but the resolved-key set stays
+        # keyed by email so the snapshot recognizes the same email as unchanged next run.
+        changed = [("e1@x.com", {"tier": "pro"}), ("none@x.com", {"tier": "y"})]
+        with patch(f"{_MODULE}.get_distinct_ids_mapped_by_email", return_value={"e1@x.com": "did1"}):
+            to_send, resolved = pps._resolve_targets(9, self._email_source(), changed)
+        assert to_send == [("did1", {"tier": "pro"})]
+        assert resolved == {"e1@x.com"}
 
 
 class TestReadDeltaBundles:

@@ -155,6 +155,13 @@ def _binding_from_ids(schema_id: "uuid.UUID | None", saved_query_id: "uuid.UUID 
 # warehouse_sources stays importable on its own.
 
 
+def warehouse_column_root(map_key: str) -> str:
+    """The warehouse column a ``column_property_map`` key reads from. A key is either a plain column
+    ("plan") or a dotted JSON path into a nested column ("custom_attributes.plan"); either way the
+    column to stage and project is the first path segment."""
+    return map_key.split(".", 1)[0]
+
+
 @dataclasses.dataclass(frozen=True)
 class PersonPropertySourceProjection:
     """One person-target source's staging projection: its key column (the person identifier) and
@@ -204,6 +211,9 @@ class PersonPropertySyncSource:
     property_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     target: str = "person"
     group_type_index: int | None = None
+    # How ``key_column`` resolves to a person: "distinct_id" (the key is a PostHog distinct id) or
+    # "email" (match an existing person by their email property). Ignored for group targets.
+    match_mode: str = "distinct_id"
 
 
 PersonPropertySyncSourcesResolver = Callable[[int, WarehouseBinding], Optional[list[PersonPropertySyncSource]]]

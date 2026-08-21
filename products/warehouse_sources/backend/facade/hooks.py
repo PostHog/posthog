@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     run_revenue_view_sync,
     saved_query_binding,
     schema_binding,
+    warehouse_column_root,
 )
 
 from .contracts import RevenueViewSyncInput
@@ -55,4 +56,5 @@ __all__ = [
     "run_revenue_view_sync",
     "saved_query_binding",
     "schema_binding",
+    "warehouse_column_root",
 ]

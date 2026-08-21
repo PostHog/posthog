@@ -19549,6 +19549,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `distinct_id` - distinct_id
+     * * `email` - email
+     */
+    export type MatchModeEnum = typeof MatchModeEnum[keyof typeof MatchModeEnum];
+
+
+    export const MatchModeEnum = {
+      DistinctId: 'distinct_id',
+      Email: 'email',
+    } as const;
+
+    /**
      * One person- or group-property sync or backfill run. Read-only: runs are created by the
      * sync/backfill pipeline, never through the API.
      */
@@ -19618,10 +19630,15 @@ export namespace Schemas {
       /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
       column_descriptions?: unknown;
       /**
-         * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
+         * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id (or email, see match_mode) for person sources, or the group key for group sources.
          * @maxLength 400
          */
       key_column: string;
+      /** Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as a PostHog distinct ID; 'email' matches an existing person by their email property. Create-only. Only person sources may set 'email'; account and group sources must leave the default 'distinct_id'.
+       *
+       * * `distinct_id` - distinct_id
+       * * `email` - email */
+      match_mode?: MatchModeEnum;
       /** Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count. */
       is_enabled?: boolean;
       /** Consecutive failed sync runs; the source auto-disables at the cap. */

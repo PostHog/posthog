@@ -1039,6 +1039,7 @@ class CustomPropertySourceViewSet(
                 column_property_map=data.column_property_map,
                 column_descriptions=data.column_descriptions,
                 key_column=data.key_column,
+                match_mode=data.match_mode,
                 is_enabled=data.is_enabled,
                 user=cast(User, request.user),
                 user_access_control=_warehouse_scoped_uac(self),

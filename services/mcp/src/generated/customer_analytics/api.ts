@@ -741,6 +741,7 @@ export const customPropertySourcesCreateBodySourceColumnMax = 400
 
 export const customPropertySourcesCreateBodyKeyColumnMax = 400
 
+export const customPropertySourcesCreateBodyMatchModeDefault = `distinct_id`
 export const customPropertySourcesCreateBodyIsEnabledDefault = true
 
 export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
@@ -781,7 +782,14 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
             .describe(
-                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id (or email, see match_mode) for person sources, or the group key for group sources."
+            ),
+        match_mode: zod
+            .enum(['distinct_id', 'email'])
+            .describe('\* `distinct_id` - distinct_id\n\* `email` - email')
+            .default(customPropertySourcesCreateBodyMatchModeDefault)
+            .describe(
+                "Person sources only: how key_column resolves to a person. 'distinct_id' treats the key as a PostHog distinct ID; 'email' matches an existing person by their email property. Create-only. Only person sources may set 'email'; account and group sources must leave the default 'distinct_id'.\n\n\* `distinct_id` - distinct_id\n\* `email` - email"
             ),
         is_enabled: zod
             .boolean()

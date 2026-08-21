@@ -835,6 +835,29 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
             facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)
 
 
+class TestValidateMatchMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("none_defaults", None, "person", "distinct_id"),
+            ("distinct_id_person", "distinct_id", "person", "distinct_id"),
+            ("email_person", "email", "person", "email"),
+        ]
+    )
+    def test_accepts_valid_modes(self, _name, match_mode, target_type, expected):
+        assert facade._validate_match_mode(match_mode, target_type) == expected
+
+    @parameterized.expand(
+        [
+            ("unknown_mode", "phone", "person"),
+            ("email_on_group", "email", "group"),
+            ("email_on_account", "email", "account"),
+        ]
+    )
+    def test_rejects_invalid_modes(self, _name, match_mode, target_type):
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            facade._validate_match_mode(match_mode, target_type)
+
+
 class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
