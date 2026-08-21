@@ -7,7 +7,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Count
 from django.utils import timezone
 
 import jwt
@@ -249,6 +250,33 @@ class GitHubIntegrationBase:
             user_qs = user_qs.exclude(id=exclude_user_integration_id)
 
         return team_qs.count() + user_qs.count()
+
+    @staticmethod
+    def installation_reference_counts(installation_ids: Iterable[str]) -> dict[str, int]:
+        """Total PostHog rows (team + personal) referencing each GitHub App installation.
+
+        Batched form of :meth:`installation_reference_count` for list endpoints: two grouped
+        queries for the whole page instead of a count pair per row. The returned count includes
+        every reference, so a caller checking "is this shared besides the current row" tests ``> 1``.
+        """
+        # Local imports: both model modules import this module at load time.
+        from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserIntegration
+
+        ids = {installation_id for installation_id in installation_ids if installation_id}
+        counts: dict[str, int] = {}
+        if not ids:
+            return counts
+
+        for model in (Integration, UserIntegration):
+            grouped = (
+                model.objects.filter(kind="github", integration_id__in=ids)
+                .values("integration_id")
+                .annotate(count=Count("id"))
+            )
+            for row in grouped:
+                counts[row["integration_id"]] = counts.get(row["integration_id"], 0) + row["count"]
+        return counts
 
     @classmethod
     def uninstall_app_installation(cls, installation_id: str) -> bool:

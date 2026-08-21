@@ -384,17 +384,28 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # the loop only sees that one shape, but the per-row dispatch keeps
         # the door open for dropping the kind default and returning github
         # + slack rows side-by-side in one response.
-        integrations = UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at")
-        # Only compute the github-specific cross-team installation set when
-        # there could be github rows in the response; for `kind=slack` this
-        # would be an unused DB roundtrip on every settings page load.
-        team_installation_ids: set[str] = self._team_github_installation_ids(user) if kind == "github" else set()
+        integrations = list(UserIntegration.objects.filter(user=user, kind=kind).order_by("created_at"))
+        # Only compute the github-specific lookups when there could be github rows in the
+        # response; for `kind=slack` these would be unused DB roundtrips on every settings page load.
+        team_installation_ids: set[str] = set()
+        reference_counts: dict[str, int] = {}
+        if kind == "github":
+            team_installation_ids = self._team_github_installation_ids(user)
+            # One grouped lookup for the whole page instead of a count pair per row, so
+            # `installation_shared` stays a fixed two queries however many rows there are.
+            reference_counts = UserGitHubIntegration.installation_reference_counts(
+                {integration.integration_id for integration in integrations if integration.integration_id}
+            )
         results: list[dict[str, Any]] = []
         for integration in integrations:
             if integration.kind == "github":
                 UserGitHubIntegration(integration).ensure_account_name()
                 results.append(
-                    _serialize_github_integration(integration, team_integration_installation_ids=team_installation_ids)
+                    _serialize_github_integration(
+                        integration,
+                        team_integration_installation_ids=team_installation_ids,
+                        installation_reference_counts=reference_counts,
+                    )
                 )
             elif integration.kind == "slack":
                 results.append(_serialize_slack_integration(integration))
@@ -895,14 +906,14 @@ def _serialize_github_integration(
     integration: UserIntegration,
     *,
     team_integration_installation_ids: set[str],
+    installation_reference_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
     github = UserGitHubIntegration(integration)
     # Mirrors github_destroy's uninstall_if_last_reference: any other row, team or personal, keeps the
-    # App installed on GitHub after this one is deleted.
-    other_references = UserGitHubIntegration.installation_reference_count(
-        integration.integration_id, exclude_user_integration_id=integration.id
-    )
+    # App installed on GitHub after this one is deleted. The precomputed map counts every reference
+    # for the installation including this row, so more than one means another row still shares it.
+    installation_shared = installation_reference_counts.get(integration.integration_id or "", 0) > 1
     return {
         "id": integration.id,
         "kind": "github",
@@ -913,7 +924,7 @@ def _serialize_github_integration(
         # org/user). Lets the frontend tell which PR comments/reactions are the user's own.
         "github_login": (integration.config.get("github_user") or {}).get("login"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
-        "installation_shared": other_references > 0,
+        "installation_shared": installation_shared,
         "installation_status": "unavailable" if github.installation_unavailable() else "connected",
         "created_at": integration.created_at,
     }
