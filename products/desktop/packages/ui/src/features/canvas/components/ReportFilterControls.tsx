@@ -5,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -133,33 +134,38 @@ export function ReportFilterControls({
           )}
           {showStatusInMenu && (
             <>
-              <DropdownMenuLabel>Status</DropdownMenuLabel>
-              {STATUS_FILTERS.map(({ value, label }) => (
-                <DropdownMenuCheckboxItem
-                  key={value}
-                  checked={filters.status === value}
-                  closeOnClick={false}
-                  onCheckedChange={() =>
-                    onChange({ ...filters, status: value })
-                  }
-                >
-                  {label}
-                </DropdownMenuCheckboxItem>
-              ))}
+              {/* Labels crash outside a group (Base UI MenuGroupLabel). */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Status</DropdownMenuLabel>
+                {STATUS_FILTERS.map(({ value, label }) => (
+                  <DropdownMenuCheckboxItem
+                    key={value}
+                    checked={filters.status === value}
+                    closeOnClick={false}
+                    onCheckedChange={() =>
+                      onChange({ ...filters, status: value })
+                    }
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>
           )}
-          <DropdownMenuLabel>Priority</DropdownMenuLabel>
-          {PRIORITIES.map((priority) => (
-            <DropdownMenuCheckboxItem
-              key={priority}
-              checked={filters.priorities.includes(priority)}
-              closeOnClick={false}
-              onCheckedChange={() => togglePriority(priority)}
-            >
-              {priority}
-            </DropdownMenuCheckboxItem>
-          ))}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Priority</DropdownMenuLabel>
+            {PRIORITIES.map((priority) => (
+              <DropdownMenuCheckboxItem
+                key={priority}
+                checked={filters.priorities.includes(priority)}
+                closeOnClick={false}
+                onCheckedChange={() => togglePriority(priority)}
+              >
+                {priority}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuGroup>
           {filtersActive && (
             <>
               <DropdownMenuSeparator />

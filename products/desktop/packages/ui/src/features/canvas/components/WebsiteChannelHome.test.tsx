@@ -61,6 +61,12 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
   EMPTY_CHANNEL_REPORTS_FILTERS: {},
+  DEFAULT_CHANNEL_REPORTS_FILTERS: {
+    search: "",
+    relevantToMeOnly: true,
+    priorities: [],
+    status: "all",
+  },
   useChannelReports: () => ({ reports: [] }),
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({

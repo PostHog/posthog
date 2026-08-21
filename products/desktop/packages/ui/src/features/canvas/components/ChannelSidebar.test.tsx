@@ -56,6 +56,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
     priorities: [],
     status: "all",
   },
+  DEFAULT_CHANNEL_REPORTS_FILTERS: {
+    search: "",
+    relevantToMeOnly: true,
+    priorities: [],
+    status: "all",
+  },
   useChannelReports: () => ({
     reports: [],
     statusCounts: {
@@ -277,6 +283,19 @@ describe("ChannelSidebar", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("opens the report filter menu from the Reports tab header", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.channelReportsFlag = true;
+    mocks.pathname = "/website/channel-1/reports/report-9";
+    renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Filter reports" }));
+
+    expect(await screen.findByText("For you")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.getByText("P0")).toBeInTheDocument();
   });
 
   it("cuts the sidebar over to Reports when a report opens", () => {

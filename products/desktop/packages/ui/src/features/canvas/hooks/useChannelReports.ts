@@ -32,6 +32,17 @@ export const EMPTY_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
 };
 
 /**
+ * What a Reports surface starts on: scoped to reports suggested for the
+ * current user. The general space holds every report in the project, so the
+ * unfiltered list is both noisy and expensive to render; one funnel click
+ * widens to everything.
+ */
+export const DEFAULT_CHANNEL_REPORTS_FILTERS: ChannelReportsFilters = {
+  ...EMPTY_CHANNEL_REPORTS_FILTERS,
+  relevantToMeOnly: true,
+};
+
+/**
  * The reports shown in a space's Reports tab. The general space fetches every
  * report; any other space fetches only its own (`channel_id`). Server results
  * are then narrowed client-side by the tab's search / priority / for-you

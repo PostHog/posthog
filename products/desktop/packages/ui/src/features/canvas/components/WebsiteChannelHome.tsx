@@ -34,7 +34,7 @@ import {
 import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import {
   type ChannelReportsFilters,
-  EMPTY_CHANNEL_REPORTS_FILTERS,
+  DEFAULT_CHANNEL_REPORTS_FILTERS,
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -105,7 +105,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     [channel, channelId],
   );
   const [reportFilters, setReportFilters] = useState<ChannelReportsFilters>(
-    EMPTY_CHANNEL_REPORTS_FILTERS,
+    DEFAULT_CHANNEL_REPORTS_FILTERS,
   );
   const { reports, statusCounts, unseenCount, markSeen } = useChannelReports(
     reportView,

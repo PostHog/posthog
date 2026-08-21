@@ -70,6 +70,13 @@ export function ChannelReportsSection({
     filters.relevantToMeOnly ||
     filters.priorities.length > 0 ||
     filters.status !== "all";
+  // The default scope, not a user choice — the empty state names it so an
+  // empty list isn't mistaken for having no reports at all.
+  const onlyForYouActive =
+    filters.relevantToMeOnly &&
+    !filters.search &&
+    filters.priorities.length === 0 &&
+    filters.status === "all";
 
   const body = useMemo(() => {
     if (isLoading) {
@@ -104,14 +111,18 @@ export function ChannelReportsSection({
               <FileMagnifyingGlassIcon size={18} />
             </EmptyMedia>
             <EmptyTitle>
-              {filtersActive || filters.search
-                ? "No matching reports"
-                : "No reports yet"}
+              {onlyForYouActive
+                ? "No reports for you yet"
+                : filtersActive || filters.search
+                  ? "No matching reports"
+                  : "No reports yet"}
             </EmptyTitle>
             <EmptyDescription>
-              {filtersActive || filters.search
-                ? "Try a different search or clear the filters."
-                : "Reports your agents file show up here."}
+              {onlyForYouActive
+                ? "Showing reports suggested for you. Open the filter to see every report in this space."
+                : filtersActive || filters.search
+                  ? "Try a different search or clear the filters."
+                  : "Reports your agents file show up here."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -136,6 +147,7 @@ export function ChannelReportsSection({
     activeReportId,
     openReport,
     filtersActive,
+    onlyForYouActive,
     filters.search,
   ]);
 

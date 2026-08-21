@@ -57,6 +57,7 @@ import { ReportFilterControls } from "@posthog/ui/features/canvas/components/Rep
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import {
   type ChannelReportsFilters,
+  DEFAULT_CHANNEL_REPORTS_FILTERS,
   EMPTY_CHANNEL_REPORTS_FILTERS,
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
@@ -352,7 +353,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [reportFilters, setReportFilters] = useState<ChannelReportsFilters>(
-    EMPTY_CHANNEL_REPORTS_FILTERS,
+    DEFAULT_CHANNEL_REPORTS_FILTERS,
   );
   const [rawFilters, setFilters] = useState<ChannelItemFilters>(
     DEFAULT_CHANNEL_ITEM_FILTERS,
