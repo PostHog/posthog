@@ -19,24 +19,23 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { MetricTypeTag } from 'scenes/experiments/MetricsView/shared/MetricTypeTag'
+import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { PAGE_SIZE, sharedMetricsLogic } from 'scenes/experiments/SharedMetrics/sharedMetricsLogic'
+import { isLegacySharedMetric } from 'scenes/experiments/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
-import { MetricTypeTag } from '../MetricsView/shared/MetricTypeTag'
-import { isLegacySharedMetric } from '../utils'
-import { InlineTagEditor } from './InlineTagEditor'
-import { SharedMetric } from './sharedMetricLogic'
-import { PAGE_SIZE, sharedMetricsLogic } from './sharedMetricsLogic'
-
 export const scene: SceneExport = {
-    component: SharedMetrics,
+    component: ExperimentsSharedMetricsScene,
     logic: sharedMetricsLogic,
 }
 
-export function SharedMetrics(): JSX.Element {
+export function ExperimentsSharedMetricsScene(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
         useValues(sharedMetricsLogic)
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
@@ -225,3 +224,5 @@ export function SharedMetrics(): JSX.Element {
         </div>
     )
 }
+
+export default ExperimentsSharedMetricsScene
