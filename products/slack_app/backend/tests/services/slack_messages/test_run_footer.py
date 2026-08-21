@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 from unittest.mock import patch
@@ -82,16 +83,16 @@ class TestLoadRunFooter(SimpleTestCase):
 
 class TestViewerHasCodeAccess(SimpleTestCase):
     def _integration(self) -> Integration:
-        return Integration(config={}, integration_id="T1")
+        return cast(Integration, SimpleNamespace(config={}, integration_id="T1", id=1, team=object()))
 
-    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    @patch("products.tasks.backend.facade.access.get_desktop_access_decision")
     def test_no_slack_identity_means_no_access_without_consulting_the_flag(self, mock_has_access) -> None:
         assert viewer_has_code_access(self._integration(), None) is False
         mock_has_access.assert_not_called()
 
     @patch("products.slack_app.backend.services.slack_messages.workspace_org_ids", return_value=set())
     @patch("products.slack_app.backend.services.slack_user_oauth.find_linked_posthog_user", return_value=None)
-    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    @patch("products.tasks.backend.facade.access.get_desktop_access_decision")
     def test_an_unlinked_slack_identity_means_no_access(self, mock_has_access, _mock_find, _mock_orgs) -> None:
         assert viewer_has_code_access(self._integration(), "U1") is False
         mock_has_access.assert_not_called()
@@ -99,13 +100,13 @@ class TestViewerHasCodeAccess(SimpleTestCase):
     @parameterized.expand([("granted", True, True), ("denied", False, False)])
     @patch("products.slack_app.backend.services.slack_messages.workspace_org_ids", return_value=set())
     @patch("products.slack_app.backend.services.slack_user_oauth.find_linked_posthog_user")
-    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    @patch("products.tasks.backend.facade.access.get_desktop_access_decision")
     def test_a_linked_identity_follows_its_own_code_access(
         self, _name: str, granted: bool, expected: bool, mock_has_access, mock_find, _mock_orgs
     ) -> None:
         # The reader, not the task creator: a thread outlives whoever opened it.
         mock_find.return_value = object()
-        mock_has_access.return_value = granted
+        mock_has_access.return_value = SimpleNamespace(allowed=granted)
 
         assert viewer_has_code_access(self._integration(), "U1") is expected
 

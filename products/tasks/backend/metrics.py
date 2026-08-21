@@ -255,6 +255,7 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+DesktopAccessOutcome = Literal["allowed", "startup_plan", "prepaid_credits", "override", "resolution_failure"]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
@@ -269,6 +270,12 @@ CODE_USAGE_GATE_CHECK_TOTAL = Counter(
 COMPUTE_QUOTA_CHECK_TOTAL = Counter(
     "posthog_tasks_compute_quota_check_total",
     "Compute quota-check outcomes for billable PostHog Desktop runs",
+    labelnames=["outcome"],
+)
+
+DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
+    "posthog_tasks_desktop_access_decisions_total",
+    "PostHog Desktop access decisions by bounded outcome",
     labelnames=["outcome"],
 )
 
@@ -533,3 +540,7 @@ def observe_loop_auto_paused() -> None:
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
     CODE_USAGE_GATE_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
+    DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()

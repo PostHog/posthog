@@ -678,7 +678,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
     flag-service error means no link rather than one that dead-ends.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+    from products.tasks.backend.facade.access import get_desktop_access_decision  # noqa: PLC0415
 
     if not slack_user_id:
         return False
@@ -688,7 +688,9 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
             slack_team_id=integration.integration_id,
             candidate_org_ids=workspace_org_ids(integration.integration_id),
         )
-        return user is not None and has_tasks_access(user)
+        if user is None:
+            return False
+        return get_desktop_access_decision(user, integration.team).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

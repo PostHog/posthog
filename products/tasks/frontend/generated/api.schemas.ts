@@ -7,9 +7,27 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface CodeInviteRedeemRequestApi {
-    /** @maxLength 50 */
-    code: string
+/**
+ * * `startup_plan` - startup_plan
+ * * `prepaid_credits` - prepaid_credits
+ */
+export type DesktopAccessReasonEnumApi = (typeof DesktopAccessReasonEnumApi)[keyof typeof DesktopAccessReasonEnumApi]
+
+export const DesktopAccessReasonEnumApi = {
+    StartupPlan: 'startup_plan',
+    PrepaidCredits: 'prepaid_credits',
+} as const
+
+export interface LegacyDesktopAccessResponseApi {
+    /** Whether the selected project can use PostHog Desktop. */
+    has_access: boolean
+    /** Why Desktop access is blocked, or null when access is allowed.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason: DesktopAccessReasonEnumApi | null
+    /** Whether the independent Loops feature is enabled. */
+    has_loops_access: boolean
 }
 
 /**
@@ -32,6 +50,11 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** Why PostHog Desktop access was denied, when applicable.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason?: DesktopAccessReasonEnumApi
     /** Request field associated with the error */
     attr?: string
     /** Artifact ids that could not be resolved for the run */
@@ -45,6 +68,11 @@ export interface TaskRunErrorResponseApi {
     reset_at?: string
     /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
     is_pro?: boolean
+}
+
+export interface CodeInviteRedeemRequestApi {
+    /** @maxLength 50 */
+    code: string
 }
 
 export interface ComputeRateCardApi {
@@ -68,6 +96,16 @@ export interface SandboxComputePricingApi {
     current: ComputeRateCardApi | null
     /** Expired sandbox compute rate cards, newest first. */
     history: ComputeRateCardApi[]
+}
+
+export interface DesktopAccessResponseApi {
+    /** Whether the selected project can use PostHog Desktop. */
+    allowed: boolean
+    /** Why Desktop access is blocked, or null when access is allowed.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason: DesktopAccessReasonEnumApi | null
 }
 
 export interface DesktopBetaTermsAcceptanceDTOApi {

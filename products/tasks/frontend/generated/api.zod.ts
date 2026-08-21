@@ -10,8 +10,8 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
- * @summary Redeem invite code
+ * Record a legacy PostHog Desktop invite-code redemption. Redemptions no longer grant access.
+ * @summary Redeem legacy invite code
  */
 export const codeInvitesRedeemCreateBodyCodeMax = 50
 
