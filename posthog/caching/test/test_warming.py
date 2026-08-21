@@ -3,12 +3,16 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight
+
+InsightViewed = apps.get_model("product_analytics", "InsightViewed")
 
 
 class TestWarming(APIBaseTest):

@@ -81,7 +81,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.api import record_insight_views
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
 
@@ -910,24 +911,21 @@ class HedgeboxMatrix(Matrix):
             last_modified_by=user,
         )
 
-        # InsightViewed
+        # Insight views
         try:
-            InsightViewed.objects.bulk_create(
-                (
-                    InsightViewed(
-                        team=team,
-                        user=user,
-                        insight=insight,
-                        last_viewed_at=(
-                            self.now
-                            - dt.timedelta(
-                                days=self.random.randint(0, 3),
-                                minutes=self.random.randint(5, 60),
-                            )
-                        ),
+            record_insight_views(
+                team_id=team.pk,
+                user_id=user.pk,
+                last_viewed_at_by_insight_id={
+                    insight.pk: (
+                        self.now
+                        - dt.timedelta(
+                            days=self.random.randint(0, 3),
+                            minutes=self.random.randint(5, 60),
+                        )
                     )
                     for insight in Insight.objects.filter(team__project_id=team.project_id)
-                ),
+                },
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project

@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from posthog.schema import (
@@ -21,7 +22,7 @@ from posthog.schema import (
 )
 
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
@@ -48,6 +49,9 @@ def create_mock_query_executor():
 
     mock_executor.arun_and_format_query = mock_arun_and_format_query
     return mock_executor
+
+
+InsightViewed = apps.get_model("product_analytics", "InsightViewed")
 
 
 @patch("ee.hogai.chat_agent.insights.nodes.AssistantQueryExecutor", create_mock_query_executor)

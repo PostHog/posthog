@@ -20,7 +20,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.facade.models import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context import AssistantContextManager
@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
 else:
     Account = apps.get_model("customer_analytics", "Account")
+
+InsightViewed = apps.get_model("product_analytics", "InsightViewed")
 
 
 class TestEntitySearchContext(NonAtomicBaseTest):
