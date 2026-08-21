@@ -298,6 +298,19 @@ class FeatureRequestProductAreaViewSet(
         return self.update(request, *args, **kwargs)
 
 
+def _feature_request_evidence_input(data: dict[str, Any] | None) -> contracts.FeatureRequestEvidenceInput | None:
+    if data is None:
+        return None
+    return contracts.FeatureRequestEvidenceInput(
+        summary=data["summary"],
+        customer_quote=data["customer_quote"],
+        evidence_source=data["evidence_source"],
+        source_url=data["source_url"],
+        requested_on=data["requested_on"],
+        image_ids=tuple(data.get("image_ids", ())),
+    )
+
+
 class FeatureRequestViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -368,6 +381,7 @@ class FeatureRequestViewSet(
                     account_id=data["account_id"],
                     product_area_ids=tuple(data["product_area_ids"]),
                     idempotency_key=data["idempotency_key"],
+                    evidence=_feature_request_evidence_input(data.get("evidence")),
                 ),
                 actor_id=cast(User, request.user).id,
                 user_access_control=self.user_access_control,
@@ -421,19 +435,7 @@ class FeatureRequestViewSet(
         serializer = FeatureRequestAddAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        evidence_data = data.get("evidence")
-        evidence = (
-            contracts.FeatureRequestEvidenceInput(
-                summary=evidence_data["summary"],
-                customer_quote=evidence_data["customer_quote"],
-                evidence_source=evidence_data["evidence_source"],
-                source_url=evidence_data["source_url"],
-                requested_on=evidence_data["requested_on"],
-                image_ids=tuple(evidence_data.get("image_ids", ())),
-            )
-            if evidence_data is not None
-            else None
-        )
+        evidence = _feature_request_evidence_input(data.get("evidence"))
         try:
             feature_request = api.add_feature_request_account(
                 team_id=self.team_id,

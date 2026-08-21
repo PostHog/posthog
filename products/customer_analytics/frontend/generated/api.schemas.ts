@@ -1792,6 +1792,30 @@ export interface PaginatedFeatureRequestListApi {
     results: FeatureRequestApi[]
 }
 
+export interface FeatureRequestEvidencePayloadApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+}
+
 export interface FeatureRequestCreateApi {
     /**
      * Required customer-facing request title.
@@ -1806,6 +1830,8 @@ export interface FeatureRequestCreateApi {
     product_area_ids: string[]
     /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
     idempotency_key: string
+    /** Optional first evidence item to create for the selected account. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
 }
 
 export interface FeatureRequestUpdateApi {
@@ -1876,30 +1902,6 @@ export interface PatchedFeatureRequestUpdateApi {
      * * `medium` - Medium
      * * `low` - Low */
     request_priority?: RequestPriorityEnumApi | null
-}
-
-export interface FeatureRequestEvidencePayloadApi {
-    /** Internal summary of this account's request evidence. */
-    summary?: string
-    /** Customer quote kept with this evidence item. */
-    customer_quote?: string
-    /**
-     * Free-form name of the source where this evidence was recorded.
-     * @maxLength 200
-     */
-    evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
-    source_url?: string
-    /**
-     * Date the account made the request, or null when unknown.
-     * @nullable
-     */
-    requested_on?: string | null
-    /** Uploaded image IDs from this project to attach in display order. */
-    image_ids?: string[]
 }
 
 export interface FeatureRequestAddAccountApi {
