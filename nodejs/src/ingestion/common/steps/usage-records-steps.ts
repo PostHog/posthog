@@ -24,6 +24,7 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 export interface RecordEventUsageInput {
     preparedEvent: { teamId: number; event: string; eventUuid: string }
     eventUsageBatch: UsageRecordBatch
+    processPerson?: boolean
 }
 
 /**
@@ -37,7 +38,18 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T>> {
         const usageKey = resolveUsageKey(input.preparedEvent.event)
         if (usageKey) {
-            input.eventUsageBatch.add(input.preparedEvent.teamId, usageKey, input.preparedEvent.eventUuid)
+            input.eventUsageBatch.add(
+                input.preparedEvent.teamId,
+                usageKey,
+                `${usageKey}:${input.preparedEvent.eventUuid}`
+            )
+            if (input.processPerson) {
+                input.eventUsageBatch.add(
+                    input.preparedEvent.teamId,
+                    'enhanced_person_events',
+                    `enhanced_person_events:${input.preparedEvent.eventUuid}`
+                )
+            }
         }
         return Promise.resolve(ok(input))
     }
