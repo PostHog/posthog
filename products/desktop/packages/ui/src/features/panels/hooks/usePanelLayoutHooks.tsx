@@ -124,6 +124,9 @@ export function useTabInjection(
             icon = <Scroll size={14} />;
           } else if (tab.data.type === "autoresearch") {
             icon = <ChartLineUp size={14} />;
+          } else if (tab.data.type === "posthog-object") {
+            const ObjectIcon = getObjectKind(tab.data.objectKind).icon;
+            icon = <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />;
           } else if (tab.data.type === "artifact") {
             if (tab.data.objectKind) {
               const ObjectIcon = getObjectKind(tab.data.objectKind).icon;

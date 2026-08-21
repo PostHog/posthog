@@ -20,6 +20,8 @@ export interface EvidenceCardData {
   detail?: string;
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
+  /** Headline numbers for the full page's stat strip; chips use `facts`. */
+  stats?: Array<{ label: string; value: string }>;
   /** Latest value + step change when the result is a single time series. */
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series; `labels` carries bucket dates. */

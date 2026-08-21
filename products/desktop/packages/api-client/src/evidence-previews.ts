@@ -26,6 +26,11 @@ export interface EvidencePreview {
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
   /**
+   * Headline numbers as label/value pairs. Full pages draw these as a stat
+   * strip and then skip the fact chips; hover chips keep using `facts`.
+   */
+  stats?: Array<{ label: string; value: string }>;
+  /**
    * Mini chart of the object's recent activity, oldest point first. `labels`
    * carries the bucket dates so a full page can draw a real chart with hover
    * values; the hover chip's sparkline ignores them.
@@ -233,10 +238,25 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
     : isMultivariate
       ? "Multivariate"
       : "Boolean";
+  const singleRollout =
+    groups.length === 1 && isRecord(groups[0])
+      ? groups[0].rollout_percentage
+      : null;
+  const stats: Array<{ label: string; value: string }> = [
+    { label: "State", value: state },
+    ...(typeof singleRollout === "number"
+      ? [{ label: "Rollout", value: `${singleRollout}%` }]
+      : groups.length > 1
+        ? [{ label: "Release conditions", value: String(groups.length) }]
+        : []),
+    ...(variants > 0 ? [{ label: "Variants", value: String(variants) }] : []),
+    { label: "Type", value: flagType },
+  ];
   return {
     title: flag.key,
     detail: name ? `${state} · ${name}` : state,
     facts,
+    stats,
     sections: [
       ...detailSection("Configuration", [
         ["State", state],
@@ -337,10 +357,26 @@ export function shapeExperimentPreview(
       ? [[`Shared metric ${index + 1}`, metric.name]]
       : [],
   );
+  const stats: Array<{ label: string; value: string }> = [];
+  if (experiment.start_date && !experiment.end_date) {
+    const days = Math.max(
+      1,
+      Math.ceil(
+        (Date.now() - new Date(experiment.start_date).getTime()) / 86_400_000,
+      ),
+    );
+    stats.push({ label: "Running for", value: count(days, "day") });
+  } else if (experiment.end_date) {
+    stats.push({ label: "Ended", value: formatDay(experiment.end_date) });
+  }
+  if (variants.length > 0) {
+    stats.push({ label: "Variants", value: String(variants.length) });
+  }
   return {
     title: experiment.name,
     detail,
     facts,
+    stats,
     sections: [
       ...detailSection("Configuration", [
         ["Hypothesis", experiment.description || null],
@@ -482,10 +518,17 @@ export function decorateFlagPreview(
   const points = dailySparkPoints(volumeRows);
   const total = points.reduce((sum, value) => sum + value, 0);
   if (total > 0) facts.push(`${compactCount(total)} calls (7d)`);
+  const stats = [
+    ...(preview.stats ?? []),
+    ...(total > 0
+      ? [{ label: "Calls in 7 days", value: compactCount(total) }]
+      : []),
+  ];
   return {
     ...preview,
     detail,
     facts,
+    stats,
     spark:
       points.length > 1
         ? { points, labels: dailySparkLabels(volumeRows), render: "line" }
@@ -858,6 +901,20 @@ export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
     title: cohort.name || "Untitled cohort",
     detail,
     facts: [type],
+    stats: [
+      ...(typeof cohort.count === "number"
+        ? [{ label: "People", value: compactCount(cohort.count) }]
+        : []),
+      { label: "Type", value: type },
+      ...(cohort.last_calculation
+        ? [
+            {
+              label: "Last calculated",
+              value: formatDay(cohort.last_calculation),
+            },
+          ]
+        : []),
+    ],
     sections: [
       ...detailSection("Cohort", [
         ["Description", cohort.description || null],
@@ -1033,6 +1090,14 @@ export function shapeEventDefinitionPreview(
     detail: definition.last_seen_at
       ? `Last seen ${formatDay(definition.last_seen_at)}`
       : undefined,
+    stats: [
+      ...(definition.created_at
+        ? [{ label: "First seen", value: formatDay(definition.created_at) }]
+        : []),
+      ...(definition.last_seen_at
+        ? [{ label: "Last seen", value: formatDay(definition.last_seen_at) }]
+        : []),
+    ],
     sections: detailSection("Event", [
       [
         "First seen",

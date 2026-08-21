@@ -77,6 +77,10 @@ export interface PanelLayoutStore {
       objectKind?: string;
     },
   ) => void;
+  openPostHogObjectTab: (
+    taskId: string,
+    object: { kind: string; id: string; name: string },
+  ) => void;
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   closeTab: (taskId: string, panelId: string, tabId: string) => void;
   closeOtherTabs: (taskId: string, panelId: string, tabId: string) => void;
@@ -315,6 +319,30 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                   runId: artifact.runId,
                   artifactId: artifact.artifactId,
                   objectKind: artifact.objectKind,
+                },
+                "main",
+              ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openPostHogObjectTab: (taskId, object) => {
+        // Ids can be long (a hogql reference's id is the SQL itself); the tab
+        // id only has to be stable per object, not carry the whole value.
+        const tabId = `posthog-object:${object.kind}:${object.id.slice(0, 120)}`;
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(
+                layout,
+                tabId,
+                object.name,
+                {
+                  type: "posthog-object",
+                  objectKind: object.kind,
+                  objectId: object.id,
                 },
                 "main",
               ) as Partial<TaskLayout>,

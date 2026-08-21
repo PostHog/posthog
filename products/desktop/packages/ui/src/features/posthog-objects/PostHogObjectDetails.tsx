@@ -31,7 +31,7 @@ function DailySeriesChart({
     legend: series.length > 1 ? { show: true } : undefined,
   };
   return (
-    <div className="mt-2 h-36">
+    <div className="mt-2 flex h-40 w-full flex-col">
       {render === "bar" ? (
         <TimeSeriesBarChart
           series={keyed}

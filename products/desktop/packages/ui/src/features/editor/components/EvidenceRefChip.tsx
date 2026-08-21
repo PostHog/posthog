@@ -7,6 +7,7 @@ import { type MouseEvent, type ReactNode, useId, useState } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
 import { useAuthStateValue } from "../../../features/auth/store";
 import { useDraftStore } from "../../../features/message-editor/draftStore";
+import { usePanelLayoutStore } from "../../../features/panels/panelLayoutStore";
 import { useSessionTaskId } from "../../../features/sessions/useSessionTaskId";
 import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
 import { useCopy } from "../../../primitives/useCopy";
@@ -405,9 +406,21 @@ export function EvidenceRefChip({
           setOpen(false);
         }
       : undefined;
+  const openPostHogObjectTab = usePanelLayoutStore(
+    (state) => state.openPostHogObjectTab,
+  );
 
-  const openInPostHog = (event: MouseEvent<HTMLAnchorElement>) => {
+  const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (taskId) {
+      openPostHogObjectTab(taskId, {
+        kind: target.kind,
+        id: target.id,
+        name: typeof children === "string" ? children : target.id,
+      });
+      setOpen(false);
+      return;
+    }
     if (url) openExternalUrl(url);
   };
 
@@ -436,13 +449,14 @@ export function EvidenceRefChip({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url ? (
+          url || taskId ? (
             // Keep the truthful role: Enter follows the link (opens the
-            // object in PostHog), it does not act as a popover button.
+            // object's page in the app, or in PostHog outside a session), it
+            // does not act as a popover button.
             // biome-ignore lint/a11y/useSemanticElements: the element already is an <a>; the explicit role restores link semantics the popover trigger's role="button" would override
             <a
-              href={url}
-              onClick={openInPostHog}
+              href={url ?? "#"}
+              onClick={openReference}
               // biome-ignore lint/a11y/noRedundantRoles: not redundant — the popover trigger injects role="button" without it
               role="link"
               className={refClass}

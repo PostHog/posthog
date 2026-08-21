@@ -52,6 +52,13 @@ export type TabData =
       objectKind?: string;
     }
   | {
+      // A PostHog object opened from an inline reference chip; renders the
+      // object page straight from kind + id, with no run artifact behind it.
+      type: "posthog-object";
+      objectKind: string;
+      objectId: string;
+    }
+  | {
       type: "other";
     };
 

@@ -16,28 +16,42 @@ import {
 } from "@posthog/ui/utils/objectKinds";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
-/** The object's status line and fact chips, as a lede rather than a box. */
-function ObjectLede({ preview }: { preview: EvidenceCardData }) {
-  if (!preview.detail && (preview.facts?.length ?? 0) === 0) return null;
+/** Headline numbers as a row of tiles; the page's first stop after the title. */
+function StatStrip({
+  stats,
+}: {
+  stats: Array<{ label: string; value: string }>;
+}) {
   return (
-    <div className="flex flex-col gap-2.5">
-      {preview.detail && (
-        <Text size="lg" className="text-muted-foreground leading-relaxed">
-          {preview.detail}
-        </Text>
-      )}
-      {preview.facts && preview.facts.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {preview.facts.map((fact) => (
-            <span
-              key={fact}
-              className="rounded-md border border-border bg-muted px-2 py-0.5 text-muted-foreground text-xs"
-            >
-              {fact}
-            </span>
-          ))}
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {stats.slice(0, 8).map((stat) => (
+        <div
+          key={stat.label}
+          className="rounded-lg border border-border bg-card px-4 py-3"
+        >
+          <div className="truncate text-muted-foreground text-xs">
+            {stat.label}
+          </div>
+          <div className="mt-1 truncate font-semibold text-foreground text-xl tabular-nums tracking-tight">
+            {stat.value}
+          </div>
         </div>
-      )}
+      ))}
+    </div>
+  );
+}
+
+function FactChips({ facts }: { facts: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {facts.map((fact) => (
+        <span
+          key={fact}
+          className="rounded-md border border-border bg-muted px-2 py-0.5 text-muted-foreground text-xs"
+        >
+          {fact}
+        </span>
+      ))}
     </div>
   );
 }
@@ -48,7 +62,6 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   if (preview.tiles && preview.tiles.length > 0) {
     return (
       <div className="flex flex-col gap-4">
-        <ObjectLede preview={{ ...preview, facts: undefined }} />
         {preview.tiles.map((tile, index) => (
           <MessageChartCard
             key={`${tile.shortId}:${index}`}
@@ -59,9 +72,14 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
       </div>
     );
   }
+  const stats = (preview.stats ?? []).filter((stat) => stat.value);
   return (
     <div className="flex flex-col gap-4">
-      <ObjectLede preview={preview} />
+      {stats.length > 0 ? (
+        <StatStrip stats={stats} />
+      ) : preview.facts && preview.facts.length > 0 ? (
+        <FactChips facts={preview.facts} />
+      ) : null}
       <PostHogObjectDetails preview={preview} />
     </div>
   );
@@ -88,7 +106,9 @@ export function PostHogObjectPage({
   metadata,
   fallbackName,
 }: {
-  metadata: PostHogObjectArtifactMetadata;
+  /** Only kind + id when opened from an inline reference chip. */
+  metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
+    Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
   fallbackName: string;
 }) {
   const object = getObjectKind(metadata.object_kind);
@@ -121,78 +141,94 @@ export function PostHogObjectPage({
     metadata.object_kind,
     query.data?.resolvedId ?? metadata.object_id,
   );
+  // The product name adds nothing when it just restates the kind ("Feature
+  // flag · Feature flags"); keep it when it adds context ("Insight · Product
+  // analytics").
+  const showSource = !object.source
+    .toLowerCase()
+    .startsWith(object.kindLabel.toLowerCase());
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-8 py-8">
-        <header className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wide">
+      <div className="mx-auto flex w-full max-w-4xl flex-col px-8 py-8">
+        <header>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wide">
               <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />
               <span>{object.kindLabel}</span>
-              {/* Skip the product when it just restates the kind ("Feature
-                  flag · Feature flags"); keep it when it adds context
-                  ("Insight · Product analytics"). */}
-              {!object.source
-                .toLowerCase()
-                .startsWith(object.kindLabel.toLowerCase()) && (
+              {showSource && (
                 <>
                   <span>·</span>
                   <span>{object.source}</span>
                 </>
               )}
             </div>
-            <Heading size="xl" className="truncate">
-              {title}
-            </Heading>
-            <div className="mt-2 flex items-center gap-1 font-mono text-muted-foreground text-xs">
-              <span className="max-w-xl truncate">{metadata.object_id}</span>
-              <button
-                type="button"
-                data-attr="posthog-object-copy-reference"
-                aria-label={copied ? "Reference copied" : "Copy reference"}
-                onClick={() => copy(metadata.object_id)}
-                className="inline-flex size-6 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent hover:bg-fill-hover hover:text-foreground"
+            {url && (
+              <Button
+                variant="outline"
+                size="sm"
+                data-attr="posthog-object-open-in-posthog"
+                onClick={() => openExternalUrl(url)}
               >
-                {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-              </button>
-            </div>
+                Open in PostHog ↗
+              </Button>
+            )}
           </div>
-          {url && (
-            <Button
-              variant="outline"
-              data-attr="posthog-object-open-in-posthog"
-              onClick={() => openExternalUrl(url)}
+          <Heading size="xl" className="mt-2 truncate">
+            {title}
+          </Heading>
+          {query.data?.detail && (
+            <Text
+              size="sm"
+              variant="muted"
+              className="mt-1.5 block leading-relaxed"
             >
-              Open in PostHog ↗
-            </Button>
+              {query.data.detail}
+            </Text>
           )}
+          <div className="mt-2.5 flex items-center gap-1 font-mono text-muted-foreground text-xs">
+            <span className="max-w-xl truncate">{metadata.object_id}</span>
+            <button
+              type="button"
+              data-attr="posthog-object-copy-reference"
+              aria-label={copied ? "Reference copied" : "Copy reference"}
+              onClick={() => copy(metadata.object_id)}
+              className="inline-flex size-6 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent hover:bg-fill-hover hover:text-foreground"
+            >
+              {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+            </button>
+          </div>
         </header>
 
-        {usesChartRenderer ? (
-          <MessageChartCard
-            spec={
-              metadata.object_kind === "insight"
-                ? { mode: "insight", shortId: metadata.object_id }
-                : { mode: "hogql", query: metadata.object_id }
-            }
-            blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
-          />
-        ) : query.isPending ? (
-          <div className="space-y-3">
-            <Skeleton className="h-44 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : query.data ? (
-          <ObjectContent preview={query.data} />
-        ) : (
-          <UnavailableObject isError={query.isError} />
-        )}
-
-        <div className="border-border border-t pt-4 text-muted-foreground text-xs">
-          Referenced {metadata.occurrence_count.toLocaleString()}{" "}
-          {metadata.occurrence_count === 1 ? "time" : "times"} in this task
+        <div className="mt-6">
+          {usesChartRenderer ? (
+            <MessageChartCard
+              spec={
+                metadata.object_kind === "insight"
+                  ? { mode: "insight", shortId: metadata.object_id }
+                  : { mode: "hogql", query: metadata.object_id }
+              }
+              blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
+            />
+          ) : query.isPending ? (
+            <div className="space-y-3">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : query.data ? (
+            <ObjectContent preview={query.data} />
+          ) : (
+            <UnavailableObject isError={query.isError} />
+          )}
         </div>
+
+        {metadata.occurrence_count !== undefined && (
+          <div className="mt-6 border-border border-t pt-4 text-muted-foreground text-xs">
+            Referenced {metadata.occurrence_count.toLocaleString()}{" "}
+            {metadata.occurrence_count === 1 ? "time" : "times"} in this task
+          </div>
+        )}
       </div>
     </div>
   );

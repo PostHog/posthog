@@ -6156,9 +6156,17 @@ export class PostHogAPIClient {
         const pivot = pivotDailyGroups(
           gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
         );
+        const variantStats = gridRows(exposures)
+          .filter((row) => typeof row[0] === "string" && row[0] !== "false")
+          .slice(0, 4)
+          .map((row) => ({
+            label: `${row[0]} exposed`,
+            value: compactCount(Number(row[1]) || 0),
+          }));
         return {
           ...preview,
           facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
+          stats: [...(preview.stats ?? []), ...variantStats],
           chart: pivot
             ? {
                 title: "Daily exposed users by variant",
@@ -6196,11 +6204,21 @@ export class PostHogAPIClient {
             `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
           );
         }
+        const stats = [
+          ...(preview.stats ?? []),
+          ...(users > 0
+            ? [
+                { label: "Users in 30 days", value: compactCount(users) },
+                { label: "Events in 30 days", value: compactCount(events) },
+              ]
+            : []),
+        ];
         const dailyRows = gridRows(daily);
         const points = dailySparkPoints(dailyRows);
         return {
           ...preview,
           facts,
+          stats,
           spark:
             points.length > 1
               ? {
@@ -6233,6 +6251,12 @@ export class PostHogAPIClient {
           ...preview,
           facts:
             total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Events in 14 days", value: compactCount(total) }]
+              : []),
+            ...(preview.stats ?? []),
+          ],
           spark:
             points.length > 1
               ? {
@@ -6354,6 +6378,17 @@ export class PostHogAPIClient {
         return {
           ...preview,
           facts,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Matches in 14 days", value: compactCount(total) }]
+              : []),
+            ...(users30d > 0
+              ? [{ label: "Users in 30 days", value: compactCount(users30d) }]
+              : []),
+            ...(lastSeen
+              ? [{ label: "Last seen", value: formatDay(lastSeen) }]
+              : []),
+          ],
           spark:
             points.length > 1
               ? {
