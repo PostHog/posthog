@@ -8,7 +8,12 @@ from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 
-from products.tasks.backend.access import DesktopAccessReason, DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.access import (
+    DESKTOP_ACCESS_GATE_FLAG,
+    DesktopAccessReason,
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+)
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
 from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
 
@@ -19,11 +24,16 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
-        self.rollout_patcher = patch("products.tasks.backend.access._is_rollout_enabled", return_value=True)
-        self.rollout_patcher.start()
+        self.feature_flag_patcher = patch("products.tasks.backend.access.get_feature_flag_or_none")
+        self.mock_feature_flag = self.feature_flag_patcher.start()
+
+        def feature_flag_value(flag_key: str, *_args: object, **_kwargs: object) -> bool:
+            return flag_key == DESKTOP_ACCESS_GATE_FLAG
+
+        self.mock_feature_flag.side_effect = feature_flag_value
 
     def tearDown(self) -> None:
-        self.rollout_patcher.stop()
+        self.feature_flag_patcher.stop()
         super().tearDown()
 
     @parameterized.expand(
@@ -51,7 +61,6 @@ class TestDesktopAccessPolicy(APIBaseTest):
         ]
     )
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=False)
     def test_policy_matrix(
         self,
         _name: str,
@@ -59,7 +68,6 @@ class TestDesktopAccessPolicy(APIBaseTest):
         prepaid_credit_state: PrepaidCreditState,
         expected_allowed: bool,
         expected_reason: DesktopAccessReason | None,
-        _mock_override,
         mock_funding,
     ) -> None:
         mock_funding.return_value = OrganizationFundingStatus(
@@ -72,39 +80,30 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(decision.allowed, expected_allowed)
         self.assertEqual(decision.reason, expected_reason)
 
-    @patch("products.tasks.backend.access._is_rollout_enabled", return_value=False)
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled")
-    def test_rollout_flag_off_grants_access_without_resolving_policy(
-        self,
-        mock_override,
-        mock_funding,
-        _mock_rollout,
-    ) -> None:
+    def test_rollout_flag_off_grants_access_without_resolving_policy(self, mock_funding) -> None:
+        self.mock_feature_flag.side_effect = [False]
+
         decision = get_desktop_access_decision(self.user, self.team)
 
         self.assertTrue(decision.allowed)
-        mock_override.assert_not_called()
+        self.assertEqual(self.mock_feature_flag.call_count, 1)
         mock_funding.assert_not_called()
 
-    @patch("products.tasks.backend.access._is_rollout_enabled", return_value=None)
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled")
-    def test_indeterminate_rollout_flag_fails_closed(
-        self,
-        mock_override,
-        mock_funding,
-        _mock_rollout,
-    ) -> None:
+    def test_indeterminate_rollout_flag_fails_closed(self, mock_funding) -> None:
+        self.mock_feature_flag.side_effect = [None]
+
         with self.assertRaises(DesktopAccessResolutionError):
             get_desktop_access_decision(self.user, self.team)
 
-        mock_override.assert_not_called()
+        self.assertEqual(self.mock_feature_flag.call_count, 1)
         mock_funding.assert_not_called()
 
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=True)
-    def test_override_grants_access_before_funding_resolution(self, _mock_override, mock_funding) -> None:
+    def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
+        self.mock_feature_flag.side_effect = [True, True]
+
         decision = get_desktop_access_decision(self.user, self.team)
 
         self.assertTrue(decision.allowed)
@@ -135,8 +134,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         mock_decision.assert_not_called()
 
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=False)
-    def test_access_code_does_not_affect_authorization(self, _mock_override, mock_funding) -> None:
+    def test_access_code_does_not_affect_authorization(self, mock_funding) -> None:
         invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=1, is_active=True)
         CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
         mock_funding.return_value = OrganizationFundingStatus(
@@ -149,39 +147,23 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, DesktopAccessReason.STARTUP_PLAN)
 
-    @patch("products.tasks.backend.access._is_flag_enabled", side_effect=RuntimeError("unavailable"))
-    def test_feature_flag_exception_fails_closed(self, _mock_override) -> None:
-        with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.team)
-
     @parameterized.expand([(None,), ("control",), ("false",)])
-    @patch("products.tasks.backend.access._is_flag_enabled")
-    def test_indeterminate_feature_flag_fails_closed(self, flag_value, mock_override) -> None:
-        mock_override.return_value = flag_value
+    def test_indeterminate_feature_flag_fails_closed(self, flag_value) -> None:
+        self.mock_feature_flag.side_effect = [True, flag_value]
 
         with self.assertRaises(DesktopAccessResolutionError):
             get_desktop_access_decision(self.user, self.team)
-
-    @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access.posthoganalytics.get_feature_flag", return_value="control")
-    def test_multivariate_override_value_fails_closed(self, _mock_flag, mock_funding) -> None:
-        with self.assertRaises(DesktopAccessResolutionError):
-            get_desktop_access_decision(self.user, self.team)
-
-        mock_funding.assert_not_called()
 
     @patch(
         "products.tasks.backend.access._get_funding_status",
         side_effect=DesktopAccessResolutionError("unavailable"),
     )
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=False)
-    def test_funding_failure_fails_closed(self, _mock_override, _mock_funding) -> None:
+    def test_funding_failure_fails_closed(self, _mock_funding) -> None:
         with self.assertRaises(DesktopAccessResolutionError):
             get_desktop_access_decision(self.user, self.team)
 
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=False)
-    def test_project_endpoint_is_scoped_to_each_organization(self, _mock_override, mock_funding) -> None:
+    def test_project_endpoint_is_scoped_to_each_organization(self, mock_funding) -> None:
         other_organization = Organization.objects.create(name="Other organization")
         other_team = Team.objects.create(organization=other_organization, name="Other project")
         OrganizationMembership.objects.create(
@@ -213,8 +195,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
     @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=True)
     @patch("products.tasks.backend.access._get_funding_status")
-    @patch("products.tasks.backend.access._is_flag_enabled", return_value=False)
-    def test_legacy_endpoint_returns_boolean_and_reason(self, _mock_override, mock_funding, _mock_loops) -> None:
+    def test_legacy_endpoint_returns_boolean_and_reason(self, mock_funding, _mock_loops) -> None:
         mock_funding.return_value = OrganizationFundingStatus(
             startup_program_label=None,
             prepaid_credit_state=PrepaidCreditState.ACTIVE,

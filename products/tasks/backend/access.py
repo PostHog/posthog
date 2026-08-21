@@ -1,10 +1,9 @@
-from typing import TYPE_CHECKING, Any
-
-import posthoganalytics
+from typing import TYPE_CHECKING
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.metrics import observe_desktop_access_decision
@@ -36,36 +35,6 @@ class DesktopAccessDecision:
         return self.reason is None
 
 
-def _is_flag_enabled(
-    flag_key: str,
-    user: User,
-    team: "Team | None" = None,
-    *,
-    require_boolean: bool = False,
-) -> bool | None:
-    if not user.distinct_id:
-        return None
-    org = team.organization if team is not None else getattr(user, "organization", None)
-    kwargs: dict[str, Any] = {
-        "only_evaluate_locally": False,
-        "send_feature_flag_events": False,
-    }
-    if org is not None:
-        org_id = str(org.id)
-        kwargs["groups"] = {"organization": org_id}
-        kwargs["group_properties"] = {"organization": {"id": org_id}}
-    if require_boolean:
-        result = posthoganalytics.get_feature_flag(flag_key, user.distinct_id, **kwargs)
-        return result if isinstance(result, bool) else None
-
-    result = posthoganalytics.feature_enabled(flag_key, user.distinct_id, **kwargs)
-    return bool(result) if result is not None else None
-
-
-def _is_rollout_enabled(user: User, team: "Team") -> bool | None:
-    return _is_flag_enabled(DESKTOP_ACCESS_GATE_FLAG, user, team)
-
-
 def _get_funding_status(user: User, team: "Team") -> OrganizationFundingStatus:
     try:
         return BillingManager(get_cached_instance_license(), user).get_funding_status(team.organization)
@@ -74,27 +43,34 @@ def _get_funding_status(user: User, team: "Team") -> OrganizationFundingStatus:
 
 
 def get_desktop_access_decision(user: User, team: "Team") -> DesktopAccessDecision:
-    if not user or not user.is_authenticated:
+    if not user or not user.is_authenticated or not user.distinct_id:
         raise DesktopAccessResolutionError("Authentication is required to evaluate Desktop access")
 
-    try:
-        rollout_enabled = _is_rollout_enabled(user, team)
-    except Exception as error:
-        observe_desktop_access_decision(outcome="resolution_failure")
-        raise DesktopAccessResolutionError("Could not evaluate the Desktop access rollout") from error
-
-    if rollout_enabled is None:
+    organization_id = str(team.organization_id)
+    groups = {"organization": organization_id}
+    group_properties = {"organization": {"id": organization_id}}
+    rollout_enabled = get_feature_flag_or_none(
+        DESKTOP_ACCESS_GATE_FLAG,
+        str(user.distinct_id),
+        groups=groups,
+        group_properties=group_properties,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+    if not isinstance(rollout_enabled, bool):
         observe_desktop_access_decision(outcome="resolution_failure")
         raise DesktopAccessResolutionError("Could not evaluate the Desktop access rollout")
     if not rollout_enabled:
         return DesktopAccessDecision()
 
-    try:
-        override_enabled = _is_flag_enabled(DESKTOP_ACCESS_OVERRIDE_FLAG, user, team, require_boolean=True)
-    except Exception as error:
-        observe_desktop_access_decision(outcome="resolution_failure")
-        raise DesktopAccessResolutionError("Could not evaluate the Desktop access override") from error
-
+    override_enabled = get_feature_flag_or_none(
+        DESKTOP_ACCESS_OVERRIDE_FLAG,
+        str(user.distinct_id),
+        groups=groups,
+        group_properties=group_properties,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
     if not isinstance(override_enabled, bool):
         observe_desktop_access_decision(outcome="resolution_failure")
         raise DesktopAccessResolutionError("Could not evaluate the Desktop access override")
@@ -120,4 +96,16 @@ def get_desktop_access_decision(user: User, team: "Team") -> DesktopAccessDecisi
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:
-    return bool(_is_flag_enabled("loops", user, team))
+    if not user.distinct_id:
+        return False
+
+    organization = team.organization if team is not None else getattr(user, "organization", None)
+    organization_id = str(organization.id) if organization is not None else None
+    return feature_enabled_or_false(
+        "loops",
+        str(user.distinct_id),
+        groups={"organization": organization_id} if organization_id is not None else None,
+        group_properties={"organization": {"id": organization_id}} if organization_id is not None else None,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
