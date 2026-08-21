@@ -532,3 +532,43 @@ class TestTranscripts:
         assert session.requested_urls[3] == f"{GONG_BASE_URL}/v2/calls/transcript"
         # Each request asks only for the ids on the page that drove it.
         assert [body["filter"]["callIds"] for body in session.posted_bodies if body] == [["c1"], ["c2"]]
+
+    @parameterized.expand(
+        [
+            # A call with no start time leaves its transcript with nothing to partition or sync on.
+            ("call_without_start_time", [{"id": "c1"}], [{"callId": "c1"}]),
+            # A transcript for a call we never asked for has no start time to borrow either.
+            (
+                "transcript_for_unrequested_call",
+                [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
+                [{"callId": "other"}],
+            ),
+        ]
+    )
+    def test_unstampable_transcript_stops_the_sync(
+        self, _name: str, calls: list[dict], transcripts: list[dict]
+    ) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"calls": calls}),
+                _FakeResponse(json_data={"callTranscripts": transcripts}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "transcripts",
+                mock.MagicMock(),
+                _FakeResumableManager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+            )
+            # Writing the row with `started=None` would bury it in the fallback partition and keep
+            # it out of the watermark, so no later run would ever correct it.
+            with pytest.raises(ValueError):
+                list(rows)

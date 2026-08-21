@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -9,6 +8,8 @@ import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -33,7 +34,7 @@ class GongRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class GongResumeConfig:
     # ISO-8601 start of the next date window to fetch. Only the windowed, call-date-filtered
     # endpoints persist resume state; cursors are deliberately not cached (Gong expires
@@ -308,15 +309,38 @@ def _iter_transcript_rows(
 
         calls_page = fetch_page(_build_url(calls_config.path, params))
 
-        started_by_call_id = {
-            call["id"]: call.get("started") for call in calls_page.get(calls_config.response_key, []) if call.get("id")
-        }
+        started_by_call_id = _call_start_times(calls_page.get(calls_config.response_key, []))
         if started_by_call_id:
             yield from _iter_transcripts_for_calls(config, fetch_page, window_start, window_end, started_by_call_id)
 
         cursor = calls_page.get("records", {}).get("cursor")
         if not cursor:
             break
+
+
+def _call_start_times(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Map each call's id to its start time, refusing a call that is missing either.
+
+    Both stamp the transcript rows that follow: the id is the primary key merge runs on, and
+    the start time is what the table partitions by and syncs incrementally on. A row missing
+    either is unmergeable and invisible to the watermark, so stop rather than write it.
+    """
+    start_times: dict[str, Any] = {}
+    for call in calls:
+        call_id, started = call.get("id"), call.get("started")
+        if not call_id or not started:
+            raise ValueError(f"Gong returned a call with no id or no start time (id={call_id!r})")
+        start_times[call_id] = started
+    return start_times
+
+
+def _stamp_transcript(transcript: dict[str, Any], started_by_call_id: dict[str, Any]) -> dict[str, Any]:
+    """Copy a transcript with the start time of the call it belongs to attached."""
+    call_id = transcript.get("callId")
+    started = started_by_call_id.get(call_id)
+    if started is None:
+        raise ValueError(f"Gong returned a transcript for a call that was not asked for (callId={call_id!r})")
+    return {**transcript, "started": started}
 
 
 def _iter_transcripts_for_calls(
@@ -341,9 +365,7 @@ def _iter_transcripts_for_calls(
 
         data = fetch_page(_build_url(config.path, {}), json_body=body)
 
-        rows = [
-            {**row, "started": started_by_call_id.get(row.get("callId"))} for row in data.get(config.response_key, [])
-        ]
+        rows = [_stamp_transcript(row, started_by_call_id) for row in data.get(config.response_key, [])]
         if rows:
             yield rows
 
