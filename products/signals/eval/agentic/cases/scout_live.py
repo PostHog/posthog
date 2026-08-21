@@ -180,7 +180,7 @@ CASES: list[ScoutCase] = [
             expected_decision="skip",
             expected_priority=(None,),
             required_summary_terms=("bot", "SyntheticMonitor"),
-            forbidden_summary_terms=("emit"),
+            forbidden_summary_terms=("emit",),
         ),
     ),
     _case(

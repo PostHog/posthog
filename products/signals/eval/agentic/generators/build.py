@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import json
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,10 @@ def build_implementation_cases(*, target: int = 110) -> list[dict]:
                 f"In `posthog/__init__.py`, add a top-level function `def {fn}() -> str:` that returns "
                 f"the string '{val}'. Keep the change minimal and place it near the other top-level functions."
             )
-            exp = {"expected_file_substrings": ["__init__.py"], "expected_diff_keywords": [fn, val]}
+            exp: dict[str, Any] = {
+                "expected_file_substrings": ["__init__.py"],
+                "expected_diff_keywords": [fn, val],
+            }
         elif arch == "constant":
             const = f"EVAL_CONST_{tag}"
             val = f"signals-eval-{tag}"

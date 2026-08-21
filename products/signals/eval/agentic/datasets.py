@@ -163,7 +163,7 @@ ScoutDecision = Literal["emit_report", "edit_report", "remember_only", "close_qu
 @dataclass(frozen=True)
 class ScoutExpectation:
     expected_decision: ScoutDecision
-    expected_actionability: str | tuple[str, ...] | None = None
+    expected_actionability: str | tuple[str | None, ...] | None = None
     expected_priority: str | tuple[str | None, ...] | None = None
     expected_existing_report_id: str | None = None
     expected_repository: str | None = None

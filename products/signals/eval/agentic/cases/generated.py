@@ -164,8 +164,8 @@ def load_generated_implementation() -> list[ImplementationCase]:
     return _load_rows("implementation", parse)
 
 
-def load_generated(step: str) -> list:
-    loaders = {
+def load_generated(step: str) -> list[Any]:
+    loaders: dict[str, Callable[[], list[Any]]] = {
         "research": load_generated_research,
         "repo_selection": load_generated_repo_selection,
         "implementation": load_generated_implementation,

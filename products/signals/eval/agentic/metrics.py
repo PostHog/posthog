@@ -10,15 +10,16 @@ from __future__ import annotations
 import sys
 import uuid
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from products.signals.eval.agentic.results import SuiteResult
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
 
-if TYPE_CHECKING:
-    from posthoganalytics import Posthog
-
 EVAL_SOURCE = "signals-agentic"
+
+
+class CaptureClient(Protocol):
+    def capture(self, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None: ...
 
 
 def aggregate(suite: SuiteResult) -> dict[str, dict[str, float]]:
@@ -87,7 +88,7 @@ def print_report(suite: SuiteResult, *, run_id: str | None = None, file=sys.stde
 class _RunTaggedClient:
     """Injects run-identity properties into every capture without forking the shared capture shape."""
 
-    def __init__(self, client: Posthog, extra: dict[str, Any]):
+    def __init__(self, client: CaptureClient, extra: dict[str, Any]):
         self._client = client
         self._extra = extra
 
@@ -109,7 +110,7 @@ def _run_properties(run_id: str, mode: str, runtime: dict[str, str] | None) -> d
 
 
 def capture_suite(
-    client: Posthog,
+    client: CaptureClient,
     suite: SuiteResult,
     *,
     eval_type: str = "offline",

@@ -32,11 +32,16 @@ from products.signals.eval.agentic.session_backends import (
     inject_session,
     recorder_to_cassette,
 )
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
 class _Probe(BaseModel):
     value: int
     label: str
+
+
+def _context() -> CustomPromptSandboxContext:
+    return CustomPromptSandboxContext(team_id=1, user_id=1)
 
 
 def _cassette(*raw_texts: str, step: str = "research") -> Cassette:
@@ -105,7 +110,7 @@ def test_replay_session_validates_via_real_parser():
     async def run() -> None:
         cassette = _cassette('{"value": 1, "label": "first"}', '{"value": 2, "label": "second"}')
         with active_cassette(cassette):
-            session, first = await ReplayMultiTurnSession.start(prompt="p", context=None, model=_Probe)
+            session, first = await ReplayMultiTurnSession.start(prompt="p", context=_context(), model=_Probe)
             second = await session.send_followup("f", _Probe, label="t1")
         assert (first.value, first.label) == (1, "first")
         assert (second.value, second.label) == (2, "second")
@@ -117,7 +122,7 @@ def test_replay_session_rejects_invalid_recorded_text():
     async def run() -> None:
         cassette = _cassette('{"value": "not-an-int", "label": "x"}')
         with active_cassette(cassette):
-            await ReplayMultiTurnSession.start(prompt="p", context=None, model=_Probe)
+            await ReplayMultiTurnSession.start(prompt="p", context=_context(), model=_Probe)
 
     try:
         asyncio.run(run())
@@ -131,7 +136,7 @@ def test_replay_raw_paths():
     async def run() -> None:
         cassette = _cassette("raw-one", "raw-two")
         with active_cassette(cassette):
-            session, first = await ReplayMultiTurnSession.start_raw(prompt="p", context=None)
+            session, first = await ReplayMultiTurnSession.start_raw(prompt="p", context=_context())
             second = await session.send_followup_raw("f", label="t")
         assert (first, second) == ("raw-one", "raw-two")
 
@@ -155,7 +160,7 @@ def test_recording_session_records_each_structured_turn_once_and_round_trips():
             mock.patch.object(MultiTurnSession, "send_followup_raw", _fake_send_followup_raw),
             active_recorder("t", "research") as recorder,
         ):
-            session, first = await RecordingMultiTurnSession.start(prompt="p-initial", context=None, model=_Probe)
+            session, first = await RecordingMultiTurnSession.start(prompt="p-initial", context=_context(), model=_Probe)
             second = await session.send_followup("p-followup", _Probe, label="t1")
         return recorder, first, second
 
@@ -166,7 +171,7 @@ def test_recording_session_records_each_structured_turn_once_and_round_trips():
 
     async def replay():
         with active_cassette(recorder_to_cassette(recorder)):
-            session, first = await ReplayMultiTurnSession.start(prompt="p-initial", context=None, model=_Probe)
+            session, first = await ReplayMultiTurnSession.start(prompt="p-initial", context=_context(), model=_Probe)
             second = await session.send_followup("p-followup", _Probe, label="t1")
         return first, second
 
@@ -187,7 +192,7 @@ def test_inject_session_patches_and_restores_all_sites():
     original_base = ca_base.MultiTurnSession
     original_rs = rs_agent.MultiTurnSession
 
-    class _Sentinel:
+    class _Sentinel(MultiTurnSession):
         pass
 
     with inject_session(_Sentinel):

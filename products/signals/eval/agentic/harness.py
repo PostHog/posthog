@@ -90,7 +90,8 @@ class AgenticEvalHarness:
         return result
 
     async def _score(self, case: EvalCase, output: Any) -> list[Score]:
-        sctx = ScoringContext(judge=self.judge, repo_root=self.ctx.cassette_dir and str(self.ctx.cassette_dir))
+        repo_root = str(self.ctx.cassette_dir) if self.ctx.cassette_dir else None
+        sctx = ScoringContext(judge=self.judge, repo_root=repo_root)
         scores: list[Score] = []
         for scorer in case.scorers:
             if getattr(scorer, "requires_judge", False) and self.judge is None:

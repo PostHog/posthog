@@ -18,35 +18,39 @@ REPLAY_STEPS: tuple[str, ...] = ("research", "repo_selection", "implementation")
 
 def _curated_live(step: str) -> list[EvalCase]:
     if step == "research":
-        from products.signals.eval.agentic.cases.research_live import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.research_live import CASES as research_cases  # noqa: PLC0415
 
-        return list(CASES)
+        return list(research_cases)
     if step == "repo_selection":
-        from products.signals.eval.agentic.cases.repo_selection_live import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.repo_selection_live import (
+            CASES as repo_selection_cases,  # noqa: PLC0415
+        )
 
-        return list(CASES)
+        return list(repo_selection_cases)
     if step == "implementation":
-        from products.signals.eval.agentic.cases.implementation_live import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.implementation_live import (
+            CASES as implementation_cases,  # noqa: PLC0415
+        )
 
-        return list(CASES)
-    from products.signals.eval.agentic.cases.scout_live import CASES  # noqa: PLC0415
+        return list(implementation_cases)
+    from products.signals.eval.agentic.cases.scout_live import CASES as scout_cases  # noqa: PLC0415
 
-    return list(CASES)
+    return list(scout_cases)
 
 
 def _replay(step: str) -> list[EvalCase]:
     if step == "research":
-        from products.signals.eval.agentic.cases.research import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.research import CASES as research_cases  # noqa: PLC0415
 
-        return list(CASES)
+        return list(research_cases)
     if step == "repo_selection":
-        from products.signals.eval.agentic.cases.repo_selection import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.repo_selection import CASES as repo_selection_cases  # noqa: PLC0415
 
-        return list(CASES)
+        return list(repo_selection_cases)
     if step == "implementation":
-        from products.signals.eval.agentic.cases.implementation import CASES  # noqa: PLC0415
+        from products.signals.eval.agentic.cases.implementation import CASES as implementation_cases  # noqa: PLC0415
 
-        return list(CASES)
+        return list(implementation_cases)
     return []
 
 
