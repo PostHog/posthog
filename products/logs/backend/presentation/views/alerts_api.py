@@ -756,7 +756,6 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 
@@ -766,16 +765,16 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 def _redact_destination_url(value: str) -> str:
-    parsed = urlsplit(value)
-    if not parsed.scheme or not parsed.hostname:
-        return "<redacted>"
-    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
     try:
-        port = parsed.port
+        parsed = urlsplit(value)
+        scheme = parsed.scheme
+        hostname = parsed.hostname
+        _port = parsed.port
     except ValueError:
         return "<redacted>"
-    authority = f"{hostname}:{port}" if port is not None else hostname
-    return f"{parsed.scheme}://{authority}/…"
+    if not scheme or not hostname:
+        return "<redacted>"
+    return f"{scheme}://<redacted>"
 
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
@@ -783,7 +782,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     enabled = serializers.BooleanField(help_text="Whether every HogFunction in the destination group is enabled.")
     slack_workspace_id = serializers.IntegerField(required=False)
     slack_channel_id = serializers.CharField(required=False)
-    webhook_url = serializers.CharField(required=False, help_text="Webhook endpoint redacted to scheme and host.")
+    webhook_url = serializers.CharField(required=False, help_text="Webhook endpoint with all credentials redacted.")
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = cast(dict[str, Any], super().to_representation(instance))
@@ -1052,6 +1051,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            groups = list_alert_destination_groups(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+            largest_server_group = max((len(group.hog_function_ids) for group in groups), default=0)
+            if len(hog_function_ids) > max(MAX_DESTINATION_IDS_PER_DELETE_REQUEST, largest_server_group):
+                raise ValidationError({"hog_function_ids": "Too many destination IDs."})
             soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),

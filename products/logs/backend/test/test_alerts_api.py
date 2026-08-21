@@ -946,8 +946,28 @@ class TestLogsAlertAPI(APIBaseTest):
         destination = response.json()["results"][0]
         assert set(destination["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
         assert destination["type"] == "webhook"
-        assert destination["webhook_url"] == "https://example.com:8443/…"
+        assert destination["webhook_url"] == "https://<redacted>"
         assert webhook_url not in response.content.decode()
+
+    def test_list_destinations_redacts_malformed_stored_webhook_url(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
+        inputs = hog_function.inputs or {}
+        inputs["url"]["value"] = "https://[broken/path"
+        hog_function.inputs = inputs
+        hog_function.save(update_fields=["inputs"])
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["webhook_url"] == "<redacted>"
 
     @parameterized.expand(
         [
@@ -1188,6 +1208,36 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
         assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_accepts_a_server_group_larger_than_100_ids(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        source = HogFunction.objects.get(id=ids[0])
+        duplicate_ids = [str(self._clone_row_without_the_duplicate_check(source).id) for _ in range(100)]
+        source.inputs = {}
+        source.save(update_fields=["inputs"])
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_rejects_more_ids_than_any_server_group(self) -> None:
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [str(uuid4()) for _ in range(101)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Too many destination IDs" in str(response.json())
 
     def test_delete_alert_removes_both_destinations_of_the_same_type(self):
         self._sync_destination_templates()

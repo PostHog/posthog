@@ -690,7 +690,7 @@ export interface LogsAlertDestinationConfigApi {
     enabled: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
-    /** Webhook endpoint redacted to scheme and host. */
+    /** Webhook endpoint with all credentials redacted. */
     webhook_url?: string
 }
 
@@ -728,7 +728,6 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
-     * @maxItems 100
      */
     hog_function_ids: string[]
 }
