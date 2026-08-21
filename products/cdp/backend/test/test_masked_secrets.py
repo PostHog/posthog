@@ -15,12 +15,19 @@ from posthog.cdp.validation import MASKED_SECRET_VALUE
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.services.masked_secrets import (
     MaskedSecretFinding,
+    _flow_masked_input_keys,
     _masked_input_keys,
     scan_for_masked_secrets,
+    scan_hog_flows_for_masked_secrets,
     summarize_by_organization,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 SECRET_SCHEMA = [{"key": "api_key", "type": "string", "secret": True}]
+
+# The workflows read-back marker: what the API sends for a set secret, and what must never end up
+# stored as the secret itself.
+FLOW_MARKER = {"secret": True}
 
 # `posthog/apps.py` installs the lazy admin registry only `if not settings.TEST`, and that wrapper
 # is the sole caller of `register_all_admin()` — so under tests nothing registers this admin and
@@ -70,6 +77,32 @@ class TestMaskedInputKeys(SimpleTestCase):
         assert _masked_input_keys(stored) == expected
 
 
+class TestFlowMaskedInputKeys(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("persisted_marker", {"a1": {"api_key": FLOW_MARKER}}, ("a1.api_key",)),
+            (
+                "marker_with_mask_value",
+                {"a1": {"api_key": {"secret": True, "value": MASKED_SECRET_VALUE}}},
+                ("a1.api_key",),
+            ),
+            ("literal_mask_value", {"a1": {"api_key": {"value": MASKED_SECRET_VALUE}}}, ("a1.api_key",)),
+            ("real_secret", {"a1": {"api_key": {"value": "sk-live-abc"}}}, ()),
+            ("marker_with_real_value", {"a1": {"api_key": {"secret": True, "value": "sk-live-abc"}}}, ()),
+            (
+                "several_actions_sorted",
+                {"b2": {"token": FLOW_MARKER}, "a1": {"api_key": FLOW_MARKER}},
+                ("a1.api_key", "b2.token"),
+            ),
+            ("undecryptable_ciphertext", "gAAAAABm-not-a-dict", ()),
+            ("action_map_is_not_a_dict", {"a1": "plain"}, ()),
+            ("entry_is_not_a_dict", {"a1": {"api_key": "plain"}}, ()),
+        ]
+    )
+    def test_flow_masked_input_keys(self, _name: str, stored: object, expected: tuple[str, ...]) -> None:
+        assert _flow_masked_input_keys(stored) == expected
+
+
 class TestSummarizeByOrganization(SimpleTestCase):
     def test_organizations_with_enabled_functions_sort_first(self) -> None:
         disabled_org, enabled_org = uuid4(), uuid4()
@@ -82,16 +115,20 @@ class TestSummarizeByOrganization(SimpleTestCase):
         summaries = summarize_by_organization(findings)
 
         assert [summary.organization_id for summary in summaries] == [enabled_org, disabled_org]
-        assert summaries[0].enabled_hog_function_count == 1
-        assert summaries[1].hog_function_count == 2
+        assert summaries[0].enabled_count == 1
+        assert summaries[1].finding_count == 2
 
 
 class MaskedSecretsDatabaseTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        patcher = patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for target in (
+            "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
+            "products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers",
+        ):
+            patcher = patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _create_hog_function(
         self,
@@ -116,6 +153,21 @@ class MaskedSecretsDatabaseTest(BaseTest):
             hog_function.draft_encrypted_inputs = {"api_key": {"value": draft_secret_value}}
             hog_function.save(update_fields=["draft_encrypted_inputs"])
         return hog_function
+
+    def _create_hog_flow(
+        self,
+        *,
+        encrypted: dict | None = None,
+        draft_encrypted: dict | None = None,
+        status: str = "active",
+    ) -> HogFlow:
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Send emails to a third party",
+            status=status,
+            encrypted_inputs=encrypted,
+            draft_encrypted_inputs=draft_encrypted,
+        )
 
 
 class TestScanForMaskedSecrets(MaskedSecretsDatabaseTest):
@@ -157,6 +209,39 @@ class TestScanForMaskedSecrets(MaskedSecretsDatabaseTest):
         assert scan.truncated is True
 
 
+class TestScanHogFlowsForMaskedSecrets(MaskedSecretsDatabaseTest):
+    def test_reports_a_persisted_marker_and_ignores_a_real_secret(self) -> None:
+        poisoned = self._create_hog_flow(encrypted={"action_1": {"api_key": FLOW_MARKER}})
+        self._create_hog_flow(encrypted={"action_1": {"api_key": {"value": "sk-live-abc"}}})
+
+        scan = scan_hog_flows_for_masked_secrets()
+
+        assert [finding.hog_flow_id for finding in scan.findings] == [poisoned.id]
+        assert scan.findings[0].masked_live_inputs == ("action_1.api_key",)
+        assert scan.findings[0].organization_id == self.organization.id
+        assert scan.scanned_count == 2
+
+    def test_reports_a_marker_stored_only_on_the_draft(self) -> None:
+        hog_flow = self._create_hog_flow(
+            encrypted={"action_1": {"api_key": {"value": "sk-live-abc"}}},
+            draft_encrypted={"action_1": {"api_key": FLOW_MARKER}},
+        )
+
+        scan = scan_hog_flows_for_masked_secrets()
+
+        assert [finding.hog_flow_id for finding in scan.findings] == [hog_flow.id]
+        assert scan.findings[0].masked_live_inputs == ()
+        assert scan.findings[0].masked_draft_inputs == ("action_1.api_key",)
+
+    @parameterized.expand([("excluded_by_default", False, 0), ("included_on_request", True, 1)])
+    def test_archived_hog_flows(self, _name: str, include_archived: bool, expected_count: int) -> None:
+        self._create_hog_flow(encrypted={"action_1": {"api_key": FLOW_MARKER}}, status="archived")
+
+        scan = scan_hog_flows_for_masked_secrets(include_archived=include_archived)
+
+        assert len(scan.findings) == expected_count
+
+
 class TestMaskedSecretsAdmin(MaskedSecretsDatabaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -166,8 +251,11 @@ class TestMaskedSecretsAdmin(MaskedSecretsDatabaseTest):
 
     def test_the_page_renders_the_findings(self) -> None:
         hog_function = self._create_hog_function()
+        hog_flow = self._create_hog_flow(encrypted={"action_1": {"api_key": FLOW_MARKER}})
 
         response = self.client.post(reverse("admin:hog-function-masked-secrets"), {"max_results": 100, "_scan": "Scan"})
 
         assert response.status_code == 200
-        assert str(hog_function.id) in response.content.decode()
+        content = response.content.decode()
+        assert str(hog_function.id) in content
+        assert str(hog_flow.id) in content

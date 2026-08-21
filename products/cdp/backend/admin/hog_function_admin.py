@@ -14,6 +14,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction, 
 from products.cdp.backend.services.masked_secrets import (
     DEFAULT_MAX_RESULTS,
     scan_for_masked_secrets,
+    scan_hog_flows_for_masked_secrets,
     summarize_by_organization,
 )
 
@@ -109,11 +110,16 @@ class MaskedSecretsForm(forms.Form):
         initial=False,
         help_text="Include soft-deleted hog functions. They send nothing, so they are off by default.",
     )
+    include_archived = forms.BooleanField(
+        required=False,
+        initial=False,
+        help_text="Include archived workflows. They send nothing, so they are off by default.",
+    )
     max_results = forms.IntegerField(
         initial=DEFAULT_MAX_RESULTS,
         min_value=1,
         max_value=10000,
-        help_text="Cap on reported hog functions. You are told when the scan stops at the cap.",
+        help_text="Cap on reported hog functions and on reported workflows. You are told when the scan stops at the cap.",
     )
 
     def clean_team_ids(self) -> list[int]:
@@ -204,27 +210,40 @@ class HogFunctionAdmin(admin.ModelAdmin):
 
     def masked_secrets_view(self, request):
         scan = None
+        flow_scan = None
         organizations: list = []
         if request.method == "POST":
             form = MaskedSecretsForm(request.POST)
             if form.is_valid():
+                team_ids = form.cleaned_data["team_ids"] or None
+                max_results = form.cleaned_data["max_results"]
                 scan = scan_for_masked_secrets(
-                    team_ids=form.cleaned_data["team_ids"] or None,
+                    team_ids=team_ids,
                     include_deleted=form.cleaned_data["include_deleted"],
-                    max_results=form.cleaned_data["max_results"],
+                    max_results=max_results,
                 )
-                organizations = summarize_by_organization(scan.findings)
-                if scan.truncated:
-                    cap = form.cleaned_data["max_results"]
+                flow_scan = scan_hog_flows_for_masked_secrets(
+                    team_ids=team_ids,
+                    include_archived=form.cleaned_data["include_archived"],
+                    max_results=max_results,
+                )
+                organizations = summarize_by_organization([*scan.findings, *flow_scan.findings])
+                if scan.truncated or flow_scan.truncated:
+                    capped = " and ".join(
+                        name
+                        for name, capped_scan in (("hog functions", scan), ("workflows", flow_scan))
+                        if capped_scan.truncated
+                    )
                     messages.warning(
                         request,
-                        f"The scan stopped at the cap of {cap} hog functions, so more are affected than this "
+                        f"The {capped} scan stopped at the cap of {max_results}, so more are affected than this "
                         "shows. Raise the cap or scan a narrower set of teams, then try again.",
                     )
-                elif not scan.findings:
+                elif not scan.findings and not flow_scan.findings:
                     messages.success(
                         request,
-                        f"Scanned {scan.scanned_count} hog function(s) with stored secrets. None store the mask.",
+                        f"Scanned {scan.scanned_count} hog function(s) and {flow_scan.scanned_count} workflow(s) "
+                        "with stored secrets. None store the mask.",
                     )
         else:
             form = MaskedSecretsForm()
@@ -235,8 +254,9 @@ class HogFunctionAdmin(admin.ModelAdmin):
             {
                 "form": form,
                 "scan": scan,
+                "flow_scan": flow_scan,
                 "organizations": organizations,
-                "title": "Hog functions storing the secret mask",
+                "title": "Hog functions and workflows storing the secret mask",
             },
         )
 

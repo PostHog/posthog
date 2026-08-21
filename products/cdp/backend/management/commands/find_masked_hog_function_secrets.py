@@ -1,4 +1,4 @@
-"""Report hog functions whose stored secret is the read-back mask instead of a real credential.
+"""Report hog functions and workflows whose stored secret is a read-back marker, not a credential.
 
 Read-only. It names the affected organizations so operators can ask each owner to re-enter the
 credential, which is the only way back: the original value was overwritten, not archived.
@@ -14,14 +14,15 @@ from products.cdp.backend.services.masked_secrets import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_RESULTS,
     scan_for_masked_secrets,
+    scan_hog_flows_for_masked_secrets,
     summarize_by_organization,
 )
 
 
 class Command(BaseCommand):
     help = (
-        "Find hog functions storing the secret mask instead of a real credential, and report the "
-        "organizations to contact. Read-only."
+        "Find hog functions and workflows storing a secret read-back marker instead of a real "
+        "credential, and report the organizations to contact. Read-only."
     )
 
     def add_arguments(self, parser: Any) -> None:
@@ -36,6 +37,11 @@ class Command(BaseCommand):
             "--include-deleted",
             action="store_true",
             help="Include soft-deleted hog functions. They send nothing, so they are off by default.",
+        )
+        parser.add_argument(
+            "--include-archived",
+            action="store_true",
+            help="Include archived workflows. They send nothing, so they are off by default.",
         )
         parser.add_argument(
             "--batch-size",
@@ -64,22 +70,30 @@ class Command(BaseCommand):
             batch_size=batch_size,
             max_results=max_results or None,
         )
+        flow_scan = scan_hog_flows_for_masked_secrets(
+            team_ids=options["team_ids"],
+            include_archived=options["include_archived"],
+            batch_size=batch_size,
+            max_results=max_results or None,
+        )
 
-        self._write_text_report(scan.findings)
+        self._write_text_report(scan.findings, flow_scan.findings)
 
         self.stdout.write(
-            f"Scanned {scan.scanned_count} hog function(s) with stored secrets. "
-            f"Found {len(scan.findings)} storing the mask."
+            f"Scanned {scan.scanned_count} hog function(s) and {flow_scan.scanned_count} workflow(s) with stored "
+            f"secrets. Found {len(scan.findings)} hog function(s) and {len(flow_scan.findings)} workflow(s) "
+            "storing the mask."
         )
-        if scan.truncated:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Stopped at the --max-results cap of {max_results}. There are more affected hog functions "
-                    "than this run reported. Raise the cap or narrow with --team-ids."
+        for name, capped_scan in (("hog functions", scan), ("workflows", flow_scan)):
+            if capped_scan.truncated:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"The {name} scan stopped at the --max-results cap of {max_results}. There are more "
+                        "affected than this run reported. Raise the cap or narrow with --team-ids."
+                    )
                 )
-            )
 
-    def _write_text_report(self, findings: tuple[Any, ...]) -> None:
+    def _write_text_report(self, findings: tuple[Any, ...], flow_findings: tuple[Any, ...]) -> None:
         for finding in findings:
             inputs = ", ".join(finding.masked_live_inputs) or "-"
             drafts = ", ".join(finding.masked_draft_inputs)
@@ -89,8 +103,17 @@ class Command(BaseCommand):
                 f"function={finding.hog_function_id} template={finding.template_id or '-'} "
                 f"enabled={finding.enabled} inputs=[{inputs}]{draft_note}"
             )
+        for finding in flow_findings:
+            inputs = ", ".join(finding.masked_live_inputs) or "-"
+            drafts = ", ".join(finding.masked_draft_inputs)
+            draft_note = f" draft_inputs=[{drafts}]" if drafts else ""
+            self.stdout.write(
+                f"team={finding.team_id} org={finding.organization_id} "
+                f"workflow={finding.hog_flow_id} status={finding.status} "
+                f"inputs=[{inputs}]{draft_note}"
+            )
 
-        summaries = summarize_by_organization(findings)
+        summaries = summarize_by_organization([*findings, *flow_findings])
         if not summaries:
             return
 
@@ -99,6 +122,6 @@ class Command(BaseCommand):
         for summary in summaries:
             self.stdout.write(
                 f"  {summary.organization_id} {summary.organization_name} "
-                f"teams={list(summary.team_ids)} functions={summary.hog_function_count} "
-                f"enabled={summary.enabled_hog_function_count}"
+                f"teams={list(summary.team_ids)} affected={summary.finding_count} "
+                f"enabled={summary.enabled_count}"
             )
