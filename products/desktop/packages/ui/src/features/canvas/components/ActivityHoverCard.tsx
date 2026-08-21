@@ -16,6 +16,7 @@ import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/Ac
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
+import { useMarkTaskActivityUnread } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityUnread";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
@@ -59,6 +60,8 @@ export function ActivityHoverCard({
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
+  const { mutate: markTasksUnread, isPending: isMarkingUnread } =
+    useMarkTaskActivityUnread();
   useEffect(() => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "view_activity",
@@ -73,6 +76,26 @@ export function ActivityHoverCard({
 
   const markRead = (item: (typeof items)[number]) => {
     markTasksRead(activityReadPayload([item]));
+  };
+
+  const markReadFromMenu = (item: (typeof items)[number]) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "mark_activity_read",
+      surface: "activity_panel",
+      channel_id: item.channelId ?? undefined,
+      task_id: item.taskId,
+    });
+    markRead(item);
+  };
+
+  const markUnread = (item: (typeof items)[number]) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "mark_activity_unread",
+      surface: "activity_panel",
+      channel_id: item.channelId ?? undefined,
+      task_id: item.taskId,
+    });
+    markTasksUnread(activityReadPayload([item]));
   };
 
   const markAllRead = () => {
@@ -133,7 +156,9 @@ export function ActivityHoverCard({
                 item={item}
                 channelId={item.channelId}
                 onOpen={markRead}
-                onMarkRead={markRead}
+                onMarkRead={markReadFromMenu}
+                onMarkUnread={markUnread}
+                isUpdatingReadState={isMarkingRead || isMarkingUnread}
                 currentUser={currentUser}
                 blockedTaskIds={blockedTaskIds}
                 surface="activity_panel"
