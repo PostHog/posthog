@@ -368,7 +368,7 @@ class TestCSVExporter(APIBaseTest):
         exported_asset = self._create_asset()
         exported_asset.source_authentication = None
 
-        with pytest.raises(ValueError, match="no trusted authentication source"):
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
             csv_exporter.export_tabular(exported_asset)
 
     @parameterized.expand(
@@ -378,7 +378,7 @@ class TestCSVExporter(APIBaseTest):
         ]
     )
     def test_legacy_api_export_rejects_mutating_requests(self, _name: str, extra_context: dict[str, Any]) -> None:
-        with pytest.raises(ValueError, match="only support GET requests without a body"):
+        with pytest.raises(ValueError, match="export request is no longer supported"):
             csv_exporter.export_tabular(self._create_asset(extra_context))
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")

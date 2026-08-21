@@ -7,7 +7,7 @@ from collections import OrderedDict
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import Any, NoReturn, Optional, Protocol
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -399,29 +399,44 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
+def _raise_invalid_export_authorization(exported_asset: ExportedAsset, reason: str) -> NoReturn:
+    logger.error(
+        "csv_exporter.invalid_authentication_source",
+        exported_asset_id=exported_asset.id,
+        reason=reason,
+    )
+    raise ValueError("This export could not verify its original authorization. Create a new export and try again.")
+
+
 def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
     if method.upper() != "GET" or body is not None:
-        raise ValueError("API path exports only support GET requests without a body.")
+        logger.error(
+            "csv_exporter.unsupported_api_request",
+            exported_asset_id=exported_asset.id,
+            method=method,
+            has_body=body is not None,
+        )
+        raise ValueError("This export request is no longer supported. Create a new export and try again.")
     if exported_asset.source_authentication is None:
-        raise ValueError("API path export has no trusted authentication source.")
+        _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
     token_payload: dict[str, Any] = {"id": exported_asset.created_by_id}
     if exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
         if not exported_asset.source_personal_api_key_id:
-            raise ValueError("API path export is missing its source personal API key.")
+            _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
         token_payload["personal_api_key_id"] = exported_asset.source_personal_api_key_id
     elif exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
         if not exported_asset.source_oauth_access_token_id:
-            raise ValueError("API path export is missing its source OAuth access token.")
+            _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
         token_payload["oauth_access_token_id"] = exported_asset.source_oauth_access_token_id
     elif exported_asset.source_authentication not in {
         ExportedAsset.SourceAuthentication.SESSION,
         ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
     }:
-        raise ValueError("API path export has an unsupported authentication source.")
+        _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
     access_token = encode_jwt(
         token_payload,
         datetime.timedelta(minutes=15),
