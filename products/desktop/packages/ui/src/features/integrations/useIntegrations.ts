@@ -25,7 +25,6 @@ import {
 } from "@posthog/core/integrations/repositories";
 import type { RepositoriesService } from "@posthog/core/integrations/repositoriesService";
 import {
-  githubInstallRequestKeys,
   integrationKeys,
   type RepositoryRefetchKey,
   userGithubIntegrationKeys,
@@ -72,12 +71,24 @@ async function refetchRepositoryKeys(
   );
 }
 
-export function useIntegrations() {
+export interface IntegrationsQueryOptions {
+  /**
+   * Settings surfaces pass an interval so an uninstall on GitHub or Slack shows up while someone
+   * is looking at the page; every other caller keeps the default one-shot fetch.
+   */
+  refetchInterval?: number;
+}
+
+export function useIntegrations(options: IntegrationsQueryOptions = {}) {
   const setIntegrations = useIntegrationStore((state) => state.setIntegrations);
 
   const query = useAuthenticatedQuery(
     integrationKeys.list(),
     (client) => client.getIntegrations() as Promise<Integration[]>,
+    {
+      refetchInterval: options.refetchInterval ?? false,
+      refetchOnWindowFocus: true,
+    },
   );
 
   useEffect(() => {
@@ -108,22 +119,14 @@ function useAllGithubRepositories(githubIntegrations: Integration[]) {
   });
 }
 
-export function useUserGithubIntegrations() {
-  return useAuthenticatedQuery(userGithubIntegrationKeys.list(), (client) =>
-    client.getGithubUserIntegrations(),
-  );
-}
-
-// Polls only while pending; an approved or empty list never changes on its own.
-export function useGithubInstallRequests() {
+export function useUserGithubIntegrations(
+  options: IntegrationsQueryOptions = {},
+) {
   return useAuthenticatedQuery(
-    githubInstallRequestKeys.list(),
-    (client) => client.getGithubInstallRequests(),
+    userGithubIntegrationKeys.list(),
+    (client) => client.getGithubUserIntegrations(),
     {
-      refetchInterval: (query) =>
-        (query.state.data ?? []).some((request) => request.status === "pending")
-          ? 30_000
-          : false,
+      refetchInterval: options.refetchInterval ?? false,
       refetchOnWindowFocus: true,
     },
   );

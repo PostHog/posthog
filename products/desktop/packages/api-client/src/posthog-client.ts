@@ -323,6 +323,8 @@ export type {
 
 export type Evaluation = Schemas.Evaluation;
 
+export type GithubInstallationStatus = "connected" | "unavailable";
+
 export interface UserGitHubIntegration {
   id: string;
   kind: "github";
@@ -332,22 +334,39 @@ export interface UserGitHubIntegration {
     type?: string | null;
     name?: string | null;
   } | null;
+  github_login?: string | null;
   uses_shared_installation?: boolean;
+  /** False when disconnecting would also uninstall the App from GitHub. */
+  installation_shared?: boolean;
+  installation_status?: GithubInstallationStatus;
   created_at?: string;
 }
+
+/** `unidentified` means the requester could not be resolved, so approval can never
+ * be detected and the user has to restart the connect flow. */
+export type GithubInstallRequestStatus =
+  | "pending"
+  | "approved"
+  | "unidentified";
 
 /** A personal GitHub App install awaiting (or granted) org-owner approval; the
  * durable server-side counterpart to the in-flight connect spinner. Mirrors
  * `GitHubInstallRequest` on the backend. */
-export interface GitHubInstallRequest {
+export interface GithubInstallRequestItem {
   id: string;
   github_login: string;
-  /** `unidentified` means the requester could not be resolved, so approval can
-   *  never be detected and the user has to restart the connect flow. */
-  status: "pending" | "approved" | "unidentified";
-  installation_id?: string | null;
+  status: GithubInstallRequestStatus;
+  installation_id: string | null;
+  account_login?: string | null;
+  account_type?: string | null;
   requested_at: string;
-  resolved_at?: string | null;
+  resolved_at: string | null;
+}
+
+export interface GithubInstallRequestsResponse {
+  results: GithubInstallRequestItem[];
+  /** App install page with no PostHog state, for an org owner to open. */
+  install_url?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -1726,27 +1745,6 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
-    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch GitHub install requests: ${response.statusText}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      results?: GitHubInstallRequest[];
-    };
-    return data.results ?? [];
-  }
-
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -1760,6 +1758,58 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** `GET /api/users/@me/integrations/github/install_requests/`: installs waiting on a GitHub org owner. */
+  async getGithubInstallRequests(): Promise<GithubInstallRequestsResponse> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    const data =
+      (await response.json()) as Partial<GithubInstallRequestsResponse>;
+    return {
+      results: data.results ?? [],
+      install_url: data.install_url ?? null,
+    };
+  }
+
+  async dismissGithubInstallRequest(requestId: string): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/${encodeURIComponent(requestId)}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+  }
+
+  /** `DELETE /api/environments/{project}/integrations/{id}/`: any team-level integration (GitHub, Slack, ...). */
+  async deleteIntegration(
+    projectId: number,
+    integrationId: number | string,
+  ): Promise<void> {
+    await this.api.delete("/api/projects/{project_id}/integrations/{id}/", {
+      path: { project_id: projectId.toString(), id: Number(integrationId) },
+    });
+  }
+
+  /** Emails the project's admins asking them to connect an integration; members only. */
+  async requestIntegrationAccess(
+    projectId: number,
+    body: { kind: string; reason: string },
+  ): Promise<void> {
+    const urlPath = `/api/environments/${projectId}/integrations/request_access/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify(body) },
+    });
   }
 
   /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
@@ -4029,6 +4079,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -4051,10 +4102,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4088,6 +4143,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const urlPath = `/api/users/@me/integrations/github/${installationId}/repos/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4108,10 +4164,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
