@@ -12,12 +12,11 @@ import {
     fetchTrunkQuarantined,
     flakyTestsUrl,
     REPORT_RUNNERS,
-    repoPathResolver,
     selectReportCandidates,
     tableRows,
     testStatusFor,
-    trackedTestPaths,
 } from './weekly-flaky-report.mjs'
+import { repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
 
 const onMasterResolver = (path) => [path]
 

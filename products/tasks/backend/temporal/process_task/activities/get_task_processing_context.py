@@ -48,7 +48,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
-from products.tasks.backend.temporal.oauth import is_interactive_signals_task
+from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -1112,7 +1112,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     interactive_max_run_duration_seconds = None
     if (
         (state or {}).get("mode") == "interactive"
-        and is_interactive_signals_task(task)
+        and is_interactive_signals_run(task, state)
         and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
     ):
         interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS

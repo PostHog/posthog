@@ -305,10 +305,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
                 task_canvas_q = Q(generation_task_id=sandbox_task_id)
+                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state"]
                 queryset = queryset.filter(
-                    public_canvas_q | actor_canvas_q
-                    if self.action in self.scope_object_read_actions
-                    else actor_canvas_q | task_canvas_q
+                    public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q | task_canvas_q
                 )
         else:
             # Channels are per-user for the personal kind: the facade's visibility
@@ -1571,14 +1570,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return build
 
     def _state_actor(self, request: Request) -> User | None:
-        """The viewer whose state is read or written; None rejects the call.
-
-        Sandboxes are excluded by design: runtime state belongs to viewer
-        sessions, and the authoring agent works with it through the source
-        code it publishes, not by writing rows.
-        """
-        if self._is_sandbox_authenticated(request):
-            return None
+        """The user whose personal state is read or written."""
         return self._request_user()
 
     @extend_schema(
@@ -1676,15 +1668,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
         responses={
             200: CanvasStateResponseSerializer,
-            403: OpenApiResponse(description="Canvas state is a viewer surface; sandbox tokens cannot use it."),
+            403: OpenApiResponse(description="Canvas state requires an authenticated user."),
         },
     )
     @action(methods=["GET"], detail=True)
     def state(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the canvas's runtime key-value state (the ph.state store).
 
-        Returns the canvas's shared entries plus the caller's own user-scoped
-        entries — never another viewer's.
+        Returns shared entries plus the authenticated user's own user-scoped
+        entries — never another user's.
         """
         canvas = self.get_object()
         user = self._state_actor(request)
@@ -1695,11 +1687,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # stops reads of previously written entries.
         version = canvas.current_source_version
         declared = declared_state_scopes(version.capabilities if version else None)
-        entries = (
-            CanvasState.objects.for_team(self.team_id)
-            .filter(canvas=canvas, scope__in=declared)
-            .filter(Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user))
+        readable_entries = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(
+            scope=CanvasState.SCOPE_USER, user=user
         )
+        entries = CanvasState.objects.for_team(self.team_id).filter(readable_entries, canvas=canvas, scope__in=declared)
         scope = request.query_params.get("scope")
         if scope:
             if scope not in CanvasState.SCOPES:

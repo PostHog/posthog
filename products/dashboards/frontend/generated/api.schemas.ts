@@ -5326,6 +5326,7 @@ export const TaxonomicFilterGroupTypeApi = {
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
     DataWarehouseSourceTables: 'data_warehouse_source_tables',
+    DataWarehouseMaterializedViews: 'data_warehouse_materialized_views',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -6014,6 +6015,10 @@ export interface ExperimentMeanMetricApi {
 export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
     breakdownFilter?: BreakdownFilterApi | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null

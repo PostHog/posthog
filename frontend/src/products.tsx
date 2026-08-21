@@ -1810,6 +1810,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
             'var(--color-product-product-tours-light)',
             'var(--color-product-product-tours-dark)',
         ] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: `Survey`,
