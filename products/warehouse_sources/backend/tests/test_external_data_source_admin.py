@@ -7,8 +7,7 @@ from django.contrib import admin
 from django.contrib.admin import ModelAdmin
 from django.urls import reverse
 
-from posthog.admin import register_all_admin
-
+from products.warehouse_sources.backend.admin.external_data_source_admin import ExternalDataSourceAdmin
 from products.warehouse_sources.backend.models import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -18,9 +17,8 @@ class TestExternalDataSourceAdmin(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        register_all_admin()
         registered_admin = admin.site._registry.get(ExternalDataSource)
-        assert registered_admin is not None
+        assert isinstance(registered_admin, ExternalDataSourceAdmin)
         self.admin = cast(ModelAdmin, registered_admin)
 
     def _source(
