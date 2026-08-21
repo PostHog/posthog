@@ -1,22 +1,13 @@
 //! Proves the guard gets a pool off a connection whose server stopped accepting writes,
 //! without restarting the process. `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`
-//! stands in for a demoted Aurora reader: ping passes, writes fail with SQLSTATE 25006.
-
-use std::time::Duration;
+//! stands in for a demoted Aurora reader: the socket stays healthy, so a liveness check sees
+//! nothing, but every write is refused with SQLSTATE 25006.
 
 use common_database::{install_writer_guard, WriterGuard, WriterGuardConfig};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool, Row,
 };
-
-/// Probe on every acquire, so the tests never depend on wall-clock timing.
-fn always_probing_guard() -> WriterGuard {
-    WriterGuard::new(WriterGuardConfig {
-        heartbeat: Duration::ZERO,
-        ..Default::default()
-    })
-}
 
 /// One connection, so the second acquire deterministically gets the poisoned one back.
 fn single_connection_pool(pool_opts: PgPoolOptions) -> PgPoolOptions {
@@ -59,7 +50,7 @@ async fn discards_a_read_only_connection_and_reopens_against_the_writer(
     pool_opts: PgPoolOptions,
     connect_opts: PgConnectOptions,
 ) {
-    let guard = always_probing_guard();
+    let guard = WriterGuard::new(WriterGuardConfig::default());
     let pool = install_writer_guard(single_connection_pool(pool_opts), &guard)
         .connect_with(connect_opts)
         .await
@@ -87,7 +78,7 @@ async fn writes_succeed_again_without_restarting_the_pool(
     pool_opts: PgPoolOptions,
     connect_opts: PgConnectOptions,
 ) {
-    let guard = always_probing_guard();
+    let guard = WriterGuard::new(WriterGuardConfig::default());
     let pool = install_writer_guard(single_connection_pool(pool_opts), &guard)
         .connect_with(connect_opts)
         .await
@@ -150,5 +141,45 @@ async fn without_the_guard_the_poisoned_connection_survives_and_writes_fail(
         "expected SQLSTATE 25006, got {err:?}"
     );
 
+    pool.close().await;
+}
+
+/// The probe replaces sqlx's ping, so it is now what has to notice a dead socket. Terminating
+/// the pooled backend proves the pool still recovers on its own: the probe fails, sqlx discards
+/// the connection, and the caller transparently gets a working replacement.
+#[sqlx::test]
+async fn recovers_when_the_pooled_backend_was_terminated(
+    pool_opts: PgPoolOptions,
+    connect_opts: PgConnectOptions,
+) {
+    let guard = WriterGuard::new(WriterGuardConfig::default());
+    let pool = install_writer_guard(single_connection_pool(pool_opts), &guard)
+        .connect_with(connect_opts.clone())
+        .await
+        .expect("connect failed");
+
+    let doomed_pid = backend_pid(&pool).await;
+
+    // A second pool, so killing the pooled backend does not kill the killer. The two-argument
+    // form waits for the backend to actually exit, which keeps the assertion below race-free.
+    let sidecar = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(connect_opts)
+        .await
+        .expect("sidecar connect failed");
+    let terminated: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1, 5000)")
+        .bind(doomed_pid)
+        .fetch_one(&sidecar)
+        .await
+        .expect("terminate failed");
+    assert!(terminated, "expected backend {doomed_pid} to exit");
+
+    assert_ne!(
+        backend_pid(&pool).await,
+        doomed_pid,
+        "the probe should have failed on the dead socket and opened a replacement"
+    );
+
+    sidecar.close().await;
     pool.close().await;
 }

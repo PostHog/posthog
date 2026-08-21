@@ -17,14 +17,10 @@ pub struct Config {
     pub max_pg_connections: u32,
 
     // Backstop only; the writer guard is what detects a failover. Overrides sqlx's 30 minute
-    // default, which bounds how long a stranded connection could refuse writes.
+    // default, which bounds how long a stranded connection could refuse writes. Jitter puts the
+    // effective lifetime in `base..=base + base/5`, so 300 here means 300-360s.
     #[envconfig(default = "300")]
     pub pg_max_lifetime_secs: u64,
-
-    // Gap between writer-guard probes while no reader has been seen. Lower reacts faster to a
-    // failover and costs more probe round trips.
-    #[envconfig(default = "5")]
-    pub pg_writer_probe_interval_secs: u64,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
