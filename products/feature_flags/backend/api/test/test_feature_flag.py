@@ -9353,6 +9353,19 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    @snapshot_clickhouse_queries
+    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+        team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
+        for i in range(3):
+            _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"])
+
+        with self.capture_select_queries() as queries:
+            assert team.persons_seen_so_far == 3
+
+        assert queries
+        for query in queries:
+            assert "in(tuple(person.id, person.version)" not in query
+
     @parameterized.expand(
         [
             (
