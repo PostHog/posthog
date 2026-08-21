@@ -3,13 +3,13 @@
 A known-good baseline for a React + Quill data canvas. It already wires the pieces that are easy
 to get wrong — the date picker (self-sizing, no `compact`), theme-aware tokens, per-card loading
 skeletons, reading a typed-node result correctly, and the "View query" verification dialog every
-data card must carry. Start from it on a first build: keep the wiring, replace the sample "total
-events" metric and the layout with what the user asked for.
+ad-hoc data card must carry. Start from it on a first build: keep the wiring, replace the sample
+"total events" metric and the layout with what the user asked for.
 Ideally swap the inline `ph.query` typed node for a saved insight loaded with
-`ph.loadInsight(shortId, { dateRange })` (see the `querying-canvas-data` skill) — then also give
-the card a "View in PostHog" button calling `ph.openExternal(insightUrl)`, with the URL minted at
-authoring time by the `generate-app-url` MCP tool (`/insights/{id}`), so viewers can open the real
-insight and verify the numbers.
+`ph.loadInsight(shortId, { dateRange })` (see the `querying-canvas-data` skill) — then replace the
+"View query" dialog with a "View in PostHog" button calling `ph.openExternal(insightUrl)`, the URL
+minted at authoring time by the `generate-app-url` MCP tool (`/insights/{id}`), so viewers verify
+the numbers on the real insight with their own permissions applied.
 
 ```tsx
 import React, { useEffect, useState } from 'react'
@@ -153,10 +153,11 @@ export default function Canvas() {
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             <CardTitle>Events over time</CardTitle>
-            {/* Every data card carries a verification affordance. When the
-                card is backed by a saved insight, also render a "View in
-                PostHog" Button calling ph.openExternal(insightUrl) — the URL
-                minted by the generate-app-url MCP tool, never hand-built. */}
+            {/* Every data card carries a verification affordance. An ad-hoc
+                ph.query card shows the query it ran; a card backed by a saved
+                insight instead renders a "View in PostHog" Button calling
+                ph.openExternal(insightUrl) — the URL minted by the
+                generate-app-url MCP tool, never hand-built. */}
             <Dialog>
               <DialogTrigger
                 render={

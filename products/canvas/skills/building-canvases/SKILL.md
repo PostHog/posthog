@@ -87,9 +87,9 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), make every figure verifiable — a link to the backing saved
-   insight in PostHog plus a viewable copy of the exact query that ran, per that skill's
-   "Verifiability" section — and
+   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
+   skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
    ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
