@@ -265,18 +265,11 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
-`posthog_code` additionally requires a PostHog Desktop entitlement. The OAuth application
-allowlist only proves the token was issued to the Desktop app, which any user can obtain via the
-consent flow, so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
-`has_tasks_access`: the `tasks` flag or a redeemed invite) and rejects with
-`403 code_access_required`. Server-minted sandbox tokens (carrying `internal_run:read`) are
-exempt, since their run already passed Django's own gate.
+`posthog_code` additionally requires a project-scoped PostHog Desktop decision. The OAuth application allowlist only proves that the Desktop app issued the token. It does not grant Desktop access.
 
-The check fails closed: anything but an explicit `has_access: true` from Django (a 4xx, a 5xx, a
-timeout, a malformed payload) is a denial, since a caller can induce lookup failures by flooding
-cold-cache requests. Grants cache for 15 minutes and denials for 60 seconds, so a Django blip
-locks an entitled user out for at most a minute after their cached grant expires.
-`LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
+After OAuth validates the selected project, the gateway asks Django at `GET /api/projects/{project_id}/desktop/access/`. While `posthog-desktop-access-gate` is off, Django preserves the existing `tasks` flag and invite-code policy. When rollout is on, Django applies `posthog-desktop-access-override` before Startup-program and prepaid-credit restrictions. The gateway preserves `code_access_required` as its error code and forwards `startup_plan` or `prepaid_credits` when Django provides a reason. Server-minted credentials carrying `internal_run:read` bypass the human gate because their run already passed Django's trusted task path.
+
+The check fails closed. Django transport errors, non-200 responses, and malformed payloads return `503 desktop_access_unavailable`. Deploy the Django project endpoint everywhere before deploying this gateway contract; old gateway instances continue using the compatibility endpoint during that rollout. Grants cache for 60 seconds. Business denials and resolution failures cache for 30 seconds. Cache keys include the user and validated team. `LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gateway gate.
 
 `signals` is authorized for its own OAuth application, so a Signals run's token cannot be spent as `posthog_code` or `background_agents` by declaring a different product in the path.
 Its US, EU, and dev application ids are pinned in `products/config.py` alongside every other first-party app.

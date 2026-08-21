@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, cast
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 from llm_gateway.config import get_settings
-from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver, _redis_key
+from llm_gateway.services.desktop_access_resolver import DesktopAccessDecision, DesktopAccessResolver, _redis_key
 
 
 def _make_response(status_code: int, payload: dict[str, object] | None = None) -> httpx.Response:
@@ -21,7 +22,7 @@ def _make_response(status_code: int, payload: dict[str, object] | None = None) -
         status_code,
         content=content,
         headers={"content-type": "application/json"},
-        request=httpx.Request("GET", "https://us.posthog.com/api/code/invites/check-access/"),
+        request=httpx.Request("GET", "https://us.posthog.com/api/projects/42/desktop/access/"),
     )
 
 
@@ -61,10 +62,25 @@ def _clear_settings_cache() -> Iterator[None]:
 
 class TestDesktopAccessResolver:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("has_access", [True, False])
-    async def test_returns_django_answer(self, has_access: bool) -> None:
-        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, {"has_access": has_access})))
-        assert await resolver.has_access(7, "Bearer tok") is has_access
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            ({"allowed": True, "reason": None}, DesktopAccessDecision(status="allowed")),
+            ({"allowed": False, "reason": None}, DesktopAccessDecision(status="blocked")),
+            (
+                {"allowed": False, "reason": "startup_plan"},
+                DesktopAccessDecision(status="blocked", reason="startup_plan"),
+            ),
+            (
+                {"allowed": False, "reason": "prepaid_credits"},
+                DesktopAccessDecision(status="blocked", reason="prepaid_credits"),
+            ),
+        ],
+    )
+    async def test_returns_django_decision(self, payload: dict[str, object], expected: DesktopAccessDecision) -> None:
+        resolver = _make_resolver(_FakeRedis(), _make_http_client(_make_response(200, payload)))
+
+        assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -76,54 +92,81 @@ class TestDesktopAccessResolver:
             pytest.param(_make_response(404), id="route_missing"),
             pytest.param(_make_response(401), id="unauthorized"),
             pytest.param(_make_response(429), id="throttled"),
-            pytest.param(_make_response(200, {"has_access": "yes"}), id="malformed_payload"),
+            pytest.param(_make_response(200, {"allowed": "yes", "reason": None}), id="malformed_allowed"),
+            pytest.param(_make_response(200, {"allowed": False}), id="missing_reason"),
         ],
     )
-    async def test_anything_but_an_explicit_grant_denies_and_is_cached_briefly(
-        self, response: httpx.Response | Exception
-    ) -> None:
+    async def test_resolution_failure_denies_and_is_cached_briefly(self, response: httpx.Response | Exception) -> None:
         redis = _FakeRedis()
         http = _make_http_client(response)
         resolver = _make_resolver(redis, http)
 
-        assert await resolver.has_access(7, "Bearer tok") is False
-        assert await resolver.has_access(7, "Bearer tok") is False
+        expected = DesktopAccessDecision(status="unavailable")
+        assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
+        assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
 
         assert http.get.await_count == 1
-        assert redis.ttls[_redis_key(7)] == get_settings().desktop_access_denied_cache_ttl
+        assert redis.ttls[_redis_key(7, 42)] == get_settings().desktop_access_denied_cache_ttl
 
     @pytest.mark.asyncio
-    async def test_result_is_cached_and_reused(self) -> None:
+    async def test_coalesces_concurrent_requests(self) -> None:
+        release = asyncio.Event()
+        http = MagicMock()
+
+        async def fetch(*_args: object, **_kwargs: object) -> httpx.Response:
+            await release.wait()
+            return _make_response(200, {"allowed": True, "reason": None})
+
+        http.get = AsyncMock(side_effect=fetch)
+        resolver = _make_resolver(None, http)
+        first = asyncio.create_task(resolver.resolve_access(7, 42, "Bearer tok"))
+        second = asyncio.create_task(resolver.resolve_access(7, 42, "Bearer tok"))
+        await asyncio.sleep(0)
+        release.set()
+
+        assert (await first).allowed is True
+        assert (await second).allowed is True
+        assert http.get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cache_is_isolated_by_user_and_team(self) -> None:
         redis = _FakeRedis()
-        http = _make_http_client(_make_response(200, {"has_access": True}))
+        http = _make_http_client(_make_response(200, {"allowed": True, "reason": None}))
         resolver = _make_resolver(redis, http)
 
-        assert await resolver.has_access(7, "Bearer tok") is True
-        assert await resolver.has_access(7, "Bearer tok") is True
-        assert http.get.await_count == 1
+        assert (await resolver.resolve_access(7, 42, "Bearer tok")).allowed is True
+        assert (await resolver.resolve_access(7, 42, "Bearer tok")).allowed is True
+        assert (await resolver.resolve_access(7, 43, "Bearer tok")).allowed is True
+        assert (await resolver.resolve_access(8, 42, "Bearer tok")).allowed is True
+
+        assert http.get.await_count == 3
+        assert len(redis.store) == 3
 
     @pytest.mark.asyncio
     async def test_denial_cached_more_briefly_than_grant(self) -> None:
         settings = get_settings()
         redis = _FakeRedis()
 
-        granted = _make_resolver(redis, _make_http_client(_make_response(200, {"has_access": True})))
-        await granted.has_access(7, "Bearer tok")
-        denied = _make_resolver(redis, _make_http_client(_make_response(200, {"has_access": False})))
-        await denied.has_access(8, "Bearer tok")
+        granted = _make_resolver(redis, _make_http_client(_make_response(200, {"allowed": True, "reason": None})))
+        await granted.resolve_access(7, 42, "Bearer tok")
+        denied = _make_resolver(
+            redis,
+            _make_http_client(_make_response(200, {"allowed": False, "reason": "startup_plan"})),
+        )
+        await denied.resolve_access(8, 42, "Bearer tok")
 
-        assert redis.ttls[_redis_key(7)] == settings.desktop_access_cache_ttl
-        assert redis.ttls[_redis_key(8)] == settings.desktop_access_denied_cache_ttl
+        assert redis.ttls[_redis_key(7, 42)] == settings.desktop_access_cache_ttl
+        assert redis.ttls[_redis_key(8, 42)] == settings.desktop_access_denied_cache_ttl
         assert settings.desktop_access_denied_cache_ttl < settings.desktop_access_cache_ttl
 
     @pytest.mark.asyncio
-    async def test_calls_django_check_access_endpoint(self) -> None:
-        http = _make_http_client(_make_response(200, {"has_access": True}))
+    async def test_calls_project_scoped_django_endpoint(self) -> None:
+        http = _make_http_client(_make_response(200, {"allowed": True, "reason": None}))
         resolver = _make_resolver(None, http)
 
-        await resolver.has_access(7, "Bearer tok")
+        await resolver.resolve_access(7, 42, "Bearer tok")
 
         base_url = get_settings().posthog_api_base_url.rstrip("/")
         url = http.get.await_args.args[0]
-        assert url == f"{base_url}/api/code/invites/check-access/"
+        assert url == f"{base_url}/api/projects/42/desktop/access/"
         assert http.get.await_args.kwargs["headers"] == {"Authorization": "Bearer tok"}
