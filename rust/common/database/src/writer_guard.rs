@@ -21,6 +21,14 @@ pub const DB_WRITER_PROBE_COUNTER: &str = "db_writer_probe_total";
 /// which means the cluster is refusing writes and reconnecting cannot help.
 pub const DB_WRITER_GUARD_CAPPED_COUNTER: &str = "db_writer_guard_rejection_capped_total";
 
+/// Enough headroom to clear a pool's worth of poisoned connections several times over within
+/// one window, while still bounding churn when no replacement is writable either.
+const DEFAULT_MAX_REJECTIONS_PER_WINDOW: u32 = 32;
+
+/// Long enough for a failover's DNS transition to finish inside one window, short enough that
+/// the cap re-arms promptly once the cluster takes writes again.
+const DEFAULT_REJECTION_WINDOW: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone)]
 pub struct WriterGuardConfig {
     /// Most connections discarded per `rejection_window`. Past this the guard lets writes fail
@@ -35,8 +43,8 @@ pub struct WriterGuardConfig {
 impl Default for WriterGuardConfig {
     fn default() -> Self {
         Self {
-            max_rejections_per_window: 32,
-            rejection_window: Duration::from_secs(60),
+            max_rejections_per_window: DEFAULT_MAX_REJECTIONS_PER_WINDOW,
+            rejection_window: DEFAULT_REJECTION_WINDOW,
             pool_name: None,
         }
     }
