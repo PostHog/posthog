@@ -5419,26 +5419,15 @@ class TestGetTableChunkSize:
         assert chunking.batch_rows == 1
         assert chunking.fetch_rows == 1
 
-    def test_a_sample_that_measured_nothing_falls_back_under_the_byte_bound(self):
+    def test_a_sample_that_measured_nothing_falls_back(self):
         # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading
-        # that as a size derives a 150-million-row chunk, and the page cap built from it then
-        # licenses a single FETCH of the whole table.
-        cursor = self._ProbeCursor((None, None, None))
-
-        chunking = _get_table_chunk_size(
-            cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger(), byte_bounded=True
-        )
-
-        assert chunking == _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
-
-    def test_a_sample_that_measured_nothing_keeps_the_old_chunk_off_the_bound(self):
-        # A never-analyzed table draws no pages from a 1% sample, which is the common case on a
-        # first sync. The gate has to leave those reads the size they have always been.
+        # that as a size derives a 150-million-row chunk, and with no page cap in play the chunk
+        # is what sizes the FETCH, so the read asks for the whole table in one page.
         cursor = self._ProbeCursor((None, None, None))
 
         chunking = _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), structlog.get_logger())
 
-        assert chunking.batch_rows == DEFAULT_TABLE_SIZE_BYTES
+        assert chunking == _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
 
 class TestSizeSamplePercent:
@@ -5500,6 +5489,33 @@ class TestSamplingQuery:
 
         assert "TABLESAMPLE SYSTEM (1)" in query
         assert f"LIMIT {SIZE_SAMPLE_TARGET_ROWS}" in query
+
+    def _incremental_sampling_query(self, sample_percent):
+        return _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "id",
+            IncrementalFieldType.Integer,
+            0,
+            add_sampling=True,
+            sample_percent=sample_percent,
+        ).as_string()
+
+    @parameterized.expand(
+        [
+            # A small table is one page, and a 1% page sample misses it ~99 times in 100, so the
+            # sync measures nothing and has to guess at its row size.
+            ("small_table_is_measured_whole", 100.0, "TABLESAMPLE SYSTEM (100.0)"),
+            # Below the floor the sample stays what it has always been, because the estimate
+            # describes the table and the query reads a slice of it.
+            ("large_table_keeps_the_fixed_sample", 0.05, "TABLESAMPLE SYSTEM (1.0)"),
+            ("no_estimate_keeps_the_fixed_sample", None, "TABLESAMPLE SYSTEM (1)"),
+        ]
+    )
+    def test_the_incremental_sample_never_draws_fewer_pages_than_before(self, _name, sample_percent, expected):
+        assert expected in self._incremental_sampling_query(sample_percent)
 
 
 class TestGetRowsToSync:

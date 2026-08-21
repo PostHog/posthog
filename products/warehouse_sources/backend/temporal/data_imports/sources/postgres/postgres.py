@@ -2062,9 +2062,17 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
         else:
+            # Sized like the full-refresh sample, but never below the fixed 1% this has always
+            # drawn. A small table is one page, and a 1% page sample misses it ~99 times in 100,
+            # so an incremental sync of one measures nothing and has to guess at its row size.
+            # Raising the floor only ever draws more pages; a table big enough for the estimate
+            # to fall under 1% keeps exactly the sample it has today, where the slice it filters
+            # to is the part the estimate cannot speak for.
             query = sql.SQL(
-                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
+                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM ({percent}) "
+                "WHERE {incremental_field} {op} {last_value}"
             ).format(
+                percent=sql.Literal(max(sample_percent, 1.0) if sample_percent is not None else 1),
                 cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -2422,7 +2430,7 @@ def _size_sample_percent(row_estimate: int | None) -> float | None:
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger, *, byte_bounded: bool = False
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
 ) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
@@ -2463,19 +2471,17 @@ def _get_table_chunk_size(
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
             return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
+        # A sample that measured nothing returns NULL percentiles: an empty table, or a
+        # never-analyzed one, which draws no catalog estimate and so falls back to a fixed 1%
+        # of pages that a small table usually misses entirely. Reading that as a one-byte row
+        # derives a chunk of 150 million, and a chunk is what sizes the `FETCH` when no page cap
+        # applies — so the read asks for the whole table in one page on exactly the tables whose
+        # row size is unknown. This stays off the gate: it is a defect in the arithmetic, not
+        # behavior worth preserving, and every other SQL source already floors this case.
         row_size_bytes = row[0]
         if not row_size_bytes:
-            # A sample that measured nothing — an empty table, or a never-analyzed one whose 1%
-            # sample drew no pages — returns NULL percentiles. Under the byte bound, reading that
-            # as a one-byte row is the least safe reading available: it derives a chunk of 150
-            # million rows, and the page cap built from it then licenses one `FETCH` of the whole
-            # table. Off the bound it stays the row count this driver has always used, because a
-            # never-analyzed table is the common case on a first sync and the gate must not
-            # resize every one of those reads.
-            if byte_bounded:
-                logger.debug(f"_get_table_chunk_size: Nothing measured. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-                return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
-            row_size_bytes = 1
+            logger.debug(f"_get_table_chunk_size: Nothing measured. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
+            return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
         wide_row_bytes = int(row[1]) if row[1] else None
         largest_row_bytes = int(row[2]) if row[2] else None
         # A row wider than the whole budget floors the division to zero, and a zero-row chunk
@@ -3293,9 +3299,7 @@ def postgres_source(
                                 )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunking = _get_table_chunk_size(
-                                    cursor, inner_query_with_limit, logger, byte_bounded=byte_bounded_extraction
-                                )
+                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                             chunk_size = chunking.batch_rows
                             # The page cap only exists to bound what one `FETCH` materialises, so
                             # it belongs behind the same gate as the byte bound it serves. Applied

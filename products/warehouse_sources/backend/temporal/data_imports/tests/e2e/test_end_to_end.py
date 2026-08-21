@@ -1876,6 +1876,11 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(
         "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
     )
     await postgres_connection.commit()
+    # Without stats the row-size probe has no catalog estimate, falls back to sampling 1% of
+    # pages, and on a one-page table draws nothing 99 times in 100 — which lands on the
+    # unmeasurable-sample path instead of the uncapped chunk this test is about.
+    await postgres_connection.execute("ANALYZE {schema}.test_table".format(schema=postgres_config["schema"]))
+    await postgres_connection.commit()
 
     with (
         mock.patch(
