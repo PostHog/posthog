@@ -10,6 +10,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -681,7 +682,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=PersonBulkDeleteRequestSerializer,
-        responses={202: PersonBulkDeleteResponseSerializer},
+        responses={
+            202: PersonBulkDeleteResponseSerializer,
+            404: OpenApiResponse(description="No persons matched the provided IDs, so nothing was deleted or queued."),
+        },
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
@@ -723,6 +727,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+
+        if not persons:
+            raise NotFound(
+                "No persons matched the provided IDs, so nothing was deleted or queued for deletion. "
+                "Check the IDs and try again. Events captured without a person profile have no person to delete here."
+            )
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
