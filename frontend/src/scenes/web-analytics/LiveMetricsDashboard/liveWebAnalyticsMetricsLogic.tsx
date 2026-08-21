@@ -130,9 +130,9 @@ export interface liveWebAnalyticsMetricsLogicValues {
     rawLiveFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawLiveStreamFilters: WebAnalyticsPropertyFilter[] // webAnalyticsFilterLogic
     rawSelectedHost: string | null // webAnalyticsFilterLogic
+    isPathCleaningEnabled: boolean // webAnalyticsLogic
     productTab: ProductTab // webAnalyticsLogic
     shouldFilterTestAccounts: boolean // webAnalyticsLogic
-    isPathCleaningEnabled: boolean // webAnalyticsLogic
     botBreakdown: BotBreakdownItem[]
     browserBreakdown: BrowserBreakdownItem[]
     chartData: ChartDataPoint[]
