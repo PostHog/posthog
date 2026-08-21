@@ -25,17 +25,14 @@ function MagnitudeBar({
     return (
         <div className="relative h-2.5 flex-1 rounded-sm">
             <div
-                className="h-full rounded-sm"
-                style={{
-                    width: `${Math.max(fraction * 100, 2)}%`,
-                    background: current ? 'var(--data-color-1)' : 'var(--muted)',
-                }}
+                className={`h-full rounded-sm ${current ? 'bg-[var(--data-color-1)]' : 'bg-[var(--muted)]'}`}
+                style={{ width: `${Math.max(fraction * 100, 2)}%` }}
             />
             {markerFraction != null && (
                 <Tooltip title={markerTooltip}>
                     <div
-                        className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm"
-                        style={{ left: `${markerFraction * 100}%`, background: 'var(--text-3000)' }}
+                        className="absolute -top-0.5 h-3.5 w-0.5 -translate-x-1/2 rounded-sm bg-[var(--text-3000)]"
+                        style={{ left: `${markerFraction * 100}%` }}
                     />
                 </Tooltip>
             )}
@@ -48,8 +45,8 @@ function SplitBar({ rate }: { rate: number }): JSX.Element {
     return (
         <Tooltip title={`${passedPercent}% passed, ${100 - passedPercent}% failed`}>
             <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
-                <div className="h-full" style={{ width: `${rate * 100}%`, background: 'var(--success)' }} />
-                <div className="h-full flex-1" style={{ background: 'var(--danger)' }} />
+                <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
+                <div className="h-full flex-1 bg-danger" />
             </div>
         </Tooltip>
     )
