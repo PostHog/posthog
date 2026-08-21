@@ -1404,6 +1404,25 @@ def _resolve_untagged_followup_mapping(
     return mapping
 
 
+def _message_tags_bot(event: dict[str, Any], integration: Integration) -> bool:
+    """Whether the message text mentions the app's own bot user.
+
+    Slack delivers a thread reply that tags the bot twice — as ``app_mention``
+    and as a plain ``message`` — under two different event ids, so the queue
+    workflow's event-id dedup never collapses them. The mention pipeline owns
+    the tagged copy; this gate keeps the ``message`` copy out of the
+    untagged-followup path. When the bot user id can't be resolved the gate
+    stays open: a duplicate prompt beats silently dropping a genuine follow-up.
+    """
+    text = event.get("text") or ""
+    if "<@" not in text:
+        return False
+    bot_user_id = get_cached_bot_user_id(SlackIntegration(integration), integration)
+    if not bot_user_id:
+        return False
+    return re.search(rf"<@{re.escape(bot_user_id)}(\|[^>]*)?>", text) is not None
+
+
 def _untagged_followups_switched_off(
     event: dict[str, Any],
     integration: Integration,
@@ -2261,6 +2280,18 @@ def route_posthog_code_event_to_relevant_region(
                 slack_team_id=slack_team_id,
             )
             if untagged_followup_mapping is None:
+                return ROUTE_HANDLED_LOCALLY
+            # A tagged reply also arrives as its own ``app_mention`` event, which owns
+            # it. Letting this copy through would run the untagged-followup classifier
+            # (and the ``ask`` prompt) on a message that explicitly addressed the app.
+            if _message_tags_bot(event, untagged_followup_mapping.integration):
+                logger.info(
+                    "slack_app_thread_message_ignored",
+                    reason="tagged_reply",
+                    slack_team_id=slack_team_id,
+                    channel=channel_str,
+                    message_ts=event.get("ts"),
+                )
                 return ROUTE_HANDLED_LOCALLY
 
         # Both event types share the rest of the pipeline. Mention-only side

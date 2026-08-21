@@ -527,6 +527,34 @@ class TestRouteThreadMessage(TestCase):
         assert first.kwargs["posthog_user"].id == self.user.id
         assert second.kwargs["untagged_followup"] is True
         assert second.kwargs["posthog_user"].id == self.user.id
+    @parameterized.expand(
+        [
+            ("bot_id_resolved", "U_BOTAPP", False),
+            ("bot_id_unresolvable", None, True),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_tagged_reply_skips_untagged_followup_path(self, _name, bot_user_id, expect_workflow):
+        """Slack delivers a tagged thread reply as both ``app_mention`` and
+        ``message``, under different event ids. The ``message`` copy must not
+        enter the untagged-followup pipeline — otherwise the classifier and the
+        ``ask`` prompt run on a message that explicitly addressed the app. If
+        the bot user id can't be resolved the gate fails open and the reply
+        dispatches as before."""
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
+
+        event = self._make_event(text="<@U_BOTAPP> another one using opus 5")
+        with (
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value=bot_user_id),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+        ):
+            result = self._route(event)
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is True
 
 
 class TestMirrorSlackMessageEventTask(SimpleTestCase):
