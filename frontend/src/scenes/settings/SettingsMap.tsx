@@ -36,6 +36,7 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
 import {
@@ -1907,6 +1908,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-mcp-access',
+                title: 'AI and MCP access',
+                description:
+                    'Control what AI tools connected through the PostHog MCP server can do on behalf of members.',
+                component: <OrganizationMCPAccess />,
+                keywords: ['mcp', 'ai', 'agent', 'read-only', 'model context protocol'],
             },
             {
                 id: 'organization-personal-api-keys',
