@@ -7086,7 +7086,13 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel."""
+    """Soft-delete a public channel that holds nothing a client can still see.
+
+    Archived tasks don't count as content: a client that hides them shows the space
+    as empty, and there is no UI to move them out, so counting them dead-ends the
+    delete. They are unfiled instead — task visibility runs through the channel, so
+    leaving them pointed at a soft-deleted one would hide them from every list.
+    """
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -7094,10 +7100,18 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
-    channel.deleted = True
-    channel.save(update_fields=["deleted", "updated_at"])
+    live_tasks = channel.tasks.filter(deleted=False, archived=False).exists()
+    canvases = channel.canvases.filter(deleted=False).exists()
+    if live_tasks and canvases:
+        return "has_tasks_and_canvases"
+    if live_tasks:
+        return "has_tasks"
+    if canvases:
+        return "has_canvases"
+    with transaction.atomic():
+        channel.tasks.filter(deleted=False, archived=True).update(channel=None)
+        channel.deleted = True
+        channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
 
 

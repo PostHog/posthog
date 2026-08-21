@@ -55,6 +55,17 @@ PUBLISH_INSTRUCTIONS_SCHEMA_KWARGS: dict[str, Any] = {
     ),
 }
 
+# Why a delete was refused, keyed by the facade's result code. Archived tasks are not
+# in here: they no longer hold a space open.
+CHANNEL_DELETE_CONFLICTS: dict[str, str] = {
+    "has_tasks": "This space still has tasks. Move or archive them, then delete the space.",
+    "has_canvases": "This space still has canvases. Delete them, then delete the space.",
+    "has_tasks_and_canvases": (
+        "This space still has tasks and canvases. Move or archive the tasks, delete the canvases, "
+        "then delete the space."
+    ),
+}
+
 
 class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -186,10 +197,14 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             204: None,
             409: OpenApiResponse(
                 response=ChannelDeleteConflictSerializer,
-                description="The space still contains tasks or canvases.",
+                description="The space still contains unarchived tasks or canvases.",
             ),
         },
         summary="Delete a public channel",
+        description=(
+            "Delete a space once it holds no unarchived tasks and no canvases. Archived tasks do "
+            "not block the delete; they are unfiled from the space and stay in the archive."
+        ),
     )
     def destroy(self, request, pk=None, **kwargs):
         result = tasks_facade.delete_channel(pk, self.team_id, self._user_id())
@@ -199,11 +214,8 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("Your private space cannot be deleted")
         if result == "general":
             raise PermissionDenied("The general space can't be deleted")
-        if result == "not_empty":
-            return Response(
-                {"detail": "Remove this space's tasks and canvases before deleting it."},
-                status=status.HTTP_409_CONFLICT,
-            )
+        if result in CHANNEL_DELETE_CONFLICTS:
+            return Response({"detail": CHANNEL_DELETE_CONFLICTS[result]}, status=status.HTTP_409_CONFLICT)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")

@@ -1452,6 +1452,56 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("deleteTaskChannel", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's reason for refusing the delete", async () => {
+      const body = {
+        detail:
+          "This space still has canvases. Delete them, then delete the space.",
+      };
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new ApiRequestError(409, JSON.stringify(body), body),
+        );
+      const client = makeClient(fetch);
+
+      await expect(client.deleteTaskChannel("channel-1")).rejects.toThrow(
+        body.detail,
+      );
+    });
+
+    it("treats an already-deleted space as done", async () => {
+      const fetch = vi.fn().mockRejectedValue(
+        new ApiRequestError(404, '{"detail":"Not found."}', {
+          detail: "Not found.",
+        }),
+      );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.deleteTaskChannel("channel-1"),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe("clearTaskRunConversation", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(

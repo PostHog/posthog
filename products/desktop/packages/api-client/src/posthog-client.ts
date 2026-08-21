@@ -2696,13 +2696,20 @@ export class PostHogAPIClient {
   async deleteTaskChannel(id: string): Promise<void> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
-    const response = await this.api.fetcher.fetch({
-      method: "delete",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(`Failed to delete task channel: ${response.statusText}`);
+    try {
+      await this.api.fetcher.fetch({
+        method: "delete",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+    } catch (error) {
+      // Already gone is the outcome the caller wanted.
+      if (error instanceof ApiRequestError && error.status === 404) return;
+      // A refused delete says why (the space still holds tasks or canvases), so
+      // surface that rather than the fetcher's raw status-and-body string.
+      throw new Error(
+        extractRequestErrorMessage(error, "The delete didn't go through."),
+      );
     }
   }
 
