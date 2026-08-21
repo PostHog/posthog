@@ -16,7 +16,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
-from posthog.api.query import required_scopes_for_query_payload
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
@@ -42,7 +41,10 @@ from products.exports.backend.models.exported_asset import (
     get_content_response,
     is_valid_session_recording_id,
 )
-from products.exports.backend.source_authentication import get_export_source_authentication
+from products.exports.backend.source_authentication import (
+    get_export_source_authentication,
+    required_scopes_for_export_target,
+)
 from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
 from products.product_analytics.backend.facade.models import Insight
 
@@ -206,7 +208,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         source_authentication = get_export_source_authentication(request.successful_authenticator)
         if source_authentication is not None:
             validated_data.update(source_authentication)
-        elif (validated_data.get("export_context") or {}).get("path"):
+        else:
             raise ValidationError(
                 {"export_context": ["Exports from API endpoints do not support this authentication method."]}
             )
@@ -499,11 +501,11 @@ class ExportedAssetViewSet(
         if self.action != "create":
             return None
         export_context = request.data.get("export_context") if isinstance(request.data, dict) else None
-        source = export_context.get("source") if isinstance(export_context, dict) else None
-        if source is None:
-            return None
-        query_scopes = required_scopes_for_query_payload(source) or ["query:read"]
-        return ["export:write", *query_scopes]
+        return required_scopes_for_export_target(
+            insight_id=request.data.get("insight") if isinstance(request.data, dict) else None,
+            dashboard_id=request.data.get("dashboard") if isinstance(request.data, dict) else None,
+            export_context=export_context if isinstance(export_context, dict) else None,
+        )
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return ExportedAssetCreateSerializer if self.action == "create" else ExportedAssetSerializer

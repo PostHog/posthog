@@ -39,12 +39,12 @@ from posthog.utils import absolute_uri
 
 from products.actions.backend.models.action import Action
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
 from products.exports.backend.tasks.csv_exporter import (
     CsvWriter,
     ExcelWriter,
     UnexpectedEmptyJsonResponse,
-    _assert_query_export_authorization,
     _convert_response_to_csv_data,
     _format_breakdown_value,
     add_query_params,
@@ -398,26 +398,33 @@ class TestCSVExporter(APIBaseTest):
             label="query export key",
             secure_value=hash_key_value(generate_random_token_personal()),
             scopes=["export:write", "query:read"],
+            scoped_teams=[self.team.id],
         )
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "HogQLQuery", "query": "select 1"}},
             source_authentication=ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
             source_credential_id=personal_api_key.id,
         )
-        query = {"kind": "HogQLQuery", "query": "select 1"}
 
-        _assert_query_export_authorization(exported_asset, query)
+        assert_export_authorization(exported_asset)
 
         personal_api_key.scopes = ["export:write"]
         personal_api_key.save(update_fields=["scopes"])
         with pytest.raises(ValueError, match="could not verify its original authorization"):
-            _assert_query_export_authorization(exported_asset, query)
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scopes = ["export:write", "query:read"]
+        personal_api_key.scoped_teams = [self.team.id + 1]
+        personal_api_key.save(update_fields=["scopes", "scoped_teams"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
 
         personal_api_key.delete()
         with pytest.raises(ValueError, match="could not verify its original authorization"):
-            _assert_query_export_authorization(exported_asset, query)
+            assert_export_authorization(exported_asset)
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:

@@ -1,6 +1,6 @@
 from contextlib import nullcontext
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
 from freezegun import freeze_time
@@ -149,6 +149,68 @@ class TestExports(APIBaseTest):
             exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
             assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
             assert exported_asset.source_credential_id == personal_api_key.id
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("insight_missing_scope", "insight", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "insight_read_scope",
+                "insight",
+                ["export:write", "insight:read"],
+                status.HTTP_201_CREATED,
+            ),
+            ("dashboard_missing_scope", "dashboard", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "dashboard_read_scope",
+                "dashboard",
+                ["export:write", "dashboard:read"],
+                status.HTTP_201_CREATED,
+            ),
+            ("recording_missing_scope", "recording", ["export:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "recording_read_scope",
+                "recording",
+                ["export:write", "session_recording:read"],
+                status.HTTP_201_CREATED,
+            ),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_typed_export_requires_resource_read_scope(
+        self,
+        _name: str,
+        target: Literal["insight", "dashboard", "recording"],
+        scopes: list[str],
+        expected_status: int,
+        mock_exporter_task,
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="typed export key",
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            scoped_teams=[self.team.id],
+        )
+        payload: dict[str, object] = {"export_format": ExportedAsset.ExportFormat.PNG}
+        if target == "insight":
+            payload["insight"] = self.insight.id
+        elif target == "dashboard":
+            payload["dashboard"] = self.dashboard.id
+        else:
+            payload["export_context"] = {"session_recording_id": "typed-export-recording"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports/",
+            payload,
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
             mock_exporter_task.assert_called_once()
         else:
             mock_exporter_task.assert_not_called()
