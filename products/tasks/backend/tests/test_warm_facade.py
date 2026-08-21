@@ -53,7 +53,7 @@ TITLE_SRC = "products.tasks.backend.logic.services.title_generator"
 def _allow_desktop_access(test_case: APIBaseTest) -> None:
     access_patcher = patch(
         "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
-        return_value=tasks_access.DesktopAccessDecision(),
+        return_value=tasks_access.DesktopAccessDecision.ALLOWED,
     )
     access_patcher.start()
     test_case.addCleanup(access_patcher.stop)

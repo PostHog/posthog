@@ -197,8 +197,10 @@ class BaseTaskAPITest(TestCase):
 
         self.desktop_access_patcher = patch(
             "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
-            side_effect=lambda *_args, **_kwargs: tasks_access.DesktopAccessDecision(
-                reason=None if self._desktop_access_enabled else tasks_access.DesktopAccessReason.STARTUP_PLAN,
+            side_effect=lambda *_args, **_kwargs: (
+                tasks_access.DesktopAccessDecision.ALLOWED
+                if self._desktop_access_enabled
+                else tasks_access.DesktopAccessDecision.STARTUP_PLAN
             ),
         )
         self.desktop_access_patcher.start()
@@ -12567,9 +12569,7 @@ class TestUsageLimitResponse(TestCase):
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision")
     def test_code_access_required_response_is_structured(self, mock_access):
-        mock_access.return_value = tasks_access.DesktopAccessDecision(
-            reason=tasks_access.DesktopAccessReason.STARTUP_PLAN,
-        )
+        mock_access.return_value = tasks_access.DesktopAccessDecision.STARTUP_PLAN
         request = MagicMock()
         request.successful_authenticator = None
         organization = MagicMock(id=1)

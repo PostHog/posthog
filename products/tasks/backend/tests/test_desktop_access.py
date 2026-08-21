@@ -81,13 +81,37 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(decision.reason, expected_reason)
 
     @patch("products.tasks.backend.access._get_funding_status")
-    def test_rollout_flag_off_grants_access_without_resolving_policy(self, mock_funding) -> None:
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=True)
+    def test_rollout_flag_off_preserves_legacy_feature_flag_access(self, _mock_legacy_flag, mock_funding) -> None:
         self.mock_feature_flag.side_effect = [False]
 
         decision = get_desktop_access_decision(self.user, self.organization)
 
         self.assertTrue(decision.allowed)
         self.assertEqual(self.mock_feature_flag.call_count, 1)
+        mock_funding.assert_not_called()
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
+    def test_rollout_flag_off_preserves_legacy_invite_access(self, _mock_legacy_flag, mock_funding) -> None:
+        invite = CodeInvite.objects.create(code="LEGACYCODE", max_redemptions=1, is_active=True)
+        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
+        self.mock_feature_flag.side_effect = [False]
+
+        decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertTrue(decision.allowed)
+        mock_funding.assert_not_called()
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    @patch("products.tasks.backend.access.feature_enabled_or_false", return_value=False)
+    def test_rollout_flag_off_preserves_legacy_denial(self, _mock_legacy_flag, mock_funding) -> None:
+        self.mock_feature_flag.side_effect = [False]
+
+        decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertFalse(decision.allowed)
+        self.assertIsNone(decision.reason)
         mock_funding.assert_not_called()
 
     @patch("products.tasks.backend.access._get_funding_status")
@@ -134,7 +158,7 @@ class TestDesktopAccessPolicy(APIBaseTest):
         mock_decision.assert_not_called()
 
     @patch("products.tasks.backend.access._get_funding_status")
-    def test_access_code_does_not_affect_authorization(self, mock_funding) -> None:
+    def test_access_code_does_not_affect_authorization_after_rollout(self, mock_funding) -> None:
         invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=1, is_active=True)
         CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
         mock_funding.return_value = OrganizationFundingStatus(

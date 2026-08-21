@@ -1,12 +1,13 @@
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.metrics import observe_desktop_access_decision
+from products.tasks.backend.models import CodeInviteRedemption
 
 from ee.billing.billing_manager import (
     BillingManager,
@@ -27,13 +28,41 @@ class DesktopAccessResolutionError(Exception):
     pass
 
 
-@frozen
-class DesktopAccessDecision:
-    reason: DesktopAccessReason | None = None
+class DesktopAccessDecision(StrEnum):
+    ALLOWED = "allowed"
+    LEGACY_ACCESS_REQUIRED = "legacy_access_required"
+    STARTUP_PLAN = "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits"
 
     @property
     def allowed(self) -> bool:
-        return self.reason is None
+        return self == self.ALLOWED
+
+    @property
+    def reason(self) -> DesktopAccessReason | None:
+        if self == self.STARTUP_PLAN:
+            return DesktopAccessReason.STARTUP_PLAN
+        if self == self.PREPAID_CREDITS:
+            return DesktopAccessReason.PREPAID_CREDITS
+        return None
+
+
+def has_tasks_access(user: User) -> bool:
+    if not user or not user.is_authenticated or not user.distinct_id:
+        return False
+
+    organization = getattr(user, "organization", None)
+    organization_id = str(organization.id) if organization is not None else None
+    if feature_enabled_or_false(
+        "tasks",
+        str(user.distinct_id),
+        groups={"organization": organization_id} if organization_id is not None else None,
+        group_properties={"organization": {"id": organization_id}} if organization_id is not None else None,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        return True
+    return CodeInviteRedemption.objects.filter(user=user).exists()
 
 
 def _get_funding_status(user: User, organization: "Organization") -> OrganizationFundingStatus:
@@ -62,7 +91,16 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
         observe_desktop_access_decision(outcome="resolution_failure")
         raise DesktopAccessResolutionError("Could not evaluate the Desktop access rollout")
     if not rollout_enabled:
-        return DesktopAccessDecision()
+        try:
+            legacy_access_allowed = has_tasks_access(user)
+        except Exception as error:
+            observe_desktop_access_decision(outcome="resolution_failure")
+            raise DesktopAccessResolutionError("Could not evaluate legacy Desktop access") from error
+        if legacy_access_allowed:
+            observe_desktop_access_decision(outcome="legacy_allowed")
+            return DesktopAccessDecision.ALLOWED
+        observe_desktop_access_decision(outcome="legacy_denied")
+        return DesktopAccessDecision.LEGACY_ACCESS_REQUIRED
 
     override_enabled = get_feature_flag_or_none(
         DESKTOP_ACCESS_OVERRIDE_FLAG,
@@ -77,7 +115,7 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
         raise DesktopAccessResolutionError("Could not evaluate the Desktop access override")
     if override_enabled:
         observe_desktop_access_decision(outcome="override")
-        return DesktopAccessDecision()
+        return DesktopAccessDecision.ALLOWED
 
     try:
         funding_status = _get_funding_status(user, organization)
@@ -87,13 +125,13 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
 
     if funding_status.startup_program_label is not None:
         observe_desktop_access_decision(outcome="startup_plan")
-        return DesktopAccessDecision(reason=DesktopAccessReason.STARTUP_PLAN)
+        return DesktopAccessDecision.STARTUP_PLAN
     if funding_status.prepaid_credit_state in {PrepaidCreditState.PENDING, PrepaidCreditState.ACTIVE}:
         observe_desktop_access_decision(outcome="prepaid_credits")
-        return DesktopAccessDecision(reason=DesktopAccessReason.PREPAID_CREDITS)
+        return DesktopAccessDecision.PREPAID_CREDITS
 
     observe_desktop_access_decision(outcome="allowed")
-    return DesktopAccessDecision()
+    return DesktopAccessDecision.ALLOWED
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:

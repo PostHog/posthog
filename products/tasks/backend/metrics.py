@@ -255,7 +255,15 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
-DesktopAccessOutcome = Literal["allowed", "startup_plan", "prepaid_credits", "override", "resolution_failure"]
+DesktopAccessOutcome = Literal[
+    "allowed",
+    "legacy_allowed",
+    "legacy_denied",
+    "startup_plan",
+    "prepaid_credits",
+    "override",
+    "resolution_failure",
+]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
