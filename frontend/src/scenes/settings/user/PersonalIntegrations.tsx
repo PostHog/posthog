@@ -4,6 +4,7 @@ import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
@@ -179,8 +180,15 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 
 export function PersonalGitHubIntegrations(): JSX.Element {
     const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
-    const { connectGitHub } = useActions(personalIntegrationsLogic)
+    const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
     const { reportPersonalIntegrationConnectClicked } = useActions(eventUsageLogic)
+
+    // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
+    // its unavailable notice without a manual reload.
+    useOnMountEffect(() => {
+        startPolling()
+        return () => stopPolling()
+    })
 
     if (integrationsLoading && integrations.length === 0) {
         return (
