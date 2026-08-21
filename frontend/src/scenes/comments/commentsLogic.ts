@@ -68,6 +68,7 @@ export interface commentsLogicValues {
     user: UserType | null // userLogic
     commentContexts: Record<string, string>
     comments: CommentType[] | null
+    commentsInitialLoading: boolean
     commentsLoading: boolean
     commentsWithReplies: CommentWithRepliesType[]
     composerDrafts: Record<string, JSONContent | null>
@@ -84,6 +85,7 @@ export interface commentsLogicValues {
     isEditingCommentEmpty: boolean
     isEmpty: boolean
     isMyComment: (comment: CommentType) => boolean
+    isSavingEditedComment: boolean
     isSendingComment: boolean
     itemContext: CommentContext | null
     key: string
@@ -357,6 +359,7 @@ export interface commentsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         key: (arg: any) => string
+        commentsInitialLoading: (comments: CommentType[] | null, commentsLoading: boolean) => boolean
         sortedComments: (comments: CommentType[] | null) => CommentType[]
         commentsWithReplies: (sortedComments: CommentType[]) => CommentWithRepliesType[]
         emojiReactionsByComment: (sortedComments: CommentType[]) => Record<string, Record<string, CommentType[]>>
@@ -544,6 +547,14 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 onEditingCommentRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
                 persistEditedCommentSuccess: () => false,
+            },
+        ],
+        isSavingEditedComment: [
+            false,
+            {
+                persistEditedComment: () => true,
+                persistEditedCommentSuccess: () => false,
+                persistEditedCommentFailure: () => false,
             },
         ],
     }),
@@ -873,6 +884,16 @@ export const commentsLogic = kea<commentsLogicType>([
 
     selectors({
         key: [() => [(_, props) => props], (props): string => `${props.scope}-${props.item_id || ''}`],
+
+        // Every handler on the `comments` loader shares `commentsLoading`, including the background
+        // poll's `refreshComments` and the local writes. Only the very first load has nothing to put
+        // on screen; once `comments` is an array the thread is renderable, empty or not, so a
+        // surface that swaps in a skeleton on `commentsLoading` would flash it away on every poll.
+        commentsInitialLoading: [
+            (s) => [s.comments, s.commentsLoading],
+            (comments: CommentType[] | null, commentsLoading: boolean): boolean => !comments && commentsLoading,
+        ],
+
         sortedComments: [
             (s) => [s.comments],
             (comments: CommentType[] | null) => {
