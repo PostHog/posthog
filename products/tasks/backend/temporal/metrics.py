@@ -298,6 +298,31 @@ def record_agent_server_session_init_ms(
         pass
 
 
+def increment_agent_server_readiness_retry(
+    attempt: int,
+    outcome: str,
+    *,
+    boot_path: str,
+    origin_product: str | None,
+    runtime: str,
+) -> None:
+    try:
+        _metric_meter(
+            {
+                "attempt": attempt,
+                "outcome": outcome,
+                "boot_path": boot_path,
+                "origin_product": origin_product or "unknown",
+                "runtime": runtime,
+            }
+        ).create_counter(
+            "tasks_process_agent_server_readiness_retry",
+            "Agent-server readiness retries that re-enter the start path",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def record_boot_total_ms(
     boot_total_ms: int,
     *,
