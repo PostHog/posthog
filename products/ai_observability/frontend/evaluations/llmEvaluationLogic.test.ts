@@ -240,7 +240,11 @@ describe('llmEvaluationLogic', () => {
                 },
                 '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
-                    models: [{ id: 'gpt-5-mini' }, { id: 'gpt-5' }],
+                    models: [
+                        { id: 'gpt-5-mini', provider: 'openai' },
+                        { id: 'gpt-5', provider: 'openai' },
+                    ],
+                    providers: [{ provider: 'openai', model_count: 2, requires_provider_key: false }],
                 },
             },
         })

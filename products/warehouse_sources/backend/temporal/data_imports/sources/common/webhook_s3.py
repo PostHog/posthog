@@ -138,10 +138,19 @@ class WebhookSourceManager:
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
 
         def finalize_batch(tables: list[pa.Table]) -> pa.Table:
-            # Dedupe across the whole concatenated batch, not per file: a yielded batch can span
-            # several S3 files, and the same id (e.g. a run's queued/completed events) can land in
-            # different files. A per-file pass would let both survive into one batch.
-            merged = pa.concat_tables(tables, promote_options="permissive")
+            # Concatenate the whole batch, not per file: a yielded batch can span several S3 files,
+            # and the same id (e.g. a run's queued/completed events) can land in different files, so
+            # the downstream transformer must see all of them together to dedupe across the batch.
+            try:
+                merged = pa.concat_tables(tables, promote_options="permissive")
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                # Each file's table is typed independently, so one payload field can infer as
+                # different, non-promotable types across files (e.g. a number that arrives quoted in
+                # one delivery and bare in another — string vs int64), which concat can't reconcile.
+                # Rebuild through the shared row-to-table path, which resolves a column's mixed types
+                # the same way a single multi-typed file already does.
+                rows = [row for table in tables for row in table.to_pylist()]
+                merged = table_from_py_list(rows)
             return table_transformer(merged) if table_transformer else merged
 
         batch_tables: list[pa.Table] = []

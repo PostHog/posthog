@@ -1,19 +1,16 @@
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { ReactNode } from "react";
 
-function ChannelSuffix({
-  channelName,
-}: {
-  channelName: string | null;
-}): ReactNode {
+function ChannelSuffix({ channelName }: { channelName: string | null }) {
   if (!channelName) return null;
-  const label =
-    channelName === "personal" ? "your personal space" : `#${channelName}`;
   return (
     <>
       {" in "}
-      <span className="font-medium text-xs">{label}</span>
+      <span className="font-medium text-xs">
+        {channelDisplayReference(channelName)}
+      </span>
     </>
   );
 }
@@ -29,18 +26,11 @@ function ownedItemName(item: TaskActivityItem): string {
   }
 }
 
+/** The lead line describing what happened, chosen by the row's activity kind. */
 export function activityHeadline(
   item: TaskActivityItem,
   currentUserEmail?: string | null,
 ): ReactNode {
-  if (item.targetScope === "desktop_canvas") {
-    return (
-      <>
-        A report canvas is ready
-        <ChannelSuffix channelName={item.channelName} />
-      </>
-    );
-  }
   switch (item.activityKind) {
     case "awaiting_input":
       return (
