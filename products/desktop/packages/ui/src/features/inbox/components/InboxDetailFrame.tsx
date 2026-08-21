@@ -1,6 +1,14 @@
 import type { IconProps } from "@phosphor-icons/react";
+import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
-import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
@@ -22,7 +30,10 @@ import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/componen
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
-import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  useInboxReportArtefacts,
+  useInboxReportSignals,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { type ComponentType, type ReactNode, useState } from "react";
 
@@ -99,6 +110,13 @@ export function InboxDetailFrame({
   const signals = signalsResp?.signals ?? [];
   const signalsLoaded = signalsResp !== undefined;
   const hasSource = hasKnownSourceProduct(report.source_products);
+  // The repo the report's own selection step chose — the one a Discuss, Canvas,
+  // or PR run will work in (the server resolves runs from this same artefact).
+  // Null covers both "no selection yet" and a deliberate no-repo choice; the
+  // byline stays quiet for those. The decision section already fetches these
+  // artefacts, so this query is warm.
+  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const runRepository = extractRepoSelectionRepository(artefactsResp?.results);
   const { actionButton: dismissButton, dialog: dismissDialog } =
     useInboxReportDismissAction(report);
 
@@ -157,6 +175,21 @@ export function InboxDetailFrame({
               <>
                 <InboxMetaSeparator />
                 <InboxMetaText>{report.priority}</InboxMetaText>
+              </>
+            )}
+            {runRepository && (
+              <>
+                <InboxMetaSeparator />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<InboxMetaText mono className="cursor-help" />}
+                  >
+                    {runRepository}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Agent runs for this report work in this repository
+                  </TooltipContent>
+                </Tooltip>
               </>
             )}
             {metaSuffix}
