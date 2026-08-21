@@ -82,7 +82,7 @@ Every run leaves exactly one report: your digest. That report is what the team r
 1. \`vision-scanners-get\` with scanner_id \`${scannerId}\` — the scanner's current name, type, prompt, and enabled state. If it no longer exists, close out with a one-line summary and no report.
 2. \`scout-runs-list\` filtered to your own skill_name — find your previous successful run. Your window is everything since it (fall back to the last 24 hours on the first run or after a gap).
 3. \`scout-scratchpad-search\` (text: \`${scannerId}\`) — baselines, known noise, and \`report:\`/\`dedupe:\` pointers from prior runs. Every entry you write is keyed on that id, so it is what finds them again.
-4. Load the packaged skill \`posthog:exploring-replay-vision-observations\` through the runtime's packaged-skill mechanism for the observation data model and query patterns.
+4. \`llma-skill-get\` \`exploring-replay-vision-observations\` — the observation data model, what \`confidence\` and each status mean, and how to cite a finding.
 
 ## Read the window
 
@@ -118,7 +118,7 @@ Write the report so it stands alone for a reader with no prior context:
 
 - Open with the takeaway in one line, then at most three bullets ordered by impact.
 - Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.
-- Ground every claim in specific observations, as real markdown links: \`[what it shows](/replay-vision/observations/<observation_id>)\`, taking \`<observation_id>\` from the \`id\` of an observation you actually read. A bare \`[obs 3]\` is not a link and leaves the reader nowhere to go. Two or three per bullet is plenty; link the clearest cases, not every one.
+- Ground every claim in observations you actually read, as real markdown links to the recording: \`[what it shows](/project/<project_id>/replay/<session_id>?t=<seconds>)\`, so the link opens on the moment being claimed. A bare \`[obs 3]\` is not a link and leaves the reader nowhere to go. Two or three per bullet is plenty; link the clearest cases, not every one.
 - Close with what you checked, and name anything you could not cover and why.
 
 When nothing clears the bar, still file the report, with the verdict \`Nothing notable\` and a short coverage line ("42 observations across 30 sessions, distributions steady"). ${focus.priority}
