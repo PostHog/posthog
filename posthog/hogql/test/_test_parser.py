@@ -94,9 +94,11 @@ def _snapshot_key(src: str) -> str:
 
 
 def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
-    # 102 re-parses per test to measure leaks is expensive at this suite's scale,
-    # and one backend's matrix catches a leak in the shared parser core as well as three.
-    # Only cpp-json (the C++ boundary, where leaks actually originate) pays for it.
+    # 102 re-parses per test to measure leaks is expensive at this suite's scale.
+    # The backends are separate parser implementations, so a leak is per-backend:
+    # keep the matrix on rust-py only, the production primary (PyO3-built objects
+    # are also the most binding-leak-prone path). cpp-json and rust-json run once
+    # per test — the shared snapshot still proves parity on all three.
     base_classes = (MemoryLeakTestMixin, BaseTest) if leak_check else (BaseTest,)
 
     class TestParser(*base_classes):  # type: ignore

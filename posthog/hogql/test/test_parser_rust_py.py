@@ -10,7 +10,7 @@ dataclass instances directly, skipping the JSON round-trip).
 from ._test_parser import parser_test_factory
 
 
-class TestParserRustPy(parser_test_factory("rust-py", leak_check=False)):  # type: ignore
+class TestParserRustPy(parser_test_factory("rust-py")):  # type: ignore
     def test_empty(self):
         # this test only exists to make pycharm recognise this class as a test class
         # the actual tests are in the parent class
