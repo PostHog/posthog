@@ -2,7 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -177,11 +177,7 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (
-                trigger.type !== 'event' &&
-                trigger.type !== 'data-warehouse-table' &&
-                trigger.type !== 'slack-message'
-            ) {
+            if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
                 continue
             }
 
@@ -471,7 +467,13 @@ export class HogFlowExecutorService {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        // queuePriority is carried over explicitly: createInvocationResult resets it to
+        // 0, and the email routing downstream stashes the entry priority as the value to
+        // restore when a job leaves the email queue — a reset here would stash 0 for any
+        // run whose email action isn't the first action executed.
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queuePriority: invocation.queuePriority,
+        })
         result.finished = false // Typically we are never finished unless we error or exit
 
         try {

@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -133,7 +144,9 @@ export {
   type CloudTaskSnapshotUpdate,
   type CloudTaskStatusUpdate,
   type CloudTaskUpdatePayload,
+  isSkillBundleArtifactMetadata,
   isTerminalStatus,
+  type PostHogObjectArtifactMetadata,
   type SignalReportPriority,
   type Task,
   type TaskRun,
@@ -210,6 +223,7 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
@@ -352,8 +366,10 @@ export type {
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   formatShortDayLabel,

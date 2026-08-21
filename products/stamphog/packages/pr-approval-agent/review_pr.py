@@ -50,6 +50,7 @@ from gates import (
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
+    manifest_basenames,
     parse_conventional_commit,
     scope_breadth,
     substantive_size,
@@ -208,6 +209,7 @@ class Pipeline:
         dry_run: bool = False,
         verbose: bool = False,
         self_driving: bool = False,
+        review_trigger: str = "",
         head_checkout: bool = False,
     ) -> None:
         self.pr_number = pr_number
@@ -218,6 +220,10 @@ class Pipeline:
         # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
         # task provenance.
         self.self_driving = self_driving
+        # Why the hosted runtime is reviewing this PR: "label", "all" or "self_driving". Descriptive
+        # only. It reaches the prompt as one line and gates nothing, unlike self_driving above.
+        # Empty for a local run, which has no trigger to report.
+        self.review_trigger = review_trigger
         # True when REPO_ROOT already holds the PR head (the hosted sandbox clones and checks out
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
@@ -490,6 +496,7 @@ class Pipeline:
             # False renders the provenance block empty, leaving every other prompt unchanged.
             # True swaps the author trust context for task provenance.
             "self_driving": self.self_driving,
+            "review_trigger": self.review_trigger,
         }
 
     def _summarize_assurance(self) -> dict:
@@ -622,7 +629,8 @@ class Pipeline:
         deny = self.classification["deny_categories"]
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {', '.join(risky)})"
+            risky_names = ", ".join(manifest_basenames(risky))
+            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
         if deny:
             return False, f"matches: {', '.join(deny)}"
         return True, "no deny categories matched"
@@ -1061,6 +1069,8 @@ class Pipeline:
                 "familiarity": familiarity_evidence(self.familiarity),
                 # Audit trail: records that this review ran with the gates relaxed (see __init__).
                 "self_driving": self.self_driving,
+                # Audit trail: what the reviewer was told about why it was asked.
+                "review_trigger": self.review_trigger,
             },
             "provenance": provenance_evidence(self.provenance),
             "gates": [

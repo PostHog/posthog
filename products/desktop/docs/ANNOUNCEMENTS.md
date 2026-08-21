@@ -20,8 +20,9 @@ the What's New changelog and the update modals.
   entry drops alone and is counted, never crashing the batch.
 - `selectAnnouncement.ts` is the pure decision function: Zod parse → time
   window (`startsAt`/`endsAt`) → version gate → per-id dismissals → priority.
-  It returns nothing when the app version is unknown, which is what keeps the
-  web host (no `os.getAppVersion`) announcement-free by construction.
+  It returns nothing for development builds or when the app version is unknown,
+  which keeps local development and the web host (no `os.getAppVersion`)
+  announcement-free by construction.
 - Dismissals persist per announcement `id` in `announcementsStore.ts`;
   changing an announcement's `id` resurfaces it for everyone.
 - Surfaces: `AnnouncementBanner` (top of the framed content pane in
@@ -82,20 +83,23 @@ after an announcement was handled in the same session.
 browser. Author payloads with the production scheme; `announcementCta.ts`
 swaps in the dev scheme on dev builds.
 
-## Testing a payload locally
+## Observability
 
-Dev builds expose `window.posthog` in the renderer devtools:
+The app captures these events with `announcement_id`, `announcement_kind`, and
+`announcement_style` properties. CTA clicks add `cta_type`; acknowledgements
+add `ack_type`.
 
-```js
-posthog.featureFlags.overrideFeatureFlags({
-  flags: { "posthog-desktop-announcements": true },
-  payloads: {
-    "posthog-desktop-announcements": {
-      announcements: [
-        { kind: "announcement", id: "test-1", title: "Hello", body: "It works." },
-      ],
-    },
-  },
-});
-// clear with: posthog.featureFlags.overrideFeatureFlags(false)
-```
+- `Announcement shown`
+- `Announcement CTA clicked`
+- `Announcement dismissed`
+- `Announcement acknowledged`
+
+Filter these events by an announcement ID to measure unique people shown,
+CTA engagement, dismissals, and acknowledgements.
+
+## Testing
+
+Development builds intentionally never render remote announcements, including
+feature-flag overrides. Exercise the selection behavior through
+`selectAnnouncement.test.ts` and the announcement component stories. Use a
+production build to smoke-test a live flag payload.

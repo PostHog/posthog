@@ -190,6 +190,7 @@ const config: Config = {
         devHmrStreamAbort$: '<rootDir>/src/test/mocks/emptyMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
+        '^(.+)\\.md\\?raw$': '$1.md',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
         // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
@@ -334,7 +335,10 @@ const config: Config = {
     transform: {
         // Include .mjs/.cjs so ESM dependencies allowed through transformIgnorePatterns (e.g. MSW's) are transpiled.
         '\\.[cm]?[jt]sx?$': '@sucrase/jest-plugin',
+        // The transformer just wraps file text as a string module, so it serves any raw
+        // text import, not only YAML.
         '\\.yaml$': '<rootDir>/src/test/yamlRawTransformer.js',
+        '\\.md$': '<rootDir>/src/test/yamlRawTransformer.js',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

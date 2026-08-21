@@ -5,6 +5,8 @@ from products.replay_vision.backend.api import (
     ReplayScannerBackfillViewSet,
     ReplayScannerPromptSuggestionViewSet,
     ReplayScannerViewSet,
+    ScannerScoutReportViewSet,
+    ScannerScoutViewSet,
     SessionReplayObservationViewSet,
     VisionActionRunViewSet,
     VisionActionViewSet,
@@ -15,6 +17,18 @@ from products.replay_vision.backend.api import (
 def register_routes(routers: RouterRegistry) -> None:
     project_vision_scanners_router = routers.projects.register(
         r"vision/scanners", ReplayScannerViewSet, "project_vision_scanners", ["team_id"]
+    )
+    project_vision_scanners_router.register(
+        r"scouts",
+        ScannerScoutViewSet,
+        "project_vision_scanner_scouts",
+        ["team_id", "scanner_id"],
+    )
+    project_vision_scanners_router.register(
+        r"scout_reports",
+        ScannerScoutReportViewSet,
+        "project_vision_scanner_scout_reports",
+        ["team_id", "scanner_id"],
     )
     project_vision_scanners_router.register(
         r"observations", ReplayObservationViewSet, "project_vision_scanner_observations", ["team_id", "scanner_id"]

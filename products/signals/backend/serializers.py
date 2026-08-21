@@ -173,6 +173,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
+# not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
+# and the request body a caller can push through this field.
+MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
+
+
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     autostart_base_branches = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
@@ -264,9 +270,18 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         }
 
     def validate_autostart_base_branches(self, value: dict) -> dict:
+        if len(value) > MAX_AUTOSTART_BASE_BRANCH_ENTRIES:
+            raise serializers.ValidationError(
+                f"Too many repository overrides ({len(value)}); the maximum is {MAX_AUTOSTART_BASE_BRANCH_ENTRIES}."
+            )
         cleaned: dict[str, str] = {}
         for repo, branch in value.items():
             repo_key = (repo or "").strip()
+            # Bound the key too — the DictField child only caps the branch value, so an
+            # oversized key would otherwise slip a large string into the stored map and its
+            # activity-log copy.
+            if len(repo_key) > 255:
+                raise serializers.ValidationError("Repository keys must be at most 255 characters.")
             if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
                 raise serializers.ValidationError(
                     f"Repository keys must be in 'organization/repository' form, got '{repo}'."
