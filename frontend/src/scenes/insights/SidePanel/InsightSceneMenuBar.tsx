@@ -342,6 +342,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
                     <SceneMenuBarItem
                         disabled={insightDuplicating}
+                        tooltip={insightDuplicating ? 'Duplicating…' : undefined}
                         onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
