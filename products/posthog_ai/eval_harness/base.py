@@ -295,6 +295,10 @@ class _BaseEvalRun:
 
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
+        if not eval_cases:
+            if self.case_filter:
+                raise ValueError(f"{self.experiment_name} has no cases matching --eval {self.case_filter!r}")
+            raise ValueError(f"{self.experiment_name} has no cases")
 
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
