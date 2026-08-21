@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
-import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -303,9 +302,9 @@ const LOGO_SWATCHES: Record<string, string> = {
 function mockAccountIcon({ request }: MockResolverInfo): Response {
     const fill = LOGO_SWATCHES[new URL(request.url).searchParams.get('domain') ?? '']
     if (!fill) {
-        return new HttpResponse(null, { status: 404 })
+        return new Response(null, { status: 404 })
     }
-    return new HttpResponse(
+    return new Response(
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="${fill}"/></svg>`,
         { headers: { 'Content-Type': 'image/svg+xml' } }
     )
