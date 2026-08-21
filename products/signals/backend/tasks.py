@@ -545,7 +545,7 @@ def pause_inactive_signal_scouts() -> None:
     """Daily sweep: warn, then auto-pause scouts nothing comes of.
 
     Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
-    short-lived and bounded, and inactivity doesn't change by the half hour. See
+    bounded, and inactivity doesn't change by the half hour. See
     `scout_harness/inactivity.py` for what counts as productive.
     """
     outcome = sweep_inactive_scouts()

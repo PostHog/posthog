@@ -303,6 +303,36 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
+    canvas-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas state
+        description: >
+            Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's
+            own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
+            progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
+            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+    canvas-state-set:
+        operation: canvases_state_set
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set canvas state
+        description: >
+            Set one persisted `ph.state` key on a visible canvas, or delete it by passing a null value. `user` updates
+            only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
+            declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
+            progress or other existing values.
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
@@ -344,12 +374,6 @@ tools:
         enabled: false
     canvases-revert-create:
         operation: canvases_revert_create
-        enabled: false
-    canvases-state-retrieve:
-        operation: canvases_state_retrieve
-        enabled: false
-    canvases-state-set:
-        operation: canvases_state_set
         enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve

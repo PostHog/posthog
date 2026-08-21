@@ -4554,9 +4554,11 @@ async def _mysql_setup(mysql_connection, statements: list[tuple[str, tuple | Non
     await sync_to_async(_run)()
 
 
+# test_mysql_source_full_refresh covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_full_refresh(team, mysql_config, mysql_connection, pipeline_mode):
     """Full-refresh sync of a simple table with a mix of common MySQL types."""
     await _mysql_setup(
         mysql_connection,
@@ -4597,9 +4599,11 @@ async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
     assert row[2] == 30
 
 
+# test_mysql_source_incremental covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection, pipeline_mode):
     """Incremental sync with an INT cursor field — second run should pick up only new rows."""
     await _mysql_setup(
         mysql_connection,

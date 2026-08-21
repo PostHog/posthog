@@ -13334,6 +13334,8 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "health",
+ "metrics",
  "metrics-exporter-prometheus",
  "moka",
  "rdkafka",
