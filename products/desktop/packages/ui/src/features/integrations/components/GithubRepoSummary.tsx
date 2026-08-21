@@ -50,6 +50,7 @@ export function GithubRepoSummary({
 }: GithubRepoSummaryProps) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = summary.kind !== "all" && repos.length > 0;
+  const isUnavailable = status === "unavailable";
 
   const accessLine = isLoadingRepos ? (
     <Text size="xs" variant="muted">
@@ -79,86 +80,86 @@ export function GithubRepoSummary({
   );
 
   return (
-    <div className="flex flex-col gap-2 py-3">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+    <div className="flex flex-col gap-2 px-3.5 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="shrink-0 text-(--gray-11)">
-            <GithubLogoIcon size={28} />
+            <GithubLogoIcon size={20} />
           </div>
-          <div className="flex min-w-0 flex-col gap-1">
-            <Text size="sm">
-              <span className="font-medium">
-                {status === "unavailable" ? "Removed from" : "Connected to"}
-              </span>{" "}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               {onManage ? (
                 <button
                   type="button"
                   onClick={onManage}
-                  className="cursor-pointer font-medium underline hover:text-(--accent-11)"
+                  className="cursor-pointer truncate text-left font-medium text-[13px] text-gray-12 leading-5 hover:underline"
                 >
                   {accountLabel}
                 </button>
               ) : (
-                <span className="font-medium">{accountLabel}</span>
+                <span className="truncate font-medium text-[13px] text-gray-12 leading-5">
+                  {accountLabel}
+                </span>
               )}
-            </Text>
-            {meta ? (
-              <Text size="xs" variant="muted">
-                {meta}
-              </Text>
-            ) : null}
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex min-w-0 flex-1 items-center gap-1">
-                <GitBranchIcon
-                  size={13}
-                  className="shrink-0 text-(--gray-10)"
-                />
-                {status === "loading" ? (
-                  <Spinner />
-                ) : canExpand ? (
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((value) => !value)}
-                    className="-mx-1 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 text-left transition-colors hover:bg-(--gray-3)"
-                  >
-                    {expanded ? (
-                      <CaretDownIcon
-                        size={11}
-                        className="shrink-0 text-(--gray-10)"
-                      />
-                    ) : (
-                      <CaretRightIcon
-                        size={11}
-                        className="shrink-0 text-(--gray-10)"
-                      />
-                    )}
-                    {accessLine}
-                  </button>
-                ) : (
-                  accessLine
-                )}
-              </div>
-              {onManage ? (
-                <Tooltip content="Manage on GitHub">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-xs"
-                    onClick={onManage}
-                    className="shrink-0"
-                    aria-label="Manage on GitHub"
-                  >
-                    <GearSixIcon size={12} />
-                  </Button>
-                </Tooltip>
+              {isUnavailable ? (
+                <span className="shrink-0 rounded-full bg-(--red-3) px-1.5 py-px font-medium text-(--red-11) text-[11px]">
+                  Removed from GitHub
+                </span>
               ) : null}
+            </div>
+            {meta ? (
+              <span className="truncate text-[12px] text-gray-10 leading-snug">
+                {meta}
+              </span>
+            ) : null}
+            <div className="flex min-w-0 items-center gap-1">
+              <GitBranchIcon size={12} className="shrink-0 text-(--gray-10)" />
+              {status === "loading" ? (
+                <Spinner />
+              ) : canExpand ? (
+                <button
+                  type="button"
+                  onClick={() => setExpanded((value) => !value)}
+                  className="-mx-1 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 text-left transition-colors hover:bg-(--gray-3)"
+                >
+                  {expanded ? (
+                    <CaretDownIcon
+                      size={11}
+                      className="shrink-0 text-(--gray-10)"
+                    />
+                  ) : (
+                    <CaretRightIcon
+                      size={11}
+                      className="shrink-0 text-(--gray-10)"
+                    />
+                  )}
+                  {accessLine}
+                </button>
+              ) : (
+                accessLine
+              )}
             </div>
           </div>
         </div>
-        {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {onManage ? (
+            <Tooltip content="Manage on GitHub">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                onClick={onManage}
+                aria-label="Manage on GitHub"
+              >
+                <GearSixIcon size={14} />
+              </Button>
+            </Tooltip>
+          ) : null}
+          {actions}
+        </div>
       </div>
       {expanded && canExpand ? (
-        <div className="ml-9 max-h-48 overflow-y-auto rounded-(--radius-2) border border-(--gray-5) bg-(--gray-2)">
+        <div className="ml-8 max-h-48 overflow-y-auto rounded-(--radius-2) border border-(--gray-5) bg-(--gray-2)">
           <div className="flex flex-col py-1">
             {repos.map((repo) => (
               <Text
@@ -173,8 +174,8 @@ export function GithubRepoSummary({
           </div>
         </div>
       ) : null}
-      {status === "unavailable" ? (
-        <div className="ml-9 rounded-(--radius-2) border border-(--red-6) bg-(--red-2) px-3 py-2">
+      {isUnavailable ? (
+        <div className="ml-8 rounded-(--radius-2) border border-(--red-6) bg-(--red-2) px-3 py-2">
           <Text size="xs" className="text-(--red-11)">
             The PostHog app was removed from GitHub. Remove this connection,
             then connect again if you still need it.

@@ -1,5 +1,6 @@
 import { Button } from "@posthog/quill";
 import { GithubRepoSummary } from "@posthog/ui/features/integrations/components/GithubRepoSummary";
+import { SettingsCard } from "@posthog/ui/features/settings/components/SettingsCard";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const repos = [
@@ -14,6 +15,13 @@ const meta: Meta<typeof GithubRepoSummary> = {
   title: "Integrations/GithubRepoSummary",
   component: GithubRepoSummary,
   parameters: { layout: "padded" },
+  decorators: [
+    (Story) => (
+      <SettingsCard>
+        <Story />
+      </SettingsCard>
+    ),
+  ],
   args: {
     accountLabel: "PostHog",
     repos,
