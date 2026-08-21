@@ -31,6 +31,7 @@ from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
+from posthog.hogql.functions.ip import safe_ip_address_arg
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
@@ -1856,6 +1857,18 @@ class Resolver(CloningVisitor):
             node = ast.Call(
                 name=node.name,
                 args=expanded_args,
+                params=node.params,
+                distinct=node.distinct,
+                start=node.start,
+                end=node.end,
+            )
+
+        # isIPAddressInRange parses its address argument strictly and aborts the whole query on a
+        # single unparsable value. It has no safe variant, so guard the address for the caller.
+        if node.name == "isIPAddressInRange" and len(node.args) == 2:
+            node = ast.Call(
+                name=node.name,
+                args=[safe_ip_address_arg(node.args[0]), node.args[1]],
                 params=node.params,
                 distinct=node.distinct,
                 start=node.start,
