@@ -1,18 +1,10 @@
-import {
-  CopyIcon,
-  FileTextIcon,
-  MagnifyingGlassIcon,
-} from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
-import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
+import { ReportDecisionSection } from "@posthog/ui/features/inbox/components/ReportDecisionSection";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
-import { ReportTasksSection } from "@posthog/ui/features/inbox/components/ReportTasksSection";
-import { SuggestedReviewersSection } from "@posthog/ui/features/inbox/components/SuggestedReviewersSection";
-import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 
 interface ReportDetailProps {
   reportId: string;
@@ -51,6 +43,11 @@ export function ReportDetail({
   );
 }
 
+/**
+ * A report reads as: the story (summary + charts), then its one ask (the
+ * decision block), then the evidence. Pipeline machinery (runs, activity
+ * logs, reviewer reasoning) deliberately doesn't render.
+ */
 function ReportDetailContent({
   report,
   backTo,
@@ -66,27 +63,15 @@ function ReportDetailContent({
       backTo={backTo}
       backLabel={backLabel}
       fallbackTitle="Untitled report"
-      primaryAction={
+      primaryAction={<ReportDetailActions report={report} />}
+      summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+      belowSummary={
         <>
-          <ReportDetailActions report={report} />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => copyInboxReportLink(report)}
-            title="Copy a deep link to this report"
-          >
-            <CopyIcon size={12} />
-          </Button>
+          <ReportDecisionSection report={report} />
+          <ReportFeedbackFooter report={report} />
         </>
       }
-      summarySection={{ Icon: FileTextIcon, title: "Summary" }}
-      belowSummary={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-      aboveEvidence={<SuggestedReviewersSection report={report} />}
-    >
-      <ReportTasksSection report={report} />
-      <ReportActivitySection reportId={report.id} />
-    </InboxDetailFrame>
+    />
   );
 }

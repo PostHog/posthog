@@ -1,5 +1,6 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
+import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
 import { ReportStateMonogram } from "@posthog/ui/features/inbox/components/ReportStateMonogram";
@@ -18,7 +19,7 @@ export function ReportRow({
   onOpen: (reportId: string) => void;
 }) {
   const { actionButton, dialog } = useInboxReportDismissAction(report);
-  const title = report.title?.trim() || "Untitled report";
+  const title = humanizeReportTitle(report.title, "Untitled report");
 
   return (
     <>

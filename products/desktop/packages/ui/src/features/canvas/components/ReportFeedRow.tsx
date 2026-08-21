@@ -1,6 +1,9 @@
 import { FileTextIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
-import { deriveHeadline } from "@posthog/core/inbox/reportPresentation";
+import {
+  deriveHeadline,
+  humanizeReportTitle,
+} from "@posthog/core/inbox/reportPresentation";
 import { Button, Card, CardContent } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
@@ -27,7 +30,7 @@ export function ReportFeedRow({
   report: SignalReport;
   onOpenReport: (reportId: string) => void;
 }) {
-  const title = report.title?.trim() || "Untitled report";
+  const title = humanizeReportTitle(report.title, "Untitled report");
   const headline = useMemo(
     () => deriveHeadline(report.summary),
     [report.summary],
@@ -103,6 +106,9 @@ export function ReportFeedRow({
               </InboxBadge>
             )}
             {archived && <InboxBadge>Archived</InboxBadge>}
+            {report.priority && (
+              <span className="text-(--gray-9)">· {report.priority}</span>
+            )}
             <span>· {formatRelativeTimeShort(report.created_at)}</span>
           </div>
         </CardContent>

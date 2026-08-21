@@ -31,7 +31,7 @@ type BulkActionName =
 
 /**
  * Map an enriched reviewer list back to the write shape the artefact PUT expects
- * (mirrors `SuggestedReviewersSection`). The server takes the full replacement
+ * (mirrors `ReportReviewersHeader`). The server takes the full replacement
  * list, not a diff, so removing a reviewer means sending everyone else.
  */
 function toReviewerWriteContent(

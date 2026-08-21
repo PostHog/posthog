@@ -194,6 +194,20 @@ export function displayConventionalCommitTitle(
   return trimmed ? trimmed : fallback;
 }
 
+/**
+ * The human display title: conventional-commit prefixes stripped and the first
+ * letter capitalized, so "fix(oauth): validate scopes" reads "Validate scopes".
+ * Reports present as briefs, not commits — the commit-shaped title still lives
+ * on the PR itself.
+ */
+export function humanizeReportTitle(
+  title: string | null | undefined,
+  fallback: string,
+): string {
+  const display = displayConventionalCommitTitle(title, fallback);
+  return display.charAt(0).toUpperCase() + display.slice(1);
+}
+
 export interface ParsedPrUrl {
   owner: string;
   repo: string;

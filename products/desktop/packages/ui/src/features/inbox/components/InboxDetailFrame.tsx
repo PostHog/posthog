@@ -1,6 +1,5 @@
 import type { IconProps } from "@phosphor-icons/react";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
-import { isStatusRedundantWithActionability } from "@posthog/core/inbox/reportPresentation";
 import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
@@ -11,14 +10,13 @@ import {
   InboxMetaText,
 } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportReviewersHeader } from "@posthog/ui/features/inbox/components/ReportReviewersHeader";
 import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
 import {
   SignalsList,
   SignalsListSkeleton,
 } from "@posthog/ui/features/inbox/components/SignalsList";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
-import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
-import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
@@ -123,24 +121,10 @@ export function InboxDetailFrame({
         fallbackTitle={fallbackTitle}
         badges={
           <>
-            {report.priority && (
-              <SignalReportPriorityBadge priority={report.priority} />
-            )}
-            {/*
-              When the report has been classified by the Responder, the
-              actionability verdict (Actionable / Needs input / Not actionable)
-              takes the status badge's slot where the status would only repeat
-              it. Other statuses (in-progress, candidate, failed, …) still
-              surface as a badge.
-             */}
-            {!isStatusRedundantWithActionability(
-              report.status,
-              report.actionability,
-            ) && <SignalReportStatusBadge status={report.status} />}
-            {report.actionability && (
-              <SignalReportActionabilityBadge
-                actionability={report.actionability}
-              />
+            {/* Ready is the default state and the decision block says so; only
+                an exceptional status (failed, running, archived) earns a badge. */}
+            {report.status !== "ready" && (
+              <SignalReportStatusBadge status={report.status} />
             )}
             {report.is_suggested_reviewer && <ForYouBadge />}
           </>
@@ -169,11 +153,18 @@ export function InboxDetailFrame({
                 />
               </>
             )}
+            {report.priority && (
+              <>
+                <InboxMetaSeparator />
+                <InboxMetaText>{report.priority}</InboxMetaText>
+              </>
+            )}
             {metaSuffix}
           </>
         }
         actions={
           <div className="flex items-center gap-2.5">
+            <ReportReviewersHeader report={report} />
             {primaryAction}
             {showDismiss && dismissButton}
           </div>
