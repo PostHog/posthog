@@ -809,6 +809,17 @@ class TestExperimentService(APIBaseTest):
                 },
                 "exposure_criteria.activation_config requires the default exposure event",
             ),
+            (
+                "unknown_top_level_properties",
+                {"properties": [{"key": "email", "value": "x"}]},
+                "exposure_criteria contains unknown key(s): properties. Property filters on the "
+                "exposure event belong at exposure_criteria.exposure_config.properties.",
+            ),
+            (
+                "unknown_top_level_key",
+                {"filterTestAccounts": True, "custom_thing": 1},
+                "exposure_criteria contains unknown key(s): custom_thing",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -854,6 +865,10 @@ class TestExperimentService(APIBaseTest):
             (
                 "explicit_null_configs",
                 {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "multiple_variant_handling",
+                {"multiple_variant_handling": "exclude"},
             ),
             (
                 "null_activation_with_custom_exposure",
