@@ -417,7 +417,7 @@ class TestWebhookSourceManager:
         assert len(tables) == 1
         assert tables[0].num_rows == 2
         assert pa.types.is_string(tables[0].schema.field("total_sales").type)
-        assert sorted(tables[0].column("id").to_pylist()) == ["1", "2"]
+        assert sorted(id for id in tables[0].column("id").to_pylist() if id is not None) == ["1", "2"]
 
     async def test_get_items_yields_nothing_when_no_files(self):
         manager = _make_manager()
