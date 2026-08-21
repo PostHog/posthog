@@ -1510,11 +1510,11 @@ export function ChannelFeedView({
   // say so, and point at the next action, instead of dead space.
   const kindEmptyNote =
     activeKindFilter === "sessions" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-[13px] text-(--gray-10)">
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
         No sessions yet. Start one from the composer above.
       </p>
     ) : activeKindFilter === "reports" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-[13px] text-(--gray-10)">
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
         No reports here yet. Open the filter to widen the list.
       </p>
     ) : null;
