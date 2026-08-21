@@ -51,6 +51,7 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 
 import { useChannelPaneStore } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
 describe("NavRail", () => {
@@ -59,6 +60,7 @@ describe("NavRail", () => {
     mocks.view = { type: "home" };
     mocks.pathname = "/website/home";
     useNavRailStore.setState({ pane: "spaces" });
+    useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
   });
 
   it("hands the sidebar column to Activity without leaving the current screen", async () => {
@@ -149,6 +151,51 @@ describe("NavRail", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
+  });
+
+  // Hiding and reordering nav items is a sidebar setting shared with the code
+  // layout's nav; the rail is the other shell that has to honor it.
+  it("drops an item hidden in the sidebar settings", () => {
+    useSidebarStore.setState({ navItemOverrides: { "command-center": false } });
+    render(<NavRail />);
+
+    expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Inbox")).toBeInTheDocument();
+  });
+
+  it("keeps the column's own destinations when everything else is hidden", () => {
+    useSidebarStore.setState({
+      navItemOverrides: {
+        inbox: false,
+        activity: false,
+        "command-center": false,
+        loops: false,
+        configure: false,
+      },
+    });
+    render(<NavRail />);
+
+    expect(screen.getByLabelText("Home")).toBeInTheDocument();
+    expect(screen.getByLabelText("Spaces")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Settings")).not.toBeInTheDocument();
+  });
+
+  it("follows a stored order without moving the pinned destinations", () => {
+    useSidebarStore.setState({
+      navItemOrder: ["command-center", "inbox", "activity"],
+    });
+    const { container } = render(<NavRail />);
+
+    const labels = [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(labels.slice(0, 5)).toEqual([
+      "Home",
+      "Spaces",
+      "Command Center",
+      "Inbox",
+      "Activity",
+    ]);
   });
 
   it("counts a channel or task as part of Spaces", () => {

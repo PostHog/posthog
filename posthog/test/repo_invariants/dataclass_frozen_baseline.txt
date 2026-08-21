@@ -17,7 +17,6 @@
 1 posthog/clickhouse/property_groups.py
 1 posthog/clickhouse/test/test_explain.py
 1 posthog/dags/common/resources.py
-1 posthog/dags/postgres_to_clickhouse_etl.py
 1 posthog/dags/tests/test_events_backfill_to_duckling.py
 1 posthog/dags/tests/test_property_definitions.py
 1 posthog/errors.py

@@ -15,9 +15,9 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
   paneForView,
-  RAIL_DESTINATIONS,
   type RailCounts,
   type RailDestination,
+  visibleRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
@@ -26,7 +26,11 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import {
+  isNavItemVisible,
+  NAV_RAIL_WIDTH,
+} from "@posthog/ui/features/sidebar/constants";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
@@ -210,6 +214,16 @@ export function NavRail() {
   const inWebsiteTree = useRouterState({
     select: (s) => s.location.pathname.startsWith("/website"),
   });
+  // Hiding and reordering nav items is a sidebar setting; the rail is one of
+  // the two shells that honors it.
+  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
+  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
+  const destinations = visibleRailDestinations({
+    overrides: navItemOverrides,
+    order: navItemOrder,
+    loops: loopsEnabled,
+  });
+  const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
   // Selecting the destination is the whole interaction; what it does beyond
   // that is the destination's own business.
@@ -244,9 +258,7 @@ export function NavRail() {
         className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
-        {RAIL_DESTINATIONS.filter(
-          ({ enabled }) => enabled?.({ loops: loopsEnabled }) ?? true,
-        ).map((destination) => {
+        {destinations.map((destination) => {
           const { pane, label, Icon, count, countTone } = destination;
           const isActive = railPane === pane;
           const badge = (
@@ -283,19 +295,21 @@ export function NavRail() {
         {/* The foot of the rail: what you reach for, rather than where you
             are. Neither owns a pane, so neither is ever lit. */}
         <div className="mt-auto flex flex-col items-center gap-1.5">
-          <NavIcon
-            icon={<GearSix size={16} />}
-            label="Settings"
-            isActive={false}
-            onClick={() => {
-              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-                item: "configure",
-                in_more: false,
-                layout: "channels",
-              });
-              openSettings();
-            }}
-          />
+          {settingsVisible && (
+            <NavIcon
+              icon={<GearSix size={16} />}
+              label="Settings"
+              isActive={false}
+              onClick={() => {
+                track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                  item: "configure",
+                  in_more: false,
+                  layout: "channels",
+                });
+                openSettings();
+              }}
+            />
+          )}
           <div className="my-0.5 w-5 shrink-0 border-border border-t" />
           <ProjectSwitcher appearance="icon" />
         </div>

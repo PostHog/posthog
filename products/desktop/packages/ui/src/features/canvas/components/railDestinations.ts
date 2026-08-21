@@ -13,6 +13,11 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  type CustomizableNavItemId,
+  isNavItemVisible,
+  type NavItemOverrides,
+} from "@posthog/ui/features/sidebar/constants";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -52,6 +57,12 @@ export interface RailDestination {
    * Activity was covering.
    */
   onPick?: (ctx: { inWebsiteTree: boolean }) => void;
+  /**
+   * The id this destination is customized under, when it is one a user can
+   * hide or reorder from the sidebar settings. Home and Spaces are not: they
+   * own the column beside the rail, so hiding them would strand it.
+   */
+  customizableId?: CustomizableNavItemId;
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
@@ -89,6 +100,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "activity",
+    customizableId: "activity",
     label: "Activity",
     analyticsId: "activity",
     Icon: BellIcon,
@@ -102,6 +114,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "inbox",
+    customizableId: "inbox",
     label: "Inbox",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
@@ -112,6 +125,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "command-center",
+    customizableId: "command-center",
     label: "Command Center",
     analyticsId: "command_center",
     Icon: Lightning,
@@ -122,6 +136,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
   {
     pane: "loops",
+    customizableId: "loops",
     label: "Loops",
     analyticsId: "loops",
     Icon: LoopIcon,
@@ -142,4 +157,50 @@ const PANE_BY_VIEW_TYPE = new Map<AppViewType, NavRailPane>(
 /** Which destination a route belongs to. Unclaimed routes belong to Spaces. */
 export function paneForView(viewType: AppViewType): NavRailPane {
   return PANE_BY_VIEW_TYPE.get(viewType) ?? "spaces";
+}
+
+/**
+ * The destinations to draw, in order, for a given set of user preferences.
+ *
+ * Hiding and reordering are the sidebar settings' feature, and the rail honors
+ * both. It keeps its own default sequence rather than the shared
+ * `orderedNavItems`, whose adjacency rule pins Activity below Inbox — the rail
+ * puts Activity first. A stored drag order still wins over either.
+ */
+export function visibleRailDestinations({
+  overrides,
+  order,
+  loops,
+}: {
+  overrides: NavItemOverrides;
+  order: readonly CustomizableNavItemId[];
+  loops: boolean;
+}): readonly RailDestination[] {
+  const shown = RAIL_DESTINATIONS.filter(
+    ({ customizableId, enabled }) =>
+      (enabled?.({ loops }) ?? true) &&
+      (!customizableId || isNavItemVisible(overrides, customizableId)),
+  );
+  if (order.length === 0) return shown;
+
+  const rank = new Map(order.map((id, index) => [id, index]));
+  const positions = shown
+    .map((_, index) => index)
+    .filter((index) => {
+      const id = shown[index].customizableId;
+      return id !== undefined && rank.has(id);
+    });
+  const reordered = positions
+    .map((index) => shown[index])
+    .sort(
+      (a, b) =>
+        (rank.get(a.customizableId as CustomizableNavItemId) ?? 0) -
+        (rank.get(b.customizableId as CustomizableNavItemId) ?? 0),
+    );
+  // Only the customizable entries move; the pinned ones keep their slots.
+  const result = [...shown];
+  positions.forEach((position, i) => {
+    result[position] = reordered[i];
+  });
+  return result;
 }
