@@ -68,7 +68,7 @@ export interface accessControlLogicValues {
     hasLockedRules: boolean
     humanReadableResource: string
     inheritedAccess: InheritedAccess | null
-    lockedRuleReason: (rule?: Pick<AccessControlTypeBase, 'managed_by'> | null) => string | undefined
+    lockedRuleReason: (rule?: Pick<AccessControlTypeBase, 'managed_by'> | null | undefined) => string | undefined
     membersById: Record<string, OrganizationMemberType>
     minimumAccessLevel: AccessControlLevel | null
     organizationAdmins: OrganizationMemberType[]
@@ -768,7 +768,7 @@ export interface accessControlLogicMeta {
         hasLockedRules: (accessControls: AccessControlResponseType | null) => boolean
         lockedRuleReason: (
             accessControls: AccessControlResponseType | null
-        ) => (rule?: Pick<AccessControlTypeBase, 'managed_by'> | null) => string | undefined
+        ) => (rule?: Pick<AccessControlTypeBase, 'managed_by'> | null | undefined) => string | undefined
         accessControlDefault: (accessControls: AccessControlResponseType | null) => AccessControlTypeProject | null
         inheritedAccess: (accessControls: AccessControlResponseType | null) => InheritedAccess | null
         organizationAdmins: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
