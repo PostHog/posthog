@@ -97,6 +97,9 @@ Treat these as starting shapes and adapt them to the request and available data.
 - Use a `LineChart` for time series and a `BarChart` for discrete categories. Do not turn every
   result into a table.
 - Give every KPI, chart, and table its own loading, empty, and error state.
+- Make every figure verifiable: a "View in PostHog" affordance opening the backing saved insight
+  (`ph.openExternal` with a URL minted by `generate-app-url`), plus a "View query" `Dialog` or
+  `Collapsible` showing the exact query that ran — see "Verifiability" in `querying-canvas-data`.
 
 ### Web analytics board
 
