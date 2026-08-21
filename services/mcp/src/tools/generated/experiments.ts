@@ -29,6 +29,7 @@ import {
     ExperimentsDuplicateCreateParams,
     ExperimentsEndCreateBody,
     ExperimentsEndCreateParams,
+    ExperimentsFlagCleanupTaskRetrieveParams,
     ExperimentsFreezeExposureCreateParams,
     ExperimentsLaunchCreateParams,
     ExperimentsListQueryParams,
@@ -420,7 +421,15 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
 
 const ExperimentEndSchema = ExperimentsEndCreateParams.omit({ project_id: true })
     .extend(ExperimentsEndCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']),
+        open_cleanup_pr: ExperimentsEndCreateBody.shape['open_cleanup_pr'].describe(
+            "When true, a background PostHog Code task removes the experiment's feature flag code and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+        ),
+        repository: ExperimentsEndCreateBody.shape['repository'].describe(
+            "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+        ),
+    })
 
 const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -441,9 +450,6 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
             }
-            if (params.set_repository_as_team_default !== undefined) {
-                body['set_repository_as_team_default'] = params.set_repository_as_team_default
-            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
@@ -452,6 +458,27 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
     })
+
+const ExperimentCleanupTaskSchema = ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
+})
+
+const experimentCleanupTask = (): ToolBase<
+    typeof ExperimentCleanupTaskSchema,
+    WithPostHogUrl<Schemas.ExperimentFlagCleanupTask>
+> => ({
+    name: 'experiment-cleanup-task',
+    schema: ExperimentCleanupTaskSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCleanupTaskSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentFlagCleanupTask>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/flag_cleanup_task/`,
+        })
+        const filtered = omitResponseFields(result, ['can_view_task']) as typeof result
+        return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
+    },
+})
 
 const ExperimentFreezeExposureSchema = ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
@@ -1025,7 +1052,15 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
 
 const ExperimentShipVariantSchema = ExperimentsShipVariantCreateParams.omit({ project_id: true })
     .extend(ExperimentsShipVariantCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']),
+        open_cleanup_pr: ExperimentsShipVariantCreateBody.shape['open_cleanup_pr'].describe(
+            "When true, a background PostHog Code task removes the experiment's feature flag code, keeping the shipped variant's code path, and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+        ),
+        repository: ExperimentsShipVariantCreateBody.shape['repository'].describe(
+            "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+        ),
+    })
 
 const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -1045,9 +1080,6 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
-            }
-            if (params.set_repository_as_team_default !== undefined) {
-                body['set_repository_as_team_default'] = params.set_repository_as_team_default
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
@@ -1303,6 +1335,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
     'experiment-end': experimentEnd,
+    'experiment-cleanup-task': experimentCleanupTask,
     'experiment-freeze-exposure': experimentFreezeExposure,
     'experiment-get': experimentGet,
     'experiment-holdouts-create': experimentHoldoutsCreate,
