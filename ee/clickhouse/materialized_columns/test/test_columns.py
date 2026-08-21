@@ -90,26 +90,39 @@ class TestMaterializedColumnDetails(TestCase):
 
 class TestMaterializedColumnsTransientFallback(TestCase):
     # A transient ClickHouse failure during this schema-introspection lookup must not fail HogQL
-    # query preparation: `_get_all` degrades gracefully rather than propagate the error.
+    # query preparation: on the read path (`fallback_on_error=True`) `_get_all` degrades gracefully
+    # rather than propagate the error. Schema-mutation callers keep the fail-loud default so they
+    # never mutate the comment-based registry against a degraded (empty) view of it.
+    TRANSIENT_ERRORS = [
+        ("capacity", ClickHouseAtCapacity()),
+        ("connection_refused", NetworkError("Connection refused")),
+        ("socket_timeout", SocketTimeoutError("timed out")),
+        ("socket_error", OSError("connection reset")),
+        ("closed_stream", EOFError("Unexpected EOF")),
+    ]
+
     def setUp(self):
         _clear_materialized_columns_cache("events")
         self.addCleanup(_clear_materialized_columns_cache, "events")
 
-    @parameterized.expand(
-        [
-            ("capacity", ClickHouseAtCapacity()),
-            ("connection_refused", NetworkError("Connection refused")),
-            ("socket_timeout", SocketTimeoutError("timed out")),
-            ("socket_error", OSError("connection reset")),
-            ("closed_stream", EOFError("Unexpected EOF")),
-        ]
-    )
+    @parameterized.expand(TRANSIENT_ERRORS)
     def test_falls_back_to_empty_when_query_fails_and_no_cache(self, _name, error):
         with patch(
             "ee.clickhouse.materialized_columns.columns.sync_execute",
             side_effect=error,
         ):
-            assert MaterializedColumn._get_all("events") == []
+            assert MaterializedColumn._get_all("events", fallback_on_error=True) == []
+
+    @parameterized.expand(TRANSIENT_ERRORS)
+    def test_reraises_when_query_fails_and_fallback_disabled(self, _name, error):
+        # The mutation path (default fallback_on_error=False) must fail loud: swallowing the error
+        # would let `materialize` treat existing columns as absent and corrupt the registry.
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            side_effect=error,
+        ):
+            with pytest.raises(type(error)):
+                MaterializedColumn._get_all("events")
 
     def test_falls_back_to_stale_cache_when_query_fails(self):
         cached: list[tuple[str, str, str, bool, list[str]]] = [
@@ -127,7 +140,7 @@ class TestMaterializedColumnsTransientFallback(TestCase):
                 side_effect=NetworkError("Connection refused"),
             ),
         ):
-            assert MaterializedColumn._get_all("events") == cached
+            assert MaterializedColumn._get_all("events", fallback_on_error=True) == cached
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):

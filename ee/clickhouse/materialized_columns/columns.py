@@ -104,7 +104,9 @@ class MaterializedColumn:
             )
 
     @staticmethod
-    def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
+    def _get_all(
+        table: TablesWithMaterializedColumns, *, fallback_on_error: bool = False
+    ) -> list[tuple[str, str, str, bool, list[str]]]:
         # In TEST mode never do the probabilistic refresh: test-mode cache is process-local and
         # every schema mutation invalidates the key explicitly, so a random bypass would cause
         # non-deterministic extra system.columns queries that break assertNumQueries / snapshot tests.
@@ -168,11 +170,19 @@ class MaterializedColumn:
                     ch_user=ClickHouseUser.HOGQL,
                 )
         except TRANSIENT_METADATA_ERRORS:
-            # This is a lightweight schema-introspection query, but it shares ClickHouse's connection
-            # and query-concurrency budget with real analytics queries. When ClickHouse is unreachable
-            # or at capacity it must not fail HogQL query preparation - degrade gracefully instead:
+            # Only the HogQL read path (fallback_on_error=True) tolerates a failed lookup. This is a
+            # lightweight schema-introspection query, but it shares ClickHouse's connection and
+            # query-concurrency budget with real analytics queries. When ClickHouse is unreachable or
+            # at capacity it must not fail HogQL query preparation - degrade gracefully instead:
             # reuse the last cached result (even if stale), or fall back to no materialized columns so
             # the query still runs via JSON extraction rather than dying before it executes.
+            #
+            # Schema-mutation callers (materialize, _materialized_column_name) must never degrade:
+            # an empty result reads as "column absent" and makes them create a colliding column or
+            # revive a disabled one, corrupting the comment-based registry. They keep the default and
+            # fail loud so the mutation aborts instead.
+            if not fallback_on_error:
+                raise
             if use_cache:
                 try:
                     stale_result = cache.get(cache_key)
@@ -196,12 +206,14 @@ class MaterializedColumn:
         return result
 
     @staticmethod
-    def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
+    def get_all(
+        table: TablesWithMaterializedColumns, *, fallback_on_error: bool = False
+    ) -> Iterator[MaterializedColumn]:
         if table not in MATERIALIZATION_VALID_TABLES:
             logger.error("HogQL trying to get materialized columns for table: %s", table)
             return
 
-        rows = MaterializedColumn._get_all(table)
+        rows = MaterializedColumn._get_all(table, fallback_on_error=fallback_on_error)
         for name, comment, column_type, is_nullable, index_names in rows:
             # Exact name matches: a prefix check would mismatch `bloom_filter_` against `bloom_filter_lower_`
             yield MaterializedColumn(
@@ -277,7 +289,15 @@ def get_materialized_columns(
 def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
-    return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
+    # HogQL read path: build directly from a degrading read so a transient ClickHouse failure
+    # falls back to no materialized columns (query still compiles via JSON extraction) instead of
+    # killing query preparation. The schema-mutation path uses get_materialized_columns, which fails
+    # loud so it never mutates against a degraded registry.
+    return {
+        (column.details.property_name, column.details.table_column): column
+        for column in MaterializedColumn.get_all(table, fallback_on_error=True)
+        if not column.details.is_disabled
+    }
 
 
 @dataclass
