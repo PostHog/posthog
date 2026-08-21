@@ -42,6 +42,7 @@ export interface recommendationsTabLogicValues {
     dismissedExpanded: boolean
     ignoredRecommendations: ErrorTrackingRecommendation[]
     openAlertTriggerKey: HogFunctionSubTemplateIdType | null
+    pendingIssueIds: Set<string>
     recommendations: ErrorTrackingRecommendation[]
     recommendationsLoading: boolean
 }
@@ -59,6 +60,9 @@ export interface recommendationsTabLogicActions {
     }
     ensurePollingScheduled: () => {
         value: true
+    }
+    finishIssueMutation: (issueId: string) => {
+        issueId: string
     }
     loadRecommendations: () => {
         value: true
@@ -83,6 +87,9 @@ export interface recommendationsTabLogicActions {
     }
     setRecommendationsLoading: (loading: boolean) => {
         loading: boolean
+    }
+    startIssueMutation: (issueId: string) => {
+        issueId: string
     }
     suppressIssue: (issueId: string) => {
         issueId: string
@@ -137,6 +144,8 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         restoreRecommendation: (id: string) => ({ id }),
         suppressIssue: (issueId: string) => ({ issueId }),
         activateIssue: (issueId: string) => ({ issueId }),
+        startIssueMutation: (issueId: string) => ({ issueId }),
+        finishIssueMutation: (issueId: string) => ({ issueId }),
 
         setRecommendations: (recommendations: ErrorTrackingRecommendation[]) => ({ recommendations }),
         upsertRecommendation: (recommendation: ErrorTrackingRecommendation) => ({ recommendation }),
@@ -168,6 +177,17 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                 setRecommendationsLoading: (_, { loading }) => loading,
             },
         ],
+        pendingIssueIds: [
+            new Set<string>(),
+            {
+                startIssueMutation: (state, { issueId }) => new Set(state).add(issueId),
+                finishIssueMutation: (state, { issueId }) => {
+                    const next = new Set(state)
+                    next.delete(issueId)
+                    return next
+                },
+            },
+        ],
         dismissedExpanded: [
             false,
             {
@@ -188,109 +208,132 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
-        loadRecommendations: async () => {
-            actions.setRecommendationsLoading(true)
-            try {
-                const response = await api.errorTracking.listRecommendations()
-                actions.setRecommendations(response.results)
-                posthog.capture('error_tracking_recommendations_loaded', {
-                    open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
-                    completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
-                    dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
-                    total_count: response.results.length,
-                })
-            } finally {
-                actions.setRecommendationsLoading(false)
-            }
-        },
-        pollRecommendations: async () => {
-            try {
-                const response = await api.errorTracking.listRecommendations({ poll: true })
-                actions.setRecommendations(response.results)
-            } catch {
-                actions.ensurePollingScheduled()
-            }
-        },
-        refreshRecommendation: async ({ id }) => {
-            // Optimistic flip — the spinner appears instantly. The server response will
-            // confirm the same status, so there's no flicker when it arrives.
-            actions.markRecommendationComputing(id)
-            try {
-                const updated = await api.errorTracking.refreshRecommendation(id)
-                actions.upsertRecommendation(updated)
-            } catch {
-                lemonToast.error('Failed to refresh recommendation')
-                // Polling will reconcile state regardless of which side errored.
-            }
-        },
-        dismissRecommendation: async ({ id }) => {
-            const updated = await api.errorTracking.dismissRecommendation(id)
-            actions.upsertRecommendation(updated)
-            posthog.capture('error_tracking_recommendation_dismissed', {
-                recommendation_type: updated.type,
-            })
-        },
-        restoreRecommendation: async ({ id }) => {
-            const updated = await api.errorTracking.restoreRecommendation(id)
-            actions.upsertRecommendation(updated)
-        },
-        suppressIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
-            posthog.capture('error_tracking_issue_update_status', {
-                status: 'suppressed',
-                issue_id: issueId,
-                source: 'recommendations',
-            })
+    listeners(({ actions, values, cache }) => {
+        // The background auto-merge can delete an issue while it still shows on a recommendation
+        // card. Drop the stale row so the card stops offering an action on an issue that is gone.
+        const dropStaleIssue = (issueId: string): void => {
             const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
             if (!longRunning) {
                 return
             }
-            // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
-            const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
-            actions.upsertRecommendation(updated)
-        },
-        activateIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'active' })
-            posthog.capture('error_tracking_issue_update_status', {
-                status: 'active',
-                issue_id: issueId,
-                source: 'recommendations',
+            actions.upsertRecommendation({
+                ...longRunning,
+                meta: {
+                    ...longRunning.meta,
+                    issues: longRunning.meta.issues.filter((issue) => issue.id !== issueId),
+                },
             })
-            const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
-            if (!longRunning) {
-                return
-            }
-            const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
-            actions.upsertRecommendation(updated)
-        },
+        }
 
-        // Polling lifecycle: any time the recommendations state changes, re-evaluate
-        // whether we still need to poll. Schedule one timer at a time.
-        setRecommendations: () => actions.ensurePollingScheduled(),
-        upsertRecommendation: () => actions.ensurePollingScheduled(),
-        markRecommendationComputing: () => actions.ensurePollingScheduled(),
-        ensurePollingScheduled: () => {
-            const stillComputing = values.recommendations.some((r) => r.status === 'computing')
-            if (!stillComputing) {
-                actions.clearPolling()
-                return
+        // Suppress and activate share one flow: mark the issue pending so its buttons show a
+        // loading state, update the status, then re-pull the card's enriched meta.
+        const applyIssueStatus = async (issueId: string, status: 'active' | 'suppressed'): Promise<void> => {
+            actions.startIssueMutation(issueId)
+            try {
+                try {
+                    await api.errorTracking.updateIssue(issueId, { status })
+                } catch (error: any) {
+                    if (error?.status === 404) {
+                        dropStaleIssue(issueId)
+                        return
+                    }
+                    lemonToast.error('Could not update the issue. Please try again.')
+                    return
+                }
+                posthog.capture('error_tracking_issue_update_status', {
+                    status,
+                    issue_id: issueId,
+                    source: 'recommendations',
+                })
+                const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
+                if (!longRunning) {
+                    return
+                }
+                // force=false: just re-pulls enriched meta, no recompute. So we don't mark computing.
+                const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
+                actions.upsertRecommendation(updated)
+            } finally {
+                actions.finishIssueMutation(issueId)
             }
-            if (cache.pollTimeoutId !== undefined) {
-                return
-            }
-            cache.pollTimeoutId = window.setTimeout(() => {
-                cache.pollTimeoutId = undefined
-                actions.pollRecommendations()
-            }, POLL_INTERVAL_MS)
-        },
-        clearPolling: () => {
-            if (cache.pollTimeoutId !== undefined) {
-                window.clearTimeout(cache.pollTimeoutId)
-                cache.pollTimeoutId = undefined
-            }
-        },
-    })),
+        }
+
+        return {
+            loadRecommendations: async () => {
+                actions.setRecommendationsLoading(true)
+                try {
+                    const response = await api.errorTracking.listRecommendations()
+                    actions.setRecommendations(response.results)
+                    posthog.capture('error_tracking_recommendations_loaded', {
+                        open_count: response.results.filter((r) => !r.dismissed_at && !r.completed).length,
+                        completed_count: response.results.filter((r) => !r.dismissed_at && r.completed).length,
+                        dismissed_count: response.results.filter((r) => !!r.dismissed_at).length,
+                        total_count: response.results.length,
+                    })
+                } finally {
+                    actions.setRecommendationsLoading(false)
+                }
+            },
+            pollRecommendations: async () => {
+                try {
+                    const response = await api.errorTracking.listRecommendations({ poll: true })
+                    actions.setRecommendations(response.results)
+                } catch {
+                    actions.ensurePollingScheduled()
+                }
+            },
+            refreshRecommendation: async ({ id }) => {
+                // Optimistic flip — the spinner appears instantly. The server response will
+                // confirm the same status, so there's no flicker when it arrives.
+                actions.markRecommendationComputing(id)
+                try {
+                    const updated = await api.errorTracking.refreshRecommendation(id)
+                    actions.upsertRecommendation(updated)
+                } catch {
+                    lemonToast.error('Failed to refresh recommendation')
+                    // Polling will reconcile state regardless of which side errored.
+                }
+            },
+            dismissRecommendation: async ({ id }) => {
+                const updated = await api.errorTracking.dismissRecommendation(id)
+                actions.upsertRecommendation(updated)
+                posthog.capture('error_tracking_recommendation_dismissed', {
+                    recommendation_type: updated.type,
+                })
+            },
+            restoreRecommendation: async ({ id }) => {
+                const updated = await api.errorTracking.restoreRecommendation(id)
+                actions.upsertRecommendation(updated)
+            },
+            suppressIssue: async ({ issueId }) => applyIssueStatus(issueId, 'suppressed'),
+            activateIssue: async ({ issueId }) => applyIssueStatus(issueId, 'active'),
+
+            // Polling lifecycle: any time the recommendations state changes, re-evaluate
+            // whether we still need to poll. Schedule one timer at a time.
+            setRecommendations: () => actions.ensurePollingScheduled(),
+            upsertRecommendation: () => actions.ensurePollingScheduled(),
+            markRecommendationComputing: () => actions.ensurePollingScheduled(),
+            ensurePollingScheduled: () => {
+                const stillComputing = values.recommendations.some((r) => r.status === 'computing')
+                if (!stillComputing) {
+                    actions.clearPolling()
+                    return
+                }
+                if (cache.pollTimeoutId !== undefined) {
+                    return
+                }
+                cache.pollTimeoutId = window.setTimeout(() => {
+                    cache.pollTimeoutId = undefined
+                    actions.pollRecommendations()
+                }, POLL_INTERVAL_MS)
+            },
+            clearPolling: () => {
+                if (cache.pollTimeoutId !== undefined) {
+                    window.clearTimeout(cache.pollTimeoutId)
+                    cache.pollTimeoutId = undefined
+                }
+            },
+        }
+    }),
 
     selectors({
         activeRecommendations: [

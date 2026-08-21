@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
@@ -18,6 +18,7 @@ export function LongRunningIssuesRecommendationCard({
     dismissed?: boolean
 }): JSX.Element | null {
     const { suppressIssue, activateIssue } = useActions(recommendationsTabLogic)
+    const { pendingIssueIds } = useValues(recommendationsTabLogic)
 
     const issues = recommendation.meta.issues ?? []
     const isFirstLoad = recommendation.computed_at === null
@@ -51,6 +52,7 @@ export function LongRunningIssuesRecommendationCard({
             <div className="flex flex-col gap-0">
                 {issues.map((issue) => {
                     const isActive = issue.status === 'active'
+                    const isPending = pendingIssueIds.has(issue.id)
                     return (
                         <div key={issue.id} className="border-b last:border-b-0">
                             <Link
@@ -85,6 +87,7 @@ export function LongRunningIssuesRecommendationCard({
                                             size="xsmall"
                                             type="secondary"
                                             status="danger"
+                                            loading={isPending}
                                             onClick={(e) => {
                                                 e.preventDefault()
                                                 e.stopPropagation()
@@ -97,6 +100,7 @@ export function LongRunningIssuesRecommendationCard({
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
+                                            loading={isPending}
                                             onClick={(e) => {
                                                 e.preventDefault()
                                                 e.stopPropagation()
