@@ -365,7 +365,8 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert session_recording["triggerMatchType"] is None
 
     def test_v2_projection_does_not_override_populated_legacy_fields(self) -> None:
-        # Legacy columns win when a team has both, so the projection must not clobber them.
+        # The V1 fields are one contract, so any explicit legacy targeting suppresses the whole
+        # projection. Here only the event column is set; the group's match type must not bleed in.
         self.team.session_recording_opt_in = True
         self.team.session_recording_event_trigger_config = ["legacy_event"]
         self.team.session_recording_trigger_groups = {
@@ -376,6 +377,24 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         session_recording = self.remote_config.config["sessionRecording"]
         assert session_recording["eventTriggers"] == ["legacy_event"]
+        assert session_recording["triggerMatchType"] is None
+
+    def test_v2_projection_skipped_when_partial_legacy_config(self) -> None:
+        # A legacy URL-only team recorded every /checkout session on old SDKs. Projecting the
+        # group's event trigger and match type would turn that into URL AND event and drop those
+        # sessions, so the projection must leave the explicit legacy config alone.
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_url_trigger_config = [{"url": "/checkout", "matching": "regex"}]
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [{"id": "g1", "sampleRate": 1, "conditions": {"matchType": "all", "events": ["purchase"]}}],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        assert session_recording["urlTriggers"] == [{"url": "/checkout", "matching": "regex"}]
+        assert session_recording["eventTriggers"] == []
+        assert session_recording["triggerMatchType"] is None
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True

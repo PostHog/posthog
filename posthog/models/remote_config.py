@@ -259,13 +259,20 @@ class RemoteConfig(UUIDTModel):
                     }
                 normalized_groups.append(group)
 
-            # Old SDKs read the flat V1 fields, not triggerGroups. When the legacy columns are
-            # empty, fill each empty field from the groups so an old SDK records an approximation
-            # instead of every session.
-            projected_v1_fields = project_trigger_groups_to_v1_fields(groups)
-            for key, value in projected_v1_fields.items():
-                if not v1_fields.get(key):
-                    v1_fields[key] = value
+            # Old SDKs read the flat V1 fields, not triggerGroups. The V1 fields are one contract:
+            # triggerMatchType decides how urlTriggers/eventTriggers/sampleRate/linkedFlag combine,
+            # so projecting one field next to an explicit legacy value changes what that value means
+            # (a legacy URL trigger plus a projected event trigger becomes URL AND event, dropping
+            # sessions the URL trigger alone used to record). Only project when the team set no
+            # legacy V1 targeting at all; a blank legacy config would otherwise make an old SDK
+            # record every session, which the projection prevents. Any explicit legacy field is left
+            # untouched.
+            has_legacy_targeting = any(
+                v1_fields.get(key)
+                for key in ("sampleRate", "linkedFlag", "urlTriggers", "eventTriggers", "triggerMatchType")
+            )
+            if not has_legacy_targeting:
+                v1_fields.update(project_trigger_groups_to_v1_fields(groups))
 
             return {
                 **base_config,
