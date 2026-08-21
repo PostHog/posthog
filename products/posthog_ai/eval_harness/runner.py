@@ -239,8 +239,9 @@ def parse_agent_artifacts(log_content: str, duration_seconds: float, agent_finis
         elif isinstance(content, str):
             text = content
 
-        # Detect git diff output
-        if "git diff" in title and text:
+        # A `git diff --name-only` or `--stat` title still contains "git diff", so gate on the
+        # unified-diff header to keep a bare file list from overwriting a real diff.
+        if "git diff" in title and "diff --git " in text:
             git_diff = text
 
         # Detect git status / changed files
