@@ -72,8 +72,8 @@ from products.tasks.backend.facade.billing import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
-from products.warehouse_sources.backend.facade.enums import ExternalDataJobStatus, ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)

@@ -7,7 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.warehouse_sources.backend.facade.enums import WarehouseColumnAnnotationDescriptionSource
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 # Both annotation models reuse this provenance enum, so the two surfaces never drift.
 DescriptionSource = WarehouseColumnAnnotationDescriptionSource

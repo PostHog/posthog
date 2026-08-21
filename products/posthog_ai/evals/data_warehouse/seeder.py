@@ -39,7 +39,7 @@ from products.posthog_ai.evals.data_warehouse.synthesizer import (
     SynthTable,
     WarehouseSchemaSynthesizer,
 )
-from products.warehouse_sources.backend.facade.enums import (
+from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceStatus,
     WarehouseColumnAnnotationDescriptionSource,

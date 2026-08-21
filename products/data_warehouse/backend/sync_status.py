@@ -7,8 +7,8 @@ from django.db.models import Q
 
 import humanize
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning

@@ -11,8 +11,8 @@ from products.data_warehouse.backend.logic.data_load.service import (
     bulk_update_external_data_job_schedules,
     sync_cdc_extraction_schedule,
 )
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaSyncType
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSyncType
 
 logger = structlog.get_logger(__name__)
 

@@ -7,13 +7,13 @@ from django.db.models import Prefetch
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade import enums
+from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
-    Status = enums.ExternalDataJobStatus
-    PipelineVersion = enums.ExternalDataJobPipelineVersion
+    Status = ExternalDataJobStatus
+    PipelineVersion = ExternalDataJobPipelineVersion
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)

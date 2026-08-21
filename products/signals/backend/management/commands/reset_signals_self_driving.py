@@ -20,7 +20,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceCreatedVia
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceCreatedVia
 
 # Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the

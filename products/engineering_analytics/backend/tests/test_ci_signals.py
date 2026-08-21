@@ -66,14 +66,17 @@ from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalReme
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import set_signal_source_types_enabled, validate_signal_input
 from products.signals.backend.models import SignalEmissionRecord, SignalSourceConfig
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus, ExternalDataSourceStatus
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+)
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 _BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]

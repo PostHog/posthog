@@ -20,8 +20,8 @@ from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
 )
-from products.warehouse_sources.backend.facade.enums import ExternalDataJobStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 
 logger = structlog.get_logger(__name__)
 

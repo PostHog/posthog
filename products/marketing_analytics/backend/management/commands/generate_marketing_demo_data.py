@@ -42,12 +42,12 @@ from products.marketing_analytics.backend.demo import (
 )
 from products.marketing_analytics.backend.demo.events import MarketingEventGenerator
 from products.marketing_analytics.backend.demo.world import CAMPAIGNS, FREE_CHANNELS
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceStatus
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
     get_or_create_datawarehouse_credential,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceStatus
 
 
 class Command(BaseCommand):

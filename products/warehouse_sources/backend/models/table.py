@@ -45,7 +45,6 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade import enums
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -56,6 +55,7 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -285,8 +285,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
-    TableFormat = enums.DataWarehouseTableFormat
-    CreatedVia = enums.DataWarehouseTableCreatedVia
+    TableFormat = DataWarehouseTableFormat
+    CreatedVia = DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)

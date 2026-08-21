@@ -35,8 +35,8 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from products.data_warehouse.backend.logic.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaSyncType, ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSyncType, ExternalDataSourceAccessMethod
 
 logger = structlog.get_logger(__name__)
 

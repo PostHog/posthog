@@ -10,16 +10,16 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
-from products.warehouse_sources.backend.facade.enums import (
-    ExternalDataJobPipelineVersion,
-    ExternalDataJobStatus,
-    ExternalDataSchemaStatus,
-)
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
+)
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobPipelineVersion,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
 )
 
 JOB_STATUS_TRANSITION_REJECTED = Counter(

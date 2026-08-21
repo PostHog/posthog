@@ -15,8 +15,8 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
 )
 from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl

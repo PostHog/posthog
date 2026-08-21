@@ -14,7 +14,7 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start

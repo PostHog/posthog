@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
-from products.warehouse_sources.backend.facade import enums
+from products.warehouse_sources.backend.types import WarehouseColumnAnnotationDescriptionSource
 
 
 class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -17,7 +17,7 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     """
 
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
-    DescriptionSource = enums.WarehouseColumnAnnotationDescriptionSource
+    DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     table = models.ForeignKey(

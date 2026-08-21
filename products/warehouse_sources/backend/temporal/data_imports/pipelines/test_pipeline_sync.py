@@ -10,11 +10,6 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.enums import (
-    DataWarehouseTableCreatedVia,
-    DataWarehouseTableFormat,
-    ExternalDataJobStatus,
-)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -29,6 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     merge_columns,
     update_last_synced_at,
     validate_schema_and_update_table,
+)
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataJobStatus,
 )
 
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"

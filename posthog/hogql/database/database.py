@@ -157,7 +157,7 @@ from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 # The Django ORM / products models below are imported lazily inside the functions that build a
 # Database (Database._fetch_sources / _build_from_sources / serialize and their helpers) so this

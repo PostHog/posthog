@@ -34,11 +34,6 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
-from products.warehouse_sources.backend.facade.enums import (
-    DataWarehouseTableCreatedVia,
-    DataWarehouseTableFormat,
-    ExternalDataSourceAccessMethod,
-)
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -50,6 +45,11 @@ from products.warehouse_sources.backend.facade.models import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.facade.tasks import validate_data_warehouse_table_columns
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     SimpleExternalDataSourceSerializers,
 )

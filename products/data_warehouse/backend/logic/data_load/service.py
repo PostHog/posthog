@@ -45,7 +45,7 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus, ExternalDataSchemaSyncType
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus, ExternalDataSchemaSyncType
 
 if TYPE_CHECKING:
     from posthog.models import Team

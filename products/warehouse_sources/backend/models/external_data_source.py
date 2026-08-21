@@ -10,9 +10,12 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade import enums
 from products.warehouse_sources.backend.types import (
     DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
     ExternalDataSourceType,
     ManagedWarehouseSQLMode,
     external_data_source_type_choices,
@@ -34,12 +37,12 @@ class ExternalDataSourceManager(models.Manager):
 
 class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
-    AccessMethod = enums.ExternalDataSourceAccessMethod
-    CreatedVia = enums.ExternalDataSourceCreatedVia
-    Status = enums.ExternalDataSourceStatus
+    AccessMethod = ExternalDataSourceAccessMethod
+    CreatedVia = ExternalDataSourceCreatedVia
+    Status = ExternalDataSourceStatus
 
     # Deprecated, use `ExternalDataSchema.SyncFrequency`
-    SyncFrequency = enums.ExternalDataSourceSyncFrequency
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     source_id = models.CharField(max_length=400)
     connection_id = models.CharField(max_length=400)

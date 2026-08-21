@@ -64,8 +64,8 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.enums import ExternalDataJobStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)

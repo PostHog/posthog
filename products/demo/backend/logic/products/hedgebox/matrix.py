@@ -83,8 +83,8 @@ from products.experiments.backend.models.experiment import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
-from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

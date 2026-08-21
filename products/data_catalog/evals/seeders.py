@@ -72,8 +72,8 @@ from products.data_catalog.evals.constants import (
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
-from products.warehouse_sources.backend.facade.enums import DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext

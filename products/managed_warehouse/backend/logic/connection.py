@@ -41,11 +41,6 @@ from products.managed_warehouse.backend.logic.sql_editor_credentials import (
     resolve_managed_warehouse_postgres_connection,
 )
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
-from products.warehouse_sources.backend.facade.enums import (
-    ExternalDataSourceAccessMethod,
-    ExternalDataSourceCreatedVia,
-    ExternalDataSourceStatus,
-)
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
@@ -55,7 +50,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceCreatedVia,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 
 logger = structlog.get_logger(__name__)
 

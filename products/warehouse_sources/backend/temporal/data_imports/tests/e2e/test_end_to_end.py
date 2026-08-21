@@ -65,11 +65,6 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeRegisterDataImportsWorkflow,
 )
-from products.warehouse_sources.backend.facade.enums import (
-    ExternalDataJobStatus,
-    ExternalDataSchemaStatus,
-    ExternalDataSchemaSyncType,
-)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -129,6 +124,11 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ExternalDataSourceType,
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
+)
+from products.warehouse_sources.backend.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSchemaSyncType,
 )
 
 BUCKET_NAME = "test-pipeline"

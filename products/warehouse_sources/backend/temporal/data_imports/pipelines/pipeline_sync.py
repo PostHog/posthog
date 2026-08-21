@@ -23,7 +23,6 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
 
-from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -41,7 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
 

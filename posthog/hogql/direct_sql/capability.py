@@ -1,6 +1,5 @@
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
+from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
 
 
 def direct_capable_source_types() -> frozenset[str]:

@@ -8,7 +8,7 @@ from products.managed_warehouse.backend.common import (
     duckgres_data_imports_table_name,
     duckgres_data_modeling_schema,
 )
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 logger = logging.getLogger(__name__)
 

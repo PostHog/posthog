@@ -20,9 +20,9 @@ from products.engineering_analytics.backend.logic.sources import (
 )
 from products.signals.backend.facade.api import set_signal_source_types_enabled, signal_source_types_state
 from products.signals.backend.models import SignalSourceConfig
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_FLAKY_CHECK,

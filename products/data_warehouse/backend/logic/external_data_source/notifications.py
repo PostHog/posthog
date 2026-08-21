@@ -9,8 +9,8 @@ import structlog
 
 from posthog.tasks.email import send_external_data_failure_digest
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataJobStatus, ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
 

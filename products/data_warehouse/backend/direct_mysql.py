@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable

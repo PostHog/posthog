@@ -12,16 +12,16 @@ from django.utils import timezone
 from posthog.models import Team
 
 from products.marketing_analytics.backend.services.native_integrations import EXTERNAL_SOURCE_TYPE_TO_NATIVE
-from products.warehouse_sources.backend.facade.enums import (
-    ExternalDataJobStatus,
-    ExternalDataSchemaStatus,
-    ExternalDataSourceStatus,
-)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
 )
 
 # platform -> (schema names, staged state). Only data-preserving states are used

@@ -9,8 +9,8 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataSchemaStatus
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 # A schema carrying a fresh column_type_widened marker is scheduled to reset and re-sync itself on
 # the next scheduled run (see auto_widen_resync), so its failure is about to clear on its own and

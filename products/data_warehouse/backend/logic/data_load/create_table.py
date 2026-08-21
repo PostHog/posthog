@@ -18,8 +18,8 @@ from products.data_modeling.backend.facade.models import (
     aget_saved_query_by_id,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.facade.enums import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
 

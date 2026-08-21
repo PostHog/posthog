@@ -52,13 +52,13 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_snapshot,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
-from products.warehouse_sources.backend.facade.enums import (
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import (
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceStatus,
 )
-from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 from ee.billing.billing_manager import BillingManager
 

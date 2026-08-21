@@ -11,7 +11,7 @@ from posthog.hogql.database.utils import get_join_field_chain
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.facade.enums import ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema

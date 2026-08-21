@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
-from products.warehouse_sources.backend.facade.enums import WarehouseColumnAnnotationDescriptionSource
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 
 class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
