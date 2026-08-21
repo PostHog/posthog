@@ -198,8 +198,8 @@ class PendingInviteSerializer(serializers.Serializer):
 
 
 class VerifyEmailRequestSerializer(serializers.Serializer):
-    """Request body for POST /api/users/verify_email/. Documentation only; the action validates
-    manually because token and code follow an either-or rule serializer fields can't express."""
+    """Request body for POST /api/users/verify_email/. Documentation only. The action validates
+    manually because serializer fields cannot express the token-or-code rule."""
 
     uuid = serializers.UUIDField(help_text="UUID of the user whose email is being verified.")
     token = serializers.CharField(
@@ -1177,9 +1177,8 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
 
-        # A repeat visit with an already-spent token or code (double click, link prefetched by an
-        # email scanner) must not read as failure: the address is verified, so say so and send the
-        # user to log in. No credential was presented, so no session is handed out here.
+        # A replay of a spent token or code (double click, scanner prefetch) is not a failure:
+        # the address is verified. Do not create a session - no valid credential was presented.
         if user and user.is_email_verified is True and not user.pending_email:
             return Response({"success": True, "requires_login": True})
 
@@ -1289,8 +1288,8 @@ class UserViewSet(
 
         instance.pending_email = None
         instance.save()
-        # The target binding already rejects the staged address's code once pending_email clears;
-        # dropping the state as well keeps no dead code and attempt counter around for the TTL.
+        # The target binding already rejects the code once pending_email clears. Delete the
+        # state so no dead code or attempt counter waits out its TTL.
         email_verification_code_verifier.invalidate(instance)
 
         return Response(self.get_serializer(instance=instance).data)

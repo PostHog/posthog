@@ -5,7 +5,11 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import {
+    isValidVerificationCode,
+    normalizeVerificationCode,
+    verificationCodeErrorMessage,
+} from 'scenes/authentication/shared/verificationCode'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +17,13 @@ import type { UserType } from '../../../types'
 
 // Must stay in sync with the `VerifyEmail__Progress` animation duration in VerifyEmail.scss.
 export const VERIFY_EMAIL_REDIRECT_DELAY_MS = 2000
+
+type PostVerifyResponse = {
+    success: boolean
+    requires_2fa?: boolean
+    requires_login?: boolean
+    requires_sso?: boolean
+}
 
 const resolvePostVerifyDefault = (values: {
     user?: { team?: { has_completed_onboarding_for?: Record<string, boolean> } | null } | null
@@ -23,6 +34,30 @@ const resolvePostVerifyDefault = (values: {
     const completedMap = values.user.team?.has_completed_onboarding_for ?? {}
     const hasCompletedSomething = Object.values(completedMap).some(Boolean)
     return hasCompletedSomething ? urls.default() : urls.onboarding()
+}
+
+// A verify success without a session (2FA, blocked member, SSO-enforced domain) routes to
+// login with a matching toast. Otherwise the user goes straight into the app.
+const redirectAfterVerification = (
+    response: PostVerifyResponse,
+    values: Parameters<typeof resolvePostVerifyDefault>[0]
+): void => {
+    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+    const loginMessage = response.requires_2fa
+        ? 'Email verified! Please log in with your password to complete two-factor authentication.'
+        : response.requires_login
+          ? 'Email verified! Log in to continue.'
+          : response.requires_sso
+            ? 'Email verified! Log in with SSO to continue.'
+            : null
+    if (loginMessage) {
+        lemonToast.success(loginMessage)
+        router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
+        return
+    }
+    // this url is validated in getRelativeNextPath as either being relative or on the same origin
+    // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
+    location.href = nextUrl || resolvePostVerifyDefault(values)
 }
 
 export interface ResponseType {
@@ -178,39 +213,13 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             {
                 validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }, breakpoint) => {
                     try {
-                        const response = await api.create<{
-                            success: boolean
-                            token?: string
-                            requires_2fa?: boolean
-                            requires_login?: boolean
-                            requires_sso?: boolean
-                        }>(`api/users/verify_email/`, { token, uuid })
+                        const response = await api.create<PostVerifyResponse>(`api/users/verify_email/`, {
+                            token,
+                            uuid,
+                        })
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
-
-                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
-                        if (response.requires_2fa) {
-                            lemonToast.success(
-                                'Email verified! Please log in with your password to complete two-factor authentication.'
-                            )
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, token, uuid }
-                        }
-                        if (response.requires_login) {
-                            lemonToast.success('Email verified! Log in to continue.')
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, token, uuid }
-                        }
-                        if (response.requires_sso) {
-                            lemonToast.success('Email verified! Log in with SSO to continue.')
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, token, uuid }
-                        }
-
-                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
-                        // this url is also secret and so we can trust it's not attacker controlled
-                        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                        location.href = nextUrl || resolvePostVerifyDefault(values)
+                        redirectAfterVerification(response, values)
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         const user = (values as any).user
@@ -241,46 +250,16 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         return values.validatedEmailToken
                     }
                     try {
-                        const response = await api.create<{
-                            success: boolean
-                            requires_2fa?: boolean
-                            requires_login?: boolean
-                            requires_sso?: boolean
-                        }>(`api/users/verify_email/`, { uuid, code })
+                        const response = await api.create<PostVerifyResponse>(`api/users/verify_email/`, {
+                            uuid,
+                            code,
+                        })
                         actions.setView('success')
                         await breakpoint(VERIFY_EMAIL_REDIRECT_DELAY_MS)
-                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
-                        if (response.requires_2fa) {
-                            lemonToast.success(
-                                'Email verified! Please log in with your password to complete two-factor authentication.'
-                            )
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, uuid }
-                        }
-                        if (response.requires_login) {
-                            lemonToast.success('Email verified! Log in to continue.')
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, uuid }
-                        }
-                        if (response.requires_sso) {
-                            lemonToast.success('Email verified! Log in with SSO to continue.')
-                            router.actions.push(urls.login(), nextUrl ? { next: nextUrl } : {})
-                            return { success: true, uuid }
-                        }
-                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
-                        // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                        location.href = nextUrl || resolvePostVerifyDefault(values)
+                        redirectAfterVerification(response, values)
                         return { success: true, uuid }
                     } catch (e: any) {
-                        if (e.code === 'too_many_attempts') {
-                            actions.setVerificationCodeError(
-                                'Too many incorrect attempts. Request a new code and try again.'
-                            )
-                        } else if (e.code === 'throttled') {
-                            actions.setVerificationCodeError('Too many attempts. Wait a few minutes and try again.')
-                        } else {
-                            actions.setVerificationCodeError(e.detail || 'This code is invalid or has expired.')
-                        }
+                        actions.setVerificationCodeError(verificationCodeErrorMessage(e))
                         return values.validatedEmailToken
                     }
                 },
@@ -295,8 +274,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         lemonToast.success(
                             'A new verification email has been sent to the associated email address. Please check your inbox.'
                         )
-                        // The pending view carries the code entry form, so a resend from the
-                        // expired-link view still leaves the user somewhere they can act.
+                        // Show the pending view after a resend - it has the code entry form.
                         actions.setView('pending')
                         return true
                     } catch (e: any) {

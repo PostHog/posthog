@@ -558,8 +558,10 @@ def send_email_verification(
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_email_verification_code(user_id: int, code: str, target_email: str | None = None) -> None:
-    """Send the 6-digit email-verification code. `target_email` pins the recipient to the address
-    the code authorizes (the staged address for email changes); signup sends leave it None."""
+    """Send the 6-digit email-verification code.
+
+    `target_email` pins the recipient to the address the code authorizes, which is the staged
+    address for email changes. Signup sends leave it None."""
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -571,8 +573,8 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
             "preheader": f"{code} is your code.",
             "code": code,
             "expiration_minutes": CODE_TTL_SECONDS // 60,
-            # target_email is only ever set for email changes, so it determines which flow this
-            # send belongs to; templates use the action to pick the right "you can ignore this" line.
+            # Only email changes set target_email, so it selects the flow. Templates use the
+            # action to pick the footer line.
             "action": "email_change" if target_email is not None else "signup",
             "site_url": settings.SITE_URL,
         },

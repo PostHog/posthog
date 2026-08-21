@@ -10,3 +10,13 @@ export function normalizeVerificationCode(code: string): string {
 export function isValidVerificationCode(code: string): boolean {
     return /^\d{6}$/.test(code)
 }
+
+export function verificationCodeErrorMessage(e: { code?: string; detail?: string }): string {
+    if (e.code === 'too_many_attempts') {
+        return 'Too many incorrect attempts. Request a new code and try again.'
+    }
+    if (e.code === 'throttled') {
+        return 'Too many attempts. Wait a few minutes and try again.'
+    }
+    return e.detail || 'This code is invalid or has expired.'
+}

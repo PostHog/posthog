@@ -985,10 +985,10 @@ class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the target user's uuid from the request body: verification is unauthenticated, so
-        # the base class would key on IP, letting a distributed guesser spread code attempts across
-        # addresses. Per-target keying caps the total guess budget against any one account; the
-        # Redis attempt counter on the code itself is the hard limit underneath.
+        # Key on the target user's uuid from the request body. The endpoint is unauthenticated,
+        # so the base class would key on IP and let a distributed guesser spread attempts across
+        # addresses. Per-target keying caps the guess budget for one account. The Redis attempt
+        # counter is the hard limit underneath.
         target_uuid = request.data.get("uuid") if isinstance(request.data, dict) else None
         if target_uuid:
             ident = hashlib.sha256(str(target_uuid).encode()).hexdigest()

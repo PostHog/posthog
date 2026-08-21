@@ -50,18 +50,16 @@ email_verification_token_generator = EmailVerificationTokenGenerator()
 
 
 class EmailVerificationCodeVerifier:
-    """Issues and checks the 6-digit email-verification code, for signup and for email changes.
+    """Issues and checks the 6-digit code for signup and email-change verification.
 
-    Unlike the login code flow, pending state lives in Redis keyed by user id rather than in the
-    session: email verification must survive the user closing the tab or reopening the app in a
-    different browser, where no session carries the pending state. The code itself is derived by
-    `code_based_verification_token_generator`, so it is never stored; only the issuance time,
-    the address the code authorizes, and the attempt counter are.
+    Unlike the login code flow, pending state (issuance time, target address, attempt counter)
+    lives in Redis keyed by user id, not in the session. Verification must work after the user
+    closes the tab or opens the app in a different browser. The code itself is derived by
+    `code_based_verification_token_generator` and never stored.
 
-    The stored target address replaces what the token generator's `pending_email` hash input
-    guarantees for links: a code issued for one address stops verifying the moment the user
-    stages a different one. One Redis slot per user also means issuing any new code kills the
-    previous one, whichever flow it belonged to.
+    The stored target address does for codes what the `pending_email` hash input does for link
+    tokens: a code verifies only the address it was issued for. One Redis slot per user means
+    a new code always invalidates the previous one.
     """
 
     @staticmethod
@@ -73,15 +71,15 @@ class EmailVerificationCodeVerifier:
         return f"{EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX}:{user_id}"
 
     def send_code(self, user: User, target_email: str | None = None) -> bool:
-        """Issue a fresh code and email it to the address it authorizes (the staged pending
-        address for email changes, the account address for signup). Returns False when the code
-        could not be issued or sent, so the caller can fall back to the link email instead of
-        leaving the user stuck."""
+        """Issue a fresh code and email it to the address it authorizes.
+
+        Returns False when the code was not issued or sent, so the caller can send the
+        link email instead."""
         try:
             target = target_email if target_email is not None else user.pending_email
             issued_at = int(time.time())
             code = code_based_verification_token_generator.make_code(user, issued_at)
-            # State before send: an email whose code can never verify is worse than no email.
+            # Write the state before the send, so a delivered code can always verify.
             client = get_client()
             client.set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             client.delete(self._attempts_key(user.pk))
@@ -93,7 +91,7 @@ class EmailVerificationCodeVerifier:
             return False
 
     def _get_state(self, user: User) -> tuple[int, str] | None:
-        """Returns (issued_at, target_email) for the pending code; target_email is '' for signup."""
+        """Return (issued_at, target_email) for the pending code. target_email is '' for signup."""
         try:
             raw = get_client().get(self._state_key(user.pk))
             if not raw:
@@ -106,8 +104,10 @@ class EmailVerificationCodeVerifier:
             return None
 
     def reserve_attempt(self, user: User) -> int:
-        """Atomically count a verification attempt. Returns the running total including this one;
-        0 on Redis failure (fail open — the endpoint throttle is the backstop)."""
+        """Count one verification attempt atomically.
+
+        Returns the running total, including this attempt. Returns 0 on Redis failure,
+        failing open - the endpoint throttle is the backstop."""
         try:
             client = get_client()
             count = int(client.incr(self._attempts_key(user.pk)))
@@ -122,8 +122,7 @@ class EmailVerificationCodeVerifier:
         if not state:
             return False
         issued_at, target = state
-        # The code only authorizes the address it was issued for: the staged pending address for
-        # an email change, or the account address (stored as '') for signup verification.
+        # A code verifies only the address it was issued for. Signup codes store '' as the target.
         expected_target = user.pending_email or ""
         if target != expected_target:
             return False
@@ -145,9 +144,8 @@ email_verification_code_verifier = EmailVerificationCodeVerifier()
 class EmailVerifier:
     @staticmethod
     def use_verification_code(user: User) -> bool:
-        """Both flows that prove inbox ownership (signup verification and email-change
-        verification) use an emailed code; the code-based-verification kill-switch reverts
-        them to the token-link flow."""
+        """Signup and email-change verification use an emailed code. The code-based-verification
+        kill-switch reverts both to the token-link flow."""
         return (not user.is_email_verified or bool(user.pending_email)) and (
             not is_code_based_verification_globally_disabled()
         )

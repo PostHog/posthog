@@ -4,13 +4,17 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import {
+    isValidVerificationCode,
+    normalizeVerificationCode,
+    verificationCodeErrorMessage,
+} from 'scenes/authentication/shared/verificationCode'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-// The staged send is the first email; each resend escalates the wait before the next one, and
-// after the last resend the modal offers support instead.
+// Each resend increases the wait before the next one. After the last resend the modal
+// offers support instead.
 export const RESEND_COOLDOWNS_SECONDS = [30, 60]
 export const MAX_RESENDS = 2
 
@@ -159,8 +163,8 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
             {
                 emailChangeStaged: () => 0,
                 resendCodeSuccess: (state, { resendResult }) => (resendResult ? state + 1 : state),
-                // The backend cap outlives this session's counter, so a throttled resend means
-                // the budget is spent no matter what we counted locally.
+                // A throttled response means the backend budget is spent, whatever this
+                // session counted.
                 resendLimitReached: () => MAX_RESENDS,
             },
         ],
@@ -193,15 +197,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         actions.loadUser()
                         return { success: true }
                     } catch (e: any) {
-                        if (e.code === 'too_many_attempts') {
-                            actions.setVerificationCodeError(
-                                'Too many incorrect attempts. Request a new code and try again.'
-                            )
-                        } else if (e.code === 'throttled') {
-                            actions.setVerificationCodeError('Too many attempts. Wait a few minutes and try again.')
-                        } else {
-                            actions.setVerificationCodeError(e.detail || 'This code is invalid or has expired.')
-                        }
+                        actions.setVerificationCodeError(verificationCodeErrorMessage(e))
                         return null
                     }
                 },
@@ -260,8 +256,8 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
         },
     })),
     subscriptions(({ actions }) => ({
-        // The form submit action fires before the API response lands, so watch the user object
-        // itself: a pending_email appearing means a change was just staged and the code is out.
+        // The form submit action fires before the API response lands. Watch the user object
+        // instead: a new pending_email means a change was staged and the code was sent.
         user: (user: UserType | null, oldUser: UserType | null) => {
             if (user?.pending_email && oldUser && oldUser.pending_email !== user.pending_email) {
                 actions.emailChangeStaged()
