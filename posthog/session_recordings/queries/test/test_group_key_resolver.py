@@ -93,6 +93,20 @@ class TestGroupKeyResolver(BaseTest):
         assert isinstance(predicate.right, ast.Constant)
         assert predicate.right.value == 8.0
 
+    @parameterized.expand([("read", "get"), ("write", "set")])
+    def test_a_broken_cache_does_not_fail_the_query(self, _name: str, method: str) -> None:
+        # Everything here is an optimisation over a join that already works, so an unavailable Redis
+        # has to cost reads rather than break the sweep tick that was building the query.
+        with patch(
+            f"posthog.session_recordings.queries.sub_queries.group_key_resolver.cache.{method}",
+            side_effect=Exception("redis is down"),
+        ):
+            with patch(_RESOLVER, return_value=["org-1"]):
+                expr = resolved_group_key_expr(self.team, _filter(), _CH_USER)
+
+        # A broken cache degrades to resolving every time, not to failing and not to the join.
+        assert isinstance(expr, ast.CompareOperation)
+
     def test_a_failed_resolution_keeps_the_join(self) -> None:
         with patch(_RESOLVER, side_effect=Exception("clickhouse said no")):
             assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None

@@ -8,6 +8,7 @@ a column instead is measurably cheaper and returns the same sessions.
 
 import json
 import hashlib
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -76,22 +77,36 @@ def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: Clic
 
 def _group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> list[str] | None:
     cache_key = _cache_key(team, prop)
-    cached = cache.get(cache_key)
+    cached = _swallowing_failure("group_key_cache_read_failed", team, prop, lambda: cache.get(cache_key))
     if cached == _FALLBACK:
         return None
     if cached is not None:
         return _cast_keys(cached)
 
-    try:
-        keys = _query_group_keys(team, prop, ch_user)
-    except Exception:
-        # The join still produces the right answer, so a resolution failure costs reads, not results.
-        logger.exception("group_key_resolution_failed", team_id=team.pk, property_key=prop.key)
+    keys = _swallowing_failure(
+        "group_key_resolution_failed", team, prop, lambda: _query_group_keys(team, prop, ch_user)
+    )
+    if keys is None:
         return None
 
     resolved: list[str] | None = None if len(keys) > MAX_RESOLVED_GROUP_KEYS else keys
-    cache.set(cache_key, _FALLBACK if resolved is None else resolved, GROUP_KEY_CACHE_TTL_SECONDS)
+    _swallowing_failure(
+        "group_key_cache_write_failed",
+        team,
+        prop,
+        lambda: cache.set(cache_key, _FALLBACK if resolved is None else resolved, GROUP_KEY_CACHE_TTL_SECONDS),
+    )
     return resolved
+
+
+def _swallowing_failure(event: str, team: Team, prop: GroupPropertyFilter, work: Callable[[], Any]) -> Any:
+    # Everything here is an optimisation over a join that already returns the right answer, so a
+    # broken cache or an unavailable ClickHouse costs reads rather than failing the caller's query.
+    try:
+        return work()
+    except Exception:
+        logger.exception(event, team_id=team.pk, property_key=prop.key)
+        return None
 
 
 def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:

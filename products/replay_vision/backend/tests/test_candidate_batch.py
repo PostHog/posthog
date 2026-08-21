@@ -33,7 +33,6 @@ def _sessions(count: int, prefix: str = "s") -> list[CandidateSession]:
 
 
 def _group_column_bounds(node: ast.Expr | ast.SelectQuery | None) -> list[str] | None:
-    """The key list an `$group_N IN (...)` predicate pins, wherever it sits in the query."""
     if node is None:
         return None
     if (
