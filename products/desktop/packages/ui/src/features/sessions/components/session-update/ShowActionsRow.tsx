@@ -2,6 +2,7 @@ import { readShowActions } from "@posthog/core/sessions/showActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation } from "@tanstack/react-query";
 
 /**
@@ -11,8 +12,16 @@ import { useMutation } from "@tanstack/react-query";
  */
 export function ShowActionsRow({ toolCall }: ToolViewProps) {
   const trpc = useHostTRPC();
+  // A click that opens nothing is the failure this tool exists to avoid, so both
+  // ways it can happen are surfaced: the call itself failing, and the host having
+  // no handler for the link it built (`handleUrl` answering false).
   const openAction = useMutation(
-    trpc.deepLink.openAgentAction.mutationOptions(),
+    trpc.deepLink.openAgentAction.mutationOptions({
+      onSuccess: (opened) => {
+        if (!opened) toast.error("Couldn't open that");
+      },
+      onError: () => toast.error("Couldn't open that"),
+    }),
   );
   const buttons = readShowActions(toolCall.rawInput);
 
