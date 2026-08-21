@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -9,9 +9,7 @@ import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
-import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -40,7 +38,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -56,6 +53,8 @@ import {
     FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
+
+import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
@@ -342,6 +341,7 @@ export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
     productKey: ProductKey.FEATURE_FLAGS,
+    emptyState: featureFlagsEmptyState,
 }
 
 const RUNTIME_LABELS: Record<FeatureFlagEvaluationRuntime, string> = {
@@ -360,14 +360,11 @@ export function OverviewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const newFeatureFlagUrl = urls.featureFlagTemplates()
-    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -558,19 +555,7 @@ export function OverviewTab({
 
     return (
         <SceneContent>
-            <ProductIntroduction
-                productName="Feature flags"
-                productKey={ProductKey.FEATURE_FLAGS}
-                thingName="feature flag"
-                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                docsURL="https://posthog.com/docs/feature-flags/manual"
-                action={() => router.actions.push(newFeatureFlagUrl)}
-                isEmpty={shouldShowEmptyState}
-                customHog={FeatureFlagHog}
-                className={cn('my-0')}
-                mcpSurfaceKey="feature_flags.create"
-            />
-            {!isProductIntroVisible && <ApprovalsPromoBanner />}
+            {!shouldShowEmptyState && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <BulkDeleteResultsModal />

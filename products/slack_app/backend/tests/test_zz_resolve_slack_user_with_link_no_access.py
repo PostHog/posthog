@@ -24,7 +24,7 @@ from products.slack_app.backend.tests.conftest import SLACK_USER_ID
 
 
 class TestResolveSlackUserAccessDenied:
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.UserPermissions")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_link_but_no_team_access_returns_none(

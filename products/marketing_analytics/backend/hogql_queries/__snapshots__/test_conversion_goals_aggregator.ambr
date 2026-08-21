@@ -120,15 +120,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -282,15 +282,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -444,15 +444,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -606,15 +606,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -772,15 +772,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -919,15 +919,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1066,15 +1066,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1230,15 +1230,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT
@@ -1376,15 +1376,15 @@
             SELECT
               person_id,
               groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
-              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
-              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
-              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
-              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
-              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
-              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
-              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
-              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
-              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+              groupArray(campaign_name) AS utm_campaigns,
+              groupArray(source_name) AS utm_sources,
+              groupArray(medium_name) AS utm_mediums,
+              groupArray(content_name) AS utm_contents,
+              groupArray(term_name) AS utm_terms,
+              groupArray(referring_domain_name) AS utm_referring_domains,
+              groupArray(gclid_name) AS utm_gclids,
+              groupArray(fbclid_name) AS utm_fbclids,
+              groupArray(gad_source_name) AS utm_gad_sources
             FROM
             (
               SELECT

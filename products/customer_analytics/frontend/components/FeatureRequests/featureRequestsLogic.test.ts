@@ -1,8 +1,11 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import * as uploadFiles from 'lib/hooks/useUploadFiles'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -20,6 +23,7 @@ const account: AccountApi = {
     id: 'account-1',
     name: 'Acme',
     notebooks: [],
+    ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -35,7 +39,18 @@ const createdRequest: FeatureRequestApi = {
     archived_at: null,
     archived_by: null,
     version: 1,
+    can_update: true,
     account: { id: 'account-1', name: 'Acme' },
+    account_links: [
+        {
+            id: 'account-link-1',
+            account: { id: 'account-1', name: 'Acme' },
+            evidence: [],
+            evidence_count: 0,
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+        },
+    ],
     product_areas: [
         {
             id: 'area-1',
@@ -80,14 +95,14 @@ describe('featureRequestsLogic', () => {
         logic.actions.openCreateRequest()
         logic.actions.setTitle(createdRequest.title)
         logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
         logic.actions.setProductAreaIds(['area-1'])
 
         await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
 
         expect(logic.values.title).toBe(createdRequest.title)
         expect(logic.values.description).toBe(createdRequest.description)
-        expect(logic.values.accountId).toBe(createdRequest.account.id)
+        expect(logic.values.accountId).toBe(createdRequest.account_links[0].account.id)
         expect(logic.values.productAreaIds).toEqual(['area-1'])
         expect(logic.values.createRequestOpen).toBe(true)
         expect(logic.values.submittingRequest).toBe(false)
@@ -116,6 +131,54 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
     })
 
+    it('filters product areas by name without changing the available areas', () => {
+        const productArea = createdRequest.product_areas[0]
+        const dataPlatformArea = { ...productArea, id: 'area-2', name: 'Data platform' }
+        logic.actions.loadProductAreasSuccess([productArea, dataPlatformArea])
+
+        logic.actions.setProductAreaSearch(' DATA ')
+
+        expect(logic.values.filteredProductAreas).toEqual([dataPlatformArea])
+        expect(logic.values.productAreas).toEqual([productArea, dataPlatformArea])
+    })
+
+    it('keeps the product area form hidden until adding or editing an area', async () => {
+        await expectLogic(logic, () => logic.actions.openProductAreas()).toFinishAllListeners()
+
+        expect(logic.values.productAreaFormOpen).toBe(false)
+
+        logic.actions.startNewProductArea()
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBeNull()
+
+        logic.actions.closeProductAreaForm()
+        logic.actions.startEditingProductArea(createdRequest.product_areas[0])
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBe('area-1')
+    })
+
+    it('keeps a newer product area draft open when an earlier save finishes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const productArea = createdRequest.product_areas[0]
+        const secondProductArea = { ...productArea, id: 'area-2', name: 'Data platform' }
+        let resolveUpdate: (area: typeof productArea) => void = () => undefined
+        const updatePromise = new Promise<typeof productArea>((resolve) => {
+            resolveUpdate = resolve
+        })
+        jest.spyOn(generatedApi, 'featureRequestProductAreasPartialUpdate').mockReturnValue(updatePromise)
+        logic.actions.startEditingProductArea(productArea)
+        logic.actions.setProductAreaName('Updated product analytics')
+
+        logic.actions.saveProductArea()
+        logic.actions.startEditingProductArea(secondProductArea)
+        resolveUpdate({ ...productArea, name: 'Updated product analytics' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.productAreaFormOpen).toBe(true)
+        expect(logic.values.editingProductAreaId).toBe(secondProductArea.id)
+        expect(logic.values.productAreaName).toBe(secondProductArea.name)
+    })
+
     it('reloads request rows after a linked product area changes', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const productArea = createdRequest.product_areas[0]
@@ -141,6 +204,7 @@ describe('featureRequestsLogic', () => {
             .toFinishAllListeners()
 
         expect(logic.values.featureRequestsResponse.results).toEqual([renamedRequest])
+        expect(logic.values.productAreaFormOpen).toBe(false)
     })
 
     it('loads the requested page with 20 requests per page', async () => {
@@ -227,6 +291,253 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.editIsStale).toBe(false)
     })
 
+    it('uploads selected evidence images into the draft', async () => {
+        const uploadSpy = jest.spyOn(uploadFiles, 'uploadFile').mockResolvedValue({
+            id: 'image-1',
+            image_location: '/uploaded_media/image-1',
+            name: 'request.png',
+        })
+        const file = new File(['image'], 'request.png', { type: 'image/png' })
+
+        await expectLogic(logic, () => logic.actions.uploadEvidenceImages([file])).toFinishAllListeners()
+
+        expect(uploadSpy).toHaveBeenCalledWith(file)
+        expect(logic.values.evidenceImageIds).toEqual(['image-1'])
+        expect(logic.values.evidenceFilesToUpload).toEqual([])
+        expect(logic.values.uploadingEvidenceImages).toBe(false)
+    })
+
+    it('does not attach an upload to a replacement evidence draft', async () => {
+        let resolveUpload: (image: { id: string; image_location: string; name: string }) => void = () => undefined
+        jest.spyOn(uploadFiles, 'uploadFile').mockReturnValue(
+            new Promise((resolve) => {
+                resolveUpload = resolve
+            })
+        )
+        const file = new File(['image'], 'request.png', { type: 'image/png' })
+        const replacementAccountLink = {
+            ...createdRequest.account_links[0],
+            id: 'account-link-2',
+            account: { id: 'account-2', name: 'Globex' },
+        }
+        logic.actions.openNewEvidence(createdRequest.account_links[0])
+
+        logic.actions.uploadEvidenceImages([file])
+        logic.actions.openNewEvidence(replacementAccountLink)
+        resolveUpload({ id: 'image-1', image_location: '/uploaded_media/image-1', name: file.name })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.evidenceAccountLinkId).toBe(replacementAccountLink.id)
+        expect(logic.values.evidenceImageIds).toEqual([])
+        expect(logic.values.uploadingEvidenceImages).toBe(false)
+    })
+
+    it('adds image-only evidence and gathers its images for the request', async () => {
+        const evidenceRequest: FeatureRequestApi = {
+            ...createdRequest,
+            version: 2,
+            account_links: [
+                {
+                    ...createdRequest.account_links[0],
+                    evidence: [
+                        {
+                            id: 'evidence-1',
+                            summary: '',
+                            customer_quote: '',
+                            evidence_source: 'conversation',
+                            source_url: '',
+                            requested_on: null,
+                            image_ids: ['image-1'],
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-02T00:00:00Z',
+                            updated_at: '2026-01-02T00:00:00Z',
+                        },
+                    ],
+                },
+            ],
+        }
+        const addSpy = jest.spyOn(generatedApi, 'featureRequestsAddEvidenceCreate').mockResolvedValue(evidenceRequest)
+        await expectLogic(logic, () => logic.actions.setActiveRequestId(createdRequest.id)).toFinishAllListeners()
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+        logic.actions.openNewEvidence(createdRequest.account_links[0])
+        logic.actions.evidenceImageUploaded('image-1')
+
+        await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
+
+        expect(addSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), createdRequest.id, {
+            expected_version: 1,
+            account_link_id: 'account-link-1',
+            summary: '',
+            customer_quote: '',
+            evidence_source: 'conversation',
+            source_url: '',
+            requested_on: null,
+            image_ids: ['image-1'],
+        })
+        expect(logic.values.activeRequest).toEqual(evidenceRequest)
+        expect(logic.values.activeRequestImages).toEqual([
+            {
+                imageId: 'image-1',
+                account: evidenceRequest.account_links[0].account,
+                evidence: evidenceRequest.account_links[0].evidence[0],
+            },
+        ])
+        expect(logic.values.evidenceModalOpen).toBe(false)
+        expect(logic.values.savingEvidence).toBe(false)
+    })
+
+    it('adds an account and its first evidence in one request', async () => {
+        const otherAccount: AccountApi = {
+            ...account,
+            id: 'account-2',
+            name: 'Globex',
+        }
+        const updatedRequest: FeatureRequestApi = {
+            ...createdRequest,
+            version: 2,
+            account_links: [
+                ...createdRequest.account_links,
+                {
+                    id: 'account-link-2',
+                    account: { id: otherAccount.id, name: otherAccount.name },
+                    evidence: [
+                        {
+                            id: 'evidence-2',
+                            summary: 'Globex needs a weekly export.',
+                            customer_quote: '',
+                            evidence_source: 'meeting',
+                            source_url: '',
+                            requested_on: null,
+                            image_ids: [],
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-03T00:00:00Z',
+                            updated_at: '2026-01-03T00:00:00Z',
+                        },
+                    ],
+                    evidence_count: 1,
+                    created_at: '2026-01-03T00:00:00Z',
+                    updated_at: '2026-01-03T00:00:00Z',
+                },
+            ],
+        }
+        const addAccountSpy = jest
+            .spyOn(generatedApi, 'featureRequestsAddAccountCreate')
+            .mockResolvedValue(updatedRequest)
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+        logic.actions.loadAccountsSuccess([account, otherAccount])
+        logic.actions.openAddAccount()
+        logic.actions.setAddAccountId(otherAccount.id)
+        logic.actions.setEvidenceSummary('Globex needs a weekly export.')
+        logic.actions.setEvidenceSource('meeting')
+        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
+
+        await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
+
+        expect(addAccountSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), createdRequest.id, {
+            expected_version: 1,
+            account_id: otherAccount.id,
+            evidence: {
+                summary: 'Globex needs a weekly export.',
+                customer_quote: '',
+                evidence_source: 'meeting',
+                source_url: '',
+                requested_on: null,
+                image_ids: [],
+            },
+        })
+        expect(logic.values.activeRequest).toEqual(updatedRequest)
+        expect(logic.values.evidenceModalOpen).toBe(false)
+    })
+
+    it('orders accounts by evidence count', () => {
+        const evidence = {
+            id: 'evidence-1',
+            summary: 'Requested export',
+            customer_quote: '',
+            evidence_source: 'conversation',
+            source_url: '',
+            requested_on: '2026-01-03',
+            image_ids: [],
+            created_by: 1,
+            updated_by: 1,
+            created_at: '2026-01-03T00:00:00Z',
+            updated_at: '2026-01-03T00:00:00Z',
+        }
+        const requestWithEvidence: FeatureRequestApi = {
+            ...createdRequest,
+            account_links: [
+                {
+                    ...createdRequest.account_links[0],
+                    account: { id: 'account-1', name: 'No evidence' },
+                    evidence: [],
+                },
+                {
+                    ...createdRequest.account_links[0],
+                    id: 'account-link-2',
+                    account: { id: 'account-2', name: 'One evidence' },
+                    evidence: [evidence],
+                },
+                {
+                    ...createdRequest.account_links[0],
+                    id: 'account-link-3',
+                    account: { id: 'account-3', name: 'Two evidences' },
+                    evidence: [evidence, { ...evidence, id: 'evidence-2' }],
+                },
+            ],
+        }
+
+        logic.actions.loadActiveRequestSuccess(requestWithEvidence)
+
+        expect(logic.values.activeRequestAccountLinks.map((link) => link.account.name)).toEqual([
+            'Two evidences',
+            'One evidence',
+            'No evidence',
+        ])
+    })
+
+    it('shows five account cards before expanding the full list', () => {
+        const requestWithAccounts: FeatureRequestApi = {
+            ...createdRequest,
+            account_links: Array.from({ length: 6 }, (_, index) => ({
+                ...createdRequest.account_links[0],
+                id: `account-link-${index + 1}`,
+                account: { id: `account-${index + 1}`, name: `Account ${index + 1}` },
+            })),
+        }
+
+        logic.actions.loadActiveRequestSuccess(requestWithAccounts)
+
+        expect(logic.values.visibleActiveRequestAccountLinks).toHaveLength(5)
+
+        logic.actions.setRequestAccountsShowingAll(true)
+        expect(logic.values.visibleActiveRequestAccountLinks).toHaveLength(6)
+    })
+
+    it('opens the accounts section for a history target', () => {
+        logic.actions.setAccountsEvidenceCollapsed(true)
+
+        logic.actions.showHistoryTarget('account-1', 'evidence-1')
+
+        expect(logic.values.accountsEvidenceCollapsed).toBe(false)
+        expect(logic.values.requestAccountsShowingAll).toBe(true)
+    })
+
+    it('opens the account evidence form from an account page link', () => {
+        router.actions.push(urls.customerAnalyticsFeatureRequests(createdRequest.id), {
+            evidence_account: createdRequest.account.id,
+        })
+
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+
+        expect(logic.values.evidenceModalOpen).toBe(true)
+        expect(logic.values.evidenceAccountLinkId).toBe(createdRequest.account_links[0].id)
+
+        logic.actions.closeEvidence()
+        expect(router.values.searchParams.evidence_account).toBeUndefined()
+    })
+
     it('ignores a second submit while the first request is in flight', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {
@@ -236,7 +547,7 @@ describe('featureRequestsLogic', () => {
         logic.actions.openCreateRequest()
         logic.actions.setTitle(createdRequest.title)
         logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
         logic.actions.setProductAreaIds(['area-1'])
 
         logic.actions.submitRequest()

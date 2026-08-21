@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.settings import (
+    API_VERSION_LEGACY,
+    API_VERSION_V5,
     ENDPOINTS,
     MAX_DOMAINS,
     SIMILARWEB_ENDPOINTS,
@@ -149,6 +151,27 @@ class TestSimilarwebSource:
         assert response.primary_keys is not None and "domain" in response.primary_keys
         assert response.sort_mode == "asc"
         assert response.partition_keys == ([endpoint.partition_key] if endpoint.partition_key else None)
+
+    def test_declares_v5_as_default_over_legacy(self) -> None:
+        assert self.source.supported_versions == (API_VERSION_LEGACY, API_VERSION_V5)
+        assert self.source.default_version == API_VERSION_V5
+
+    @parameterized.expand(
+        [
+            ("unpinned_defaults_to_v5", None, API_VERSION_V5),
+            ("legacy_pin_preserved", API_VERSION_LEGACY, API_VERSION_LEGACY),
+            ("v5_pin_preserved", API_VERSION_V5, API_VERSION_V5),
+        ]
+    )
+    def test_source_for_pipeline_passes_the_resolved_api_version(
+        self, _name: str, pin: str | None, expected: str
+    ) -> None:
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+
+        with mock.patch(f"{MODULE}.similarweb_source") as build:
+            self.source.source_for_pipeline(self.config, manager, _inputs(api_version=pin))
+
+        assert build.call_args.kwargs["api_version"] == expected
 
     def test_source_for_pipeline_drops_the_watermark_on_a_full_refresh(self) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)

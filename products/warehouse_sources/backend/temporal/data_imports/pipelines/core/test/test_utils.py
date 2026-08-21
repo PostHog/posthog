@@ -164,10 +164,20 @@ def test_table_from_py_list_inconsistent_types_with_none():
     )
 
 
-def test_table_from_py_list_inconsistent_types_with_str_and_dict():
-    table = table_from_py_list([{"column": "hello"}, {"column": {"field": 1}}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([{"column": "hello"}, {"column": {"field": 1}}], ["hello", '{"field":1}']),
+        # A third scalar type (e.g. int) alongside str and dict used to reach pa.array()
+        # unconverted and raise "ArrowTypeError: Expected bytes, got a 'int' object" — a free-form
+        # field that's sometimes a plain number is a real shape (e.g. an execution's JSON output).
+        ([{"column": "hello"}, {"column": {"field": 1}}, {"column": 5}], ["hello", '{"field":1}', "5"]),
+    ],
+)
+def test_table_from_py_list_inconsistent_types_with_str_and_dict(rows, expected):
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ["hello", '{"field":1}']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
@@ -485,7 +495,6 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     decimals: list[decimal.Decimal],
     expected: pa.Decimal128Type | pa.Decimal256Type,
 ):
-    """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
 
@@ -1002,7 +1011,6 @@ def test_raise_on_nullability_drift_permits_valid_batches(
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
-    """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
         [
             ("role", pa.string()),
@@ -1041,7 +1049,6 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
 
 
 def test_evolve_pyarrow_schema_with_list_containing_datetime():
-    """Test that evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),

@@ -128,6 +128,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _build_where_exprs(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
 
+        if not self.query.includeIgnored:
+            where_exprs.append(parse_expr("isNull(accounts.ignored_at)"))
+
         if self.query.search and self.query.search.strip():
             pattern = f"%{self.query.search.strip()}%"
             where_exprs.append(

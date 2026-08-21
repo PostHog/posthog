@@ -35,7 +35,7 @@ _TERMINAL_STATE_MARKERS = (
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
 
-@dataclass
+@dataclass(frozen=False)
 class UpdateTaskRunStatusInput:
     run_id: str
     status: str
@@ -47,6 +47,10 @@ class UpdateTaskRunStatusInput:
     # One of _TERMINAL_STATE_MARKERS, recorded as a True key in TaskRun.state.
     # Optional with a default for the same in-flight payload reason as error_type.
     timeout_marker: Optional[str] = None
+    agent_active_at_termination: Optional[bool] = None
+    end_of_turn_received: Optional[bool] = None
+    last_agent_heartbeat_at: Optional[str] = None
+    seconds_since_last_agent_heartbeat: Optional[float] = None
 
 
 @activity.defn
@@ -149,10 +153,20 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
     try:
         marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
         termination_reason = marker if marker in _TERMINAL_STATE_MARKERS else None
+        relay_state = {
+            "agent_active_at_termination": input.agent_active_at_termination,
+            "end_of_turn_received": input.end_of_turn_received,
+            "last_agent_heartbeat_at": input.last_agent_heartbeat_at,
+            "seconds_since_last_agent_heartbeat": input.seconds_since_last_agent_heartbeat,
+        }
         if input.status == TaskRun.Status.COMPLETED:
             task_run.capture_event(
                 "task_run_completed",
-                {"duration_seconds": task_run._duration_seconds(), "termination_reason": termination_reason},
+                {
+                    "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
+                    **relay_state,
+                },
             )
         else:
             task_run.capture_event(
@@ -162,6 +176,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "error_type": input.error_type or "unspecified",
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    **relay_state,
                 },
             )
 

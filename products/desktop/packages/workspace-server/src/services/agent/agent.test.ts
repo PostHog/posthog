@@ -158,6 +158,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -1013,7 +1014,7 @@ describe("AgentService", () => {
   describe("channel system prompt repository isolation", () => {
     const credentials = { apiHost: "https://app.posthog.com", projectId: 1 };
 
-    function buildChannelPrompt(): string {
+    function buildChannelPrompt(systemPromptOverride?: string): string {
       return (
         service as unknown as {
           buildSystemPrompt: (
@@ -1030,10 +1031,22 @@ describe("AgentService", () => {
         "task-1",
         undefined,
         undefined,
-        undefined,
+        systemPromptOverride,
         true,
       ).append;
     }
+
+    it.each([
+      ["default", undefined],
+      ["overridden", "Generate a canvas."],
+    ])(
+      "uses the shared object-reference prompt for a %s session",
+      (_name, systemPromptOverride) => {
+        expect(buildChannelPrompt(systemPromptOverride)).toContain(
+          RICH_OUTPUT_TAGS_PROMPT,
+        );
+      },
+    );
 
     it("requires a task-specific clone instead of an existing checkout", () => {
       const prompt = buildChannelPrompt();

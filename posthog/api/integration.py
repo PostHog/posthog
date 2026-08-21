@@ -16,6 +16,7 @@ from django.utils import timezone
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -113,6 +114,16 @@ from products.tasks.backend.facade.api import count_in_progress_runs_for_github_
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
+
+# The published app uses Connect-OAuth, which never signs its callback, so every real install
+# lands unsigned and that alone says nothing. What is alertable is volume: this path can link a
+# Stripe account to whichever project the browser is signed into, so a spike is the abuse signal.
+# The label exists so the split moves if Stripe ever starts signing these.
+stripe_marketplace_install_counter = Counter(
+    "stripe_marketplace_install",
+    "Stripe marketplace install callbacks, by whether an install signature was present and valid",
+    labelnames=["signature_state"],
+)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
@@ -862,6 +873,21 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                                 "Stripe install signature could not be verified.",
                                 code="stripe_install_signature_invalid",
                             )
+                        stripe_marketplace_install_counter.labels(signature_state="verified").inc()
+                        logger.info(
+                            "stripe.marketplace_install_signature_verified",
+                            team_id=team_id,
+                            stripe_user_id=stripe_user_id,
+                            user_id=request.user.id,
+                        )
+                    else:
+                        stripe_marketplace_install_counter.labels(signature_state="absent").inc()
+                        logger.info(
+                            "stripe.marketplace_install_no_signature",
+                            team_id=team_id,
+                            stripe_user_id=stripe_user_id,
+                            user_id=request.user.id,
+                        )
 
                     conflicting = (
                         Integration.objects.filter(team_id=team_id, kind="stripe")
@@ -888,7 +914,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if validated_data["kind"] == "stripe":
                 try:
                     stripe_integration = StripeIntegration(instance)
-                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                    unwritten = stripe_integration.write_posthog_secrets(team_id, request.user)
+                    if unwritten:
+                        capture_exception(
+                            Exception(f"Stripe secret store not fully written: {', '.join(unwritten)}"),
+                            {"team_id": team_id, "integration_id": instance.id},
+                        )
                 except Exception as e:
                     capture_exception(e)
 

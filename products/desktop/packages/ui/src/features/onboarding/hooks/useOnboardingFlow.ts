@@ -15,7 +15,11 @@ import {
 } from "@posthog/core/onboarding/steps";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  useAuthStateFetched,
+  useAuthStateValue,
+} from "@posthog/ui/features/auth/store";
+import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useActiveRepoStore } from "@posthog/ui/shell/activeRepoStore";
@@ -55,6 +59,25 @@ export function useOnboardingFlow() {
       .finally(() => setIsDetectingRepo(false));
   }, [selectedDirectory, hostClient, localWorkspaces]);
 
+  const [selectedCloudRepo, setSelectedCloudRepo] = useState<string | null>(
+    null,
+  );
+  const handleCloudRepoChange = useCallback(
+    (repo: string | null) => {
+      setSelectedCloudRepo(repo);
+      setLastUsedCloudRepository(repo);
+      if (repo) {
+        setSelectedDirectory("");
+        setDetectedRepo(null);
+        track(ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED, {
+          has_git_remote: true,
+          repository_provider: "github",
+        });
+      }
+    },
+    [setLastUsedCloudRepository, setSelectedDirectory],
+  );
+
   const handleDirectoryChange = useCallback(
     async (path: string) => {
       setSelectedDirectory(path);
@@ -70,6 +93,9 @@ export function useOnboardingFlow() {
         });
         return;
       }
+
+      setSelectedCloudRepo(null);
+      setLastUsedCloudRepository(null);
 
       if (!path) return;
 
@@ -105,10 +131,34 @@ export function useOnboardingFlow() {
 
   const hasCodeAccess = useAuthStateValue((state) => state.hasCodeAccess);
   const hasImportableConfig = useHasImportableConfig();
+  const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  const hasGithubIntegration = githubUserIntegrations
+    ? githubUserIntegrations.length > 0
+    : undefined;
+  // Counted off the store rather than through useProjects, whose auto-select
+  // effect would then run in a second place and re-clear the query cache.
+  const orgProjectsMap = useAuthStateValue((state) => state.orgProjectsMap);
+  const authFetched = useAuthStateFetched();
+  const projectCount = useMemo(
+    () =>
+      authFetched
+        ? Object.values(orgProjectsMap).reduce(
+            (total, org) => total + org.projects.length,
+            0,
+          )
+        : undefined,
+    [authFetched, orgProjectsMap],
+  );
 
   const activeSteps = useMemo(
-    () => computeActiveSteps(hasCodeAccess, hasImportableConfig),
-    [hasCodeAccess, hasImportableConfig],
+    () =>
+      computeActiveSteps({
+        hasCodeAccess,
+        hasImportableConfig,
+        hasGithubIntegration,
+        projectCount,
+      }),
+    [hasCodeAccess, hasImportableConfig, hasGithubIntegration, projectCount],
   );
 
   useEffect(() => {
@@ -157,5 +207,8 @@ export function useOnboardingFlow() {
     detectedRepo,
     isDetectingRepo,
     handleDirectoryChange,
+    selectedCloudRepo,
+    handleCloudRepoChange,
+    hasGithubIntegration,
   };
 }

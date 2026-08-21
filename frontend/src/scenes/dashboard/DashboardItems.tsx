@@ -4,7 +4,8 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
@@ -28,6 +29,7 @@ import {
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
+import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -35,6 +37,8 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
+import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -94,7 +98,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
-        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -139,8 +142,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // While a drag/resize is in progress the grid drives itself from its own internal state and ignores the
     // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
-    const interactionInProgress = useRef(false)
-    const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -191,6 +192,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
+    const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
+        useDashboardLayoutInteraction({
+            layoutEditMode,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            updateLayouts,
+        })
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
@@ -242,7 +249,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const gridGap = getDashboardTileSpacingGap(dashboard?.customization?.tile_spacing)
+    const margin = useMemo(
+        () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
+        [gridGap, spacingFactor]
+    )
 
     const getInsertMenuItems = useCallback(
         (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
@@ -347,27 +358,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [dashboard]
     )
 
-    const handleLayoutChange = useCallback(
-        (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (!layoutEditMode) {
-                return
-            }
-            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
-            if (interactionInProgress.current) {
-                pendingLayouts.current = newLayouts
-                return
-            }
-            updateLayouts(newLayouts)
-        },
-        [layoutEditMode, updateLayouts]
-    )
-
     const flushPendingLayouts = useCallback(() => {
-        interactionInProgress.current = false
-        if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
-            pendingLayouts.current = null
-        }
+        finishInteraction()
         // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
             if (containerRef.current) {
@@ -375,7 +367,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }
         })
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [updateLayouts])
+    }, [finishInteraction])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -384,9 +376,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [updateContainerWidth]
     )
 
-    const handleResizeStart = useCallback(() => {
-        interactionInProgress.current = true
-    }, [])
+    const handleResizeStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
+            startInteraction(layout, newItem, 'resize')
+        },
+        [startInteraction]
+    )
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
         // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
@@ -401,11 +399,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
-    const handleDragStart = useCallback(() => {
-        interactionInProgress.current = true
-        scrollContainerRef.current = document.getElementById('main-content')
-        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+    const handleDragStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
+            startInteraction(layout, newItem, 'drag')
+            scrollContainerRef.current = document.getElementById('main-content')
+            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+        },
+        [startInteraction]
+    )
 
     const handleDrag = useCallback(
         (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
@@ -499,6 +503,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        compactor={gridCompactor}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
@@ -697,7 +702,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                    {isEditablePlacement && (
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}
