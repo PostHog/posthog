@@ -24,16 +24,24 @@ export function GithubInstallRequestsBanner({
   isConnecting = false,
 }: GithubInstallRequestsBannerProps) {
   const { data } = useGithubInstallRequests();
-  const { data: linkedInstallations = [] } = useUserGithubIntegrations();
+  const { data: linkedInstallations, isSuccess: linkedInstallationsLoaded } =
+    useUserGithubIntegrations();
   const dismiss = useDismissGithubInstallRequest();
   const { copied, copy } = useCopy();
 
   const requests = data?.results ?? [];
   const pending = requests.filter((r) => r.status === "pending");
-  const approved = unlinkedApprovedRequests(
-    requests,
-    linkedInstallations.map((integration) => integration.installation_id),
-  );
+  // Only surface approved requests once we know which installations are already linked.
+  // An empty list while the query loads or after it fails would read as "nothing linked"
+  // and offer "Finish connecting" for an install that is in fact already connected.
+  const approved = linkedInstallationsLoaded
+    ? unlinkedApprovedRequests(
+        requests,
+        (linkedInstallations ?? []).map(
+          (integration) => integration.installation_id,
+        ),
+      )
+    : [];
   const installUrl = data?.install_url ?? null;
 
   if (pending.length === 0 && approved.length === 0) {
