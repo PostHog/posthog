@@ -18,6 +18,7 @@ from posthog.schema import (
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
+    MarketingAnalyticsRetentionQuery,
     PropertyMathType,
 )
 
@@ -55,7 +56,9 @@ UNATTRIBUTED_SESSION_VALUES: dict[MarketingAnalyticsAttributionBreakdown, tuple[
 
 
 class MarketingSessionBreakdownQueryRunnerBase(MarketingAnalyticsBaseQueryRunner[ResponseType], Generic[ResponseType]):
-    query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
+    query: (
+        MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery
+    )
 
     @property
     def breakdown(self) -> MarketingAnalyticsAttributionBreakdown:
