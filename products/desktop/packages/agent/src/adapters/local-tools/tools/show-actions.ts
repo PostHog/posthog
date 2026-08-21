@@ -1,61 +1,12 @@
+import { showActionSchema } from "@posthog/shared";
 import { z } from "zod";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
 export const SHOW_ACTIONS_TOOL_NAME = "show_actions";
 
-const labelSchema = z
-  .string()
-  .min(1)
-  .max(60)
-  .describe(
-    "Button text. Short and in sentence case, naming what the button does.",
-  );
-
 export const showActionsSchema = {
   actions: z
-    .array(
-      z.discriminatedUnion("kind", [
-        z.object({
-          kind: z.literal("compose"),
-          label: labelSchema,
-          prompt: z
-            .string()
-            .min(1)
-            .describe(
-              "Text to prefill the new-task composer with. The user reads it and " +
-                "sends it themselves, so nothing runs on click.",
-            ),
-          repo: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              "Repository slug to preselect, e.g. `posthog/posthog`. Omit when " +
-                "the task has no repository.",
-            ),
-        }),
-        z.object({
-          kind: z.literal("open_space"),
-          label: labelSchema,
-          channel_id: z
-            .string()
-            .min(1)
-            .describe("Id of the channel whose feed to open."),
-        }),
-        z.object({
-          kind: z.literal("open_canvas"),
-          label: labelSchema,
-          channel_id: z
-            .string()
-            .min(1)
-            .describe("Id of the channel the canvas lives in. Required."),
-          canvas_id: z
-            .string()
-            .min(1)
-            .describe("Id of the canvas to open. Required."),
-        }),
-      ]),
-    )
+    .array(showActionSchema)
     .min(1)
     .max(4)
     .describe("One to four actions, in the order they should appear."),
@@ -77,9 +28,9 @@ export const SHOW_ACTIONS_TOOL_DESCRIPTION =
 
 /**
  * Offers the user buttons; it does not press them. The handler only
- * acknowledges — the desktop renderer draws the card off the surfaced
- * `tool_call` and builds the link from the typed action when a button is
- * clicked, so nothing here can reach the user's window anyway.
+ * acknowledges — the desktop renderer draws them off the surfaced `tool_call`
+ * and builds the link from the typed action when a button is clicked, so
+ * nothing here can reach the user's window anyway.
  *
  * Ungated on purpose. A button the agent never learns it can offer is the
  * whole failure this tool exists to avoid, so it is exposed in every session.

@@ -1,4 +1,3 @@
-import { openAgentActionInput } from "@posthog/core/agent-actions/schemas";
 import {
   CanvasLinkEvent,
   type CanvasLinkPayload,
@@ -54,7 +53,7 @@ import {
   type IDeepLinkRegistry,
 } from "@posthog/platform/deep-link";
 import type { NotificationTarget } from "@posthog/platform/notifications";
-import { buildActionUrl } from "@posthog/shared";
+import { buildActionUrl, openAgentActionInput } from "@posthog/shared";
 import { z } from "zod";
 
 export const deepLinkRouter = router({

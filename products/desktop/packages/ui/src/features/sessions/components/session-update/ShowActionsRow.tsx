@@ -1,6 +1,6 @@
+import { readShowActions } from "@posthog/core/sessions/showActions";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
-import { readShowActions } from "@posthog/ui/features/sessions/components/session-update/inlineArtifacts";
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import { useMutation } from "@tanstack/react-query";
 

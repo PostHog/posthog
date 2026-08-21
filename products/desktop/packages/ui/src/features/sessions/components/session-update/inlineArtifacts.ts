@@ -1,21 +1,12 @@
 import {
-  isShowActionsCall,
   isUploadArtifactCall,
   readCreatedPrUrl as readCreatedPrUrlFromCall,
-  readShowActions,
   readUploadedArtifactName,
-  type ShowActionButton,
 } from "@posthog/core/sessions/inlineArtifacts";
 import { getContentText } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 
-export {
-  isShowActionsCall,
-  isUploadArtifactCall,
-  readShowActions,
-  type ShowActionButton,
-  readUploadedArtifactName,
-};
+export { isUploadArtifactCall, readUploadedArtifactName };
 
 function toolCallOutputText(toolCall: ToolCall): string {
   const content = getContentText(toolCall.content) ?? "";

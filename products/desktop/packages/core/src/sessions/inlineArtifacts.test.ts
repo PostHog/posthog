@@ -1,7 +1,6 @@
 import { posthogToolMeta } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
-  isShowActionsCall,
   isUploadArtifactCall,
   type PrCreationCandidate,
   readCreatedPrUrl,
@@ -23,7 +22,7 @@ function call(
   };
 }
 
-function localToolMeta(tool: string) {
+function _localToolMeta(tool: string) {
   return posthogToolMeta({
     toolName: `mcp__posthog-code-tools__${tool}`,
     mcp: { server: "posthog-code-tools", tool },
@@ -63,14 +62,6 @@ describe("inlineArtifacts", () => {
   it("detects an upload_artifact MCP call", () => {
     expect(isUploadArtifactCall(mcpMeta("upload_artifact"))).toBe(true);
     expect(isUploadArtifactCall(mcpMeta("create_pull_request"))).toBe(false);
-  });
-
-  // Both tools ride the same local server, and both draw a card instead of a
-  // tool row, so telling them apart is what keeps each card on its own call.
-  it("tells show_actions apart from its sibling local tools", () => {
-    expect(isShowActionsCall(localToolMeta("show_actions"))).toBe(true);
-    expect(isShowActionsCall(localToolMeta("upload_artifact"))).toBe(false);
-    expect(isUploadArtifactCall(localToolMeta("show_actions"))).toBe(false);
   });
 
   it.each([

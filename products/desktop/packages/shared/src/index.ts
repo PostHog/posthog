@@ -1,4 +1,14 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -104,11 +114,6 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
-  type AgentAction,
-  type AgentComposeAction,
-  type AgentOpenCanvasAction,
-  type AgentOpenSpaceAction,
-  buildActionUrl,
   buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,

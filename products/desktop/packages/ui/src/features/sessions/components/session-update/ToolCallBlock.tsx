@@ -1,3 +1,4 @@
+import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useServiceOptional } from "@posthog/di/react";
 import { readAgentToolName, readMcpToolName } from "@posthog/shared";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
@@ -22,11 +23,7 @@ import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
 } from "./identifiers";
-import {
-  isShowActionsCall,
-  isUploadArtifactCall,
-  readCreatedPrUrl,
-} from "./inlineArtifacts";
+import { isUploadArtifactCall, readCreatedPrUrl } from "./inlineArtifacts";
 import { ShowActionsRow } from "./ShowActionsRow";
 import { SubagentToolView } from "./SubagentToolView";
 
