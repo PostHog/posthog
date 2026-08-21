@@ -315,9 +315,8 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
-    /** Domain control for this axis, overriding the chart-level `valueDomain` (which only reaches
-     *  the primary axis). Needed to keep a secondary-axis reference line on-plot — an overlay
-     *  outside the domain doesn't render. See {@link ValueDomain}. */
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
 }
 

@@ -127,9 +127,11 @@ function SimulationChart({
                             position: 'right',
                             format: 'percentage_scaled',
                             label: 'Anomaly score',
-                            // Without this the axis stops at the highest score, so a threshold above
-                            // every score falls outside the plot and doesn't draw at all.
-                            includeValues: threshold != null ? [threshold] : undefined,
+                            // Scores are probabilities, so the axis is 0-100% whatever the data does.
+                            // Floating it to the data max drops a threshold above every score: an
+                            // off-plot reference line doesn't draw at all.
+                            min: 0,
+                            max: 1,
                         },
                     ],
                     showGrid: true,

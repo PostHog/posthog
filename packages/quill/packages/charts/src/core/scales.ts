@@ -693,7 +693,7 @@ export function createBarScales(
         /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
         valuePadding?: number
         /** Per-axis overrides — explicit values win over the alternating-side default and `options.scaleType`. */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; valueDomain?: ValueDomain }[]
+        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
     } = {}
 ): BarScaleSet {
     const {
@@ -778,7 +778,7 @@ export function createBarScales(
                 barLayout,
                 axisOverrides.get(axisId)?.scaleType ?? scaleType,
                 axisStackedSeries?.length ? axisStackedSeries : undefined,
-                axisOverrides.get(axisId)?.valueDomain ?? (axisIndex === 0 ? valueDomain : undefined),
+                axisIndex === 0 ? valueDomain : undefined,
                 valuePadding
             )
             yAxes[axisId] = { scale, position }
