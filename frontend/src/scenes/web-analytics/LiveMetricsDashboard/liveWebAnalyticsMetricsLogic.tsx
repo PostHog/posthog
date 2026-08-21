@@ -745,7 +745,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 // this load captured the old filters, so run one more with the new ones.
                 if (!signal.aborted && cache.reloadQueuedDuringInit) {
                     cache.reloadQueuedDuringInit = false
-                    resetStreamStateAndReload(cache, actions)
+                    resetStreamStateAndReload(cache as FlushCache, actions)
                 }
             }
         },
@@ -851,7 +851,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 cache.reloadQueuedDuringInit = true
                 return
             }
-            resetStreamStateAndReload(cache, actions)
+            resetStreamStateAndReload(cache as FlushCache, actions)
         }
         return {
             liveFilters: reloadForFilterChange,
@@ -922,10 +922,7 @@ interface ReloadActions {
 
 // Drops buffered stream state and schedules a fresh backfill; the window is
 // rebuilt from scratch whenever the filters feeding it change.
-const resetStreamStateAndReload = (
-    cache: { batch: LiveEvent[]; geoBatch: LiveGeoEvent[] },
-    actions: ReloadActions
-): void => {
+const resetStreamStateAndReload = (cache: Pick<FlushCache, 'batch' | 'geoBatch'>, actions: ReloadActions): void => {
     cache.batch = []
     cache.geoBatch = []
     actions.clearRecentEvents()
