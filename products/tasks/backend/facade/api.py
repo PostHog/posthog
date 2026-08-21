@@ -5307,6 +5307,9 @@ def create_task(
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    # Names the task from the pasted content while `description` stays the bare prompt. Write-only,
+    # never persisted, so it must be popped before `Task.objects.create(**validated_data)`.
+    naming_source = (validated_data.pop("naming_source", None) or "").strip() or None
     channel = validated_data.get("channel")
     if (
         channel is not None
@@ -5389,7 +5392,7 @@ def create_task(
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
             if description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(description)
+                warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -5476,8 +5479,8 @@ def create_task(
             validated_data["github_user_integration"] = github_user_integration.integration
 
     title = (validated_data.get("title") or "").strip()
-    if not title and validated_data.get("description"):
-        validated_data["title"] = generate_task_title(validated_data["description"])
+    if not title and (naming_source or validated_data.get("description")):
+        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
