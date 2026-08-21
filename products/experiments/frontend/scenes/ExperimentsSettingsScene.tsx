@@ -5,6 +5,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
+import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { DefaultCupedEnabled } from 'scenes/settings/environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from 'scenes/settings/environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from 'scenes/settings/environment/DefaultExperimentConfidenceLevel'
@@ -15,8 +16,6 @@ import { DefaultSequentialTuningParameter } from 'scenes/settings/environment/De
 import { ExperimentRecalculationTime } from 'scenes/settings/environment/ExperimentRecalculationTime'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { FlagCleanupRepository } from 'scenes/settings/environment/FlagCleanupRepository'
-
-import { DefaultMinimumDetectableEffect } from './DefaultMinimumDetectableEffect'
 
 function SettingsSection({
     title,
@@ -58,7 +57,7 @@ function SettingsItem({
  * although this works fine for now, if we keep adding more settings we need to refactor this to use the
  * <Settings /> component. That will require we create a new section for experiments on the SettingsMap.
  */
-export function ExperimentsSettings(): JSX.Element {
+export function ExperimentsSettingsScene(): JSX.Element {
     const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
