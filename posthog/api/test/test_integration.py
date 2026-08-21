@@ -4798,10 +4798,12 @@ class TestStripeIntegrationOAuthTokens:
             created_by=self.user,
         )
         stripe_int = StripeIntegration(integration)
-        stripe_int.write_posthog_secrets(self.team.pk, self.user)
+        publication = stripe_int.write_posthog_secrets(self.team.pk, self.user)
 
         MockStripeClient.assert_not_called()
         mock_capture.assert_called_once()
+        assert publication.access_token_id is None
+        assert not OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).exists()
         captured_exc = mock_capture.call_args.args[0]
         assert isinstance(captured_exc, NotImplementedError)
 
