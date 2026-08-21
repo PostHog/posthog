@@ -76,7 +76,10 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
+        # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
+        timeout-minutes: 45
         permissions:
             contents: read
 
