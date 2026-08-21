@@ -48,6 +48,9 @@ GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
+ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY = "account_name_heal_attempted_at"
+GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS = 5 * 60
+
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
 # point a comment renders without its pills, which is worse than the extra requests.
@@ -413,6 +416,10 @@ class GitHubIntegrationBase:
         # refresh rewrites it, including for integrations connected before this key existed.
         if isinstance(data.get("permissions"), dict):
             config["permissions"] = data["permissions"]
+        # Same reasoning for the "all" vs "selected" repository scope: an org owner can flip it on
+        # GitHub at any time, and the UI uses it to decide whether to list repositories at all.
+        if isinstance(data.get("repository_selection"), str):
+            config["repository_selection"] = data["repository_selection"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
@@ -528,6 +535,49 @@ class GitHubIntegrationBase:
         suspended) and no mint has succeeded since. While True, the stored access token is
         stale — it survives disarming but GitHub will reject it once it expires server-side."""
         return bool(self.integration.config.get(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
+
+    def account_name_needs_heal(self) -> bool:
+        """True when the stored account name is missing or is the numeric installation id, which is
+        the placeholder written when ``GET /app/installations/{id}`` failed at connect time."""
+        installation_id = self.github_installation_id
+        account = self.integration.config.get("account")
+        name = account.get("name") if isinstance(account, dict) else None
+        return not name or str(name) == str(installation_id)
+
+    def ensure_account_name(self) -> bool:
+        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+
+        Skips installations already marked unavailable, since the lookup would fail the same way.
+        Returns True when the name was healed. Persists the attempt timestamp either way so a broken
+        installation costs one GitHub call per cooldown window, not one per list request.
+        """
+        installation_id = self.github_installation_id
+        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+            return False
+        now = int(time.time())
+        last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
+        if isinstance(last_attempt, int | float) and now - last_attempt < GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS:
+            return False
+
+        config = {**self.integration.config, ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
+        healed = False
+        try:
+            response = self.client_request(f"installations/{installation_id}")
+            if response.status_code == 200:
+                account = response.json().get("account") or {}
+                login = account.get("login")
+                if login:
+                    config["account"] = {"type": account.get("type"), "name": login}
+                    healed = True
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: ensure_account_name failed",
+                installation_id=installation_id,
+                exc_info=True,
+            )
+        self.integration.config = config
+        self.integration.save(update_fields=["config"])
+        return healed
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
@@ -1916,6 +1966,13 @@ class GitHubIntegrationBase:
         result = filtered[offset : offset + limit]
         has_more = offset + limit < len(filtered)
         return result, has_more
+
+    def count_cached_repositories(self, *, search: str = "") -> int:
+        """Size of the filtered set ``list_cached_repositories`` pages over. Call it right after
+        ``list_cached_repositories`` on the same instance so it reads the just-synced in-memory
+        cache rather than triggering a second sync."""
+        cached_repositories = self._get_stored_repository_list() or []
+        return len(self._filter_cached_repositories(cached_repositories, search))
 
     def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()

@@ -15,7 +15,7 @@ from django.utils import timezone
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -284,10 +284,23 @@ class GitHubReposQuerySerializer(serializers.Serializer):
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+    total = serializers.IntegerField(
+        help_text="Total number of repositories matching the search query, across all pages."
+    )
+
+
+GITHUB_INSTALLATION_STATUS_CHOICES = ["connected", "unavailable"]
 
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+    installation_status = serializers.ChoiceField(
+        choices=GITHUB_INSTALLATION_STATUS_CHOICES,
+        help_text=(
+            "`unavailable` when GitHub reports the App installation as uninstalled or suspended, in which "
+            "case `repositories` is the last cached list rather than a fresh one."
+        ),
+    )
 
 
 class JiraProjectSerializer(serializers.Serializer):
@@ -438,11 +451,56 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    installation_shared = serializers.SerializerMethodField(
+        help_text=(
+            "GitHub only, null otherwise. Whether another project's GitHub integration references the same "
+            "App installation. When false, disconnecting this integration also uninstalls the GitHub App from "
+            "the connected account or organization and removes personal GitHub connections that share it."
+        )
+    )
+    installation_status = serializers.SerializerMethodField(
+        help_text=(
+            "GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub "
+            "and PostHog can no longer mint tokens for it; `connected` otherwise."
+        )
+    )
 
     class Meta:
         model = Integration
-        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
-        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+        fields = [
+            "id",
+            "kind",
+            "config",
+            "created_at",
+            "created_by",
+            "errors",
+            "display_name",
+            "installation_shared",
+            "installation_status",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "errors",
+            "display_name",
+            "installation_shared",
+            "installation_status",
+        ]
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_installation_shared(self, obj: Integration) -> bool | None:
+        if obj.kind != "github" or not obj.integration_id:
+            return None
+        # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
+        # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
+        return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
+
+    @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
+    def get_installation_status(self, obj: Integration) -> str | None:
+        if obj.kind != "github":
+            return None
+        return "unavailable" if GitHubIntegration(obj).installation_unavailable() else "connected"
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -1645,8 +1703,9 @@ class IntegrationViewSet(
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
+        total = github.count_cached_repositories(search=search)
 
-        return Response({"repositories": repositories, "has_more": has_more})
+        return Response({"repositories": repositories, "has_more": has_more, "total": total})
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -1777,11 +1836,26 @@ class IntegrationViewSet(
         if instance.kind != "github":
             raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
-        repositories = github.sync_repository_cache(
-            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
-        )
+        try:
+            repositories = github.sync_repository_cache(
+                min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+            )
+        except GitHubIntegrationError as err:
+            # A refresh against an installation GitHub has since removed marks it unavailable; report
+            # that as a state rather than a failure so the UI can offer removal instead of a retry loop.
+            if not github.installation_unavailable():
+                capture_exception(err)
+                raise ValidationError(
+                    "Unable to refresh GitHub repositories. Please check integration settings and try again."
+                ) from err
+            repositories = github.list_all_cached_repositories(allow_refresh=False)
 
-        return Response({"repositories": repositories})
+        return Response(
+            {
+                "repositories": repositories,
+                "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+            }
+        )
 
     @extend_schema(
         parameters=[GitHubTeamsQuerySerializer],
@@ -1966,3 +2040,19 @@ class IntegrationViewSet(
             raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
         return Response({"url": url})
+
+    # Defined last: a method named `list` shadows the builtin for the annotations of every method
+    # declared after it in this class body.
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
+        # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
+        # everywhere the row is listed, including surfaces that never open the repository picker.
+        for instance in self.filter_queryset(self.get_queryset()).filter(kind="github"):
+            GitHubIntegration(instance).ensure_account_name()
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind == "github":
+            GitHubIntegration(instance).ensure_account_name()
+        return super().retrieve(request, *args, **kwargs)
