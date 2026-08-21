@@ -33,9 +33,14 @@ PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     # pr-approval-agent listens for base retargets (`edited` with `changes.base`); title/body
     # edits skip every job there, but GitHub still counts the dispatch.
     "edited": 4,
-    "opened": 28,
+    # require-owner-review posts a required commit status, so it has to dispatch for
+    # every head SHA of every PR. A `paths:` filter would scope it, but then the status
+    # never arrives on an unaffected PR and the ruleset waits on it forever. Folding it
+    # into auto-assign-reviewers was the alternative; that would couple a merge gate to
+    # the one `pull_request_target` workflow we least want to change.
+    "opened": 29,
     "ready_for_review": 11,
-    "reopened": 24,
+    "reopened": 25,
     "review_requested": 1,
     "synchronize": 28,
 }

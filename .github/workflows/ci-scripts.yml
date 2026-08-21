@@ -71,6 +71,11 @@ jobs:
             - name: Auto-assign reviewers tests (Node)
               run: node --test .github/scripts/assign-reviewers.test.js
 
+            # hashFiles guard so an unrebased PR predating this script doesn't fail here.
+            - name: Owner review gate tests (Node)
+              if: ${{ hashFiles('.github/scripts/require-owner-review.test.js') != '' }}
+              run: node --test .github/scripts/require-owner-review.test.js
+
             - name: CI report section tests (Node)
               run: node --test .github/scripts/post-ci-sections.test.mjs
 

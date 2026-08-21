@@ -35,6 +35,14 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 .github/scripts/assign-reviewers.js @PostHog/team-security
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
+
+# Same `pull_request_target` reasoning for the owner-review gate: it runs with an app
+# token that can read org membership, and it posts the commit status a branch ruleset
+# can require, so a change here can both leak that token and quietly un-gate every
+# path in .github/blocking-owners. That config file itself is deliberately not owned:
+# a team adding its own paths only makes the gate stricter for itself.
+.github/workflows/require-owner-review.yml @PostHog/team-security
+.github/scripts/require-owner-review.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
 # pull_request_target event (via `python -m posthog_owners`), with tools/owners
 # as the privileged sys.path root. Anything importable placed in that tree can

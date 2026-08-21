@@ -1,0 +1,24 @@
+# Paths that need a review from the owning team before they can merge.
+#
+# CODEOWNERS syntax, last match wins, but a different rule. `.github/CODEOWNERS`
+# is GitHub's own gate and counts nothing but an approval from the listed team,
+# which breaks two things we rely on: a `stamphog[bot]` approval never satisfies
+# it, and it cannot tell an owning team's own PR from another team's. This file is
+# checked by .github/scripts/require-owner-review.js instead, which:
+#   - passes when the author is on the owning team, so stamphog still merges our own work,
+#   - passes on an approval from any member of that team,
+#   - ignores generated files, lockfiles and snapshots.
+#
+# Adding a path here makes other teams wait for you, so read the note at the top
+# of CODEOWNERS first. The same bar applies. An owner-less line resets a subtree.
+
+# Workflows owns CDP, Workflows and Messaging end to end: the product trees and the
+# plugin-server workers that run them. Other teams edit these trees as a side effect
+# of shipping their own product, usually by carving out an exception so their own rows
+# behave differently. A mistake there is silent: nothing errors, their tests still
+# pass, and existing customer configurations stop being listed, or stop being
+# delivered. #66355 did that, and it took #83993, #86202 and #86614 to unwind.
+products/cdp/** @PostHog/team-workflows
+products/workflows/** @PostHog/team-workflows
+products/messaging/** @PostHog/team-workflows
+nodejs/src/cdp/** @PostHog/team-workflows

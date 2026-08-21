@@ -1,0 +1,64 @@
+name: Require owner review
+
+# NOTE: `pull_request_target` runs with our secrets and skips the fork approval gate,
+# so it is only safe while this job runs nothing from the PR. It checks out `master`,
+# reads PR metadata through the API, and never executes PR code or installs from a PR
+# lockfile. Keep it that way, and validate any change here with the security team.
+# The trigger is needed because the check must post a status on external contributors'
+# PRs too, and a `pull_request` run from a fork has neither secrets nor write access.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [opened, synchronize, reopened, ready_for_review]
+    pull_request_review:
+        types: [submitted, dismissed]
+
+permissions:
+    contents: read
+
+# One evaluation per PR at a time. A burst of bot reviews would otherwise race to
+# post the same status.
+concurrency:
+    group: require-owner-review-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    owner-review:
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 5
+        # A review event fires for every comment-only bot review as well. Only an
+        # approval or a dismissal can change the answer.
+        if: >-
+            github.event.pull_request.draft == false &&
+            (github.event_name != 'pull_request_review' ||
+             contains(fromJSON('["approved","dismissed"]'), github.event.review.state))
+
+        steps:
+            # Reading org team membership needs more than GITHUB_TOKEN can do, the same
+            # reason the reviewer assigner uses an app token.
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Checkout master branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  # This value MUST stay `master`: it is what keeps untrusted code out.
+                  ref: master
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+
+            - name: Evaluate owner review
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: node .github/scripts/require-owner-review.js
