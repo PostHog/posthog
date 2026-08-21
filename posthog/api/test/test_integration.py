@@ -1611,7 +1611,7 @@ class TestIntegrationAPIKeyAccess:
         "installation_gone,expected_status",
         [(True, status.HTTP_200_OK), (False, status.HTTP_400_BAD_REQUEST)],
     )
-    @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
+    @patch("posthog.models.integration.github.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_distinguishes_uninstalled_from_transient_failure(
         self, mock_sync_repository_cache, installation_gone, expected_status, client: HttpClient
     ):
