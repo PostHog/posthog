@@ -3,8 +3,9 @@ name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
   capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
-  second, inline HogQL last), per-insight-type result shapes, date-range wiring, and event capture
-  from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
+  second, inline HogQL last), verifiability (insight-backed metrics link their saved insight in
+  PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes, date-range wiring, and event
+  capture from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
   needs to send analytics events.
 ---
 
@@ -37,6 +38,35 @@ Whatever tier you use, **declare it in the project's `capabilities`** before pub
 `ph.loadInsight` short id in `capabilities.posthog.insights`, every `ph.capture` event name in
 `captureEvents`, and `inlineQueries: true` for any `ph.query` use. The host rejects undeclared
 calls at runtime, and validation fails on undeclared literals.
+
+## Verifiability — every claim must be checkable in PostHog
+
+A number a viewer cannot verify is a number they cannot trust. Every data-backed figure a canvas
+shows — a KPI, a chart, a table, a stated conclusion — must carry the verification affordance for
+its tier:
+
+1. **Insight-backed metrics link the real insight in PostHog.** For a metric loaded from a saved
+   insight (the preferred tier), render a "View in PostHog" affordance that calls
+   `ph.openExternal(insightUrl)` from a click. Mint the URL at authoring time with the
+   `generate-app-url` MCP tool (path template `/insights/{id}` with the insight's short id) and
+   bake the returned URL into the source verbatim — never hand-build one. `ph.openExternal` only
+   opens `https://*.posthog.com` URLs and only from a user gesture, so wire it to a button or
+   link, never to load or render. Do not also bake the insight's saved query text into the
+   source: canvas source is readable by every canvas viewer, while access to the insight itself
+   is enforced by PostHog — the link is where a viewer inspects the query, with their own
+   permissions applied.
+2. **Ad-hoc queries disclose the exact query that ran, viewable in place.** For a figure computed
+   by `ph.query` (a typed node or inline HogQL), show the query behind it — the HogQL text, or
+   the typed query node pretty-printed as JSON — in a modal or a collapsed disclosure attached to
+   the card (a Quill `Dialog` or `Collapsible` in a React canvas, a `<details>` element in an
+   HTML one). Render it from the same constant or builder you pass to `ph.query`, so the
+   displayed query can never drift from the executed one. This discloses nothing beyond what the
+   viewer already runs: `ph.query` executes as the signed-in viewer.
+
+These are not optional polish: a canvas that presents PostHog data without them is incomplete.
+Keep the affordances compact — a small link icon per insight-backed card, a "View query"
+disclosure per ad-hoc card, or one shared modal listing every ad-hoc query the canvas runs, each
+labeled with the figure it backs.
 
 For a status board, set `refresh` to the cache lifetime in seconds. Use a whole number from 30 to
 86400 (one day); values outside that range, or fractional ones, fail at runtime:
