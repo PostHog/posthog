@@ -3,7 +3,6 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: [
     "src/index.ts",
-    "src/agent-platform-types.ts",
     "src/analytics-events.ts",
     "src/announcements.ts",
     "src/constants.ts",

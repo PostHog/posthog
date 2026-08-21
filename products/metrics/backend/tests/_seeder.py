@@ -60,6 +60,12 @@ def seed_metric(
 ) -> None:
     """Insert one row per `(timestamp, value)` point into `metrics1`.
 
+    Every point in one call is a sample of the *same* series, since the series
+    identity (`service_name`, `metric_type`, both attribute maps) is fixed per
+    call. Aggregations reduce each series to one value per bucket, so several
+    points in one bucket collapse to the last one. Seed distinct series with
+    separate calls.
+
     `labels` populates the per-data-point `attributes_map_str` map (with the
     `__str` type-tag suffix the schema expects). `resource_labels` populates
     `resource_attributes` directly — those are tag-free.

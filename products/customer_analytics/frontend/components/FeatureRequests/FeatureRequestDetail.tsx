@@ -25,6 +25,7 @@ import { FeatureRequestAccountItem } from './FeatureRequestAccountItem'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
+import { FeatureRequestImages } from './FeatureRequestImages'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
 import { FEATURE_REQUEST_ACCOUNT_PREVIEW_SIZE, featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
@@ -35,6 +36,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
         listSearchParams,
         activeRequestAccountLinks,
         activeRequestEvidenceCount,
+        activeRequestImages,
         visibleActiveRequestAccountLinks,
         requestAccountsShowingAll,
         accountsEvidenceCollapsed,
@@ -46,6 +48,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
         restoreActiveRequest,
         setRequestAccountsShowingAll,
         setAccountsEvidenceCollapsed,
+        showHistoryTarget,
     } = useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -121,7 +124,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
             )}
 
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0">
+                <div className="flex min-w-0 flex-col gap-5">
                     <FeatureRequestDetailSection icon={<IconDocument />} title="Description">
                         {request.description ? (
                             <LemonMarkdown
@@ -134,6 +137,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                             <span className="text-secondary">No description provided.</span>
                         )}
                     </FeatureRequestDetailSection>
+                    <FeatureRequestImages images={activeRequestImages} onShowEvidence={showHistoryTarget} />
                 </div>
 
                 <aside className="flex flex-col min-w-0 gap-5">

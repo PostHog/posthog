@@ -68,6 +68,7 @@ from posthog.models.oauth import (
     OAuthRefreshToken,
     TokenEndpointAuthMethod,
     lock_oauth_connection,
+    revoke_oauth_grant_session,
     revoke_oauth_token_family,
 )
 from posthog.scopes import (
@@ -850,6 +851,53 @@ class OAuthValidator(OAuth2Validator):
             refresh_token_id=str(refresh_token_instance.pk),
         )
 
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """Fork of django-oauth-toolkit 3.2.x ``OAuth2Validator.validate_refresh_token``
+        with the reuse-protection family sweep made set-based.
+
+        Upstream revokes the compromised family one row at a time (``related_rt.revoke()``
+        per member). Each row costs a ``SELECT ... FOR UPDATE`` plus access-token cleanup,
+        even when already revoked, and a rotating session grows its family by one row per
+        refresh, so a long-lived client that keeps re-presenting a stale token turns every
+        ``/oauth/token`` request into hundreds of serial row-locking queries.
+
+        Everything here is upstream line for line except the two blocks marked
+        "PostHog:" below. ``test_oauth_validator_fork.py`` pins the upstream sources this
+        fork was taken from, so a django-oauth-toolkit upgrade that touches any of them
+        fails CI until this method is re-reviewed against the new upstream. Known hazards
+        when moving to 3.4+: refresh tokens are looked up by SHA-256 ``token_checksum``
+        there (the ``token`` column loses its unique index and is blank under
+        hashed-at-rest storage, so the ``token=`` filter below would lose its index or
+        match nothing), and ``request.refresh_token`` must become the raw presented token
+        rather than ``rt.token``.
+        """
+        # Upstream verbatim from here to the sweep, with RefreshToken resolved to our
+        # swapped OAuthRefreshToken model.
+        rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                # PostHog: upstream loops `related_rt.revoke()` over the whole family
+                # here. This batched sweep is the reason the method is forked.
+                revoke_oauth_token_family(rt)
+            return False
+
+        # Upstream verbatim: attach the validated token for get_original_scopes and
+        # save_bearer_token, which read request.refresh_token_instance.
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        # PostHog: upstream returns `rt.application == client`. Django model equality is
+        # pk-based and False against None, so this is equivalent while avoiding a lazy
+        # load of the Application row.
+        return client is not None and rt.application_id == client.pk
+
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
         """
         Revoke the presented refresh token's whole authorization grant, per RFC
@@ -860,7 +908,7 @@ class OAuthValidator(OAuth2Validator):
         OneToOne ``RefreshToken.access_token`` FK. Refresh-issued rows from our
         non-rotating ``_save_bearer_token`` branch carry
         ``source_refresh_token=None``, so they survive that path and stay valid
-        until expiry. ``revoke_oauth_token_family`` deletes by ``token_family``
+        until expiry. ``revoke_oauth_grant_session`` deletes by ``token_family``
         instead, which reaches those rows and stops at the grant boundary.
 
         Stopping there is the point. A client that re-authorizes while an older
@@ -884,7 +932,7 @@ class OAuthValidator(OAuth2Validator):
         """
         rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
         if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
-            revoke_oauth_token_family(rt)
+            revoke_oauth_grant_session(rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 

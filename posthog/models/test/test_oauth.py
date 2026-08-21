@@ -19,8 +19,8 @@ from posthog.models.oauth import (
     OAuthRefreshToken,
     normalize_cimd_url,
     revoke_application_sessions,
+    revoke_oauth_grant_session,
     revoke_oauth_session,
-    revoke_oauth_token_family,
     revoke_oauth_token_session,
 )
 from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
@@ -601,7 +601,7 @@ class TestOAuthModels(TestCase):
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
         self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
-    def test_revoke_oauth_token_family_leaves_another_grant_for_the_same_connection_alive(self):
+    def test_revoke_oauth_grant_session_leaves_another_grant_for_the_same_connection_alive(self):
         app = OAuthApplication.objects.create(
             name="Two Grant Test App",
             client_id="two_grant_client_id",
@@ -636,7 +636,7 @@ class TestOAuthModels(TestCase):
             token_family=current_family,
         )
 
-        revoke_oauth_token_family(replaced_refresh_token)
+        revoke_oauth_grant_session(replaced_refresh_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=replaced_access_token.id).exists())
         self.assertFalse(OAuthRefreshToken.objects.filter(pk=replaced_refresh_token.pk).exists())

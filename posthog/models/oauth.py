@@ -14,6 +14,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+from oauth2_provider.generators import generate_client_id
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -78,6 +79,13 @@ def is_loopback_host(hostname: str | None) -> bool:
 
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    # Overrides the abstract base's max_length=100 so the column can hold a CIMD
+    # metadata-document URL as the client's identifier (sized to match cimd_metadata_url).
+    # Non-CIMD clients keep the generated opaque value.
+    client_id: models.CharField = models.CharField(
+        max_length=2048, unique=True, default=generate_client_id, db_index=True
+    )
 
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
@@ -599,9 +607,9 @@ class OAuthRefreshToken(AbstractRefreshToken):
         verbose_name_plural = "OAuth Refresh Tokens"
         swappable = "OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL"
         indexes = [
-            # Both `revoke_oauth_token_family` and DOT's refresh-token reuse protection
-            # (`OAuthValidator.validate_refresh_token`) select a whole family by this column, which
-            # AbstractRefreshToken declares without an index.
+            # revoke_oauth_token_family sweeps by token_family on the /oauth/token path and
+            # revoke_oauth_grant_session selects a grant by it on /oauth/revoke; without this
+            # index either one scans the whole refresh token table.
             models.Index(fields=["token_family"], name="oauthrefreshtoken_family_idx"),
         ]
 
@@ -796,6 +804,35 @@ def revoke_oauth_session(
 
 
 def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
+    """Revoke every live member of a refresh token's family in a constant number of
+    queries, and delete the access tokens still linked to them.
+
+    Use this when refresh-token reuse protection fires and the whole family is suspect:
+    DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per family
+    member, even already-revoked ones.
+
+    This reproduces the effects of upstream's `AbstractRefreshToken.revoke` (stamp
+    `revoked`, delete the linked access token) in bulk, so any new effect upstream adds to
+    `revoke()` must be mirrored here. `posthog/api/oauth/test_oauth_validator_fork.py`
+    pins that upstream source and fails when it changes."""
+    # Rows without a family (pre-rotation-refresh tokens, non-rotating clients) are their
+    # own lineage: sweeping them by token_family=None would revoke unrelated tokens.
+    if refresh_token.token_family is None:
+        return
+    now = timezone.now()
+    with transaction.atomic():
+        # Revoke refresh tokens before deleting access tokens, in one transaction, so a
+        # mid-way failure can't leave one of them live after its access token is gone
+        # (same ordering as revoke_oauth_session above). The delete joins through the
+        # subquery instead of listing ids in Python: reuse protection fires rarely, but
+        # a compromised family can hold tens of thousands of historical rows.
+        OAuthRefreshToken.objects.filter(token_family=refresh_token.token_family, revoked__isnull=True).update(
+            revoked=now
+        )
+        OAuthAccessToken.objects.filter(refresh_token__token_family=refresh_token.token_family).delete()
+
+
+def revoke_oauth_grant_session(refresh_token: OAuthRefreshToken) -> None:
     """Revoke every token issued under the same authorization grant as `refresh_token`, and
     nothing beyond it.
 
@@ -804,6 +841,10 @@ def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
     grant". `token_family` is that grant, so a second, independently authorized session for the
     same (user, application) keeps working. `revoke_oauth_session`'s wider sweep is for the
     disconnect flows, where the user asked to end every session with the app.
+
+    Selects the same rows as `revoke_oauth_token_family` above but for a different reason, so the
+    two differ in effect: reuse protection stamps `revoked` to mirror upstream's `revoke()`, while
+    a client revocation has to make the credential unusable outright.
 
     Deletes rather than marks revoked, for the reason `revoke_oauth_session` documents: a row
     marked `revoked` keeps validating for REFRESH_TOKEN_GRACE_PERIOD_SECONDS and then mints a
@@ -896,7 +937,7 @@ def revoke_oauth_token_session(
             # revoke can't guarantee all of them are caught. token_family does reach them, and the
             # grant the leaked token belongs to is the widest scope a single leaked credential is
             # evidence about.
-            revoke_oauth_token_family(refresh_token)
+            revoke_oauth_grant_session(refresh_token)
             return
         # Revoke before deleting the linked access token(s), in one transaction, so a
         # mid-way failure can't leave this refresh token live (and able to mint a new
