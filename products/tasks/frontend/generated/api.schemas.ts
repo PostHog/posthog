@@ -1032,14 +1032,14 @@ export interface TaskActivityPageDTOApi {
 }
 
 export interface TaskActivityReadMarkerApi {
-    /** Task whose displayed activity should be marked read. */
+    /** Task whose displayed activity should change read state. */
     task_id: string
     /**
-     * Comment activity row to mark read. Omit for collapsed task activity.
+     * Comment activity row whose read state should change. Omit for collapsed task activity.
      * @nullable
      */
     activity_id?: string | null
-    /** Mark activity at or before this timestamp read without clearing newer activity. */
+    /** Only change activity at or before this timestamp, leaving newer activity unchanged. */
     seen_before: string
 }
 
@@ -1058,6 +1058,21 @@ export interface TaskActivityMarkReadResponseApi {
     /** How many feed rows changed from unread to read. */
     marked_read: number
     /** The requester's remaining unread total after the update. */
+    unread_count: number
+}
+
+export interface TaskActivityMarkUnreadApi {
+    /**
+     * Displayed task activities to mark unread if they have not changed.
+     * @maxItems 500
+     */
+    activities: TaskActivityReadMarkerApi[]
+}
+
+export interface TaskActivityMarkUnreadResponseApi {
+    /** How many feed rows changed from read to unread. */
+    marked_unread: number
+    /** The requester's unread total after the update. */
     unread_count: number
 }
 

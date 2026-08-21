@@ -885,20 +885,48 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
         activities: zod
             .array(
                 zod.object({
-                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    task_id: zod.uuid().describe('Task whose displayed activity should change read state.'),
                     activity_id: zod
                         .uuid()
                         .nullish()
-                        .describe('Comment activity row to mark read. Omit for collapsed task activity.'),
+                        .describe(
+                            'Comment activity row whose read state should change. Omit for collapsed task activity.'
+                        ),
                     seen_before: zod.iso
                         .datetime({ offset: true })
-                        .describe('Mark activity at or before this timestamp read without clearing newer activity.'),
+                        .describe(
+                            'Only change activity at or before this timestamp, leaving newer activity unchanged.'
+                        ),
                 })
             )
             .max(taskActivityMarkReadCreateBodyActivitiesMax)
             .describe('Displayed task activities to mark read if they have not changed.'),
     })
     .describe('Request body for clearing the unread flag on specific tasks.')
+
+/**
+ * Restore the unread state for collapsed task activity through task timestamps and individual comment activity through activity IDs.
+ * @summary Mark task activity unread
+ */
+export const taskActivityMarkUnreadCreateBodyActivitiesMax = 500
+
+export const TaskActivityMarkUnreadCreateBody = /* @__PURE__ */ zod.object({
+    activities: zod
+        .array(
+            zod.object({
+                task_id: zod.uuid().describe('Task whose displayed activity should change read state.'),
+                activity_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe('Comment activity row whose read state should change. Omit for collapsed task activity.'),
+                seen_before: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Only change activity at or before this timestamp, leaving newer activity unchanged.'),
+            })
+        )
+        .max(taskActivityMarkUnreadCreateBodyActivitiesMax)
+        .describe('Displayed task activities to mark unread if they have not changed.'),
+})
 
 /**
  * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.

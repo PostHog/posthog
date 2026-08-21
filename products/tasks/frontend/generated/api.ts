@@ -67,6 +67,8 @@ import type {
     TaskActivityListParams,
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
+    TaskActivityMarkUnreadApi,
+    TaskActivityMarkUnreadResponseApi,
     TaskActivityPageDTOApi,
     TaskArtifactsResponseApi,
     TaskChannelsFeedListParams,
@@ -720,6 +722,27 @@ export const taskActivityMarkReadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskActivityMarkReadApi),
+    })
+}
+
+export const getTaskActivityMarkUnreadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_unread/`
+}
+
+/**
+ * Restore the unread state for collapsed task activity through task timestamps and individual comment activity through activity IDs.
+ * @summary Mark task activity unread
+ */
+export const taskActivityMarkUnreadCreate = async (
+    projectId: string,
+    taskActivityMarkUnreadApi: TaskActivityMarkUnreadApi,
+    options?: RequestInit
+): Promise<TaskActivityMarkUnreadResponseApi> => {
+    return apiMutator<TaskActivityMarkUnreadResponseApi>(getTaskActivityMarkUnreadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskActivityMarkUnreadApi),
     })
 }
 

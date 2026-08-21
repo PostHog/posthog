@@ -2175,14 +2175,14 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    task_id = serializers.UUIDField(help_text="Task whose displayed activity should change read state.")
     activity_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Comment activity row to mark read. Omit for collapsed task activity.",
+        help_text="Comment activity row whose read state should change. Omit for collapsed task activity.",
     )
     seen_before = serializers.DateTimeField(
-        help_text="Mark activity at or before this timestamp read without clearing newer activity."
+        help_text="Only change activity at or before this timestamp, leaving newer activity unchanged."
     )
 
 
@@ -2200,6 +2200,20 @@ class TaskActivityMarkReadSerializer(serializers.Serializer):
 class TaskActivityMarkReadResponseSerializer(serializers.Serializer):
     marked_read = serializers.IntegerField(help_text="How many feed rows changed from unread to read.")
     unread_count = serializers.IntegerField(help_text="The requester's remaining unread total after the update.")
+
+
+class TaskActivityMarkUnreadSerializer(serializers.Serializer):
+    activities = serializers.ListField(
+        child=TaskActivityReadMarkerSerializer(),
+        allow_empty=False,
+        max_length=500,
+        help_text="Displayed task activities to mark unread if they have not changed.",
+    )
+
+
+class TaskActivityMarkUnreadResponseSerializer(serializers.Serializer):
+    marked_unread = serializers.IntegerField(help_text="How many feed rows changed from read to unread.")
+    unread_count = serializers.IntegerField(help_text="The requester's unread total after the update.")
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):

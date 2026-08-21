@@ -777,6 +777,11 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
 
+    def _mark_unread(self, client, activities) -> dict:
+        response = client.post(self._activity_url() + "mark_unread/", {"activities": activities}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
     def _rows(self, client) -> list[dict]:
         return client.get(self._activity_url()).json()["results"]
 
@@ -940,6 +945,32 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(body, {"marked_read": 1, "unread_count": 1})
         self.assertFalse(self._row_for(self.author_client, self.task)["is_unread"])
         self.assertTrue(self._row_for(self.author_client, second)["is_unread"])
+
+    def test_mark_unread_restores_only_the_named_task(self):
+        second = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            channel=self.channel,
+            title="Second",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._awaiting_input()
+        self._awaiting_input(second)
+        rows = [self._row_for(self.author_client, task) for task in (self.task, second)]
+        self._mark_read(
+            self.author_client,
+            [{"task_id": row["task_id"], "seen_before": row["activity_at"]} for row in rows],
+        )
+
+        body = self._mark_unread(
+            self.author_client,
+            [{"task_id": rows[0]["task_id"], "seen_before": rows[0]["activity_at"]}],
+        )
+
+        self.assertEqual(body, {"marked_unread": 1, "unread_count": 1})
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+        self.assertFalse(self._row_for(self.author_client, second)["is_unread"])
 
     def test_reading_the_thread_does_not_mutate_activity(self):
         self._awaiting_input()

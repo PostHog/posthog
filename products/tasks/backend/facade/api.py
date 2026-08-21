@@ -7820,12 +7820,13 @@ def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
     return content.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
 
 
-def mark_task_activity_read(
+def _set_task_activity_read_state(
     team_id: int,
     user_id: int | None,
     activities: Sequence[tuple[UUID, datetime, UUID | None]],
+    *,
+    is_read: bool,
 ) -> int:
-    """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
         return 0
     activity_versions = Q()
@@ -7835,24 +7836,42 @@ def mark_task_activity_read(
             comment_activity_ids.append(comment_activity_id)
         else:
             activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
+    read_state_filter = {"read_at__isnull": is_read}
+    read_at = django_timezone.now() if is_read else None
     task_rows = 0
     if activity_versions:
         task_rows = (
             TaskActivity.objects.for_team(team_id)
-            .filter(user_id=user_id, read_at__isnull=True)
+            .filter(user_id=user_id, **read_state_filter)
             .filter(activity_versions)
-            .update(read_at=django_timezone.now())
+            .update(read_at=read_at)
         )
     comment_rows = (
         TaskCommentActivity.objects.for_team(team_id)
         .filter(
             user_id=user_id,
             id__in=comment_activity_ids,
-            read_at__isnull=True,
+            **read_state_filter,
         )
-        .update(read_at=django_timezone.now())
+        .update(read_at=read_at)
     )
     return task_rows + comment_rows
+
+
+def mark_task_activity_read(
+    team_id: int,
+    user_id: int | None,
+    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+) -> int:
+    return _set_task_activity_read_state(team_id, user_id, activities, is_read=True)
+
+
+def mark_task_activity_unread(
+    team_id: int,
+    user_id: int | None,
+    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+) -> int:
+    return _set_task_activity_read_state(team_id, user_id, activities, is_read=False)
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

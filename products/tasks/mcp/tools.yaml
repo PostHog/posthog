@@ -279,6 +279,9 @@ tools:
     task-activity-mark-read-create:
         operation: task_activity_mark_read_create
         enabled: false
+    task-activity-mark-unread-create:
+        operation: task_activity_mark_unread_create
+        enabled: false
     task-channels-context-generation-retrieve:
         operation: task_channels_context_generation_retrieve
         enabled: false
