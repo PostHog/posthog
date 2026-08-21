@@ -336,7 +336,7 @@ def _call_start_times(calls: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _stamp_transcript(transcript: dict[str, Any], started_by_call_id: dict[str, Any]) -> dict[str, Any]:
     """Copy a transcript with the start time of the call it belongs to attached."""
-    call_id = transcript.get("callId")
+    call_id: Any = transcript.get("callId")
     started = started_by_call_id.get(call_id)
     if started is None:
         raise ValueError(f"Gong returned a transcript for a call that was not asked for (callId={call_id!r})")
