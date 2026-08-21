@@ -4,7 +4,7 @@ import re
 import json
 import uuid as uuid_mod
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -851,56 +851,26 @@ class TestPersonsDedupPrivilegePreflight:
         assert deleted_tables <= probed, f"deletes without a DELETE grant probe: {sorted(deleted_tables - probed)}"
 
 
-# _scalar is stubbed in these tests, so the connection is never touched -- this stands in
-# for one without opening a real session.
-def _no_conn() -> psycopg.Connection:
-    return cast(psycopg.Connection, object())
-
-
-class TestPersonsDedupReplicaLag:
-    # This branch cannot be reached from a live database here: CI and local Postgres are
-    # primaries, so pg_is_in_recovery() is false and the replica path never runs. That gap
-    # is how an Aurora-unsupported function reached production, so the helper is exercised
-    # directly rather than through a connection.
-    def test_an_unsupported_lag_function_costs_the_number_not_the_run(self, monkeypatch):
-        def unsupported(conn, sql, params=None):
-            raise psycopg.errors.FeatureNotSupported(
-                "Function pg_last_xact_replay_timestamp() is currently not supported for Aurora"
-            )
-
-        monkeypatch.setattr(persons_dedup_command, "_scalar", unsupported)
-
-        with capture_logs() as logs:
-            assert persons_dedup_command._replica_lag_seconds(_no_conn()) is None
-
-        assert any(entry["event"] == "persons_dedup.replica_lag_unavailable" for entry in logs), (
-            "an unavailable lag must be reported, not swallowed"
-        )
-
-    def test_reports_the_lag_where_the_platform_supports_it(self, monkeypatch):
-        monkeypatch.setattr(persons_dedup_command, "_scalar", lambda conn, sql, params=None: 42)
-
-        assert persons_dedup_command._replica_lag_seconds(_no_conn()) == 42
-
-
 class TestPersonsDedupConnectionRouting:
-    # The two read modes route to opposite endpoints on purpose: classify is a census whose
-    # minutes-long scan must stay off the primary, verify is the gate and must not answer
-    # from a stale replica. Collapsing them onto one endpoint is the regression these guard
+    # Both read modes accept either endpoint and differ only in their default: classify's
+    # scan must stay off the primary unless asked, verify gates the rollout so it reads the
+    # primary unless asked. Silently moving either one is the regression these guard
     # against. Locally the reader URL falls back to the writer, so the routed kwarg is the
     # only observable difference.
     @pytest.mark.parametrize(
         "mode,kwargs,expected_writer",
         [
             ("classify", {}, False),
+            ("classify", {"reader": True}, False),
             ("classify", {"writer": True}, True),
             ("verify", {}, True),
+            ("verify", {"writer": True}, True),
             ("verify", {"reader": True}, False),
             ("repair", {"apply": True}, True),
             ("delete-unreferenced", {"apply": True}, True),
         ],
     )
-    def test_each_mode_routes_to_the_endpoint_its_job_requires(
+    def test_each_read_mode_honors_the_endpoint_the_operator_asks_for(
         self, persons_conn, tmp_path, monkeypatch, mode, kwargs, expected_writer
     ):
         requested = []
@@ -916,20 +886,42 @@ class TestPersonsDedupConnectionRouting:
 
         assert requested == [expected_writer]
 
-    @pytest.mark.parametrize(
-        "mode,kwargs,message",
-        [
-            ("repair", {"writer": True}, "already uses the writer"),
-            ("verify", {"writer": True}, "already uses the writer"),
-            ("classify", {"reader": True}, "only verify reads the primary by default"),
-            ("repair", {"reader": True}, "only verify reads the primary by default"),
-        ],
-    )
-    def test_a_flag_that_would_do_nothing_is_rejected_rather_than_ignored(
-        self, persons_conn, tmp_path, mode, kwargs, message
-    ):
-        # Accepting --writer on verify silently would let an operator believe they forced
-        # the primary on a mode where the flag does nothing -- the same false confidence
-        # as reading a stale replica and not knowing it.
-        with pytest.raises(CommandError, match=message):
-            _run(mode, tmp_path, **kwargs)
+    @pytest.mark.parametrize("mode", ["classify", "verify"])
+    def test_asking_for_both_endpoints_at_once_is_rejected(self, persons_conn, tmp_path, mode):
+        # Neither flag wins by precedence; the operator is told to pick one rather than
+        # finding out afterwards which endpoint actually served the answer.
+        with pytest.raises(CommandError, match="mutually exclusive"):
+            _run(mode, tmp_path, reader=True, writer=True)
+
+    @pytest.mark.parametrize("mode", ["repair", "delete-unreferenced"])
+    @pytest.mark.parametrize("flag", ["reader", "writer"])
+    def test_endpoint_flags_are_rejected_on_the_write_modes(self, persons_conn, tmp_path, mode, flag):
+        # A write mode has no endpoint choice. Accepting --reader would imply one exists,
+        # and accepting --writer would imply the default was something else.
+        with pytest.raises(CommandError, match="always uses the writer"):
+            _run(mode, tmp_path, apply=True, **{flag: True})
+
+    def test_a_replica_read_says_so_in_the_log(self, persons_conn, tmp_path, monkeypatch):
+        # The operator needs to know which endpoint answered when two runs disagree. Local
+        # Postgres is a primary, so pg_is_in_recovery() is stubbed to reach the branch.
+        real_scalar = persons_dedup_command._scalar
+
+        def in_recovery(conn, sql, params=None):
+            if "pg_is_in_recovery" in sql:
+                return 1
+            return real_scalar(conn, sql, params)
+
+        monkeypatch.setattr(persons_dedup_command, "_scalar", in_recovery)
+
+        with capture_logs() as logs:
+            _run("classify", tmp_path)
+
+        replica_lines = [entry for entry in logs if entry["event"] == "persons_dedup.reading_from_replica"]
+        assert replica_lines, "a replica read must be announced"
+        assert replica_lines[0]["team_id"] == TEAM
+
+    def test_a_primary_read_is_not_announced_as_a_replica_read(self, persons_conn, tmp_path):
+        with capture_logs() as logs:
+            _run("verify", tmp_path)
+
+        assert not [entry for entry in logs if entry["event"] == "persons_dedup.reading_from_replica"]
