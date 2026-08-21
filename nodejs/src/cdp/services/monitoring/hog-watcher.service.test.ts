@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
+import { CdpInternalEventSchema } from '../../schema'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
@@ -315,6 +316,42 @@ describe('HogWatcher', () => {
                     state: HogWatcherState.disabled,
                     previousState: HogWatcherState.degraded,
                 })
+            })
+
+            it('should produce a customer-facing internal event on state change', async () => {
+                const produceInternalEvent = jest.fn().mockResolvedValue(undefined)
+                watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis, undefined, produceInternalEvent)
+
+                await watcher.forceStateChange(hogFunction, HogWatcherState.forcefully_disabled)
+
+                expect(produceInternalEvent).toHaveBeenCalledTimes(1)
+                const produced = produceInternalEvent.mock.calls[0][0]
+                // Must parse with the schema the internal-events consumer validates against.
+                expect(CdpInternalEventSchema.safeParse(produced).success).toBe(true)
+                expect(produced).toMatchObject({
+                    team_id: 2,
+                    event: {
+                        event: '$hog_function_state_changed',
+                        distinct_id: hogFunctionId,
+                        properties: {
+                            hog_function_id: hogFunctionId,
+                            hog_function_name: hogFunction.name,
+                            hog_function_type: hogFunction.type,
+                            state: 'disabled',
+                            previous_state: 'healthy',
+                        },
+                    },
+                })
+            })
+
+            it('should not fail the state transition when the internal event cannot be produced', async () => {
+                const produceInternalEvent = jest.fn().mockRejectedValue(new Error('kafka down'))
+                watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis, undefined, produceInternalEvent)
+
+                await expect(watcher.forceStateChange(hogFunction, HogWatcherState.disabled)).resolves.not.toThrow()
+
+                expect(produceInternalEvent).toHaveBeenCalledTimes(1)
+                expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.disabled)
             })
 
             it('should not transition to disabled if not enabled', async () => {

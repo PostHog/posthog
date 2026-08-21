@@ -1,5 +1,6 @@
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -116,6 +117,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
+    // Customer-facing internal events (e.g. hog function state changes) that
+    // trigger `internal_destination` functions via the internal-events consumer.
+    CDP_INTERNAL_EVENTS_TOPIC: string
+    CDP_INTERNAL_EVENTS_PRODUCER: CdpProducerName
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -285,6 +290,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
+        CDP_INTERNAL_EVENTS_TOPIC: KAFKA_CDP_INTERNAL_EVENTS,
+        // Cyclotron Warpstream cluster — Django's internal-events producer routes this
+        // topic to the CYCLOTRON cluster profile (posthog/kafka_client/routing.py), so the
+        // Node producer targets the same cluster the internal-events consumer reads from.
+        CDP_INTERNAL_EVENTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

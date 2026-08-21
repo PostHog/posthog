@@ -92,6 +92,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
+        case 'hog-function-alerts':
+            return [
+                {
+                    label: 'Destination or transformation state changed',
+                    value: '$hog_function_state_changed',
+                },
+            ]
         default:
             return [
                 {
@@ -131,6 +138,8 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_functions',
                 '$exception_handled',
             ]
+        case 'hog-function-alerts':
+            return ['hog_function_id', 'hog_function_name', 'hog_function_type', 'state', 'previous_state']
     }
 
     return []
@@ -145,6 +154,14 @@ const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScop
 // The standard lifecycle activities. Scopes also log custom activities (e.g. 'exported'),
 // which can still be entered as custom values.
 const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
+// Mirrors the effective HogWatcherState names the plugin-server emits on $hog_function_state_changed.
+const HOG_FUNCTION_STATE_VALUES: PropValue[] = ['healthy', 'degraded', 'disabled'].map((name) => ({ name }))
+const HOG_FUNCTION_TYPE_VALUES: PropValue[] = [
+    'destination',
+    'transformation',
+    'source_webhook',
+    'internal_destination',
+].map((name) => ({ name }))
 const NO_SUGGESTED_VALUES: PropValue[] = []
 
 /**
@@ -157,17 +174,28 @@ export const getProductEventPropertyValues = (
     contextId: HogFunctionConfigurationContextId,
     propertyKey: string
 ): PropValue[] | null => {
-    if (contextId !== 'activity-log') {
-        return null
+    if (contextId === 'activity-log') {
+        switch (propertyKey) {
+            case 'scope':
+                return ACTIVITY_LOG_SCOPE_VALUES
+            case 'activity':
+                return ACTIVITY_LOG_ACTIVITY_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
-    switch (propertyKey) {
-        case 'scope':
-            return ACTIVITY_LOG_SCOPE_VALUES
-        case 'activity':
-            return ACTIVITY_LOG_ACTIVITY_VALUES
-        default:
-            return NO_SUGGESTED_VALUES
+    if (contextId === 'hog-function-alerts') {
+        switch (propertyKey) {
+            case 'state':
+            case 'previous_state':
+                return HOG_FUNCTION_STATE_VALUES
+            case 'hog_function_type':
+                return HOG_FUNCTION_TYPE_VALUES
+            default:
+                return NO_SUGGESTED_VALUES
+        }
     }
+    return null
 }
 
 const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
@@ -189,11 +217,11 @@ const setSimpleFilterValue = (
             },
         ],
     }
-    // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
-    // (batch_export_id) — the trigger event id changes between the context's events, but the
-    // binding to the parent resource must survive.
+    // Preserve properties bound by Logs alerting (alert_id), batch export alerts
+    // (batch_export_id) and hog function alerts (hog_function_id) — the trigger event id changes
+    // between the context's events, but the binding to the parent resource must survive.
     if (
-        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
+        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts' || contextId === 'hog-function-alerts') &&
         previous?.properties &&
         previous.properties.length > 0
     ) {

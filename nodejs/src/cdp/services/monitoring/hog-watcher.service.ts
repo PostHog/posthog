@@ -6,7 +6,9 @@ import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
 
+import { CdpInternalEvent } from '../../schema'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -37,6 +39,11 @@ export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/ho
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
 const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
+
+// Customer-facing internal event emitted on every watcher state transition, so users can
+// wire internal_destination functions (Slack, Teams, Discord, webhook) to it. The frontend
+// sub-templates filter on this exact name — keep them in sync (sub-templates.ts).
+export const HOG_FUNCTION_STATE_CHANGED_EVENT = '$hog_function_state_changed'
 
 export enum HogWatcherState {
     healthy = 1,
@@ -137,7 +144,9 @@ export class HogWatcherService {
         private teamManager: TeamManager,
         private config: HogWatcherConfig,
         private redis: RedisV2,
-        redisReader?: RedisV2
+        redisReader?: RedisV2,
+        // Only set on the primary watcher — the Valkey mirror must not double-emit.
+        private produceInternalEvent?: (event: CdpInternalEvent) => Promise<void>
     ) {
         this.redisReader = redisReader ?? redis
         // Token-bucket rate limiter — `name: 'hog-watcher-2'` produces the same
@@ -207,6 +216,35 @@ export class HogWatcherService {
                 state: HogWatcherState[state], // Convert numeric state to readable string
                 previous_state: HogWatcherState[previousState], // Convert numeric state to readable string
             })
+        }
+
+        if (team && this.produceInternalEvent) {
+            try {
+                await this.produceInternalEvent({
+                    team_id: team.id,
+                    event: {
+                        uuid: new UUIDT().toString(),
+                        event: HOG_FUNCTION_STATE_CHANGED_EVENT,
+                        distinct_id: hogFunction.id,
+                        properties: {
+                            hog_function_id: hogFunction.id,
+                            hog_function_name: hogFunction.name,
+                            hog_function_type: hogFunction.type,
+                            hog_function_template_id: hogFunction.template_id,
+                            // Effective states: customers should see 'disabled', not 'forcefully_disabled'.
+                            state: HogWatcherState[effectiveState(state)],
+                            previous_state: HogWatcherState[effectiveState(previousState)],
+                        },
+                        timestamp: new Date().toISOString(),
+                    },
+                })
+            } catch (error) {
+                // A notification failure must not fail the state transition itself.
+                logger.error('[HogWatcherService] failed to produce state change internal event', {
+                    hogFunctionId: hogFunction.id,
+                    error,
+                })
+            }
         }
     }
 

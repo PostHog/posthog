@@ -70,6 +70,16 @@ const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
 const BATCH_EXPORT_ALERT_MASKING_HASH =
     "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
 
+// A function flapping between degraded and healthy would otherwise post on every transition,
+// so dedupe to one message per function per state per hour.
+const HOG_FUNCTION_STATE_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+// Keyed per function AND state so a disable arriving shortly after a degrade still alerts
+// within the TTL. The producer always sets hog_function_id, but HogMaskerService skips masking
+// on falsy hashes, so fall back defensively.
+const HOG_FUNCTION_STATE_ALERT_MASKING_HASH =
+    "{concat(event.properties.hog_function_id ? event.properties.hog_function_id : 'unknown-function', '/', event.properties.state)}"
+
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
 
@@ -242,6 +252,35 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             threshold: null,
         },
         flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
+    },
+    'hog-function-state-changed': {
+        sub_template_id: 'hog-function-state-changed',
+        type: 'internal_destination',
+        context_id: 'hog-function-alerts',
+        filters: {
+            events: [
+                {
+                    // Emitted by the plugin-server HogWatcher on every state transition — see
+                    // HOG_FUNCTION_STATE_CHANGED_EVENT in hog-watcher.service.ts. Defaults to the
+                    // two states that mean the function is failing; users can widen the filter.
+                    id: '$hog_function_state_changed',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: 'state',
+                            type: PropertyFilterType.Event,
+                            value: ['disabled', 'degraded'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+        },
+        masking: {
+            hash: HOG_FUNCTION_STATE_ALERT_MASKING_HASH,
+            ttl: HOG_FUNCTION_STATE_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
     },
 }
 
@@ -618,6 +657,20 @@ function notificationVariants({
 const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
 const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
+// hog_function_name is user-controlled (the customer named their own function), so it gets the
+// same escaping + bounds as the other user-controlled notification fields. State and type come
+// from the plugin-server watcher's enums, so they interpolate raw.
+const HOG_FUNCTION_NAME_SLACK = `{${slackEscapeExpr('event.properties.hog_function_name')}}`
+const HOG_FUNCTION_NAME_MARKDOWN = `{${markdownEscapeExpr('event.properties.hog_function_name')}}`
+
+const HOG_FUNCTION_STATE_PHRASE =
+    "{event.properties.state == 'disabled' ? 'was disabled because it kept failing' : event.properties.state == 'degraded' ? 'is degraded because of failures or slow runs' : 'recovered and is healthy again'}"
+
+const HOG_FUNCTION_STATE_LINK = '{project.url}/functions/{event.properties.hog_function_id}'
+
+const HOG_FUNCTION_STATE_SLACK_MESSAGE = `Your {event.properties.hog_function_type} *${HOG_FUNCTION_NAME_SLACK}* ${HOG_FUNCTION_STATE_PHRASE}.`
+const HOG_FUNCTION_STATE_MARKDOWN_MESSAGE = `Your {event.properties.hog_function_type} **${HOG_FUNCTION_NAME_MARKDOWN}** ${HOG_FUNCTION_STATE_PHRASE}.`
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -638,6 +691,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'Users are rage clicking',
         markdownMessage: `${PA_RAGECLICK_MARKDOWN_MESSAGE}\n\n${PA_RAGECLICK_LINK}`,
         slackButton: { url: PA_RAGECLICK_LINK, label: PA_NOTIFICATION_BUTTON_LABELS['pa-rageclick'] },
+    }),
+    'hog-function-state-changed': notificationVariants({
+        subTemplateId: 'hog-function-state-changed',
+        nameSuffix: 'when a destination or transformation is failing',
+        description: 'Know when PostHog disables or slows down a function because it keeps failing',
+        webhookDescription: 'Send destination and transformation state changes to your own endpoint',
+        slackMessage: HOG_FUNCTION_STATE_SLACK_MESSAGE,
+        slackFallbackText: 'A destination or transformation changed state',
+        markdownMessage: `${HOG_FUNCTION_STATE_MARKDOWN_MESSAGE}\n\n${HOG_FUNCTION_STATE_LINK}`,
+        slackButton: { url: HOG_FUNCTION_STATE_LINK, label: 'View function' },
     }),
     'survey-response': [
         {
@@ -1722,6 +1785,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'health-alerts'
         case '$batch_export_run_failed':
             return 'batch-export-alerts'
+        case '$hog_function_state_changed':
+            return 'hog-function-alerts'
         default:
             return 'standard'
     }

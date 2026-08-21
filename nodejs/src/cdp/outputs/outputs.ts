@@ -9,3 +9,6 @@
 
 export const WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT = 'warehouse_source_webhooks' as const
 export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT
+
+export const CDP_INTERNAL_EVENTS_OUTPUT = 'cdp_internal_events' as const
+export type CdpInternalEventsOutput = typeof CDP_INTERNAL_EVENTS_OUTPUT

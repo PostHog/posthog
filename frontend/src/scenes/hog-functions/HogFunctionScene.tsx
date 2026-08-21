@@ -59,9 +59,18 @@ import { HogInvocations } from './invocations/HogInvocations'
 import { TransformationInvocations } from './invocations/TransformationInvocations'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { HogFunctionNotifications } from './notifications/HogFunctionNotifications'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocations', 'backfills', 'history'] as const
+const HOG_FUNCTION_SCENE_TABS = [
+    'configuration',
+    'metrics',
+    'runs',
+    'invocations',
+    'backfills',
+    'notifications',
+    'history',
+] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<
@@ -101,7 +110,7 @@ export interface hogFunctionSceneLogicActions {
         payload?: any
     } // hogFunctionConfigurationLogic
     setCurrentTab: (tab: HogFunctionSceneTab) => {
-        tab: 'backfills' | 'configuration' | 'history' | 'invocations' | 'metrics' | 'runs'
+        tab: 'backfills' | 'configuration' | 'history' | 'invocations' | 'metrics' | 'notifications' | 'runs'
     }
 }
 
@@ -568,6 +577,16 @@ export function HogFunctionScene(): JSX.Element {
                   content: <HogFunctionRuns id={id} />,
               }
             : null,
+
+        // Site functions run client-side and never pass through the HogWatcher, so there
+        // are no state changes to notify about.
+        type === 'site_app' || type === 'site_destination'
+            ? null
+            : {
+                  label: 'Notifications',
+                  key: 'notifications',
+                  content: <HogFunctionNotifications id={id} type={type} />,
+              },
 
         {
             label: 'History',

@@ -11,7 +11,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CDP_INTERNAL_EVENTS_OUTPUT, CdpInternalEventsOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -47,7 +47,12 @@ import { configureValkeyReads } from './utils/dual-store'
 import { EncryptedFields } from './utils/encryption-utils'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | HogInvocationResultsOutput
+    | WarehouseSourceWebhooksOutput
+    | CdpInternalEventsOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -157,6 +162,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'MESSAGE_ASSETS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_INTERNAL_EVENTS_TOPIC'
+        | 'CDP_INTERNAL_EVENTS_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -375,12 +382,19 @@ export function createCdpCoreServices(
         observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
     }
 
-    const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader)
+    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
-    // Valkey-bound twin of the watcher. `sendEvents: false` so it never emits duplicate
-    // billable team events on state transitions; the Prom counter
-    // `cdp_hog_function_state_change` may double-emit when both pools detect the same
-    // transition — rare, accepted during dual-write mode.
+    const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader, (event) =>
+        outputs.produce(CDP_INTERNAL_EVENTS_OUTPUT, {
+            value: Buffer.from(JSON.stringify(event)),
+            key: event.event.uuid,
+        })
+    )
+
+    // Valkey-bound twin of the watcher. `sendEvents: false` and no internal-event producer so
+    // it never emits duplicate billable team events or customer notifications on state
+    // transitions; the Prom counter `cdp_hog_function_state_change` may double-emit when both
+    // pools detect the same transition — rare, accepted during dual-write mode.
     const hogWatcherMirror = new HogWatcherService(
         deps.teamManager,
         { ...hogWatcherConfig, sendEvents: false },
@@ -390,7 +404,6 @@ export function createCdpCoreServices(
 
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
-    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
     // Constructed here (rather than below with the other messaging services) so it can be threaded
     // into EmailService — the pre-send suppression check lives there so every send path shares one
