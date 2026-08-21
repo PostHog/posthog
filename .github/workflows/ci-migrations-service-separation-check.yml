@@ -21,6 +21,9 @@ jobs:
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             # Author-attested escape hatch for DB-noop migrations (e.g. SeparateDatabaseAndState
             # state-only renames) that ship safely alongside service code. The check is path-only
