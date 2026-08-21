@@ -149,10 +149,6 @@ export const openLinkInput = z.object({
   url: z.string(),
 });
 
-/**
- * A deep-link action a card asks the host to take. The card sends the verb and
- * the verb's own fields, never a URL; the host builds the link itself.
- */
 export const mcpAppActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("compose"),

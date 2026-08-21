@@ -39,7 +39,7 @@ const OpenCanvasActionSchema = z.object({
 
 // There is deliberately no URL parameter: this tool is called by agents whose context can
 // contain untrusted text, and an arbitrary URL the user is invited to click is a phishing
-// primitive. The host builds every link from these typed fields instead.
+// primitive.
 const schema = z.object({
     actions: z
         .array(z.discriminatedUnion('kind', [ComposeActionSchema, OpenSpaceActionSchema, OpenCanvasActionSchema]))

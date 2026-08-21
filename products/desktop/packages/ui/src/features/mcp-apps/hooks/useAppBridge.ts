@@ -72,10 +72,9 @@ interface UseAppBridgeReturn {
 const HOST_INFO = { name: "posthog-code", version: "1.0.0" };
 
 /**
- * A PostHog extension to the MCP Apps protocol, not part of the spec. Unlike the
- * spec's `ui/open-link`, it carries a verb rather than a URL the sandbox picked,
- * so the host stays in charge of what a click can reach. A card rendered by some
- * other host just gets no handler.
+ * A PostHog extension, not part of the MCP Apps spec: unlike the spec's
+ * `ui/open-link` it carries a verb rather than a URL the sandbox picked, so the
+ * host stays in charge of what a click can reach.
  */
 const OPEN_ACTION_METHOD = "posthog/open-action";
 

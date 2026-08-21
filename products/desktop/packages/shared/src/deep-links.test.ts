@@ -288,7 +288,6 @@ describe("buildActionUrl", () => {
       expect(protocol).toBe("posthog-code:");
       expect(host).toBe("new");
       expect(params.get("prompt")).toBe(prompt);
-      // An injected `&repo=` inside the prompt must stay part of the prompt.
       expect(params.get("repo")).toBeNull();
     });
 

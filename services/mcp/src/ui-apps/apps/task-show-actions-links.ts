@@ -1,8 +1,3 @@
-/**
- * Action shapes for the `task-show-actions` card. Each action is a typed verb
- * the host turns into a deep link, so the card never receives or builds a URL.
- */
-
 export interface ComposeAction {
     kind: 'compose'
     label: string

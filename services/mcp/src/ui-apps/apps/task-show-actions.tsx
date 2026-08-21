@@ -11,8 +11,8 @@ import { AppWrapper } from '../components/AppWrapper'
 import type { ShowAction, ShowActionsData } from './task-show-actions-links'
 
 /**
- * A PostHog extension to the MCP Apps protocol. The spec's `ui/open-link` would
- * have this sandbox choose the URL the host then opens; sending the verb instead
+ * A PostHog extension, not in the MCP Apps spec. The spec's `ui/open-link` would
+ * have this sandbox choose the URL the host then opens; sending a verb instead
  * leaves the host deciding what a click can reach.
  */
 const OPEN_ACTION_METHOD = 'posthog/open-action'

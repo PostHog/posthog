@@ -128,9 +128,9 @@ export type NewTaskLinkPayload =
     } & NewTaskSharedParams);
 
 /**
- * An action an MCP App card offers the user. A card is sandboxed HTML any MCP
- * server can supply, so it sends the verb and the verb's own fields rather than
- * a URL, and the host builds the link with {@link buildActionUrl}.
+ * A card is sandboxed HTML any MCP server can supply, so it sends a verb and the
+ * verb's own fields rather than a URL, and the host builds the link itself with
+ * {@link buildActionUrl}.
  */
 export interface McpAppComposeAction {
   kind: "compose";
@@ -154,15 +154,13 @@ export type McpAppAction =
   | McpAppOpenSpaceAction
   | McpAppOpenCanvasAction;
 
-/** Percent-encode a required piece of a link, or null when it is missing or blank. */
 function encodeRequired(value: string | undefined): string | null {
   return value && value.trim().length > 0 ? encodeURIComponent(value) : null;
 }
 
 /**
- * The link an action fires, or null when the action is missing a piece the link
- * needs. A partial link would land the user somewhere they didn't ask for, so
- * the caller drops the action instead.
+ * Returns null rather than a partial link when a piece is missing, because a
+ * partial link would land the user somewhere they didn't ask for.
  */
 export function buildActionUrl(
   action: McpAppAction,

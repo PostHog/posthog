@@ -77,8 +77,8 @@ export const mcpAppsRouter = router({
       ctx.container.get<McpAppsService>(MCP_APPS_SERVICE).openLink(input.url),
     ),
 
-  // Takes a verb rather than a URL, so a card supplied by any MCP server cannot
-  // pick where a click lands.
+  // A verb rather than a URL, unlike openLink above, so a card supplied by any
+  // MCP server cannot pick where a click lands.
   openAction: publicProcedure
     .input(openActionInput)
     .mutation(({ ctx, input }) => {
