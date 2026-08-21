@@ -57,7 +57,7 @@ from posthog.test.persons import create_person
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import DashboardAccessMethod
+from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
@@ -3376,6 +3376,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],
             },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_cannot_create_insight_on_a_dashboard_that_does_not_exist(self) -> None:
+        self.dashboard_api.create_insight(
+            data={"name": "insight", "dashboards": [9_999_999]},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 

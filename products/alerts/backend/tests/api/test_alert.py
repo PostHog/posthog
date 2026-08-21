@@ -688,7 +688,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     def test_alert_limit(self) -> None:
         with mock.patch(
-            "products.alerts.backend.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"
+            "products.alerts.backend.presentation.views.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"
         ) as alert_limit:
             alert_limit.__get__ = mock.Mock(return_value=1)
 
@@ -1687,7 +1687,7 @@ class TestAlertTestDelivery(APIBaseTest):
             },
         )
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
         mock_trigger.return_value = [TEST_DESTINATION_DELIVERY]
         self._create_destination()
@@ -1717,7 +1717,7 @@ class TestAlertTestDelivery(APIBaseTest):
         assert alert_after.last_notified_at == alert_before.last_notified_at
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     @mock.patch("products.alerts.backend.email_notifications.EmailMessage")
     def test_sends_test_delivery_to_subscribed_users_without_a_destination(
         self, mock_email_message, mock_trigger
@@ -1739,9 +1739,13 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_email_message.return_value.send.assert_called_once_with()
         mock_trigger.assert_not_called()
 
-    @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
     @mock.patch(
-        "products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[TEST_DESTINATION_DELIVERY]
+        "products.alerts.backend.presentation.views.alert.send_test_alert_email",
+        side_effect=RuntimeError("email failed"),
+    )
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions",
+        return_value=[TEST_DESTINATION_DELIVERY],
     )
     def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
@@ -1758,7 +1762,7 @@ class TestAlertTestDelivery(APIBaseTest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[])
+    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions", return_value=[])
     def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
         self._create_destination()
 
@@ -1770,7 +1774,7 @@ class TestAlertTestDelivery(APIBaseTest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
         self._create_destination(enabled=False)
 
@@ -1782,7 +1786,7 @@ class TestAlertTestDelivery(APIBaseTest):
 
     @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     def test_rate_limits_test_delivery_per_team(self, _mock_trigger, _rate_limit_enabled) -> None:
         cache.clear()
         self._create_destination()
