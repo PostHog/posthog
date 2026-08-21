@@ -14,10 +14,14 @@ def repository_evidence_calls(raw_log: str) -> list[dict[str, Any]]:
         normalized = command.lower()
         tool_name = tool.name.lower().replace("_", "-")
         is_posthog_query = "posthog" in tool_name and ("exec" in tool_name or "execute-sql" in tool_name)
+        # The MCP exposes execute-sql either directly (SQL text in the input) or wrapped behind an
+        # `exec` command (the "execute-sql" marker lives in the command string), so check both the
+        # tool name and the input rather than only the input.
+        is_execute_sql = "execute-sql" in tool_name or "execute-sql" in normalized
         if (
             tool.is_error
             or not is_posthog_query
-            or "execute-sql" not in normalized
+            or not is_execute_sql
             or "system.integration_repository_cache" not in normalized
         ):
             continue

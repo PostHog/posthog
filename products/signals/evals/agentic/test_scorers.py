@@ -141,14 +141,20 @@ def test_repo_selection_scorer_discriminates():
     assert _score(scorers, case, wrong)["repo_selected_correct"] is False
 
 
-def _repository_cache_log(command: str, output: str = "excalidraw/excalidraw") -> str:
+def _repository_cache_log(
+    command: str,
+    output: str = "excalidraw/excalidraw",
+    *,
+    tool_name: str = "mcp__posthog__exec",
+    raw_input_key: str = "command",
+) -> str:
     updates = [
         {
             "sessionUpdate": "tool_call",
             "toolCallId": "tool-1",
             "title": "PostHog",
-            "rawInput": {"command": command},
-            "_meta": {"claudeCode": {"toolName": "mcp__posthog__exec"}},
+            "rawInput": {raw_input_key: command},
+            "_meta": {"claudeCode": {"toolName": tool_name}},
         },
         {
             "sessionUpdate": "tool_call_update",
@@ -186,6 +192,17 @@ def test_repository_evidence_scorer_requires_successful_cache_query():
             'call execute-sql {"query":"SELECT tree_paths FROM system.integration_repository_cache"}'
         ),
     )
+    # A direct execute-sql call carries the SQL in its input, so the tool name, not the input
+    # text, is what marks it as a cache query.
+    direct = RepoSelectionOutput(
+        repository="excalidraw/excalidraw",
+        reason="matched staticSvgScene.ts",
+        raw_log=_repository_cache_log(
+            "SELECT tree_paths FROM system.integration_repository_cache",
+            tool_name="mcp__posthog__execute-sql",
+            raw_input_key="query",
+        ),
+    )
     guessed = RepoSelectionOutput(
         repository="excalidraw/excalidraw",
         reason="the identifier sounds familiar",
@@ -193,6 +210,7 @@ def test_repository_evidence_scorer_requires_successful_cache_query():
     )
 
     assert _score([scorer], case, grounded)["repository_evidence_used"] is True
+    assert _score([scorer], case, direct)["repository_evidence_used"] is True
     assert _score([scorer], case, guessed)["repository_evidence_used"] is False
 
 
