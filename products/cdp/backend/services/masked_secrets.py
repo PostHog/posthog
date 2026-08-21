@@ -14,11 +14,12 @@ timestamp and a random IV, so the same plaintext produces different ciphertext o
 Every candidate row has to be decrypted in Python and inspected.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from datetime import datetime
+from typing import TypeVar
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Model, Q, QuerySet
 
 from posthog.cdp.validation import MASKED_SECRET_VALUE
 from posthog.dataclasses import frozen
@@ -137,6 +138,28 @@ def _flow_masked_input_keys(stored: object) -> tuple[str, ...]:
     return tuple(sorted(poisoned))
 
 
+_M = TypeVar("_M", bound=Model)
+
+
+def _keyset_batches(queryset: QuerySet[_M], batch_size: int) -> Iterator[_M]:
+    """Fetch id-ordered LIMIT batches, resuming after the last seen id.
+
+    `.iterator()` would be simpler, but prod runs behind pgbouncer, which disables server-side
+    cursors — Django then fetches the entire result set in one query. Keyset batches keep memory
+    and per-query time bounded in every environment.
+    """
+    last_id = None
+    while True:
+        batch_queryset = queryset.order_by("id")
+        if last_id is not None:
+            batch_queryset = batch_queryset.filter(id__gt=last_id)
+        rows = list(batch_queryset[:batch_size])
+        yield from rows
+        if len(rows) < batch_size:
+            return
+        last_id = rows[-1].id
+
+
 def scan_for_masked_secrets(
     *,
     team_ids: Sequence[int] | None = None,
@@ -147,7 +170,23 @@ def scan_for_masked_secrets(
     queryset = (
         HogFunction.objects.select_related("team", "team__organization")
         .filter(Q(encrypted_inputs__isnull=False) | Q(draft_encrypted_inputs__isnull=False))
-        .order_by("team_id", "created_at")
+        # The rows carry hog source, bytecode, and filters the scan never reads. Defer them so a
+        # fleet-wide sweep doesn't drag them over the wire.
+        .only(
+            "id",
+            "name",
+            "type",
+            "template_id",
+            "enabled",
+            "deleted",
+            "updated_at",
+            "encrypted_inputs",
+            "draft_encrypted_inputs",
+            "team__id",
+            "team__name",
+            "team__organization__id",
+            "team__organization__name",
+        )
     )
     if not include_deleted:
         queryset = queryset.filter(deleted=False)
@@ -158,7 +197,7 @@ def scan_for_masked_secrets(
     scanned_count = 0
     truncated = False
 
-    for hog_function in queryset.iterator(chunk_size=batch_size):
+    for hog_function in _keyset_batches(queryset, batch_size):
         scanned_count += 1
         masked_live_inputs = _masked_input_keys(hog_function.encrypted_inputs)
         masked_draft_inputs = _masked_input_keys(hog_function.draft_encrypted_inputs)
@@ -202,7 +241,20 @@ def scan_hog_flows_for_masked_secrets(
     queryset = (
         HogFlow.objects.select_related("team", "team__organization")
         .filter(Q(encrypted_inputs__isnull=False) | Q(draft_encrypted_inputs__isnull=False))
-        .order_by("team_id", "created_at")
+        # The rows carry the full action graph the scan never reads. Defer it so a fleet-wide
+        # sweep doesn't drag it over the wire.
+        .only(
+            "id",
+            "name",
+            "status",
+            "updated_at",
+            "encrypted_inputs",
+            "draft_encrypted_inputs",
+            "team__id",
+            "team__name",
+            "team__organization__id",
+            "team__organization__name",
+        )
     )
     if not include_archived:
         queryset = queryset.exclude(status=HogFlow.State.ARCHIVED)
@@ -213,7 +265,7 @@ def scan_hog_flows_for_masked_secrets(
     scanned_count = 0
     truncated = False
 
-    for hog_flow in queryset.iterator(chunk_size=batch_size):
+    for hog_flow in _keyset_batches(queryset, batch_size):
         scanned_count += 1
         masked_live_inputs = _flow_masked_input_keys(hog_flow.encrypted_inputs)
         masked_draft_inputs = _flow_masked_input_keys(hog_flow.draft_encrypted_inputs)

@@ -208,6 +208,14 @@ class TestScanForMaskedSecrets(MaskedSecretsDatabaseTest):
         assert len(scan.findings) == 1
         assert scan.truncated is True
 
+    def test_batches_neither_skip_nor_repeat_rows(self) -> None:
+        created = {self._create_hog_function().id for _ in range(3)}
+
+        scan = scan_for_masked_secrets(batch_size=1)
+
+        assert {finding.hog_function_id for finding in scan.findings} == created
+        assert scan.scanned_count == 3
+
 
 class TestScanHogFlowsForMaskedSecrets(MaskedSecretsDatabaseTest):
     def test_reports_a_persisted_marker_and_ignores_a_real_secret(self) -> None:
