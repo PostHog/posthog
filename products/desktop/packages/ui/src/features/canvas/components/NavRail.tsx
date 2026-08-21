@@ -20,6 +20,7 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import {
   type NavRailPane,
   useNavRailStore,
@@ -37,6 +38,7 @@ import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
+  navigateToActivity,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -44,6 +46,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
+import { useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
@@ -140,6 +143,9 @@ export function NavRail() {
   const commandCenterCount = useCommandCenterActiveCount();
   const railPane = useNavRailStore((s) => s.pane);
   const setRailPane = useNavRailStore((s) => s.setPane);
+  const inWebsiteTree = useRouterState({
+    select: (s) => s.location.pathname.startsWith("/website"),
+  });
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {
     track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
@@ -161,6 +167,17 @@ export function NavRail() {
   const go = (pane: NavRailPane, navigate?: () => void) => () => {
     setRailPane(pane);
     navigate?.();
+  };
+
+  // Spaces and Activity draw into the content pane the /website layout owns, so
+  // they only work from inside that tree. Inbox and Loops still live in /code —
+  // picked from there, Activity would set its pane and then have nowhere to
+  // draw, leaving the reader looking at the inbox with a dead feed beside it.
+  // From inside /website it still navigates nothing, which is what lets Spaces
+  // put you back on the screen Activity was covering.
+  const goActivity = () => {
+    setRailPane("activity");
+    if (!inWebsiteTree) navigateToActivity();
   };
 
   return (
@@ -194,7 +211,24 @@ export function NavRail() {
           }
           label="Spaces"
           isActive={railPane === "spaces"}
-          onClick={withTrack("spaces", go("spaces"))}
+          // Always the list, even from inside a space: this is the entry to the
+          // tree, and the space you were in stays scoped behind it — the route
+          // and the pane beside it don't move, so nothing is lost by looking.
+          onClick={withTrack("spaces", go("spaces", showChannelList))}
+        />
+        <NavIcon
+          icon={
+            <BellIcon
+              size={16}
+              weight={railPane === "activity" ? "fill" : "regular"}
+            />
+          }
+          label="Activity"
+          isActive={railPane === "activity"}
+          onClick={withTrack("activity", goActivity)}
+          badge={
+            <CountBadge count={unseenActivity} className={ICON_BADGE_CLASS} />
+          }
         />
         <NavIcon
           icon={
@@ -209,20 +243,6 @@ export function NavRail() {
           onClick={withTrack("inbox", go("inbox", navigateToInbox))}
           badge={
             <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
-        />
-        <NavIcon
-          icon={
-            <BellIcon
-              size={16}
-              weight={railPane === "activity" ? "fill" : "regular"}
-            />
-          }
-          label="Activity"
-          isActive={railPane === "activity"}
-          onClick={withTrack("activity", go("activity"))}
-          badge={
-            <CountBadge count={unseenActivity} className={ICON_BADGE_CLASS} />
           }
         />
         <NavIcon

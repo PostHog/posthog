@@ -69,13 +69,14 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   });
 
   return (
-    <div className="relative mx-2 mt-1">
+    <div className="relative h-10 border-border border-b px-2 pt-2 pb-2">
       <Tooltip>
         <TooltipTrigger
           render={
             <Button
               variant="default"
               left
+              size="sm"
               aria-label="Back to spaces"
               onClick={() => {
                 track(ANALYTICS_EVENTS.CHANNEL_ACTION, {

@@ -4,8 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   view: { type: "home" } as { type: string },
+  pathname: "/website/home",
+  navigateToActivity: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: mocks.pathname } }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
@@ -28,6 +38,7 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView: () => mocks.view,
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
+  navigateToActivity: (...args: unknown[]) => mocks.navigateToActivity(...args),
   navigateToHome: (...args: unknown[]) => mocks.navigateToHome(...args),
   navigateToInbox: (...args: unknown[]) => mocks.navigateToInbox(...args),
   navigateToLoops: vi.fn(),
@@ -35,6 +46,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
+import { useChannelPaneStore } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { NavRail } from "./NavRail";
 
@@ -42,6 +54,7 @@ describe("NavRail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.view = { type: "home" };
+    mocks.pathname = "/website/home";
     useNavRailStore.setState({ pane: "spaces" });
   });
 
@@ -52,8 +65,21 @@ describe("NavRail", () => {
     await user.click(screen.getByLabelText("Activity"));
 
     expect(useNavRailStore.getState().pane).toBe("activity");
+    expect(mocks.navigateToActivity).not.toHaveBeenCalled();
     expect(mocks.navigateToHome).not.toHaveBeenCalled();
     expect(mocks.navigateToInbox).not.toHaveBeenCalled();
+  });
+
+  it("moves into the space tree when Activity is picked from outside it", async () => {
+    const user = userEvent.setup();
+    mocks.pathname = "/code/inbox";
+    mocks.view = { type: "inbox" };
+    render(<NavRail />);
+
+    await user.click(screen.getByLabelText("Activity"));
+
+    expect(useNavRailStore.getState().pane).toBe("activity");
+    expect(mocks.navigateToActivity).toHaveBeenCalledOnce();
   });
 
   it("shows the space tree without routing to a space", async () => {
@@ -65,6 +91,16 @@ describe("NavRail", () => {
 
     expect(useNavRailStore.getState().pane).toBe("spaces");
     expect(mocks.navigateToHome).not.toHaveBeenCalled();
+  });
+
+  it("slides back to the list when a space is already open", async () => {
+    const user = userEvent.setup();
+    useChannelPaneStore.setState({ pane: "channel" });
+    render(<NavRail />);
+
+    await user.click(screen.getByLabelText("Spaces"));
+
+    expect(useChannelPaneStore.getState().pane).toBe("list");
   });
 
   it("keeps a route-free pick from snapping back to the route behind it", async () => {
