@@ -98,10 +98,11 @@ describe("invalidation keys", () => {
     expect(githubInvalidationKeys(7)[0]).toEqual(["integrations", 7]);
   });
 
-  it("slack keys cover list and root", () => {
+  it("slack keys cover list, root, and the autonomy config", () => {
     expect(slackInvalidationKeys()).toEqual([
       ["integrations", "list"],
       ["integrations"],
+      ["signals", "user-autonomy-config"],
     ]);
   });
 });
