@@ -1745,6 +1745,69 @@ describe('Cyclotron V2', () => {
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, overrides)
 
+            it('dequeues the fast class before an earlier-enqueued bulk backlog when priority dequeue is enabled', async () => {
+                // A bulk broadcast (priority 1) is already queued when two fast-class
+                // sends (priority 0) arrive, one from the same team. Without priority
+                // ordering, the same-team fast job waits behind the whole backlog.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2, priorityDequeue: true })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs.map((j) => j.priority)).toEqual([0, 0])
+                expect(new Set(jobs.map((j) => j.teamId))).toEqual(new Set([teamA, teamB]))
+            })
+
+            it('keeps the per-team interleave within a priority class', async () => {
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const drained: Array<[number, number]> = []
+                for (let i = 0; i < 5; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 1, priorityDequeue: true })
+                    const batch = await dequeueOneBatch(worker)
+                    expect(batch).toHaveLength(1)
+                    drained.push([batch[0].priority, batch[0].teamId])
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([
+                    [0, teamA],
+                    [1, teamA],
+                    [1, teamB],
+                    [1, teamA],
+                    [1, teamB],
+                ])
+            })
+
+            it('ignores priority when priority dequeue is disabled', async () => {
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                // Legacy ordering is dequeue_seq only: the first fair round is team A's
+                // first bulk job and team B's fast job, so priorities stay mixed.
+                expect(jobs.map((j) => j.priority).sort((a, b) => a - b)).toEqual([0, 1])
+            })
+
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
                 // team B enqueues 1. With strict FIFO, B's 1 sits behind A's 5.
