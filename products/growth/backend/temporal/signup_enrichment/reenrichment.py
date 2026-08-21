@@ -6,11 +6,12 @@ enrichment data over weeks, plus late Harmonic indexing (the enrich mutation see
 enrichment). The +4h recheck is too early for either. This sweep re-runs the standard
 enrichment (fresh fetch, archive, transform, score) for those orgs on a 30–90-day window:
 
-- **30 days minimum** since the org's latest fetch: the fetch a sweep run creates resets
-  the clock, so an org is retried at most every 30 days.
-- **90 days maximum** since the org's first fetch: retries self-terminate (~2 per org)
-  with no bookkeeping columns — an org still empty after two spaced retries stays at its
-  honest status.
+- **30 days minimum** since the org's last sweep *attempt* (stamped on `OrganizationEnrichment.data`
+  before the org reaches the provider, so a raised Harmonic error still counts): an org is
+  retried at most every 30 days, and an unrelated fetch row from another command can't move
+  this clock.
+- **90 days maximum** since the org's first fetch: retries self-terminate (~2 per org) — an
+  org still empty after two spaced retries stays at its honest status.
 
 Runs as a Temporal Schedule (see the init_icp_reenrichment_schedule command) because the
 Harmonic key lives on the workers only. Selection re-checks the kill switch and region on
@@ -45,8 +46,14 @@ REENRICHMENT_EVENT = "icp_reenrichment_completed"
 # late Harmonic indexing and for the match-bug population (pipeline-missed orgs).
 SWEEPABLE_STATUSES = ("insufficient_data", "not_found")
 
-MIN_DAYS_SINCE_LAST_FETCH = 30
+MIN_DAYS_SINCE_LAST_ATTEMPT = 30
 MAX_DAYS_SINCE_FIRST_FETCH = 90
+
+# Stamped on every sweep attempt (see reenrich_organization_activity), not on a successful
+# write — an archived fetch from an unrelated command (e.g. backfill_harmonic_ownership) or
+# a raised Harmonic error must not silently move or freeze this org's retry clock.
+ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY = "icp_reenrichment_last_attempted_at"
+ICP_REENRICHMENT_ATTEMPT_COUNT_KEY = "icp_reenrichment_attempt_count"
 
 # Selection is a handful of indexed queries; keep it snappy so a hung DB can't stall the
 # scheduled run into its next occurrence.
@@ -80,13 +87,13 @@ class ReenrichOrgInputs:
 @activity.defn
 @close_db_connections
 async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepInputs) -> list[dict[str, typing.Any]]:
-    """Pick the orgs due a re-enrichment attempt, oldest-fetch first, up to the daily cap.
+    """Pick the orgs due a re-enrichment attempt, oldest-attempted-first, up to the daily cap.
 
     Guards live here rather than in the schedule so a config flip takes effect on the next
     run without touching Temporal state.
     """
     from django.conf import settings  # noqa: PLC0415 — heavy imports kept off the workflow module path
-    from django.db.models import Max, Min  # noqa: PLC0415
+    from django.db.models import Min, Q  # noqa: PLC0415
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
@@ -110,31 +117,47 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 
     def _select() -> list[dict[str, typing.Any]]:
         now = dt.datetime.now(dt.UTC)
-        status_org_ids = OrganizationEnrichment.objects.filter(
-            data__icp_fit_status__in=list(SWEEPABLE_STATUSES)
-        ).values_list("organization_id", flat=True)
+        attempt_cutoff = (now - dt.timedelta(days=MIN_DAYS_SINCE_LAST_ATTEMPT)).isoformat()
+        first_fetch_cutoff = now - dt.timedelta(days=MAX_DAYS_SINCE_FIRST_FETCH)
 
-        windows = (
-            OrganizationEnrichmentFetch.objects.filter(organization_id__in=status_org_ids)
-            .values("organization_id")
-            .annotate(latest_fetch=Max("fetched_at"), first_fetch=Min("fetched_at"))
-            .filter(
-                latest_fetch__lte=now - dt.timedelta(days=MIN_DAYS_SINCE_LAST_FETCH),
-                first_fetch__gt=now - dt.timedelta(days=MAX_DAYS_SINCE_FIRST_FETCH),
-            )
-            .order_by("latest_fetch")[: cap * _SELECTION_OVERFETCH_MULTIPLIER]
+        # JSONField key lookups return SQL NULL for a missing key, so a bare __lte would
+        # silently drop never-attempted orgs instead of selecting them (same gotcha as
+        # backfill_harmonic_ownership's has_key dance) — spell out "no key yet" explicitly.
+        never_attempted = ~Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY)
+        due_for_retry = Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY) & Q(
+            **{f"data__{ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY}__lte": attempt_cutoff}
         )
+        attempt_eligible = {
+            str(record.organization_id): record.data.get(ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY)
+            for record in OrganizationEnrichment.objects.filter(data__icp_fit_status__in=list(SWEEPABLE_STATUSES))
+            .filter(never_attempted | due_for_retry)
+            .only("organization_id", "data")
+        }
+
+        first_fetches = (
+            OrganizationEnrichmentFetch.objects.filter(organization_id__in=attempt_eligible.keys())
+            .values("organization_id")
+            .annotate(first_fetch=Min("fetched_at"))
+            .filter(first_fetch__gt=first_fetch_cutoff)
+        )
+
+        # Oldest-attempted-first, with never-attempted (None) sorting ahead of any
+        # timestamp — an org the sweep hasn't touched yet is due before one it retried
+        # last month.
+        ordered_org_ids = sorted(
+            (str(row["organization_id"]) for row in first_fetches),
+            key=lambda organization_id: attempt_eligible[organization_id] or "",
+        )[: cap * _SELECTION_OVERFETCH_MULTIPLIER]
 
         roles = {
             str(record.organization_id): record.data.get("signup_role")
-            for record in OrganizationEnrichment.objects.filter(
-                organization_id__in=[row["organization_id"] for row in windows]
-            ).only("organization_id", "data")
+            for record in OrganizationEnrichment.objects.filter(organization_id__in=ordered_org_ids).only(
+                "organization_id", "data"
+            )
         }
 
         candidates: list[dict[str, typing.Any]] = []
-        for row in windows:
-            organization_id = str(row["organization_id"])
+        for organization_id in ordered_org_ids:
             membership = (
                 OrganizationMembership.objects.filter(organization_id=organization_id)
                 .select_related("user", "organization")
@@ -178,6 +201,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
 
     from products.growth.backend.enrichment.core import enrich_organization  # noqa: PLC0415
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
+    from products.growth.backend.enrichment.writer import merge_into_record  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
 
@@ -193,6 +217,19 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
     if not await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)():
         logger.info("icp_reenrichment_skipped_org_deleted")
         return {"matched": False, "skipped": "organization_deleted"}
+
+    # Stamped before the org reaches the provider so a raised Harmonic error still counts
+    # as an attempt — otherwise a failing org never gets a fetch row and re-occupies the
+    # head of tomorrow's selection, burning another MAX_ENRICH_ATTEMPTS Harmonic calls.
+    attempted_at = dt.datetime.now(dt.UTC).isoformat()
+
+    def _stamp_attempt(current: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return {
+            ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY: attempted_at,
+            ICP_REENRICHMENT_ATTEMPT_COUNT_KEY: current.get(ICP_REENRICHMENT_ATTEMPT_COUNT_KEY, 0) + 1,
+        }
+
+    await sync_to_async(merge_into_record)(inputs.organization_id, _stamp_attempt)
 
     pha_client = get_regional_ph_client()
     if pha_client is None:

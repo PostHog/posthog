@@ -15,6 +15,8 @@ from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 from products.growth.backend.temporal.signup_enrichment.reenrichment import (
+    ICP_REENRICHMENT_ATTEMPT_COUNT_KEY,
+    ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY,
     IcpReenrichmentSweepInputs,
     ReenrichOrgInputs,
     reenrich_organization_activity,
@@ -41,13 +43,17 @@ class TestReenrichmentSelection(BaseTest):
         organization: Organization,
         *,
         status: str = "insufficient_data",
-        latest_fetch_days_ago: int = 31,
+        last_attempted_days_ago: int | None = 31,
         first_fetch_days_ago: int = 40,
         signup_role: str | None = None,
     ) -> None:
         data: dict = {"icp_fit_status": status, "work_email": True}
         if signup_role:
             data["signup_role"] = signup_role
+        if last_attempted_days_ago is not None:
+            data[ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY] = (
+                _now() - dt.timedelta(days=last_attempted_days_ago)
+            ).isoformat()
         OrganizationEnrichment.objects.create(organization=organization, data=data)
         first = OrganizationEnrichmentFetch.objects.create(
             organization=organization, provider="harmonic", payload={"companyFound": False}
@@ -55,13 +61,6 @@ class TestReenrichmentSelection(BaseTest):
         OrganizationEnrichmentFetch.objects.filter(id=first.id).update(
             fetched_at=_now() - dt.timedelta(days=first_fetch_days_ago)
         )
-        if latest_fetch_days_ago != first_fetch_days_ago:
-            latest = OrganizationEnrichmentFetch.objects.create(
-                organization=organization, provider="harmonic", payload={"companyFound": False}, is_recheck=True
-            )
-            OrganizationEnrichmentFetch.objects.filter(id=latest.id).update(
-                fetched_at=_now() - dt.timedelta(days=latest_fetch_days_ago)
-            )
 
     def _select(self, cap: int | None = None):
         with patch(f"{_MODULE}.LOGGER"):
@@ -69,7 +68,7 @@ class TestReenrichmentSelection(BaseTest):
 
     def test_selects_due_orgs_with_identity_and_role(self):
         organization = self._org_with_member("founder@due.example")
-        self._prime(organization, latest_fetch_days_ago=31, first_fetch_days_ago=40, signup_role="engineering")
+        self._prime(organization, last_attempted_days_ago=31, first_fetch_days_ago=40, signup_role="engineering")
 
         candidates = self._select()
 
@@ -82,26 +81,26 @@ class TestReenrichmentSelection(BaseTest):
 
     def test_window_and_status_exclusions(self):
         too_recent = self._org_with_member("a@recent.example")
-        self._prime(too_recent, latest_fetch_days_ago=10, first_fetch_days_ago=40)
+        self._prime(too_recent, last_attempted_days_ago=10, first_fetch_days_ago=40)
 
         aged_out = self._org_with_member("b@aged.example")
-        self._prime(aged_out, latest_fetch_days_ago=35, first_fetch_days_ago=100)
+        self._prime(aged_out, last_attempted_days_ago=35, first_fetch_days_ago=100)
 
         already_scored = self._org_with_member("c@scored.example")
-        self._prime(already_scored, status="scored", latest_fetch_days_ago=31, first_fetch_days_ago=40)
+        self._prime(already_scored, status="scored", last_attempted_days_ago=31, first_fetch_days_ago=40)
 
         due = self._org_with_member("d@due.example")
-        self._prime(due, latest_fetch_days_ago=31, first_fetch_days_ago=40)
+        self._prime(due, last_attempted_days_ago=31, first_fetch_days_ago=40)
 
         candidates = self._select()
 
         assert [c["organization_id"] for c in candidates] == [str(due.id)]
 
-    def test_cap_takes_the_oldest_fetches_first(self):
+    def test_cap_takes_the_least_recently_attempted_org_first(self):
         newer = self._org_with_member("newer@cap.example")
-        self._prime(newer, latest_fetch_days_ago=31, first_fetch_days_ago=45)
+        self._prime(newer, last_attempted_days_ago=31, first_fetch_days_ago=45)
         older = self._org_with_member("older@cap.example")
-        self._prime(older, latest_fetch_days_ago=60, first_fetch_days_ago=70)
+        self._prime(older, last_attempted_days_ago=60, first_fetch_days_ago=70)
 
         candidates = self._select(cap=1)
 
@@ -130,26 +129,55 @@ class TestReenrichmentSelection(BaseTest):
     def test_selection_backfills_the_cap_when_the_oldest_rows_fail_identity_filtering(self):
         for i in range(3):
             unusable = self._org_with_member(f"person{i}@gmail.com")
-            self._prime(unusable, latest_fetch_days_ago=60 + i, first_fetch_days_ago=70 + i)
+            self._prime(unusable, last_attempted_days_ago=60 + i, first_fetch_days_ago=70 + i)
 
         usable_orgs = [self._org_with_member(f"founder{i}@usable.example") for i in range(2)]
         for usable in usable_orgs:
-            self._prime(usable, latest_fetch_days_ago=31, first_fetch_days_ago=40)
+            self._prime(usable, last_attempted_days_ago=31, first_fetch_days_ago=40)
 
         candidates = self._select(cap=2)
 
         assert {c["organization_id"] for c in candidates} == {str(o.id) for o in usable_orgs}
 
-    def test_a_new_fetch_resets_the_thirty_day_clock(self):
-        organization = self._org_with_member("reset@clock.example")
-        self._prime(organization, latest_fetch_days_ago=31, first_fetch_days_ago=40)
+    def test_an_unrelated_fetch_row_does_not_change_eligibility(self):
+        organization = self._org_with_member("backfill@ownership.example")
+        self._prime(organization, last_attempted_days_ago=31, first_fetch_days_ago=40)
         assert len(self._select()) == 1
 
-        # The sweep's own fetch (or any recheck) arrives: no retry for another 30 days.
-        fresh = OrganizationEnrichmentFetch.objects.create(
+        # Simulates backfill_harmonic_ownership: it archives a fresh fetch for every org it
+        # touches without ever re-scoring them. Eligibility is keyed off the sweep's own
+        # attempt stamp now, so an unrelated archive must not move it.
+        OrganizationEnrichmentFetch.objects.create(
             organization=organization, provider="harmonic", payload={"companyFound": False}, is_recheck=True
         )
-        OrganizationEnrichmentFetch.objects.filter(id=fresh.id).update(fetched_at=_now() - dt.timedelta(days=1))
+        assert len(self._select()) == 1
+
+    def test_selects_an_org_never_attempted_by_the_sweep(self):
+        organization = self._org_with_member("first@pass.example")
+        self._prime(organization, last_attempted_days_ago=None, first_fetch_days_ago=40)
+
+        candidates = self._select()
+
+        assert [c["organization_id"] for c in candidates] == [str(organization.id)]
+
+    def test_an_attempt_that_raises_is_not_selected_again_the_same_day(self):
+        organization = self._org_with_member("raises@retry.example")
+        self._prime(organization, last_attempted_days_ago=None, first_fetch_days_ago=1)
+        assert len(self._select()) == 1
+
+        pha_client = MagicMock()
+        enrich = AsyncMock(side_effect=RuntimeError("harmonic blew up"))
+        with (
+            patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch("products.growth.backend.enrichment.core.enrich_organization", enrich),
+        ):
+            with self.assertRaises(RuntimeError):
+                async_to_sync(reenrich_organization_activity)(
+                    ReenrichOrgInputs(
+                        organization_id=str(organization.id), distinct_id="signer", domain="retry.example"
+                    )
+                )
+
         assert self._select() == []
 
 
@@ -214,6 +242,7 @@ class TestReenrichOrganizationActivity(BaseTest):
         assert result == {"matched": False, "skipped": "organization_deleted"}
         enrich.assert_not_awaited()
         pha_client.capture.assert_not_called()
+        assert not OrganizationEnrichment.objects.filter(organization_id=organization_id).exists()
 
     @override_settings(GROWTH_SIGNUP_ENRICHMENT_ENABLED=False)
     def test_skips_an_in_flight_org_when_the_kill_switch_flips_off(self):
@@ -230,3 +259,17 @@ class TestReenrichOrganizationActivity(BaseTest):
         assert result == {"matched": False, "skipped": "kill_switch"}
         enrich.assert_not_awaited()
         pha_client.capture.assert_not_called()
+        assert not OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+
+    def test_attempt_count_increments_across_attempts(self):
+        outcome = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
+
+        self._run(outcome)
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data[ICP_REENRICHMENT_ATTEMPT_COUNT_KEY] == 1
+        first_attempt = record.data[ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY]
+
+        self._run(outcome)
+        record.refresh_from_db()
+        assert record.data[ICP_REENRICHMENT_ATTEMPT_COUNT_KEY] == 2
+        assert record.data[ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY] >= first_attempt
