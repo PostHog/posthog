@@ -19,6 +19,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -597,7 +598,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         destination = BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
         )
-        on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
+        with team_scope(team_id=self.team.pk, canonical=True):
+            on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
         now = dt.datetime.now()
         batch_export_run = BatchExportRun.objects.create(
             batch_export_on_demand=on_demand_export,
