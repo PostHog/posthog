@@ -3827,6 +3827,7 @@
                                 "BoldNumber",
                                 "Metric",
                                 "ActionsPie",
+                                "ActionsDonut",
                                 "ActionsBarValue",
                                 "ActionsTable",
                                 "WorldMap",
