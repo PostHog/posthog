@@ -1,4 +1,5 @@
 import { GITHUB_INSTALL_PENDING_MESSAGE } from "@posthog/core/integrations/connectErrors";
+import { githubIssuesSchemaNames } from "@posthog/core/integrations/githubSourceRepos";
 import { Button } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
@@ -142,7 +143,9 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
             selection: "oauth",
             github_integration_id: selectedIntegrationId,
           },
-          schemas: schemasPayload(["issues"]),
+          // A multi-repo source names its schema rows per repository, so naming the bare
+          // `issues` table here would leave every repository unsynced.
+          schemas: schemasPayload(githubIssuesSchemaNames(repos)),
         },
       });
       toast.success("GitHub data source created");

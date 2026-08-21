@@ -2,6 +2,9 @@ import type { ExternalDataSource } from "@posthog/api-client/posthog-client";
 import {
   buildGithubRepositoriesPatch,
   effectiveGithubSourceRepos,
+  GITHUB_ISSUES_SYNC_TYPE,
+  githubIssuesSchemasToEnable,
+  githubSourceIntegrationId,
 } from "@posthog/core/integrations/githubSourceRepos";
 import {
   Button,
@@ -49,14 +52,11 @@ export function GitHubSourceRepositoriesDialog({
   const [repos, setRepos] = useState<string[]>(initialRepos);
   const [searchQuery, setSearchQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { repositories, isLoadingRepos, getIntegrationIdForRepo } =
-    useRepositoryIntegration();
+  const { repositories, isLoadingRepos } = useRepositoryIntegration();
   // A source syncs through one GitHub installation, and editing repos can't change it. Scope the
-  // picker to that installation so it never offers repos the source's credential can't reach; the
-  // source's stored repos all resolve to the same integration, so the first one identifies it.
-  const sourceIntegrationId = initialRepos[0]
-    ? getIntegrationIdForRepo(initialRepos[0])
-    : undefined;
+  // picker to the installation the source stored, so it never offers repos the source's credential
+  // can't reach. Null on a personal-access-token source, which has no installation to scope by.
+  const sourceIntegrationId = githubSourceIntegrationId(source.job_inputs);
   const {
     repositories: visibleRepositories,
     isPending: visibleRepositoriesLoading,
@@ -74,6 +74,17 @@ export function GitHubSourceRepositoriesDialog({
         source.id,
         buildGithubRepositoriesPatch(repos),
       );
+      // Saving the list creates each added repository's rows disabled, so read the source back
+      // and switch its issues on — otherwise the repository shows on the card and syncs nothing.
+      const saved = (await client.listExternalDataSources(projectId)).find(
+        (candidate) => candidate.id === source.id,
+      );
+      for (const schema of githubIssuesSchemasToEnable(repos, saved)) {
+        await client.updateExternalDataSchema(projectId, schema.id, {
+          should_sync: true,
+          sync_type: GITHUB_ISSUES_SYNC_TYPE,
+        });
+      }
     },
     onSuccess: () => {
       toast.success("Repositories updated");
