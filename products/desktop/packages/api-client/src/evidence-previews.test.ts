@@ -570,12 +570,6 @@ describe("evidence preview shaping", () => {
     expect(preview).toMatchObject({
       title: "Checkout survey",
       status: { label: "Draft", tone: "neutral" },
-      sections: [
-        {
-          title: "Survey",
-          fields: expect.arrayContaining([{ label: "State", value: "Draft" }]),
-        },
-      ],
     });
   });
 });

@@ -23,16 +23,16 @@ function StatStrip({
   stats: Array<{ label: string; value: string }>;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {stats.slice(0, 8).map((stat) => (
         <div
           key={stat.label}
-          className="rounded-lg border border-border bg-card px-4 py-3"
+          className="rounded-lg border border-border bg-card px-3.5 py-2.5"
         >
-          <div className="truncate text-muted-foreground text-xs">
+          <div className="truncate text-[11px] text-muted-foreground">
             {stat.label}
           </div>
-          <div className="mt-1 truncate font-semibold text-foreground text-xl tabular-nums tracking-tight">
+          <div className="mt-0.5 truncate font-semibold text-foreground text-lg tabular-nums tracking-tight">
             {stat.value}
           </div>
         </div>
@@ -55,7 +55,7 @@ function IdChip({ id }: { id: string }) {
       data-attr="posthog-object-copy-reference"
       aria-label={copied ? "ID copied" : "Copy ID"}
       onClick={() => copy(id)}
-      className="max-w-56"
+      className="max-w-44"
     >
       <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
         ID
@@ -93,7 +93,7 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   // and skip the descriptive cards, which only restate what the charts show.
   if (preview.tiles && preview.tiles.length > 0) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {preview.tiles.map((tile, index) => (
           <MessageChartCard
             key={`${tile.shortId}:${index}`}
@@ -106,7 +106,7 @@ function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   }
   const stats = (preview.stats ?? []).filter((stat) => stat.value);
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {stats.length > 0 ? (
         <StatStrip stats={stats} />
       ) : preview.facts && preview.facts.length > 0 ? (
@@ -134,56 +134,45 @@ function UnavailableObject({ isError }: { isError: boolean }) {
   );
 }
 
-export function PostHogObjectPage({
-  metadata,
-  fallbackName,
-}: {
-  /** Only kind + id when opened from an inline reference chip. */
-  metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
-    Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
+export interface PostHogObjectViewProps {
+  objectKind: string;
+  objectId: string;
+  /** Shown while the preview loads or when the object has no live name. */
   fallbackName: string;
-}) {
-  const object = getObjectKind(metadata.object_kind);
+  /** PostHog web URL for the object, when it has one. */
+  url: string | null;
+  /** Omitted when the page isn't backed by a run artifact (chip-opened). */
+  occurrenceCount?: number;
+  state: "loading" | "error" | "missing" | "ready";
+  preview: EvidenceCardData | null;
+}
+
+/** Pure page body; `PostHogObjectPage` resolves the preview and URL. */
+export function PostHogObjectPageView({
+  objectKind,
+  objectId,
+  fallbackName,
+  url,
+  occurrenceCount,
+  state,
+  preview,
+}: PostHogObjectViewProps) {
+  const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
-  const usesChartRenderer =
-    metadata.object_kind === "insight" || metadata.object_kind === "hogql";
-  const query = useAuthenticatedQuery(
-    ["evidence-preview", metadata.object_kind, metadata.object_id],
-    (client) =>
-      fetchEvidencePreview(client, {
-        kind: metadata.object_kind,
-        id: metadata.object_id,
-      }),
-    {
-      enabled: !usesChartRenderer,
-      staleTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  );
-  // A flag cited by key or an event cited by name has no page under the cited
-  // id; link out via the id the preview resolved, as EvidenceRefChip does.
-  const url = useEvidenceUrl(
-    metadata.object_kind,
-    query.data?.resolvedId ?? metadata.object_id,
-  );
-  const title = query.data?.title ?? fallbackName;
-  const url = useEvidenceUrl(
-    metadata.object_kind,
-    query.data?.resolvedId ?? metadata.object_id,
-  );
-  // The product name adds nothing when it just restates the kind ("Feature
-  // flag · Feature flags"); keep it when it adds context ("Insight · Product
-  // analytics").
+  const usesChartRenderer = objectKind === "insight" || objectKind === "hogql";
+  const title = preview?.title ?? fallbackName;
+  const status = preview?.status;
+  // The product name earns its place only when it adds context ("Insight ·
+  // Product analytics"); drop it when it restates the kind ("Feature flag ·
+  // Feature flags", "SQL query · SQL editor").
   const showSource = !object.source
     .toLowerCase()
-    .startsWith(object.kindLabel.toLowerCase());
-
-  const status = query.data?.status;
+    .split(" ")[0]
+    .startsWith(object.kindLabel.toLowerCase().split(" ")[0]);
   const metaLine = [
     object.kindLabel,
     showSource ? object.source : null,
-    query.data?.detail,
+    preview?.detail,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -191,14 +180,14 @@ export function PostHogObjectPage({
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-4xl flex-col px-8 py-8">
-        <header className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-card">
-              <ObjectIcon size={22} color={POSTHOG_OBJECT_ICON_COLOR} />
+        <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 flex-1 basis-72 items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+              <ObjectIcon size={20} color={POSTHOG_OBJECT_ICON_COLOR} />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5">
-                <Heading size="lg" className="truncate tracking-tight">
+              <div className="flex items-center gap-2">
+                <Heading size="base" className="truncate tracking-tight">
                   {title}
                 </Heading>
                 {status && (
@@ -207,11 +196,7 @@ export function PostHogObjectPage({
                   </Badge>
                 )}
               </div>
-              <Text
-                size="sm"
-                variant="muted"
-                className="mt-0.5 block truncate leading-relaxed"
-              >
+              <Text size="sm" variant="muted" className="mt-0.5 block truncate">
                 {metaLine}
               </Text>
             </div>
@@ -219,9 +204,7 @@ export function PostHogObjectPage({
           <div className="flex shrink-0 items-center gap-2">
             {/* A hogql reference's id is the SQL itself, not an identifier
                 worth copying; the chart card already shows the query. */}
-            {metadata.object_kind !== "hogql" && (
-              <IdChip id={metadata.object_id} />
-            )}
+            {objectKind !== "hogql" && <IdChip id={objectId} />}
             {url && (
               <Button
                 variant="outline"
@@ -239,32 +222,84 @@ export function PostHogObjectPage({
           {usesChartRenderer ? (
             <MessageChartCard
               spec={
-                metadata.object_kind === "insight"
-                  ? { mode: "insight", shortId: metadata.object_id }
-                  : { mode: "hogql", query: metadata.object_id }
+                objectKind === "insight"
+                  ? { mode: "insight", shortId: objectId }
+                  : { mode: "hogql", query: objectId }
               }
-              blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
+              blockKey={`artifact:${objectKind}:${objectId}`}
             />
-          ) : query.isPending ? (
+          ) : state === "loading" ? (
             <div className="space-y-3">
               <Skeleton className="h-20 w-full" />
               <Skeleton className="h-44 w-full" />
               <Skeleton className="h-24 w-full" />
             </div>
-          ) : query.data ? (
-            <ObjectContent preview={query.data} />
+          ) : preview ? (
+            <ObjectContent preview={preview} />
           ) : (
-            <UnavailableObject isError={query.isError} />
+            <UnavailableObject isError={state === "error"} />
           )}
         </div>
 
-        {metadata.occurrence_count !== undefined && (
+        {occurrenceCount !== undefined && (
           <div className="mt-6 border-border border-t pt-4 text-muted-foreground text-xs">
-            Referenced {metadata.occurrence_count.toLocaleString()}{" "}
-            {metadata.occurrence_count === 1 ? "time" : "times"} in this task
+            Referenced {occurrenceCount.toLocaleString()}{" "}
+            {occurrenceCount === 1 ? "time" : "times"} in this task
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+export function PostHogObjectPage({
+  metadata,
+  fallbackName,
+}: {
+  /** Only kind + id when opened from an inline reference chip. */
+  metadata: Pick<PostHogObjectArtifactMetadata, "object_kind" | "object_id"> &
+    Partial<Omit<PostHogObjectArtifactMetadata, "object_kind" | "object_id">>;
+  fallbackName: string;
+}) {
+  const usesChartRenderer =
+    metadata.object_kind === "insight" || metadata.object_kind === "hogql";
+  const query = useAuthenticatedQuery(
+    ["evidence-preview", metadata.object_kind, metadata.object_id],
+    (client) =>
+      fetchEvidencePreview(client, {
+        kind: metadata.object_kind,
+        id: metadata.object_id,
+      }),
+    {
+      enabled: !usesChartRenderer,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  );
+  const url = useEvidenceUrl(
+    metadata.object_kind,
+    query.data?.resolvedId ?? metadata.object_id,
+  );
+  const state = usesChartRenderer
+    ? "ready"
+    : query.isPending
+      ? "loading"
+      : query.isError
+        ? "error"
+        : query.data
+          ? "ready"
+          : "missing";
+
+  return (
+    <PostHogObjectPageView
+      objectKind={metadata.object_kind}
+      objectId={metadata.object_id}
+      fallbackName={fallbackName}
+      url={url}
+      occurrenceCount={metadata.occurrence_count}
+      state={state}
+      preview={query.data ?? null}
+    />
   );
 }

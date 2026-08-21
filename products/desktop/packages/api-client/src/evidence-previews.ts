@@ -217,7 +217,6 @@ function surveyQuestionSummary(question: unknown): string | null {
 }
 
 export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
-  const state = flag.active ? "Enabled" : "Disabled";
   const name = flag.name?.trim();
 
   const facts: string[] = [];
@@ -269,7 +268,6 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
     stats,
     sections: [
       ...detailSection("Configuration", [
-        ["State", state],
         ["Type", flagType],
         [
           "Release conditions",
@@ -1165,7 +1163,7 @@ export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
     status,
     sections: [
       ...detailSection("Survey", [
-        ["State", survey.archived ? "Archived" : status.label],
+        ["State", survey.archived ? "Archived" : null],
         [
           "Type",
           typeof survey.type === "string" ? humanizeStatus(survey.type) : null,
