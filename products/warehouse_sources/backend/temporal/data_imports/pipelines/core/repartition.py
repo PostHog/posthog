@@ -79,6 +79,14 @@ DEFAULT_REPARTITION_BATCH_SIZE = 1_000
 # 0 disables the throttle (check every batch).
 CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 
+# Minimum gap between rewrite checkpoints. The deadline handler saves one too, but only a rewrite that
+# survives to raise can reach it: an OOM-killed worker takes SIGKILL, so no `except` or `finally` runs
+# and nothing is persisted. That left every memory death restarting from row 0 forever. Checkpointing
+# on committed progress instead means an attempt converges across runs whatever kills it. Throttled
+# because it costs a claim check and a row write per checkpoint, and bounds re-done work to this
+# interval rather than to the whole rewrite.
+CHECKPOINT_INTERVAL_SECONDS = 30.0
+
 # Arrow payload the rewrite may hold in its coalescing buffer. Half the package's per-table cap
 # deliberately: the batch that triggers a flush is already materialised and stays resident while the
 # buffer drains, so the true peak is buffer + one incoming batch. Budgeting half keeps that sum inside
@@ -698,6 +706,8 @@ async def _rewrite_into_temp(
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
+    save_checkpoint: Callable[[int, RepartitionTarget], Awaitable[None]] | None = None,
+    checkpoint_interval_seconds: float = CHECKPOINT_INTERVAL_SECONDS,
     deadline: float | None = None,
     total_rows: int | None = None,
     skip_rows: int = 0,
@@ -766,6 +776,29 @@ async def _rewrite_into_temp(
             fields["eta_seconds"] = round(max(total_rows - rows_written, 0) / rate) if rate else None
         return fields
 
+    last_checkpoint_at: float | None = None
+
+    async def maybe_checkpoint() -> None:
+        """Persist resumable progress, at most once per `checkpoint_interval_seconds`.
+
+        Called after a commit lands, so the recorded row count is always backed by data actually in
+        temp. Failing to checkpoint must not fail the rewrite: the attempt is still making progress,
+        and the next one simply resumes from further back.
+        """
+        nonlocal last_checkpoint_at
+        if save_checkpoint is None:
+            return
+        now = time.monotonic()
+        if last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
+            return
+        last_checkpoint_at = now
+        try:
+            await save_checkpoint(rows_written, resolved or target)
+        except RepartitionSupersededError:
+            raise
+        except Exception:
+            await logger.awarning("repartition: could not save rewrite checkpoint", exc_info=True)
+
     async def flush() -> None:
         """Write the buffered batches as one Delta commit, then report progress."""
         nonlocal buffered, buffered_rows, buffered_bytes, rows_written, commits
@@ -788,6 +821,7 @@ async def _rewrite_into_temp(
         rows_written += combined.num_rows
         commits += 1
         report_buffer_bytes(0)
+        await maybe_checkpoint()
         fields = progress()
         await logger.ainfo(f"repartition: rewrite progress {_format_fields(fields)}", **fields)
 
@@ -1060,12 +1094,30 @@ async def repartition_table_in_place(
             async with aget_s3_client(fresh_instance=True) as s3:
                 await _purge_stale_temp_tables(s3, live_uri)
 
+        async def save_checkpoint(rows_so_far: int, resolved_target: RepartitionTarget) -> None:
+            # Same payload and same claim fence as the deadline handler below, written on committed
+            # progress instead. A zombie must not clobber a newer claimant's state, so the claim check
+            # comes first and its RepartitionSupersededError propagates.
+            await ensure_claim()
+            checkpoint_version = await asyncio.to_thread(old_delta.version)
+            await asyncio.to_thread(
+                schema.set_repartition_rewrite,
+                {
+                    "temp_uri": temp_uri,
+                    "rows_written": rows_so_far,
+                    "target": resolved_target.to_dict(),
+                    "live_version": checkpoint_version,
+                    "held_at": datetime.now(UTC).isoformat(),
+                },
+            )
+
         try:
             rows_written, resolved = await _rewrite_into_temp(
                 old_delta=old_delta,
                 temp_uri=temp_uri,
                 storage_options=storage_options,
                 target=rewrite_target,
+                save_checkpoint=save_checkpoint,
                 batch_size=batch_size,
                 logger=logger,
                 ensure_claim=ensure_claim,
