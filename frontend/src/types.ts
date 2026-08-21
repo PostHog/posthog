@@ -6672,34 +6672,14 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportServiceS3 = {
-    type: 'S3'
-    config: {
-        bucket_name: string
-        region: string
-        prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
-        exclude_events: string[]
-        include_events: string[]
-        compression: string | null
-        encryption: string | null
-        kms_key_id: string | null
-        endpoint_url: string | null
-        file_format: string
-        max_file_size_mb: number | null
-        use_virtual_style_addressing: boolean
-    }
-}
-
+// Credentials live on the linked `aws-s3` integration, not in the config.
 export type BatchExportServiceAwsS3 = {
     type: 'AwsS3'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
@@ -6710,18 +6690,17 @@ export type BatchExportServiceAwsS3 = {
     }
 }
 
+// Credentials and the provider endpoint URL live on the linked `s3-compatible` integration.
 export type BatchExportServiceS3Compatible = {
     type: 'S3Compatible'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
-        endpoint_url: string
         use_virtual_style_addressing: boolean
         file_format: string
         max_file_size_mb: number | null
@@ -6851,9 +6830,6 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
-    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
-    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
-    'S3',
     'AwsS3',
     'S3Compatible',
     'Snowflake',
@@ -6865,7 +6841,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'AzureBlob',
 ]
 export type BatchExportService =
-    | BatchExportServiceS3
     | BatchExportServiceAwsS3
     | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
