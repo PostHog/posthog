@@ -334,6 +334,50 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface ConversationMessageSender {
+      /** Display name of the message sender. */
+      readonly name: string;
+      /**
+         * Email address of the message sender, when available.
+         * @nullable
+         */
+      readonly email: string | null;
+      /**
+         * UUID of the matched PostHog person, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
+      /**
+         * Distinct ID of the sender, when available.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface ConversationMessageSummary {
+      /** Sender of the message. */
+      readonly sender: ConversationMessageSender;
+      /** Timestamp from the message source. */
+      readonly sent_at: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+    }
+
     /**
      * * `internal` - Internal
      * * `customer` - Customer
@@ -356,6 +400,11 @@ export namespace Schemas {
        * * `internal` - Internal
        * * `customer` - Customer */
       readonly kind: EmailThreadParticipantKindEnum;
+      /**
+         * UUID of the matched PostHog person for a customer participant, when available.
+         * @nullable
+         */
+      readonly person_id: string | null;
     }
 
     export interface AccountEmailThread {
@@ -370,11 +419,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly first_message_at: string | null;
+      /** Sender, timestamp, and direction of the first captured message, when available. */
+      readonly first_message: ConversationMessageSummary | null;
       /**
          * Source timestamp of the latest captured message.
          * @nullable
          */
       readonly last_message_at: string | null;
+      /** Sender, timestamp, and direction of the latest captured message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Number of captured messages in the thread. */
       readonly message_count: number;
       /** Participants included in the email thread. */
@@ -387,18 +440,6 @@ export namespace Schemas {
       /** Email address from the email header. */
       readonly email: string;
     }
-
-    /**
-     * * `inbound` - Inbound
-     * * `outbound` - Outbound
-     */
-    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
-
-
-    export const EmailThreadMessageDirectionEnum = {
-      Inbound: 'inbound',
-      Outbound: 'outbound',
-    } as const;
 
     export interface AccountEmailThreadMessage {
       /** UUID of the captured email message. */
@@ -573,6 +614,24 @@ export namespace Schemas {
       definition: string;
       /** PostHog user id of the assignee. Must be a member of the account's organization. */
       user: number;
+    }
+
+    export interface AccountSupportTicketMessage {
+      /** UUID of the support ticket message. */
+      readonly id: string;
+      /** Plain-text message content. */
+      readonly content: string;
+      /** Display name of the message author. */
+      readonly author_name: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Whether the message is an internal note hidden from the customer. */
+      readonly is_private: boolean;
+      /** When the message was created. */
+      readonly created_at: string;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -23247,6 +23306,9 @@ export namespace Schemas {
      * * `Airwallex` - Airwallex
      * * `Polymarket` - Polymarket
      * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24556,6 +24618,9 @@ export namespace Schemas {
       Airwallex: 'Airwallex',
       Polymarket: 'Polymarket',
       Kalshi: 'Kalshi',
+      Capterra: 'Capterra',
+      GooglePostmasterTools: 'GooglePostmasterTools',
+      Growi: 'Growi',
     } as const;
 
     /**
@@ -25878,7 +25943,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27895,7 +27963,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31119,6 +31190,25 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+     * this blob at query time, so it is the only place an experiment can enter a scanner's
+     * targeting — which is what lets the write-side access check and read-side redaction cover it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Narrow to sessions of people exposed to this variant. Null means every variant.
+         * @maxLength 400
+         * @nullable
+         */
+      variant?: string | null;
+    }
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -31147,6 +31237,8 @@ export namespace Schemas {
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
+      /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
     }
 
     /**
@@ -35850,7 +35942,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37193,7 +37288,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -37982,6 +38080,8 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+      /** Optional first evidence item to create for the selected account. */
+      evidence?: FeatureRequestEvidencePayload | null;
     }
 
     export interface FeatureRequestEvidenceCreate {
@@ -39875,6 +39975,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `server` - Server
+     * * `toolbar` - Toolbar
+     */
+    export type HeatmapScreenshotResponseSourceEnum = typeof HeatmapScreenshotResponseSourceEnum[keyof typeof HeatmapScreenshotResponseSourceEnum];
+
+
+    export const HeatmapScreenshotResponseSourceEnum = {
+      Server: 'server',
+      Toolbar: 'toolbar',
+    } as const;
+
+    /**
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed
@@ -39920,13 +40032,18 @@ export namespace Schemas {
          */
       data_url?: string | null;
       /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-      target_widths?: unknown;
+      readonly target_widths: readonly number[];
       /** Render mode: 'screenshot', 'iframe', or 'recording'.
        *
        * * `screenshot` - Screenshot
        * * `iframe` - Iframe
        * * `recording` - Recording */
       type?: HeatmapType;
+      /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+       *
+       * * `server` - Server
+       * * `toolbar` - Toolbar */
+      readonly source: HeatmapScreenshotResponseSourceEnum;
       /** Screenshot generation status: 'processing', 'completed', or 'failed'.
        *
        * * `processing` - Processing
@@ -50724,6 +50841,15 @@ export namespace Schemas {
       results: AccountRelationshipDefinition[];
     }
 
+    export interface PaginatedAccountSupportTicketMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountSupportTicketMessage[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -52738,25 +52864,6 @@ export namespace Schemas {
     export const ScannerProviderEnum = {
       Google: 'google',
     } as const;
-
-    /**
-     * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
-     */
-    export interface ScannerExperimentTargeting {
-      /**
-         * The experiment the scanner watches.
-         * @minimum 1
-         */
-      experiment_id: number;
-      /**
-         * Targeted experiment variants. Empty means every variant.
-         * @maxItems 50
-         * @items.maxLength 400
-         */
-      variant_keys: string[];
-      /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-      use_exposure_fallback: boolean;
-    }
 
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
@@ -72416,6 +72523,39 @@ export namespace Schemas {
       output_fields: OutputField[];
     }
 
+    export interface SavedHeatmapCaptureRequest {
+      /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
+      image?: string;
+      /**
+         * Viewport width (CSS pixels) the single 'image' was captured at.
+         * @minimum 100
+         * @maximum 3000
+         */
+      width?: number;
+      /**
+         * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+         * @maxItems 16
+         */
+      images?: string[];
+      /**
+         * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+         * @maxItems 16
+         * @items.minimum 100
+         * @items.maximum 3000
+         */
+      widths?: number[];
+      /**
+         * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
     export interface SavedHeatmapListResponse {
       results: HeatmapScreenshotResponse[];
       /** Total number of saved heatmaps matching the filters. */
@@ -75556,7 +75696,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -76907,7 +77050,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -78248,7 +78394,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -78952,8 +79101,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_message_text: string | null;
+      /** Sender, timestamp, and direction of the latest public message, when available. */
+      readonly last_message: ConversationMessageSummary | null;
       /** Absolute URL to open this ticket in the app. */
       readonly deep_link: string;
+      /** When the ticket conversation started. */
+      readonly created_at: string;
+      /** Display name of the customer who started the ticket. */
+      readonly started_by: string;
+      /** Distinct ID of the customer who started the ticket. */
+      readonly distinct_id: string;
     }
 
     /**
@@ -80447,6 +80604,7 @@ export namespace Schemas {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
+     * * `side_question` - side_question
      */
     export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
 
@@ -80461,6 +80619,7 @@ export namespace Schemas {
       PiRpc: 'pi/rpc',
       QueueGet: 'queue_get',
       QueueClear: 'queue_clear',
+      SideQuestion: 'side_question',
     } as const;
 
     /**
@@ -80481,7 +80640,8 @@ export namespace Schemas {
        * * `mcp_response` - mcp_response
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
-       * * `queue_clear` - queue_clear */
+       * * `queue_clear` - queue_clear
+       * * `side_question` - side_question */
       method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -85775,6 +85935,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AccountsSupportTicketMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ActionsListParams = {
     /**
      * Comma-separated list of creator user ids. Returns only actions created by these users.
@@ -89438,6 +89609,11 @@ export namespace Schemas {
      * @minLength 1
      */
     archive_state?: FeatureRequestsListArchiveState;
+    /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[];
     /**
      * Number of results to return per page.
      */
