@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, cast
@@ -96,7 +95,7 @@ class TestDesktopAccessResolver:
             pytest.param(_make_response(200, {"allowed": False}), id="missing_reason"),
         ],
     )
-    async def test_resolution_failure_denies_and_is_cached_briefly(self, response: httpx.Response | Exception) -> None:
+    async def test_resolution_failure_is_not_cached(self, response: httpx.Response | Exception) -> None:
         redis = _FakeRedis()
         http = _make_http_client(response)
         resolver = _make_resolver(redis, http)
@@ -105,28 +104,8 @@ class TestDesktopAccessResolver:
         assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
         assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
 
-        assert http.get.await_count == 1
-        assert redis.ttls[_redis_key(7, 42)] == get_settings().desktop_access_denied_cache_ttl
-
-    @pytest.mark.asyncio
-    async def test_coalesces_concurrent_requests(self) -> None:
-        release = asyncio.Event()
-        http = MagicMock()
-
-        async def fetch(*_args: object, **_kwargs: object) -> httpx.Response:
-            await release.wait()
-            return _make_response(200, {"allowed": True, "reason": None})
-
-        http.get = AsyncMock(side_effect=fetch)
-        resolver = _make_resolver(None, http)
-        first = asyncio.create_task(resolver.resolve_access(7, 42, "Bearer tok"))
-        second = asyncio.create_task(resolver.resolve_access(7, 42, "Bearer tok"))
-        await asyncio.sleep(0)
-        release.set()
-
-        assert (await first).allowed is True
-        assert (await second).allowed is True
-        assert http.get.await_count == 1
+        assert http.get.await_count == 2
+        assert _redis_key(7, 42) not in redis.store
 
     @pytest.mark.asyncio
     async def test_cache_is_isolated_by_user_and_team(self) -> None:

@@ -206,21 +206,8 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
         )
 
     logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id, reason=decision.reason)
-    if decision.reason == "startup_plan":
-        message = (
-            "PostHog Desktop isn't available for Startup or YC program organizations. "
-            "Select another organization to continue."
-        )
-    elif decision.reason == "prepaid_credits":
-        message = (
-            "PostHog Desktop isn't available while this organization has prepaid credits. "
-            "Select another organization or contact your PostHog account executive."
-        )
-    else:
-        message = "PostHog Desktop access is required to use this product."
-
     error: dict[str, object] = {
-        "message": message,
+        "message": "PostHog Desktop access is required to use this product.",
         "type": "permission_error",
         "code": "code_access_required",
     }

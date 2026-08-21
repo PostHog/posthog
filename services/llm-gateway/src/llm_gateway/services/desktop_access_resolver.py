@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Literal, cast
@@ -46,32 +45,20 @@ class DesktopAccessResolver:
     ):
         self._redis = redis
         self._http = http_client
-        self._inflight: dict[tuple[int, int], asyncio.Task[DesktopAccessDecision]] = {}
 
     async def resolve_access(self, user_id: int, team_id: int, auth_header: str) -> DesktopAccessDecision:
         cached = await self._get_cached(user_id, team_id)
         if cached is not None:
             return cached
 
-        key = (user_id, team_id)
-        task = self._inflight.get(key)
-        if task is None:
-            task = asyncio.create_task(self._resolve_uncached(user_id, team_id, auth_header))
-            self._inflight[key] = task
-            task.add_done_callback(lambda completed: self._clear_inflight(key, completed))
-
-        return await asyncio.shield(task)
-
-    def _clear_inflight(self, key: tuple[int, int], task: asyncio.Task[DesktopAccessDecision]) -> None:
-        if self._inflight.get(key) is task:
-            self._inflight.pop(key, None)
+        return await self._resolve_uncached(user_id, team_id, auth_header)
 
     async def _resolve_uncached(self, user_id: int, team_id: int, auth_header: str) -> DesktopAccessDecision:
         try:
             decision = await self._fetch_access(team_id, auth_header)
         except Exception:
             logger.warning("desktop_access_fetch_failed", user_id=user_id, team_id=team_id, exc_info=True)
-            decision = DesktopAccessDecision(status="unavailable")
+            return DesktopAccessDecision(status="unavailable")
 
         settings = get_settings()
         ttl = settings.desktop_access_cache_ttl if decision.allowed else settings.desktop_access_denied_cache_ttl

@@ -241,7 +241,7 @@ class Settings(BaseSettings):
     desktop_access_gate_enabled: bool = True
     desktop_access_cache_ttl: int = 60
     desktop_access_denied_cache_ttl: int = 30
-    desktop_access_request_timeout: float = 2.0
+    desktop_access_request_timeout: float = 6.0
 
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
