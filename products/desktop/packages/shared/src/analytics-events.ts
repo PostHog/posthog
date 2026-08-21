@@ -264,6 +264,7 @@ export interface CommandMenuActionProperties {
 
 export type SidebarNavItem =
   | "home"
+  | "spaces"
   | "new_task"
   | "search"
   | "inbox"
