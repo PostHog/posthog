@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -344,9 +343,6 @@ export function LegacySummaryTable({
                     disabled={filters.length === 0}
                     disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     data-attr="experiment-summary-view-recordings"
-                    onClick={() => {
-                        posthog.capture('viewed recordings from experiment', { variant: variantKey })
-                    }}
                 />
             )
         },
