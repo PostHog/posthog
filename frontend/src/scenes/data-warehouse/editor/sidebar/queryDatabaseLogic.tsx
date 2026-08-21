@@ -740,10 +740,13 @@ const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] 
     },
 ]
 
-const createLazyTableEmptyNode = (lazyNodeId: string): TreeDataItem => {
+const emptyFolderLabel = (isSearch: boolean): string =>
+    isSearch ? 'No matching items in this folder' : 'Empty folder'
+
+const createLazyTableEmptyNode = (lazyNodeId: string, isSearch = false): TreeDataItem => {
     return {
         id: `${lazyNodeId}-empty/`,
-        name: 'Empty folder',
+        name: emptyFolderLabel(isSearch),
         type: 'empty-folder',
         record: {
             type: 'empty-folder',
@@ -854,7 +857,7 @@ const createExpandedLazyTableChildren = (
         ...options,
         expandedLazyNodeIds: options?.expandedLazyNodeIds ?? new Set<string>(),
     })
-    return lazyChildren.length > 0 ? lazyChildren : [createLazyTableEmptyNode(lazyNodeId)]
+    return lazyChildren.length > 0 ? lazyChildren : [createLazyTableEmptyNode(lazyNodeId, isSearch)]
 }
 
 const createViewTableChildren = (
@@ -1297,7 +1300,7 @@ const createViewFolderNode = (
                 : [
                       {
                           id: `${isSearch ? 'search-' : ''}view-folder-${folder.id}-empty/`,
-                          name: 'Empty folder',
+                          name: emptyFolderLabel(isSearch),
                           type: 'empty-folder',
                           record: {
                               type: 'empty-folder',
@@ -1532,7 +1535,7 @@ const createTopLevelFolderNode = (
         finalChildren = [
             {
                 id: `${isSearch ? 'search-' : ''}views-folder-empty/`,
-                name: 'Empty folder',
+                name: emptyFolderLabel(isSearch),
                 type: 'empty-folder',
                 record: {
                     type: 'empty-folder',
@@ -1545,7 +1548,7 @@ const createTopLevelFolderNode = (
         finalChildren = [
             {
                 id: `${isSearch ? 'search-' : ''}drafts-folder-empty/`,
-                name: 'Empty folder',
+                name: emptyFolderLabel(isSearch),
                 type: 'empty-folder',
                 record: {
                     type: 'empty-folder',
@@ -1558,7 +1561,7 @@ const createTopLevelFolderNode = (
         finalChildren = [
             {
                 id: `${isSearch ? 'search-' : ''}managed-views-folder-empty/`,
-                name: 'Empty folder',
+                name: emptyFolderLabel(isSearch),
                 type: 'empty-folder',
                 record: {
                     type: 'empty-folder',

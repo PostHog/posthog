@@ -362,10 +362,11 @@ export function convertFileSystemEntryToTreeDataItem({
 
     for (const folderNode of allFolderNodes) {
         if (folderNode.children && folderNode.children.length === 0) {
+            const emptyLabel = searchTerm ? 'No matching items in this folder' : 'Empty folder'
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
-                name: 'Empty folder',
-                displayName: <>Empty folder</>,
+                name: emptyLabel,
+                displayName: <>{emptyLabel}</>,
                 disableSelect: true,
                 type: 'empty-folder',
             })
