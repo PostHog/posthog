@@ -2,8 +2,8 @@ import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
-import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
@@ -21,6 +21,10 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  showChannelsRailPane,
+  useNavRailStore,
+} from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
@@ -29,7 +33,10 @@ import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
 import { TasksHeader } from "@posthog/ui/features/sidebar/components/TasksHeader";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import {
+  CHANNELS_SIDEBAR_MIN_WIDTH,
+  NAV_RAIL_WIDTH,
+} from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -132,12 +139,17 @@ export function ChannelsSidebar() {
     setOpenAuto(hasCompletedOnboarding || Object.keys(workspaces).length > 0);
   }, [workspacesFetched, workspaces, hasCompletedOnboarding, setOpenAuto]);
 
+  const channelsLayout = useChannelsLayout();
   const peek = useSidebarPeekStore((s) => s.peek);
   useSidebarEdgeHoverPeek({
     enabled: !open && !isResizing,
     peeked: peek,
     side: "left",
     width,
+    // The rail holds the window's left edge under the layout, so the peek
+    // strip starts where the rail ends — hovering a rail button is not a
+    // request to slide the sidebar out.
+    offset: channelsLayout ? NAV_RAIL_WIDTH : 0,
     onReveal: beginSidebarPeek,
     onClose: () => endSidebarPeek(),
   });
@@ -157,7 +169,6 @@ export function ChannelsSidebar() {
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const channelsLayout = useChannelsLayout();
   const channelsWorld = channelsLayout || channelsEnabled;
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
@@ -192,6 +203,9 @@ export function ChannelsSidebar() {
       return;
     }
     setCurrentChannel(routeChannelId);
+    // Landing on a channel is a request to see the tree it lives in, so the
+    // rail comes back off Activity with it.
+    showChannelsRailPane();
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
     // Unless the navigation said otherwise: opening a session from the list's
@@ -202,6 +216,7 @@ export function ChannelsSidebar() {
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
+  const railPane = useNavRailStore((s) => s.pane);
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;
 
@@ -243,11 +258,22 @@ export function ChannelsSidebar() {
       onPeekLeave={() => endSidebarPeek()}
       onPeekDismiss={cancelSidebarPeek}
       resizeTooltip={<NavResizeTooltip />}
+      drawEdge={!channelsLayout}
     >
       {/* One preview card for every row in here — the channel's own list and
           the space tree both draw their rows as triggers on it. */}
       <ChannelItemPreviewCardProvider>
-        <div className="flex h-full flex-col bg-chrome">
+        <div
+          className={cn(
+            "flex h-full flex-col bg-chrome",
+            // The rail holds the window edge, so this column is what the
+            // framed inset starts on, and it owns the whole outline: the
+            // curve has to meet its own sides, and a second owner of any one
+            // edge (the rail, the sidebar box) doubles that line.
+            channelsLayout &&
+              "rounded-tl-sm border-border border-t border-r border-l",
+          )}
+        >
           {!channelsLayout && (
             <>
               <SidebarNavSection />
@@ -256,21 +282,15 @@ export function ChannelsSidebar() {
           )}
 
           {channelsLayout ? (
-            <>
-              {/* Which project you're in is the outermost thing about this
-                  window, so under the layout it sits above the nav row rather
-                  than in the footer. Its menu opens downward, which is the
-                  right direction from the top of a sidebar. */}
-              <div className="shrink-0 px-2 pb-1">
-                <ProjectSwitcher />
-              </div>
-              <ChannelNav />
+            railPane === "activity" ? (
+              <ActivityFeedList className="h-full" />
+            ) : (
               <ChannelPanes
                 channelId={currentChannelId}
                 showList={showList}
                 sidebarVisible={open || peek}
               />
-            </>
+            )
           ) : bodyChannelsWorld ? (
             <>
               <Separator />

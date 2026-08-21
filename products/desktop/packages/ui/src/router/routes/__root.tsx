@@ -26,6 +26,7 @@ import {
   FeedbackModal,
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -45,6 +46,7 @@ import { useIntegrations } from "@posthog/ui/features/integrations/useIntegratio
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -369,7 +371,11 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              width: sidebarOpen ? channelsSidebarWidth : undefined,
+              // Matches the rail plus the sidebar, so the search bar beside it
+              // starts flush with the content pane.
+              width: sidebarOpen
+                ? channelsSidebarWidth + (channelsLayout ? NAV_RAIL_WIDTH : 0)
+                : undefined,
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
@@ -462,13 +468,26 @@ function RootLayout() {
               }`}
             />
           )}
+          {/* Outside the sidebar on purpose: collapsing the sidebar (Cmd+B)
+              must not take the destinations with it. */}
+          {channelsLayout && <NavRail />}
           <ChannelsSidebar />
           {/* Content sits in a bordered, rounded card inset from the window
-              edges — the framed pane from the design. */}
+              edges — the framed pane from the design. The rounded corner
+              belongs to whichever pane starts the inset: the sidebar when it
+              is out, this pane when the sidebar is collapsed behind the rail.
+              Without a rail there is nothing to inset from until the sidebar
+              opens, which is the corner this pane kept before. */}
           <Box flexGrow="1" className="overflow-hidden">
             <Box
-              className={`h-full overflow-hidden border-border border-t border-l bg-background ${
-                sidebarOpen ? "rounded-tl-sm" : ""
+              // A docked sidebar already draws this edge, so drawing it again
+              // here stacks two 1px lines into one thick seam.
+              className={`h-full overflow-hidden border-border border-t bg-background ${
+                sidebarOpen ? "" : "border-l"
+              } ${
+                (channelsLayout ? !sidebarOpen : sidebarOpen)
+                  ? "rounded-tl-sm"
+                  : ""
               }`}
             >
               <Flex direction="column" height="100%">

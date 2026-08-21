@@ -49,8 +49,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 
 // The sidebar's children each mount their own query stack; this suite is about
 // the shell's own decisions, so they're stubbed out.
-vi.mock("@posthog/ui/features/canvas/components/ChannelNav", () => ({
-  ChannelNav: () => null,
+vi.mock("@posthog/ui/features/canvas/components/ActivityFeedList", () => ({
+  ActivityFeedList: () => <div data-testid="activity-feed" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelSidebar", () => ({
   ChannelSidebar: ({ channelId }: { channelId: string }) => (

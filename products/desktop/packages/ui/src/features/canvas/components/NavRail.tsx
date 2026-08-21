@@ -7,10 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   Button,
-  cn,
   Kbd,
-  Popover,
-  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -23,6 +20,10 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import {
+  showChannelsRailPane,
+  useNavRailStore,
+} from "@posthog/ui/features/canvas/stores/navRailStore";
+import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
@@ -30,10 +31,11 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
-  navigateToActivity,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
@@ -41,13 +43,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  type ComponentPropsWithRef,
-  type ReactElement,
-  type ReactNode,
-  useState,
-} from "react";
-import { ActivityHoverCard } from "./ActivityHoverCard";
+import type { ReactNode } from "react";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -72,8 +68,8 @@ function NavIcon({
   return (
     <Tooltip>
       {/* quill's Button, with the sidebar's selected-row treatment — the same
-          `data-selected` pairing the channel rows use, so the nav and the list
-          below it read as one control set in either theme. `relative` is for
+          `data-selected` pairing the channel rows use, so the rail and the list
+          beside it read as one control set in either theme. `relative` is for
           the count badge, which pins to the button's corner. */}
       <TooltipTrigger
         render={
@@ -90,7 +86,7 @@ function NavIcon({
           </Button>
         }
       />
-      <TooltipContent side="bottom">
+      <TooltipContent side="right">
         {label}
         {shortcut && <Kbd className="ml-1.5">{shortcut}</Kbd>}
       </TooltipContent>
@@ -98,91 +94,18 @@ function NavIcon({
   );
 }
 
-interface NavButtonProps extends ComponentPropsWithRef<"button"> {
-  icon: ReactNode;
-  label: string;
-  isActive: boolean;
-  badge?: ReactNode;
-}
-
-// Same quill Button as NavIcon above — this variant only exists because the
-// Activity entry is a Popover trigger, so it needs to forward the trigger's
-// props and ref. Hand-rolling the button here left it a size larger than its
-// neighbours.
-function NavButton({
-  icon,
-  label,
-  isActive,
-  onClick,
-  badge,
-  className,
-  ref,
-  ...buttonProps
-}: NavButtonProps) {
-  return (
-    <Button
-      {...buttonProps}
-      ref={ref}
-      type="button"
-      variant="default"
-      size="icon"
-      aria-label={label}
-      data-selected={isActive || undefined}
-      onClick={onClick}
-      className={cn(
-        "relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground",
-        className,
-      )}
-    >
-      {icon}
-      {badge}
-    </Button>
-  );
-}
-
-function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        openOnHover
-        delay={300}
-        closeDelay={100}
-        onClick={(event) => event.preventBaseUIHandler()}
-        render={trigger}
-      />
-      {open && (
-        <ActivityHoverCard side="bottom" onClose={() => setOpen(false)} />
-      )}
-    </Popover>
-  );
-}
-
-function ActivityNavItem({
-  isActive,
-  unreadCount,
-  onNavigate,
-}: {
-  isActive: boolean;
-  unreadCount: number;
-  onNavigate: () => void;
-}) {
-  const bell = (
-    <NavButton
-      icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
-      label="Activity"
-      isActive={isActive}
-      onClick={onNavigate}
-      badge={<CountBadge count={unreadCount} className={ICON_BADGE_CLASS} />}
-    />
-  );
-
-  if (isActive) return bell;
-  return <ActivityHoverPopover trigger={bell} />;
-}
-
-export function ChannelNav() {
+/**
+ * The app's leftmost column: the project menu on top, then every destination as
+ * an icon.
+ *
+ * It sits outside the resizable sidebar, so collapsing that sidebar leaves the
+ * destinations reachable. Two of them own the column to the rail's right —
+ * Home shows the channel tree, Activity shows the activity feed — and picking
+ * one is view state, not a route, which is why they set the pane rather than
+ * navigate. The rest have no sidebar list of their own, so they route the main
+ * pane and leave the column showing whatever it was showing.
+ */
+export function NavRail() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
@@ -192,6 +115,8 @@ export function ChannelNav() {
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
   const commandCenterCount = useCommandCenterActiveCount();
+  const railPane = useNavRailStore((s) => s.pane);
+  const setRailPane = useNavRailStore((s) => s.setPane);
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {
     track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
@@ -202,24 +127,37 @@ export function ChannelNav() {
     action();
   };
 
-  const isHome = view.type === "home";
+  // A deep link to the Activity page lights the same entry, so the rail agrees
+  // with the screen even when the route, not the rail, put you there.
+  const isActivity = railPane === "activity" || view.type === "activity";
   const isInbox = view.type === "inbox";
-  const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
+  const isLoops = view.type === "loops";
+  // Home stays lit while you read a channel or a task: those are all reached
+  // through its tree, so the rail keeps pointing at where you came in.
+  const isHome = !isActivity && !isInbox && !isCommandCenter && !isLoops;
+
+  const goHome = () => {
+    showChannelsRailPane();
+    navigateToHome();
+  };
 
   return (
-    // One provider for the row: once any tooltip is up, moving to its
+    // One provider for the rail: once any tooltip is up, moving to its
     // neighbour reveals that one immediately instead of serving the warm-up
     // delay again. Per-tooltip providers (the old primitive mounted its own)
     // cannot do that — the skip window is provider state, and isolated
     // providers never share it.
     <TooltipProvider delay={400}>
-      <div className="flex shrink-0 gap-2 p-2">
+      <div
+        className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
+        style={{ width: NAV_RAIL_WIDTH }}
+      >
         <NavIcon
           icon={<HouseSimple size={16} weight={isHome ? "fill" : "regular"} />}
           label="Home"
           isActive={isHome}
-          onClick={withTrack("home", navigateToHome)}
+          onClick={withTrack("home", goHome)}
         />
         <NavIcon
           icon={
@@ -233,10 +171,14 @@ export function ChannelNav() {
             <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
           }
         />
-        <ActivityNavItem
+        <NavIcon
+          icon={<BellIcon size={16} weight={isActivity ? "fill" : "regular"} />}
+          label="Activity"
           isActive={isActivity}
-          unreadCount={unseenActivity}
-          onNavigate={withTrack("activity", navigateToActivity)}
+          onClick={withTrack("activity", () => setRailPane("activity"))}
+          badge={
+            <CountBadge count={unseenActivity} className={ICON_BADGE_CLASS} />
+          }
         />
         <NavIcon
           icon={
@@ -258,23 +200,21 @@ export function ChannelNav() {
         />
         {loopsEnabled ? (
           <NavIcon
-            icon={
-              <LoopIcon
-                size={16}
-                weight={view.type === "loops" ? "fill" : "regular"}
-              />
-            }
+            icon={<LoopIcon size={16} weight={isLoops ? "fill" : "regular"} />}
             label="Loops"
-            isActive={view.type === "loops"}
+            isActive={isLoops}
             onClick={withTrack("loops", navigateToLoops)}
           />
         ) : null}
+        <div className="mt-auto" />
         <NavIcon
           icon={<GearSix size={16} />}
           label="Settings"
           isActive={false}
           onClick={withTrack("configure", () => openSettings())}
         />
+        <div className="my-0.5 w-5 shrink-0 border-border border-t" />
+        <ProjectSwitcher appearance="icon" />
       </div>
     </TooltipProvider>
   );

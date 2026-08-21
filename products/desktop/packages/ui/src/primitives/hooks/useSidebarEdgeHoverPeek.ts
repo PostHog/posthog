@@ -32,6 +32,10 @@ interface UseSidebarEdgeHoverPeekOptions {
   peeked: boolean;
   side: "left" | "right";
   width: number;
+  // Distance from the window edge to the panel's own edge. Chrome pinned
+  // outside the panel (the nav rail) owns those pixels, so the reveal zone
+  // starts past it rather than on top of its buttons.
+  offset?: number;
   onReveal: () => void;
   onClose: () => void;
 }
@@ -41,11 +45,28 @@ export function useSidebarEdgeHoverPeek({
   peeked,
   side,
   width,
+  offset = 0,
   onReveal,
   onClose,
 }: UseSidebarEdgeHoverPeekOptions): void {
-  const stateRef = useRef({ enabled, peeked, side, width, onReveal, onClose });
-  stateRef.current = { enabled, peeked, side, width, onReveal, onClose };
+  const stateRef = useRef({
+    enabled,
+    peeked,
+    side,
+    width,
+    offset,
+    onReveal,
+    onClose,
+  });
+  stateRef.current = {
+    enabled,
+    peeked,
+    side,
+    width,
+    offset,
+    onReveal,
+    onClose,
+  };
 
   useEffect(() => {
     let wasInside = false;
@@ -53,7 +74,8 @@ export function useSidebarEdgeHoverPeek({
     const handleMouseMove = (e: MouseEvent) => {
       const state = stateRef.current;
       const pointer =
-        state.side === "left" ? e.clientX : window.innerWidth - e.clientX;
+        (state.side === "left" ? e.clientX : window.innerWidth - e.clientX) -
+        state.offset;
 
       if (state.enabled) {
         if (state.peeked) {
