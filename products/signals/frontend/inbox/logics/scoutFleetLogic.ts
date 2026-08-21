@@ -55,7 +55,9 @@ import {
 import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
 import type { ScoutTagOption } from '../utils/scoutTags'
 
-type SignalScoutConfig = SignalScoutConfigApi
+// Exported because kea-typegen writes an import for it into any logic that connects `scoutConfigs`,
+// which Replay Vision's scanner scouts do.
+export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 /**
