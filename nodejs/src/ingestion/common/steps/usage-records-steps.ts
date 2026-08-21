@@ -1,17 +1,15 @@
-import { Message } from 'node-rdkafka'
-
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export interface EventUsageBatchContext {
-    eventUsageBatch: EventUsageBatch
+    eventUsageBatch: UsageRecordBatch
 }
 
 export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
-    createBatch: () => EventUsageBatch
+    createBatch: () => UsageRecordBatch
 ): BeforeBatchStep<TInput, CInput, CBatch, CBatch & EventUsageBatchContext> {
     return function eventUsageBeforeBatchStep(input) {
         return Promise.resolve(
@@ -24,18 +22,22 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 }
 
 export interface RecordEventUsageInput {
-    preparedEvent: { teamId: number; event: string }
-    message: Message
-    eventUsageBatch: EventUsageBatch
+    preparedEvent: { teamId: number; event: string; eventUuid: string }
+    eventUsageBatch: UsageRecordBatch
 }
 
+/**
+ * One record per event, identified by the event UUID. The UUID travels with the
+ * event, so a replay reproduces the identity whatever the consumer's batching,
+ * which an offset-derived identity cannot.
+ */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
 ): ProcessingStep<T, T> {
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T>> {
         const usageKey = resolveUsageKey(input.preparedEvent.event)
         if (usageKey) {
-            input.eventUsageBatch.increment(input.preparedEvent.teamId, usageKey, input.message, 1)
+            input.eventUsageBatch.add(input.preparedEvent.teamId, usageKey, input.preparedEvent.eventUuid)
         }
         return Promise.resolve(ok(input))
     }

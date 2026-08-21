@@ -1,5 +1,5 @@
 import { CommonConfig } from '~/common/config'
-import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
+import { buildIntegerMatcher } from '~/common/config/config'
 import { ValueMatcher } from '~/types'
 
 import { UsageIngestionClient } from './client'
@@ -33,7 +33,7 @@ const PRODUCER_IDS = {
 } as const
 
 export function usageReportTeamMatcher(config: UsageIngestionConfig, site: UsageReportSite): ValueMatcher<number> {
-    return buildIntegerMatcherWithPercentage(config[TEAM_MATCHER_KEYS[site]])
+    return buildIntegerMatcher(config[TEAM_MATCHER_KEYS[site]], true)
 }
 
 export function createUsageIngestionClient(

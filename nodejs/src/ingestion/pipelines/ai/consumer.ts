@@ -17,6 +17,7 @@ import { PersonHogClientComponent } from '~/common/personhog/personhog-client-co
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
@@ -32,7 +33,6 @@ import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overfl
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
@@ -209,7 +209,8 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             topHog: container.topHog,
             aiBlobStore: container.aiBlobStore.store,
             aiBlobOffloadConfig,
-            createEventUsageBatch: () => new EventUsageBatch(usageClient, usageTeamMatcher),
+            createEventUsageBatch: () =>
+                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
         })
     )
 }

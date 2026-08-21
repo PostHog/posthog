@@ -137,8 +137,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
-    // Usage ingestion gRPC. Each reporting site has its own team matcher:
-    // '' reports nothing, '*' every team, '1,2' those teams, '5%' a sampled share.
+    // Usage ingestion gRPC. Each reporting site has its own team list: '' reports nothing,
+    // '*' every team, '1,2' those teams. No percentage: it would bill a fraction of a team.
     USAGE_INGESTION_ADDR: string
     USAGE_INGESTION_TLS: boolean
     USAGE_INGESTION_TIMEOUT_MS: number

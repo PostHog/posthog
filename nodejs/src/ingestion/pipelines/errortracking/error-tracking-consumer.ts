@@ -8,6 +8,7 @@ import { HogTransformationResult } from '~/common/hog-transformations/hog-transf
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
@@ -21,7 +22,6 @@ import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redire
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -83,7 +83,7 @@ export interface ErrorTrackingConsumerDeps {
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonReadRepository
-    createEventUsageBatch?: () => EventUsageBatch
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)

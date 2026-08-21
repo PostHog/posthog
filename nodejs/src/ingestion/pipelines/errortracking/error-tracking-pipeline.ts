@@ -12,6 +12,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -38,7 +39,6 @@ import {
     createRecordEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billable-events'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
@@ -101,7 +101,7 @@ export interface ErrorTrackingPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
-    createEventUsageBatch?: () => EventUsageBatch
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 /**
@@ -145,7 +145,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
-        createEventUsageBatch = () => new EventUsageBatch(null, () => false),
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({

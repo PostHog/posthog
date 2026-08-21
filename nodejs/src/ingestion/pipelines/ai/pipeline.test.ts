@@ -8,6 +8,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -16,7 +17,6 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
-import { EventUsageBatch } from '~/ingestion/common/usage-records/event-usage-batch'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -185,21 +185,21 @@ describe('AiIngestionPipeline', () => {
                 maxBlobsPerEvent: 50,
                 uploadMaxConcurrency: 8,
             },
-            createEventUsageBatch: () => new EventUsageBatch(usageClient, () => true),
+            createEventUsageBatch: () =>
+                new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: () => true }),
         }
     })
 
-    it('reports one ai_events usage record per batch, keyed on the consumed offsets', async () => {
-        await runPipeline([createMessage('$ai_generation'), createMessage('$ai_span')])
+    it('reports one ai_events usage record per event, keyed on the event uuid', async () => {
+        const messages = [createMessage('$ai_generation'), createMessage('$ai_span')]
+        const uuids = messages.map((m) => parseJSON(m.value!.toString()).uuid)
 
-        expect(ingestedUsage).toEqual([
-            expect.objectContaining({
-                recordId: 'ai_ingestion:0:0-0:ai_events',
-                teamId: team.id,
-                usageKey: 'ai_events',
-                quantity: 2,
-            }),
-        ])
+        await runPipeline(messages)
+
+        expect(ingestedUsage).toHaveLength(2)
+        expect(ingestedUsage.map((r) => r.recordId).sort()).toEqual([...uuids].sort())
+        expect(ingestedUsage.every((r) => r.usageKey === 'ai_events' && r.quantity === 1)).toBe(true)
+        expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
     it('double-writes AI events to both the events and ai_events outputs', async () => {
