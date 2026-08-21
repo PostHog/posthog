@@ -17,6 +17,7 @@ from posthog.web_bot_auth_keys import load_web_bot_auth_private_key_configuratio
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
+_CACHE_MAX_AGE_SECONDS = 240
 
 # A request-controlled authority would let another site proxy this route. The returned directory
 # would verify for that site but contain our public key.
@@ -80,8 +81,7 @@ def signed_directory(
             "Content-Digest": content_digest,
             "Signature-Input": ", ".join(signature_inputs),
             "Signature": ", ".join(signatures),
-            # A cached response can outlive its signature.
-            "Cache-Control": "no-store",
+            "Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}",
         },
     )
 
