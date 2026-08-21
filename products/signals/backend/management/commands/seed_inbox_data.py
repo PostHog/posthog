@@ -26,6 +26,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
+from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team
 
 from products.signals.backend.artefact_schemas import (
@@ -54,6 +55,13 @@ from products.tasks.backend.facade import api as tasks_facade
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
 _DEFAULT_REPOSITORY = "posthog/posthog"
+
+
+@frozen
+class _BulkTaskPoolEntry:
+    task_id: str
+    content: str
+
 
 # States reachable from in_progress without side effects; READY dominates since it's what
 # users actually triage.
@@ -377,7 +385,7 @@ class Command(BaseCommand):
 
         # has_implementation_pr joins task_run artefacts to TaskRuns with a pr_url, so a small
         # shared pool exercises the filter at scale.
-        task_pool: list[tuple[str, str]] = []
+        task_pool: list[_BulkTaskPoolEntry] = []
         if with_runs:
             pool_size = min(max(n // 500, 1), 100)
             task_pool = self._build_bulk_task_pool(team, user_id, pool_size)
@@ -443,10 +451,14 @@ class Command(BaseCommand):
                             )
                         )
                     if task_pool and random.random() < 0.5:
-                        task_id, content = random.choice(task_pool)
+                        task = random.choice(task_pool)
                         artefacts.append(
                             self._bulk_artefact(
-                                team.id, rid, SignalReportArtefact.ArtefactType.TASK_RUN, content, task_id=task_id
+                                team.id,
+                                rid,
+                                SignalReportArtefact.ArtefactType.TASK_RUN,
+                                task.content,
+                                task_id=task.task_id,
                             )
                         )
                 SignalReportArtefact.objects.bulk_create(artefacts)
@@ -467,8 +479,8 @@ class Command(BaseCommand):
             team_id=team_id, report_id=report_id, type=artefact_type, content=content, task_id=task_id
         )
 
-    def _build_bulk_task_pool(self, team: Team, user_id: int, size: int) -> list[tuple[str, str]]:
-        pool: list[tuple[str, str]] = []
+    def _build_bulk_task_pool(self, team: Team, user_id: int, size: int) -> list[_BulkTaskPoolEntry]:
+        pool: list[_BulkTaskPoolEntry] = []
         for i in range(size):
             try:
                 created = tasks_facade.create_and_run_task(
@@ -504,7 +516,7 @@ class Command(BaseCommand):
             content = TaskRunArtefact(
                 task_id=task_id, run_id=run_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
             ).model_dump_json()
-            pool.append((task_id, content))
+            pool.append(_BulkTaskPoolEntry(task_id=task_id, content=content))
         return pool
 
     def _spread_bulk_timestamps(self, team: Team) -> None:

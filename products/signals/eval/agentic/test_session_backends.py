@@ -102,16 +102,15 @@ def test_turn_cursor_detects_drift(recorded: dict, requested: dict, fragment: st
 
 
 def test_replay_session_validates_via_real_parser():
-    async def run() -> tuple[_Probe, _Probe]:
+    async def run() -> None:
         cassette = _cassette('{"value": 1, "label": "first"}', '{"value": 2, "label": "second"}')
         with active_cassette(cassette):
             session, first = await ReplayMultiTurnSession.start(prompt="p", context=None, model=_Probe)
             second = await session.send_followup("f", _Probe, label="t1")
-        return first, second
+        assert (first.value, first.label) == (1, "first")
+        assert (second.value, second.label) == (2, "second")
 
-    first, second = asyncio.run(run())
-    assert (first.value, first.label) == (1, "first")
-    assert (second.value, second.label) == (2, "second")
+    asyncio.run(run())
 
 
 def test_replay_session_rejects_invalid_recorded_text():
@@ -129,15 +128,14 @@ def test_replay_session_rejects_invalid_recorded_text():
 
 
 def test_replay_raw_paths():
-    async def run() -> tuple[str, str]:
+    async def run() -> None:
         cassette = _cassette("raw-one", "raw-two")
         with active_cassette(cassette):
             session, first = await ReplayMultiTurnSession.start_raw(prompt="p", context=None)
             second = await session.send_followup_raw("f", label="t")
-        return first, second
+        assert (first, second) == ("raw-one", "raw-two")
 
-    first, second = asyncio.run(run())
-    assert (first, second) == ("raw-one", "raw-two")
+    asyncio.run(run())
 
 
 def test_recording_session_records_each_structured_turn_once_and_round_trips():
@@ -179,6 +177,7 @@ def test_recording_session_records_each_structured_turn_once_and_round_trips():
 def test_inject_session_patches_and_restores_all_sites():
     import importlib  # noqa: PLC0415
 
+    importlib.import_module("products.signals.backend.temporal")
     import products.tasks.backend.facade.agents as facade_agents  # noqa: PLC0415
     import products.signals.backend.custom_agent.base as ca_base  # noqa: PLC0415
 

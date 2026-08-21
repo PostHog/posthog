@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from products.signals.eval.agentic.datasets import EvalCase
 
@@ -119,6 +121,13 @@ class JudgeVerdict:
     reasoning: str
 
 
+@frozen
+class JudgeCall:
+    system: str
+    prompt: str
+    rubric: str | None
+
+
 class JudgeFn(Protocol):
     async def __call__(self, *, system: str, prompt: str, rubric: str | None = None) -> JudgeVerdict: ...
 
@@ -149,8 +158,8 @@ class JudgeScorer:
     async def score(self, case: EvalCase, output: Any, ctx: ScoringContext) -> list[Score]:
         if ctx.judge is None:
             return [Score(name=self.name, value=0.0, passed=False, status="skipped", reasoning="judge disabled")]
-        system, prompt, rubric = self.build_judge_call(case, output)
-        verdict = await ctx.judge(system=system, prompt=prompt, rubric=rubric)
+        call = self.build_judge_call(case, output)
+        verdict = await ctx.judge(system=call.system, prompt=call.prompt, rubric=call.rubric)
         # The judge's own verdict is the pass source of truth; the score stays informational.
         return [
             Score(
@@ -162,5 +171,5 @@ class JudgeScorer:
             )
         ]
 
-    def build_judge_call(self, case: EvalCase, output: Any) -> tuple[str, str, str | None]:  # pragma: no cover
+    def build_judge_call(self, case: EvalCase, output: Any) -> JudgeCall:  # pragma: no cover
         raise NotImplementedError
