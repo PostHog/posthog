@@ -713,12 +713,12 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             if isinstance(authenticator, PersonalAPIKeyAuthentication):
                 source_data = {
                     "source_authentication": ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
-                    "source_personal_api_key_id": authenticator.personal_api_key.id,
+                    "source_credential_id": authenticator.personal_api_key.id,
                 }
             elif isinstance(authenticator, OAuthAccessTokenAuthentication):
                 source_data = {
                     "source_authentication": ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN,
-                    "source_oauth_access_token_id": str(authenticator.access_token.id),
+                    "source_credential_id": str(authenticator.access_token.id),
                 }
             elif isinstance(authenticator, SessionAuthentication):
                 source_data = {"source_authentication": ExportedAsset.SourceAuthentication.SESSION}

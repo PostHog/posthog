@@ -353,7 +353,7 @@ class TestCSVExporter(APIBaseTest):
     def test_legacy_api_export_delegates_source_personal_api_key(self, patched_api_call: MagicMock) -> None:
         exported_asset = self._create_asset()
         exported_asset.source_authentication = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
-        exported_asset.source_personal_api_key_id = "source-key-id"
+        exported_asset.source_credential_id = "source-key-id"
         response = Mock()
         response.json.return_value = {"next": None, "results": []}
         patched_api_call.return_value = response

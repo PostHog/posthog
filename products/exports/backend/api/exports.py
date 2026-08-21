@@ -203,10 +203,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         authenticator = request.successful_authenticator
         if isinstance(authenticator, PersonalAPIKeyAuthentication):
             validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
-            validated_data["source_personal_api_key_id"] = authenticator.personal_api_key.id
+            validated_data["source_credential_id"] = authenticator.personal_api_key.id
         elif isinstance(authenticator, OAuthAccessTokenAuthentication):
             validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
-            validated_data["source_oauth_access_token_id"] = str(authenticator.access_token.id)
+            validated_data["source_credential_id"] = str(authenticator.access_token.id)
         elif isinstance(authenticator, SessionAuthentication):
             validated_data["source_authentication"] = ExportedAsset.SourceAuthentication.SESSION
         elif (validated_data.get("export_context") or {}).get("path"):

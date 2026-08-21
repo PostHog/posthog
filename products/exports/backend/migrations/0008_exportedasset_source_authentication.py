@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("exports", "0008_exportedasset_source_personal_api_key_id")]
+    dependencies = [("exports", "0007_alter_exportedasset_export_format")]
 
     operations = [
         migrations.AddField(
@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="exportedasset",
-            name="source_oauth_access_token_id",
-            field=models.CharField(blank=True, max_length=36, null=True),
+            name="source_credential_id",
+            field=models.CharField(blank=True, max_length=50, null=True),
         ),
     ]

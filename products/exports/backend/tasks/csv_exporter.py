@@ -426,13 +426,13 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
     next_url = None
     token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
     if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
-        if not exported_asset.source_personal_api_key_id:
+        if not exported_asset.source_credential_id:
             _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
-        token_payload["personal_api_key_id"] = exported_asset.source_personal_api_key_id
+        token_payload["personal_api_key_id"] = exported_asset.source_credential_id
     elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
-        if not exported_asset.source_oauth_access_token_id:
+        if not exported_asset.source_credential_id:
             _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
-        token_payload["oauth_access_token_id"] = exported_asset.source_oauth_access_token_id
+        token_payload["oauth_access_token_id"] = exported_asset.source_credential_id
     elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
         _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
     access_token = encode_jwt(

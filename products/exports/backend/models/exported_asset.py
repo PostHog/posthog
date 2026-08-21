@@ -114,8 +114,7 @@ class ExportedAsset(models.Model):
     expires_after = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     source_authentication = models.CharField(max_length=32, choices=SourceAuthentication.choices, null=True, blank=True)
-    source_personal_api_key_id = models.CharField(max_length=50, null=True, blank=True)
-    source_oauth_access_token_id = models.CharField(max_length=36, null=True, blank=True)
+    source_credential_id = models.CharField(max_length=50, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset

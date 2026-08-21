@@ -123,7 +123,7 @@ class TestExports(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY
-        assert exported_asset.source_personal_api_key_id == personal_api_key.id
+        assert exported_asset.source_credential_id == personal_api_key.id
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_oauth_export_keeps_source_authorization(self, _mock_exporter_task) -> None:
@@ -157,7 +157,7 @@ class TestExports(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
-        assert exported_asset.source_oauth_access_token_id == str(access_token.id)
+        assert exported_asset.source_credential_id == str(access_token.id)
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_api_path_export_rejects_mutating_requests(self, mock_exporter_task) -> None:

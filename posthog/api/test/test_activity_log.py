@@ -509,4 +509,4 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
-        assert exported_asset.source_oauth_access_token_id == str(token.id)
+        assert exported_asset.source_credential_id == str(token.id)
