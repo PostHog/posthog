@@ -47,6 +47,7 @@ from products.conversations.backend.cache import (
     invalidate_unread_count_cache,
     set_cached_messages,
     set_cached_tickets,
+    should_report_throttled_send,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
@@ -184,9 +185,15 @@ class WidgetMessageView(APIView):
     throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
 
     def throttled(self, request: Request, wait: float | None) -> None:
-        """Record the dropped message before raising, since the 429 path stored nothing."""
+        """Record the dropped message before raising, since the 429 path stored nothing.
+
+        Deduplicated per team per window: the endpoint is public and the throttle window
+        does not extend on rejection, so a client that keeps sending past the limit would
+        otherwise emit one analytics event per request. The throttled bucket now counts
+        teams with throttled sends per window, not raw rejected requests.
+        """
         team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        if team:
+        if team and should_report_throttled_send(team.id):
             _report_send_failed(team, "throttled")
         super().throttled(request, wait)
 

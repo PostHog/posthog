@@ -299,6 +299,37 @@ def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Gene
             cache.delete(key)
 
 
+# Throttle Telemetry Dedup
+# The widget message endpoint is public, so a throttled client can keep sending requests
+# indefinitely — the throttle window does not extend on rejection. Recording the drop on
+# every 429 would let one client emit unbounded analytics events and inflate the throttled
+# bucket with repeat requests instead of distinct lost messages. cache.add is atomic
+# (Redis SETNX), so only the first rejection per team per window reports.
+
+THROTTLE_TELEMETRY_TTL = 60  # seconds
+
+
+def get_throttle_reported_cache_key(team_id: int) -> str:
+    """Cache key marking that a throttled widget send was already reported for this team."""
+    return _make_cache_key("throttle_reported", str(team_id))
+
+
+def should_report_throttled_send(team_id: int) -> bool:
+    """Whether to record a throttled widget send for this team right now.
+
+    True at most once per THROTTLE_TELEMETRY_TTL window per team, so a client that keeps
+    hitting the public widget endpoint past the rate limit can't emit unbounded analytics
+    events. Fails open on cache errors so a transient blip does not silently drop the
+    metric — a broken cache also disables throttling, so this path is not reached then.
+    """
+    key = get_throttle_reported_cache_key(team_id)
+    try:
+        return cache.add(key, True, timeout=THROTTLE_TELEMETRY_TTL)
+    except Exception:
+        logger.warning("conversations_cache_add_error", key=key)
+        return True
+
+
 def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
     # JSON-encode for an unambiguous preimage: joining with a separator collides
     # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).

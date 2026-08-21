@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -15,6 +16,7 @@ from posthog.models.comment import Comment
 
 from products.conversations.backend.api.serializers import MESSAGE_MAX_LENGTH, WidgetMessageSerializer
 from products.conversations.backend.api.widget import WidgetMessageView, _actionable_error
+from products.conversations.backend.cache import get_throttle_reported_cache_key
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
@@ -1158,9 +1160,18 @@ class TestActionableError(SimpleTestCase):
 
 
 class TestWidgetMessageThrottleTelemetry(SimpleTestCase):
+    TEAM_ID = 12345
+
+    def setUp(self):
+        super().setUp()
+        # Dedup lives in the cache, which SimpleTestCase does not isolate between tests.
+        key = get_throttle_reported_cache_key(self.TEAM_ID)
+        cache.delete(key)
+        self.addCleanup(cache.delete, key)
+
     def test_throttled_records_send_failed(self):
         view = WidgetMessageView()
-        request = SimpleNamespace(auth=SimpleNamespace())  # a truthy team stand-in
+        request = SimpleNamespace(auth=SimpleNamespace(id=self.TEAM_ID))  # a truthy team stand-in
 
         with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
             with self.assertRaises(Throttled):
@@ -1170,3 +1181,16 @@ class TestWidgetMessageThrottleTelemetry(SimpleTestCase):
         _, event, properties = mock_report.call_args[0]
         self.assertEqual(event, "support ticket send failed")
         self.assertEqual(properties["reason"], "throttled")
+
+    def test_repeated_throttling_reports_once_per_window(self):
+        # The endpoint is public, so an abusive client can keep hitting the 429 path. Only
+        # the first rejection per team per window should emit telemetry, not every request.
+        view = WidgetMessageView()
+        request = SimpleNamespace(auth=SimpleNamespace(id=self.TEAM_ID))
+
+        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
+            for _ in range(5):
+                with self.assertRaises(Throttled):
+                    view.throttled(request, 1.0)
+
+        mock_report.assert_called_once()
