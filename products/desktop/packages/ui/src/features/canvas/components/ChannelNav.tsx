@@ -30,6 +30,12 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  type CustomizableNavItemId,
+  isNavItemVisible,
+  orderedNavItems,
+} from "@posthog/ui/features/sidebar/constants";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -43,6 +49,7 @@ import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   type ComponentPropsWithRef,
+  Fragment,
   type ReactElement,
   type ReactNode,
   useState,
@@ -192,6 +199,8 @@ export function ChannelNav() {
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
   const commandCenterCount = useCommandCenterActiveCount();
+  const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
+  const navItemOrder = useSidebarStore((s) => s.navItemOrder);
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {
     track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
@@ -206,6 +215,76 @@ export function ChannelNav() {
   const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
+  const isLoops = view.type === "loops";
+
+  // Bluebird is already on wherever this nav renders, so Activity needs no
+  // second gate here — unlike the code layout's SidebarNavSection.
+  const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
+    inbox: true,
+    activity: true,
+    "command-center": true,
+    loops: loopsEnabled,
+    configure: true,
+  };
+
+  const renderNavItem: Record<CustomizableNavItemId, () => ReactNode> = {
+    inbox: () => (
+      <NavIcon
+        icon={
+          <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
+        }
+        label="Inbox"
+        shortcut={formatHotkey(SHORTCUTS.INBOX)}
+        isActive={isInbox}
+        onClick={withTrack("inbox", navigateToInbox)}
+        badge={<CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />}
+      />
+    ),
+    activity: () => (
+      <ActivityNavItem
+        isActive={isActivity}
+        unreadCount={unseenActivity}
+        onNavigate={withTrack("activity", navigateToActivity)}
+      />
+    ),
+    "command-center": () => (
+      <NavIcon
+        icon={
+          <Lightning size={16} weight={isCommandCenter ? "fill" : "regular"} />
+        }
+        label="Command Center"
+        isActive={isCommandCenter}
+        onClick={withTrack("command_center", navigateToWebsiteCommandCenter)}
+        badge={
+          <CountBadge
+            count={commandCenterCount}
+            tone="neutral"
+            className={ICON_BADGE_CLASS}
+          />
+        }
+      />
+    ),
+    loops: () => (
+      <NavIcon
+        icon={<LoopIcon size={16} weight={isLoops ? "fill" : "regular"} />}
+        label="Loops"
+        isActive={isLoops}
+        onClick={withTrack("loops", navigateToLoops)}
+      />
+    ),
+    configure: () => (
+      <NavIcon
+        icon={<GearSix size={16} />}
+        label="Settings"
+        isActive={false}
+        onClick={withTrack("configure", () => openSettings())}
+      />
+    ),
+  };
+
+  const items = orderedNavItems(navItemOrder).filter(
+    ({ id }) => navItemAvailable[id] && isNavItemVisible(navItemOverrides, id),
+  );
 
   return (
     // One provider for the row: once any tooltip is up, moving to its
@@ -215,66 +294,17 @@ export function ChannelNav() {
     // providers never share it.
     <TooltipProvider delay={400}>
       <div className="flex shrink-0 gap-2 p-2">
+        {/* Home is the space's own root rather than one of the customizable
+            destinations, so it stays first and is never hidden. */}
         <NavIcon
           icon={<HouseSimple size={16} weight={isHome ? "fill" : "regular"} />}
           label="Home"
           isActive={isHome}
           onClick={withTrack("home", navigateToHome)}
         />
-        <NavIcon
-          icon={
-            <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
-          }
-          label="Inbox"
-          shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={isInbox}
-          onClick={withTrack("inbox", navigateToInbox)}
-          badge={
-            <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
-        />
-        <ActivityNavItem
-          isActive={isActivity}
-          unreadCount={unseenActivity}
-          onNavigate={withTrack("activity", navigateToActivity)}
-        />
-        <NavIcon
-          icon={
-            <Lightning
-              size={16}
-              weight={isCommandCenter ? "fill" : "regular"}
-            />
-          }
-          label="Command Center"
-          isActive={isCommandCenter}
-          onClick={withTrack("command_center", navigateToWebsiteCommandCenter)}
-          badge={
-            <CountBadge
-              count={commandCenterCount}
-              tone="neutral"
-              className={ICON_BADGE_CLASS}
-            />
-          }
-        />
-        {loopsEnabled ? (
-          <NavIcon
-            icon={
-              <LoopIcon
-                size={16}
-                weight={view.type === "loops" ? "fill" : "regular"}
-              />
-            }
-            label="Loops"
-            isActive={view.type === "loops"}
-            onClick={withTrack("loops", navigateToLoops)}
-          />
-        ) : null}
-        <NavIcon
-          icon={<GearSix size={16} />}
-          label="Settings"
-          isActive={false}
-          onClick={withTrack("configure", () => openSettings())}
-        />
+        {items.map(({ id }) => (
+          <Fragment key={id}>{renderNavItem[id]()}</Fragment>
+        ))}
       </div>
     </TooltipProvider>
   );

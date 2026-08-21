@@ -28,6 +28,8 @@ const config: SignalScoutConfigApi = {
     network_access: 'trusted',
     model: null,
     tags: [],
+    source_product: null,
+    source_id: null,
     created_at: '2026-07-21T12:00:00Z',
 }
 
