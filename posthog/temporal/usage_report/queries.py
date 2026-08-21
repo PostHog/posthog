@@ -56,6 +56,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
@@ -86,7 +87,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
-    get_teams_with_traces_usage_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
@@ -566,12 +566,12 @@ QUERIES: list[QuerySpec] = [
     ),
     # ---- ClickHouse: APM tracing ---------------------------------------------
     QuerySpec(
-        name="traces_usage",
-        fn=get_teams_with_traces_usage_in_period,
+        name="apm_tracing_usage",
+        fn=get_teams_with_apm_tracing_usage_in_period,
         output="multi",
         multi_keys_mapping={
-            "bytes": "teams_with_traces_bytes_in_period",
-            "spans": "teams_with_traces_spans_in_period",
+            "bytes": "teams_with_apm_tracing_bytes_in_period",
+            "spans": "teams_with_apm_tracing_spans_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------

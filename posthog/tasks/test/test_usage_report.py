@@ -3259,7 +3259,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
-                    "logs_and_traces_bytes_in_period": 1_500_000_000,
+                    "logs_and_traces_mb_in_period": 1500,
                     "logs_retention_14d_mb_in_period": 500,
                     "logs_retention_30d_mb_in_period": 1000,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3277,7 +3277,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 2_500_000_000,
                     "logs_records_in_period": 2000,
                     "logs_mb_in_period": 2500,
-                    "logs_and_traces_bytes_in_period": 2_500_000_000,
+                    "logs_and_traces_mb_in_period": 2500,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 2500,
@@ -3298,7 +3298,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_200_000,
                     "logs_records_in_period": 5,
                     "logs_mb_in_period": 1,
-                    "logs_and_traces_bytes_in_period": 1_200_000,
+                    "logs_and_traces_mb_in_period": 1,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3418,39 +3418,39 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # The report-only per-signal MB floors to whole decimal MB. The billable combined metric
-            # stays in bytes and carries both signals: 77_000_000 + 2_500_000.
+            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
+            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
                 77_000_000,
                 {
-                    "traces_bytes_in_period": 2_500_000,
-                    "traces_spans_in_period": 40,
-                    "traces_mb_in_period": 2,
+                    "apm_tracing_bytes_in_period": 2_500_000,
+                    "apm_tracing_spans_in_period": 40,
+                    "apm_tracing_mb_in_period": 2,
                     "logs_mb_in_period": 77,
-                    "logs_and_traces_bytes_in_period": 79_500_000,
+                    "logs_and_traces_mb_in_period": 79,
                 },
             ),
-            # Sub-MB traces still bill: the per-signal MB floors to 0 while the combined metric keeps
-            # every byte the team sent.
+            # Flooring once off the summed bytes, rather than adding the floored per-signal figures,
+            # keeps the remainders both signals drop: 77_600_000 + 999_999 -> 78 MB, not 77 + 0.
             (
-                "sub_mb_traces_floors_to_zero",
+                "sub_mb_remainders_add_up",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
-                77_000_000,
+                77_600_000,
                 {
-                    "traces_bytes_in_period": 999_999,
-                    "traces_spans_in_period": 5,
-                    "traces_mb_in_period": 0,
+                    "apm_tracing_bytes_in_period": 999_999,
+                    "apm_tracing_spans_in_period": 5,
+                    "apm_tracing_mb_in_period": 0,
                     "logs_mb_in_period": 77,
-                    "logs_and_traces_bytes_in_period": 77_999_999,
+                    "logs_and_traces_mb_in_period": 78,
                 },
             ),
         ]
     )
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
-    def test_traces_usage_metrics(
+    def test_apm_tracing_usage_metrics(
         self,
         _name: str,
         metrics: dict[str, int],

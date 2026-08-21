@@ -325,9 +325,9 @@ class UsageReportCounters:
     workflow_billable_invocations_in_period: int
 
     # Logs and traces share one billing product, one meter and one free tier, so the billable metric is
-    # their combined volume. It stays in bytes and billing converts, because a per-team per-day MB
-    # figure drops every sub-MB remainder and those never come back over a month.
-    logs_and_traces_bytes_in_period: int
+    # the combined MB. It is floored once off the summed bytes, so it can come out 1 MB above
+    # logs_mb_in_period + apm_tracing_mb_in_period, which each drop their own sub-MB remainder.
+    logs_and_traces_mb_in_period: int
 
     # Logs. The per-signal MB is report-only — it exists so we can see the logs/traces split without
     # billing the two apart.
@@ -350,10 +350,10 @@ class UsageReportCounters:
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
 
-    # Distributed Tracing (APM). traces_mb_in_period is report-only, like logs_mb_in_period.
-    traces_bytes_in_period: int
-    traces_spans_in_period: int
-    traces_mb_in_period: int
+    # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
+    apm_tracing_bytes_in_period: int
+    apm_tracing_spans_in_period: int
+    apm_tracing_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -2636,7 +2636,7 @@ def get_teams_with_sdk_logs_records_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_traces_usage_in_period(
+def get_teams_with_apm_tracing_usage_in_period(
     begin: datetime,
     end: datetime,
 ) -> dict[str, list[tuple[int, int]]]:
@@ -2790,7 +2790,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
-        or report.traces_bytes_in_period > 0
+        or report.apm_tracing_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2827,7 +2827,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
-    traces_usage = get_teams_with_traces_usage_in_period(period_start, period_end)
+    apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -3107,8 +3107,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
-        "teams_with_traces_bytes_in_period": traces_usage["bytes"],
-        "teams_with_traces_spans_in_period": traces_usage["spans"],
+        "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
+        "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
     }
 
 
@@ -3144,7 +3144,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         team.id, 0
     )
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
-    traces_bytes_in_period = all_data["teams_with_traces_bytes_in_period"].get(team.id, 0)
+    apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
         event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
         enhanced_persons_event_count_in_period=all_data["teams_with_enhanced_persons_event_count_in_period"].get(
@@ -3329,7 +3329,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
             team.id, 0
         ),
-        logs_and_traces_bytes_in_period=logs_bytes_in_period + traces_bytes_in_period,
+        logs_and_traces_mb_in_period=int((logs_bytes_in_period + apm_tracing_bytes_in_period) // 1_000_000),
         logs_bytes_in_period=logs_bytes_in_period,
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(logs_bytes_in_period // 1_000_000),
@@ -3348,9 +3348,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
-        traces_bytes_in_period=traces_bytes_in_period,
-        traces_spans_in_period=all_data["teams_with_traces_spans_in_period"].get(team.id, 0),
-        traces_mb_in_period=int(traces_bytes_in_period // 1_000_000),
+        apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
+        apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
+        apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
     )
 
 
