@@ -38,11 +38,14 @@ export function ReportFilterControls({
   filters,
   onChange,
   showStatusInMenu = true,
+  showSearch = true,
 }: {
   filters: ChannelReportsFilters;
   onChange: (filters: ChannelReportsFilters) => void;
   /** Off where visible status chips carry the choice instead (the feed). */
   showStatusInMenu?: boolean;
+  /** Off where a shared search bar owns the query (the sidebar header). */
+  showSearch?: boolean;
 }) {
   const filtersActive =
     filters.relevantToMeOnly ||
@@ -59,15 +62,17 @@ export function ReportFilterControls({
 
   return (
     <>
-      <Input
-        value={filters.search}
-        onChange={(event) =>
-          onChange({ ...filters, search: event.target.value })
-        }
-        placeholder="Search reports…"
-        aria-label="Search reports"
-        className="h-6 flex-1 text-[12px]"
-      />
+      {showSearch && (
+        <Input
+          value={filters.search}
+          onChange={(event) =>
+            onChange({ ...filters, search: event.target.value })
+          }
+          placeholder="Search reports…"
+          aria-label="Search reports"
+          className="h-6 flex-1 text-[12px]"
+        />
+      )}
       <Button
         variant="default"
         size="icon-xs"

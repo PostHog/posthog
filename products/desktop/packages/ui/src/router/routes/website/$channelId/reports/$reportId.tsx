@@ -20,12 +20,16 @@ function ChannelReportDetailRoute() {
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   return (
-    <ReportDetail
-      reportId={reportId}
-      cachedReport={cachedReport}
-      backTo={`/website/${channelId}`}
-      backLabel={channelName ? `Back to #${channelName}` : "Back to space"}
-      statusRedirect={false}
-    />
+    // WebsiteLayout's outlet is overflow-hidden, so the detail supplies its
+    // own scroll container (the inbox shell used to provide this).
+    <div className="h-full min-h-0 overflow-y-auto">
+      <ReportDetail
+        reportId={reportId}
+        cachedReport={cachedReport}
+        backTo={`/website/${channelId}`}
+        backLabel={channelName ? `Back to #${channelName}` : "Back to space"}
+        statusRedirect={false}
+      />
+    </div>
   );
 }

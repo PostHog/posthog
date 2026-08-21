@@ -53,8 +53,10 @@ import {
   type ChannelPageKey,
   channelPageLabel,
 } from "@posthog/ui/features/canvas/components/channelPages";
+import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import {
+  type ChannelReportsFilters,
   EMPTY_CHANNEL_REPORTS_FILTERS,
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
@@ -83,6 +85,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Fragment,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -123,6 +126,7 @@ function RecentSectionHeader({
   showRunFilters,
   filtersActive,
   showItemControls = true,
+  filterControls,
 }: {
   tab: ChannelTab;
   tabs: readonly { value: ChannelTab; label: string; badge?: number }[];
@@ -145,9 +149,12 @@ function RecentSectionHeader({
   /** False on the canvases tab: a canvas has no run to ask these about. */
   showRunFilters: boolean;
   filtersActive: boolean;
-  /** False on the Reports tab, which carries its own search and filters. */
+  /** False on the Reports tab, whose filters render via `filterControls`. */
   showItemControls?: boolean;
+  /** Replaces the session/canvas filter menu (the Reports tab's controls). */
+  filterControls?: ReactNode;
 }) {
+  const hasControls = showItemControls || !!filterControls;
   return (
     <>
       <div className="flex items-center gap-0.5">
@@ -181,7 +188,7 @@ function RecentSectionHeader({
             ))}
           </TabsList>
         </Tabs>
-        {showItemControls && (
+        {hasControls && (
           <>
             <Button
               variant="default"
@@ -193,21 +200,23 @@ function RecentSectionHeader({
             >
               <MagnifyingGlass size={12} />
             </Button>
-            <ChannelFilterMenu
-              filters={filters}
-              onFilterChange={onFilterChange}
-              onClearFilters={onClearFilters}
-              sort={sort}
-              onSortChange={onSortChange}
-              sources={sources}
-              showCreatedBy={showCreatedBy}
-              showRunFilters={showRunFilters}
-              active={filtersActive}
-            />
+            {filterControls ?? (
+              <ChannelFilterMenu
+                filters={filters}
+                onFilterChange={onFilterChange}
+                onClearFilters={onClearFilters}
+                sort={sort}
+                onSortChange={onSortChange}
+                sources={sources}
+                showCreatedBy={showCreatedBy}
+                showRunFilters={showRunFilters}
+                active={filtersActive}
+              />
+            )}
           </>
         )}
       </div>
-      {showItemControls && searchOpen && (
+      {hasControls && searchOpen && (
         <div className="px-1 pb-1">
           <Input
             autoFocus
@@ -215,7 +224,11 @@ function RecentSectionHeader({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search…"
             aria-label={
-              tab === "canvas" ? "Search canvases" : "Search sessions"
+              tab === "canvas"
+                ? "Search canvases"
+                : tab === "report"
+                  ? "Search reports"
+                  : "Search sessions"
             }
             className="h-6 text-[12px]"
           />
@@ -338,6 +351,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const setTab = (next: ChannelTab) => setChosenTab({ channelId, tab: next });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [reportFilters, setReportFilters] = useState<ChannelReportsFilters>(
+    EMPTY_CHANNEL_REPORTS_FILTERS,
+  );
   const [rawFilters, setFilters] = useState<ChannelItemFilters>(
     DEFAULT_CHANNEL_ITEM_FILTERS,
   );
@@ -359,21 +375,27 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       ? channelReportView(channelId)
       : generalReportView();
   // Shares the section's query key, so the badge costs no extra fetch.
-  const { unseenCount: unseenReportCount } = useChannelReports(
-    reportView,
-    EMPTY_CHANNEL_REPORTS_FILTERS,
-    { enabled: reportsEnabled },
-  );
+  const { unseenCount: unseenReportCount, markSeen: markReportsSeen } =
+    useChannelReports(reportView, EMPTY_CHANNEL_REPORTS_FILTERS, {
+      enabled: reportsEnabled,
+    });
+  // Read through a ref: the stamp should fire per opened report, not every
+  // time a new arrival changes markSeen's identity while a detail is open.
+  const markReportsSeenRef = useRef(markReportsSeen);
+  markReportsSeenRef.current = markReportsSeen;
   const visibleTabs = useMemo(
     () =>
       reportsEnabled
         ? [
-            ...CHANNEL_TABS,
+            // Reports lead: they arrive on their own and carry the unread
+            // badge, so they take the first slot; the space still opens on
+            // its sessions.
             {
               value: "report" as ChannelTab,
               label: "Reports",
               badge: unseenReportCount,
             },
+            ...CHANNEL_TABS,
           ]
         : CHANNEL_TABS,
     [reportsEnabled, unseenReportCount],
@@ -437,9 +459,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // Opening a report (feed card, deep link, old inbox link) cuts the sidebar
   // over to Reports so the open report shows highlighted in its list. Only on
   // report change — the user can still switch tabs while the report stays open.
+  // Opening is also what clears the unread badge: browsing the list doesn't
+  // count as reading, clicking into a report does.
   useEffect(() => {
     if (!reportsEnabled || !activeReportId) return;
     setChosenTab({ channelId, tab: "report" });
+    markReportsSeenRef.current();
   }, [reportsEnabled, activeReportId, channelId]);
 
   // Pins sort to the top because a pin is a request not to lose the thing:
@@ -779,10 +804,20 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 tabs={visibleTabs}
                 onTabChange={setTab}
                 showItemControls={false}
-                searchOpen={false}
-                onToggleSearch={() => {}}
-                query=""
-                onQueryChange={() => {}}
+                filterControls={
+                  <ReportFilterControls
+                    filters={reportFilters}
+                    onChange={setReportFilters}
+                    showSearch={false}
+                  />
+                }
+                searchOpen={searchOpen}
+                onToggleSearch={() => {
+                  if (searchOpen) setQuery("");
+                  setSearchOpen(!searchOpen);
+                }}
+                query={query}
+                onQueryChange={setQuery}
                 filters={filters}
                 onFilterChange={() => {}}
                 onClearFilters={() => {}}
@@ -797,6 +832,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             <ChannelReportsSection
               view={reportView}
               activeReportId={activeReportId}
+              filters={{ ...reportFilters, search: query }}
             />
           </>
         )}

@@ -9,39 +9,38 @@ import {
   Skeleton,
   Spinner,
 } from "@posthog/quill";
-import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import { ReportRow } from "@posthog/ui/features/canvas/components/ReportRow";
 import {
   type ChannelReportsFilters,
-  EMPTY_CHANNEL_REPORTS_FILTERS,
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 /**
  * A space's Reports list. The general space shows every report; any other space
- * shows only reports assigned to it. Search, priority, and a "for you" toggle
- * narrow the list; clicking a row opens the report detail (the sidebar stays
- * mounted, so the list is still there when you come back).
+ * shows only reports assigned to it. The filters (shared search bar, priority,
+ * status, "For you") live in the tab header and arrive as a prop; clicking a
+ * row opens the report detail (the sidebar stays mounted, so the list is still
+ * there when you come back). Reading happens on open, not on browsing — the
+ * unread badge clears in the sidebar's cut-over effect when a report is
+ * clicked into.
  */
 export function ChannelReportsSection({
   view,
   activeReportId,
+  filters,
 }: {
   view: ReportChannelView;
   activeReportId: string | null;
+  filters: ChannelReportsFilters;
 }) {
-  const [filters, setFilters] = useState<ChannelReportsFilters>(
-    EMPTY_CHANNEL_REPORTS_FILTERS,
-  );
   const openReport = useOpenInboxReport();
   const {
     reports,
     isLoading,
     isError,
-    markSeen,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -67,14 +66,10 @@ export function ChannelReportsSection({
     fetchNextPage,
   ]);
 
-  // Looking at the list reads this space's reports; markSeen's identity
-  // advances with the newest arrival, so new reports re-stamp while open.
-  useEffect(() => {
-    markSeen();
-  }, [markSeen]);
-
   const filtersActive =
-    filters.relevantToMeOnly || filters.priorities.length > 0;
+    filters.relevantToMeOnly ||
+    filters.priorities.length > 0 ||
+    filters.status !== "all";
 
   const body = useMemo(() => {
     if (isLoading) {
@@ -146,9 +141,6 @@ export function ChannelReportsSection({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-1 px-2 pt-1 pb-1">
-        <ReportFilterControls filters={filters} onChange={setFilters} />
-      </div>
       <div className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto">
         {body}
         {!isLoading && !isError && (hasNextPage || isFetchingNextPage) && (
