@@ -112,7 +112,16 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     <LemonInput
                                         type="number"
                                         value={config.baselineValue}
-                                        onChange={(value) => setConfig({ baselineValue: value as number })}
+                                        onChange={(value) => {
+                                            const next = value as number
+                                            // A funnel conversion rate above 100% is impossible and makes the
+                                            // sample-size math produce a negative estimate. Clamp it for real,
+                                            // since the `max` prop below only guides the stepper.
+                                            setConfig({
+                                                baselineValue:
+                                                    config.metricType === 'funnel' && next > 100 ? 100 : next,
+                                            })
+                                        }}
                                         min={0}
                                         max={config.metricType === 'funnel' ? 100 : undefined}
                                         step={config.metricType === 'funnel' ? 0.1 : 1}
