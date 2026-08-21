@@ -225,6 +225,14 @@ class HyperCacheManagementConfig:
     # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
     should_skip_write: Callable[[Any, dict], bool] | None = None
 
+    # Optional attribution of a team's primary cache writer, used to label verifier
+    # fixes. During a dual-writer migration (Python Celery builder vs Rust Kafka
+    # builder) the verifier is the parity oracle: a fix on a team owned by one writer
+    # signals that writer diverged, which an unattributed fix counter blends into the
+    # other writer's baseline repair noise. Takes a team id, returns a short static
+    # label value (e.g. "python", "rust", "unknown"). None labels every fix "python".
+    get_primary_writer_fn: Callable[[int], str] | None = None
+
     # Derived properties (computed from required properties using conventions)
     @property
     def namespace(self) -> str:

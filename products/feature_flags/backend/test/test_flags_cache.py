@@ -49,6 +49,7 @@ from products.feature_flags.backend.flags_cache import (
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
+    get_team_primary_flags_writer,
     get_teams_with_flags_queryset,
     update_flags_cache,
     verify_team_flags,
@@ -910,6 +911,29 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_task.delay.assert_called_with(self.team.id)
         mock_gate.assert_not_called()
         mock_produce.assert_not_called()
+
+
+class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("routed_to_kafka", True, "rust"),
+            ("routed_to_celery", False, "python"),
+            ("flag_cache_cold", None, "unknown"),
+        ]
+    )
+    def test_maps_routing_flag_result_to_writer(self, _name, flag_result, expected_writer):
+        with patch(
+            "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+            return_value=flag_result,
+        ):
+            assert get_team_primary_flags_writer(42) == expected_writer
+
+    def test_flag_evaluation_error_is_unknown(self):
+        with patch(
+            "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("posthoganalytics borked"),
+        ):
+            assert get_team_primary_flags_writer(42) == "unknown"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

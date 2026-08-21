@@ -189,6 +189,7 @@ class TestFixAndRecord(BaseTest):
     )
     def test_fix_detail_info_log_respects_cap(self, _name, initial_logs_emitted, should_log):
         mock_config = MagicMock()
+        mock_config.get_primary_writer_fn = None
         mock_config.update_fn.return_value = True
 
         result = VerificationResult(fix_detail_info_logs_emitted=initial_logs_emitted)
@@ -211,6 +212,7 @@ class TestFixAndRecord(BaseTest):
             team_id=self.team.id,
             issue_type="cache_mismatch",
             cache_type="test_cache",
+            writer="python",
             diff_fields=["payload"],
         )
         if should_log:
@@ -218,6 +220,38 @@ class TestFixAndRecord(BaseTest):
         else:
             assert fix_detail_call not in mock_info.call_args_list
         assert result.fix_detail_info_logs_emitted == 1
+
+    @parameterized.expand(
+        [
+            ("unattributed_defaults_to_python", None, "python"),
+            ("attribution_fn_value_used", lambda team_id: "rust", "rust"),
+            ("attribution_failure_is_unknown", MagicMock(side_effect=Exception("flag client down")), "unknown"),
+        ]
+    )
+    def test_fix_metric_carries_primary_writer_label(self, _name, writer_fn, expected_writer):
+        mock_config = MagicMock()
+        mock_config.get_primary_writer_fn = writer_fn
+        mock_config.should_skip_write = None
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult()
+
+        with patch("posthog.storage.hypercache_verifier.HYPERCACHE_VERIFY_FIX_COUNTER") as mock_counter:
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_mismatch",
+                cache_type="flags",
+                result=result,
+                verification={"status": "mismatch"},
+            )
+
+        mock_counter.labels.assert_called_once_with(
+            cache_type="flags", issue_type="cache_mismatch", writer=expected_writer
+        )
+        # An attribution failure must not fail the repair itself.
+        assert result.cache_mismatch_fixed == 1
+        assert result.fix_failed == 0
 
     def test_exception_in_update_fn_increments_fix_failed(self):
         """Test that exception in update_fn increments fix_failed."""
