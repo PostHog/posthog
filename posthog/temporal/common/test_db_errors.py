@@ -34,6 +34,9 @@ class _WithSqlstate(Exception):
             ),
             True,
         ),
+        # DNS blips while opening a fresh connection: the same host resolves on the next tick.
+        (OperationalError("connection failed: [Errno -2] Name or service not known"), True),
+        (OperationalError("connection failed: [Errno -3] Temporary failure in name resolution"), True),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
     ],

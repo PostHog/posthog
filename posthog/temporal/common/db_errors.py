@@ -5,11 +5,17 @@ from django.db import InterfaceError, OperationalError
 # connections as closed or reset connections. Both clear on their own, so a Temporal retry
 # resolves them. Deliberately excludes psycopg's generic "connection failed:" prefix, which
 # covers every failed connect including persistent misconfiguration (bad credentials,
-# nonexistent database, unresolvable host) that must keep reaching error tracking.
+# nonexistent database) that must keep reaching error tracking.
 _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "server closed the connection unexpectedly",
     "connection reset by peer",
+    # DNS lookup failed while opening a fresh connection: getaddrinfo returns EAI_NONAME
+    # ("Name or service not known") or EAI_AGAIN ("Temporary failure in name resolution").
+    # These recur on the same host that resolves fine on the next tick, so they are transient
+    # name-server blips, not the persistent misconfiguration a nonexistent host name would be.
+    "Name or service not known",
+    "Temporary failure in name resolution",
     # pgbouncer's report that the backend connection assigned to an in-flight query died before
     # answering. Same self-healing dropped-connection condition as the closed/reset markers above,
     # just detected by the pooler rather than by the client. psycopg raises it as ProtocolViolation

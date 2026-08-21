@@ -91,7 +91,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     refresh_prompt_suggestion_activity,
                     RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
                     start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
-                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                    retry_policy=common.RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
                 wf.logger.warning(
