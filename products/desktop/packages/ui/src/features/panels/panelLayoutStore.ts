@@ -201,6 +201,15 @@ const panelLayoutStorage: StateStorage = createDebouncedStorage(
   PANEL_PERSIST_DEBOUNCE_MS,
 );
 
+// djb2 — cheap and stable; tab identity only, not integrity.
+function hashObjectId(id: string): string {
+  let hash = 5381;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) + hash + id.charCodeAt(i)) | 0;
+  }
+  return String(hash >>> 0);
+}
+
 export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
   persist(
     (set, get) => ({
@@ -328,8 +337,10 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
 
       openPostHogObjectTab: (taskId, object) => {
         // Ids can be long (a hogql reference's id is the SQL itself); the tab
-        // id only has to be stable per object, not carry the whole value.
-        const tabId = `posthog-object:${object.kind}:${object.id.slice(0, 120)}`;
+        // id only has to be stable per object, not carry the whole value. A
+        // hash of the full id keeps two queries that share their first 120
+        // characters from landing in the same tab.
+        const tabId = `posthog-object:${object.kind}:${object.id.slice(0, 120)}:${hashObjectId(object.id)}`;
         set((state) =>
           updateTaskLayout(
             state,
