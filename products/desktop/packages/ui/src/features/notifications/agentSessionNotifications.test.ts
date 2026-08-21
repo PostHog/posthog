@@ -7,6 +7,8 @@ function createService() {
   const notifications = {
     notifyPermissionRequest: vi.fn(),
     notifyPromptComplete: vi.fn(),
+    notifyTaskNotification: vi.fn(),
+    notifyTaskError: vi.fn(),
   } as unknown as NotificationBus;
   const speech = { speak: vi.fn() } as unknown as SpeechNotifier;
   const service = new AgentSessionNotificationService(notifications, speech);
@@ -57,6 +59,43 @@ describe("AgentSessionNotificationService", () => {
       "task-1",
     );
     expect(speech.speak).not.toHaveBeenCalled();
+  });
+
+  it("routes background task results and session errors", () => {
+    const { notifications, service } = createService();
+    const notification = {
+      taskId: "background-1",
+      status: "failed" as const,
+      summary: "Background check failed",
+      payload: { task_id: "background-1" },
+    };
+    const error = { error: "Connection refused", requestId: "req-1" };
+
+    service.notify({
+      kind: "background_task_settled",
+      taskId: "task-1",
+      taskTitle: "Fix notifications",
+      notification,
+      isTaskAuthor: true,
+    });
+    service.notify({
+      kind: "session_error",
+      taskId: "task-1",
+      taskTitle: "Fix notifications",
+      error,
+      isTaskAuthor: true,
+    });
+
+    expect(notifications.notifyTaskNotification).toHaveBeenCalledWith(
+      "Fix notifications",
+      notification,
+      "task-1",
+    );
+    expect(notifications.notifyTaskError).toHaveBeenCalledWith(
+      "Fix notifications",
+      error,
+      "task-1",
+    );
   });
 
   it.each([false, undefined])(

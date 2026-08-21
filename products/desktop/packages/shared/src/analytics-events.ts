@@ -998,7 +998,8 @@ export type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  | "expand_notification_payload";
 
 export type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
@@ -1027,6 +1028,10 @@ export interface ChannelActionProperties {
   suggestion_label?: string;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
+  /** For expand_notification_payload: which notification the user opened. */
+  notification_kind?: "task_notification" | "error";
+  /** For task notifications: the terminal status. */
+  notification_status?: "completed" | "failed" | "stopped";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }

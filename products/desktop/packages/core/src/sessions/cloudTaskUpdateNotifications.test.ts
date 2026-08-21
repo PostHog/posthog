@@ -158,7 +158,10 @@ function createHarness(isTaskAuthor = true) {
       }
       return;
     }
-    if (notification.stopReason !== "end_turn") {
+    if (
+      notification.kind !== "turn_completed" ||
+      notification.stopReason !== "end_turn"
+    ) {
       return;
     }
     notifyPromptComplete(

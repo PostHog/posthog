@@ -233,6 +233,29 @@ export const FullTimeline: Story = {
         content: "Add the events that belong on the activity panel.",
         timestamp: Date.parse("2026-08-04T09:05:00Z"),
       },
+      {
+        type: "session_update",
+        id: "notification-1",
+        timestamp: Date.parse("2026-08-04T10:20:00Z"),
+        update: {
+          sessionUpdate: "task_notification",
+          taskId: "background-1",
+          status: "failed",
+          summary: "Background validation failed",
+          payload: {
+            task_id: "background-1",
+            status: "failed",
+            output_file: "/tmp/background-1.output",
+            usage: { total_tokens: 120, tool_uses: 3 },
+          },
+        },
+        turnContext: {
+          toolCalls: new Map(),
+          childItems: new Map(),
+          turnCancelled: false,
+          turnComplete: true,
+        },
+      },
       // biome-ignore lint/suspicious/noExplicitAny: story fixture for the row under test
     ] as any,
     commentThreads,

@@ -164,6 +164,34 @@ function statusMsg(
   };
 }
 
+function taskNotificationMsg(ts: number): AcpMessage {
+  const payload = {
+    type: "system",
+    subtype: "task_notification",
+    task_id: "background-1",
+    tool_use_id: "tool-1",
+    status: "failed",
+    output_file: "/tmp/background-1.output",
+    summary: "Background check failed",
+    usage: { total_tokens: 120, tool_uses: 3, duration_ms: 4_000 },
+  };
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/task_notification",
+      params: {
+        taskId: "background-1",
+        status: "failed",
+        summary: "Background check failed",
+        outputFile: "/tmp/background-1.output",
+        payload,
+      },
+    },
+  };
+}
+
 function refusalStatusMsg(
   ts: number,
   status: "refusal" | "refusal_fallback",
@@ -181,6 +209,52 @@ function refusalStatusMsg(
 }
 
 describe("buildConversationItems", () => {
+  it("keeps background task and error payloads as conversation items", () => {
+    const result = buildConversationItems(
+      [
+        taskNotificationMsg(10),
+        {
+          type: "acp_message",
+          ts: 11,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/error",
+            params: {
+              message: "Request failed",
+              errorType: "upstream_error",
+              error: { status: 502, requestId: "req-1" },
+            },
+          },
+        },
+      ],
+      null,
+    );
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        type: "session_update",
+        timestamp: 10,
+        update: expect.objectContaining({
+          sessionUpdate: "task_notification",
+          payload: expect.objectContaining({
+            tool_use_id: "tool-1",
+            output_file: "/tmp/background-1.output",
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        type: "session_update",
+        timestamp: 11,
+        update: expect.objectContaining({
+          sessionUpdate: "error",
+          payload: expect.objectContaining({
+            error: { status: 502, requestId: "req-1" },
+          }),
+        }),
+      }),
+    ]);
+  });
+
   it("extracts cloud prompt attachments into user messages", () => {
     const uri = makeAttachmentUri("/tmp/hello world.txt");
 

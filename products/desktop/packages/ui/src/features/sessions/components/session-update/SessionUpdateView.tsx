@@ -52,13 +52,15 @@ export type RenderItem =
       sessionUpdate: "error";
       errorType: string;
       message: string;
+      payload?: Record<string, unknown>;
     }
   | {
       sessionUpdate: "task_notification";
       taskId: string;
       status: "completed" | "failed" | "stopped";
       summary: string;
-      outputFile: string;
+      outputFile?: string;
+      payload?: Record<string, unknown>;
     }
   | {
       sessionUpdate: "progress_group";
@@ -154,11 +156,16 @@ export const SessionUpdateView = memo(function SessionUpdateView({
         <ErrorNotificationView
           errorType={item.errorType}
           message={item.message}
+          payload={item.payload}
         />
       );
     case "task_notification":
       return (
-        <TaskNotificationView status={item.status} summary={item.summary} />
+        <TaskNotificationView
+          status={item.status}
+          summary={item.summary}
+          payload={item.payload}
+        />
       );
     case "progress_group":
       return (

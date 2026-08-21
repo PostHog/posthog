@@ -3,6 +3,7 @@ import {
   parseActivityEvent,
 } from "@posthog/core/canvas/activityEvents";
 import {
+  type ActivityNotificationLike,
   type ActivityTaskLike,
   buildActivityTimeline,
   type CommentThreadLike,
@@ -47,11 +48,13 @@ function build(input: {
   messages?: ThreadMessageLike[];
   commentThreads?: CommentThreadLike[];
   taskOverrides?: Partial<ActivityTaskLike>;
+  notifications?: ActivityNotificationLike[];
 }) {
   return buildActivityTimeline({
     task: { ...task, ...input.taskOverrides },
     messages: input.messages ?? [],
     commentThreads: input.commentThreads ?? [],
+    notifications: input.notifications ?? [],
   });
 }
 
@@ -85,6 +88,32 @@ describe("activity timeline", () => {
       "message-m1",
       "event-m2",
       "comment-thread-1",
+    ]);
+  });
+
+  it("keeps background notifications in chronological order", () => {
+    const rows = build({
+      notifications: [
+        {
+          kind: "task_notification",
+          id: "notification-1",
+          timestamp: Date.parse("2026-08-01T10:20:00Z"),
+          status: "failed",
+          summary: "Background check failed",
+          payload: { task_id: "background-1", output_file: "/tmp/output" },
+        },
+      ],
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({ kind: "task_created" }),
+      expect.objectContaining({
+        kind: "notification",
+        item: expect.objectContaining({
+          status: "failed",
+          payload: expect.objectContaining({ task_id: "background-1" }),
+        }),
+      }),
     ]);
   });
 

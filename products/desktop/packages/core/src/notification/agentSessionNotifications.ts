@@ -1,3 +1,5 @@
+import type { TaskNotificationParams } from "../sessions/schemas";
+
 export type AgentSessionNotification =
   | {
       kind: "turn_completed";
@@ -14,6 +16,20 @@ export type AgentSessionNotification =
       taskTitle: string;
       isTaskAuthor?: boolean;
       agentSpoke?: boolean;
+    }
+  | {
+      kind: "background_task_settled";
+      taskId: string;
+      taskTitle: string;
+      notification: TaskNotificationParams;
+      isTaskAuthor?: boolean;
+    }
+  | {
+      kind: "session_error";
+      taskId: string;
+      taskTitle: string;
+      error: unknown;
+      isTaskAuthor?: boolean;
     };
 
 export interface AgentSessionNotifier {

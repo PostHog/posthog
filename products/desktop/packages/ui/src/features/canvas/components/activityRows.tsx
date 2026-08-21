@@ -67,6 +67,8 @@ export function TimelineRow({
   connectedBelow = true,
   onShowInChat,
   ariaLabel,
+  dataAttr,
+  onExpand,
 }: {
   gutter: ReactNode;
   children: ReactNode;
@@ -79,6 +81,8 @@ export function TimelineRow({
   connectedAbove?: boolean;
   connectedBelow?: boolean;
   ariaLabel?: string;
+  dataAttr?: string;
+  onExpand?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   // The jump counts as detail, so a row whose only content is the action still opens.
@@ -149,8 +153,15 @@ export function TimelineRow({
               type="button"
               aria-expanded={open}
               aria-label={ariaLabel}
+              data-attr={dataAttr}
               className="flex w-full text-left focus-visible:outline-none"
-              onClick={() => setOpen((current) => !current)}
+              onClick={() =>
+                setOpen((current) => {
+                  const next = !current;
+                  if (next) onExpand?.();
+                  return next;
+                })
+              }
             >
               {header}
             </button>
