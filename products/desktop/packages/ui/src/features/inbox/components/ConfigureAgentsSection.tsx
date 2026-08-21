@@ -39,6 +39,7 @@ import {
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { ScoutsFleetSection } from "@posthog/ui/features/scouts/components/ScoutsFleetSection";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
+import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
@@ -83,6 +84,9 @@ export function ConfigureAgentsSection() {
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    teamConfig,
+    teamConfigLoading,
+    handleUpdateMaxReportsPerDay,
     userAutonomyConfig,
     userAutonomyConfigLoading,
   } = useSignalSourceManager();
@@ -193,6 +197,11 @@ export function ConfigureAgentsSection() {
             </Box>
           </Tooltip>
         )}
+        <DailyReportLimitSettings
+          config={teamConfig}
+          onSave={handleUpdateMaxReportsPerDay}
+          isLoading={teamConfigLoading}
+        />
       </SettingsSubsection>
 
       <SettingsSubsection

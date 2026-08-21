@@ -179,7 +179,10 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
         # UNIQUE(scanner_id, session_id) dedups retries.
         await asyncio.gather(
-            *(self._start_child(inputs, c) for c in (*find_result.candidates, *find_result.deep_candidates))
+            *(
+                self._start_child(inputs, c)
+                for c in (*find_result.candidates, *find_result.deep_candidates, *find_result.priming_candidates)
+            )
         )
 
         if find_result.keyset_end is not None:

@@ -81,6 +81,7 @@ export const HoverCardStates: Story = {
           target={{ kind: "insight", id: "9pQx3" }}
           url={null}
           preview={undefined}
+          onExpand={() => {}}
         >
           Checkout funnel
         </EvidenceHoverCard>
@@ -93,6 +94,7 @@ export const HoverCardStates: Story = {
             title: "Coupon → purchase conversion",
             detail: "Funnel conversion, last 30 days",
           }}
+          onExpand={() => {}}
         >
           Checkout funnel
         </EvidenceHoverCard>
@@ -106,6 +108,7 @@ export const HoverCardStates: Story = {
             detail: "Enabled · New checkout rollout",
             facts: ["100% rollout", "Used by 1 experiment"],
           }}
+          onExpand={() => {}}
         >
           new-checkout-flow
         </EvidenceHoverCard>
@@ -125,6 +128,7 @@ export const HoverCardStates: Story = {
               render: "line",
             },
           }}
+          onExpand={() => {}}
         >
           active users per day
         </EvidenceHoverCard>
@@ -134,6 +138,7 @@ export const HoverCardStates: Story = {
           target={{ kind: "ticket", id: "conv_88" }}
           url="https://us.posthog.com/project/2/insights/9pQx3"
           preview={null}
+          onExpand={() => {}}
         >
           9 “coupon” tickets
         </EvidenceHoverCard>

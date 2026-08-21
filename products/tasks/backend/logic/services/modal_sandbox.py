@@ -1256,6 +1256,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
@@ -1274,6 +1275,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -1390,6 +1392,7 @@ class ModalSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1400,7 +1403,7 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        if self._agent_server_is_healthy():
+        if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
             if wait_for_health:
                 self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
@@ -1472,6 +1475,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
