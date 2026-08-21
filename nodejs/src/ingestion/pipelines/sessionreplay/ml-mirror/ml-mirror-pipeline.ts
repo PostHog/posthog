@@ -109,8 +109,7 @@ export function createMlMirrorReplayPipeline(
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
-                                        preservePartitionLocality: true, // sessions must stay on the same partition
-                                        personProcessingWritesPersons: true, // moot: preservePartitionLocality above is already unconditional
+                                        preservePartitionLocality: true,
                                     })
                                 )
                                 .pipe(createValidateSessionReplayHeadersStep())

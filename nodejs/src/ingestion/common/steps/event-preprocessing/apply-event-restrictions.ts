@@ -16,15 +16,16 @@ export type RoutingConfig = {
     overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
     /**
-     * Whether this pipeline's person-processing step writes persons (creates
-     * or updates rows), as opposed to only reading them. When true, a
-     * force-overflow restriction keeps the partition key while person
-     * processing is on, because the overflow consumer would otherwise write
-     * the same person from multiple partitions concurrently. When false, the
-     * pipeline's person step never writes, so there's no write contention to
-     * protect and the restriction always follows `preservePartitionLocality`.
+     * Whether this pipeline writes persons (creates or updates rows), as
+     * opposed to only reading them or not touching persons at all. Defaults
+     * to true, which keeps the partition key on a force-overflow redirect
+     * while person processing is on, because the overflow consumer would
+     * otherwise write the same person row from several partitions at once.
+     * Set false for a pipeline that never writes persons, so its redirects
+     * follow `preservePartitionLocality` instead of being pinned to the
+     * original partition.
      */
-    personProcessingWritesPersons: boolean
+    personProcessingWritesPersons?: boolean
 }
 
 /**
@@ -80,10 +81,9 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
         if (routingConfig.overflowMode === 'redirect' && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
             ingestionOverflowingMessagesTotal.inc()
             const shouldProcessPerson = !restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
+            const writesPersons = routingConfig.personProcessingWritesPersons ?? true
             const preservePartitionLocality =
-                shouldProcessPerson && routingConfig.personProcessingWritesPersons
-                    ? true
-                    : routingConfig.preservePartitionLocality
+                shouldProcessPerson && writesPersons ? true : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
                 OVERFLOW_OUTPUT,
