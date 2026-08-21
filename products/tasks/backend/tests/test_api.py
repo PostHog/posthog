@@ -12924,7 +12924,9 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
-    def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
+    def _create_run(
+        self, *, origin_product: Task.OriginProduct, artifacts: list[dict] | None = None
+    ) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
             team=self.team,
@@ -12938,13 +12940,14 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             environment=TaskRun.Environment.CLOUD,
+            artifacts=artifacts or [],
         )
         return task, run
 
     @parameterized.expand(
         [
             ("teammate_cannot_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_404_NOT_FOUND),
-            ("teammate_cannot_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_404_NOT_FOUND),
+            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
             (
                 "teammate_cannot_patch_user_created_run",
                 Task.OriginProduct.USER_CREATED,
@@ -12975,6 +12978,47 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             response = self.client.patch(url, {"output": {"marker": "from-teammate"}}, format="json")
         else:
             response = self.client.get(url)
+
+        self.assertEqual(response.status_code, expected_status)
+
+    # The agent posts artifact links into the Slack thread, so everyone reading the thread
+    # follows them — not just whoever opened it. Separate from the run-retrieve case above
+    # because this also pins `artifacts_download_by_id` into `_READ_ONLY_ACTIONS`: drop it
+    # from that tuple and the gate flips to the creator-only control predicate.
+    @parameterized.expand(
+        [
+            ("slack_run_artifact", Task.OriginProduct.SLACK, status.HTTP_302_FOUND),
+            ("user_created_run_artifact", Task.OriginProduct.USER_CREATED, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    def test_non_creator_artifact_download_by_origin(
+        self,
+        _case_name: str,
+        origin_product: Task.OriginProduct,
+        expected_status: int,
+        mock_presign: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+    ) -> None:
+        mock_presign.return_value = "https://example.com/artifact?sig=123"
+        artifact_id = uuid.uuid4().hex
+        task, run = self._create_run(
+            origin_product=origin_product,
+            artifacts=[
+                {
+                    "id": artifact_id,
+                    "name": "screenshot.png",
+                    "type": "output",
+                    "content_type": "image/png",
+                    "storage_path": "tasks/artifacts/team_1/task_2/run_3/screenshot.png",
+                }
+            ],
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/{artifact_id}/download/"
+        )
 
         self.assertEqual(response.status_code, expected_status)
 

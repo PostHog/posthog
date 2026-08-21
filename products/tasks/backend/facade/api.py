@@ -2297,10 +2297,21 @@ def task_accessible_for_run_view(
 
     Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
     the OAuth token's ``sandbox_task_id`` matches this task.
+
+    Slack-originated tasks are readable by the whole team. A Slack thread is multiplayer:
+    every member of the conversation already sees the agent's replies and follows the links
+    in them, so gating those links on the one person who opened the thread makes the reply
+    unusable for everyone else. The task itself is filed in its creator's personal space, so
+    ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
+    with the creator, whose credentials the sandbox runs under.
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id)
+        scope_q = (
+            task_control_q(user_id)
+            if for_control
+            else task_visibility_q(user_id) | Q(origin_product=Task.OriginProduct.SLACK)
+        )
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
