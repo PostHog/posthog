@@ -556,6 +556,45 @@ class FeatureRequestListQuerySerializer(serializers.Serializer):
     )
 
 
+class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Internal summary of this account's request evidence.",
+    )
+    customer_quote = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Customer quote kept with this evidence item.",
+    )
+    evidence_source = serializers.CharField(
+        max_length=200,
+        help_text="Free-form name of the source where this evidence was recorded.",
+    )
+    source_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Optional HTTP or HTTPS link to the source.",
+    )
+    requested_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Date the account made the request, or null when unknown.",
+    )
+    image_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Uploaded image IDs from this project to attach in display order.",
+    )
+
+
 class FeatureRequestCreateSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=400,
@@ -577,6 +616,11 @@ class FeatureRequestCreateSerializer(serializers.Serializer):
     )
     idempotency_key = serializers.UUIDField(
         help_text="Client-generated key that makes retries return the original request instead of creating a duplicate.",
+    )
+    evidence = FeatureRequestEvidencePayloadSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional first evidence item to create for the selected account.",
     )
 
 
@@ -623,45 +667,6 @@ class FeatureRequestUpdateSerializer(serializers.Serializer):
         allow_null=True,
         choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
         help_text="Updated manual priority. Pass null to remove the priority.",
-    )
-
-
-class FeatureRequestEvidencePayloadSerializer(serializers.Serializer):
-    summary = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default="",
-        trim_whitespace=True,
-        help_text="Internal summary of this account's request evidence.",
-    )
-    customer_quote = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default="",
-        trim_whitespace=True,
-        help_text="Customer quote kept with this evidence item.",
-    )
-    evidence_source = serializers.CharField(
-        max_length=200,
-        help_text="Free-form name of the source where this evidence was recorded.",
-    )
-    source_url = serializers.URLField(
-        required=False,
-        allow_blank=True,
-        default="",
-        max_length=2000,
-        help_text="Optional HTTP or HTTPS link to the source.",
-    )
-    requested_on = serializers.DateField(
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text="Date the account made the request, or null when unknown.",
-    )
-    image_ids = serializers.ListField(
-        required=False,
-        child=serializers.UUIDField(),
-        help_text="Uploaded image IDs from this project to attach in display order.",
     )
 
 

@@ -660,7 +660,8 @@ export interface featureRequestsLogicMeta {
             title: string,
             accountId: string | null,
             productAreaIds: string[],
-            submittingRequest: boolean
+            submittingRequest: boolean,
+            uploadingEvidenceImages: boolean
         ) => string | undefined
         editDisabledReason: (
             editTitle: string,
@@ -1207,6 +1208,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceSummary: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.summary,
@@ -1216,6 +1219,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceQuote: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.customer_quote,
@@ -1225,6 +1230,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceSource: [
             'conversation',
             {
+                openCreateRequest: () => 'conversation',
+                closeCreateRequest: () => 'conversation',
                 openAddAccount: () => 'conversation',
                 openNewEvidence: () => 'conversation',
                 openEditEvidence: (_, { evidence }) => evidence.evidence_source,
@@ -1234,6 +1241,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceUrl: [
             '',
             {
+                openCreateRequest: () => '',
+                closeCreateRequest: () => '',
                 openAddAccount: () => '',
                 openNewEvidence: () => '',
                 openEditEvidence: (_, { evidence }) => evidence.source_url,
@@ -1243,6 +1252,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceRequestedOn: [
             null as string | null,
             {
+                openCreateRequest: () => null,
+                closeCreateRequest: () => null,
                 openAddAccount: () => null,
                 openNewEvidence: () => null,
                 openEditEvidence: (_, { evidence }) => evidence.requested_on,
@@ -1252,6 +1263,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceDraftVersion: [
             0,
             {
+                openCreateRequest: (state) => state + 1,
+                closeCreateRequest: (state) => state + 1,
                 openAddAccount: (state) => state + 1,
                 openNewEvidence: (state) => state + 1,
                 openEditEvidence: (state) => state + 1,
@@ -1262,6 +1275,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceFilesToUpload: [
             [] as File[],
             {
+                openCreateRequest: () => [],
+                closeCreateRequest: () => [],
                 openAddAccount: () => [],
                 openNewEvidence: () => [],
                 openEditEvidence: () => [],
@@ -1273,6 +1288,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceImageIds: [
             [] as string[],
             {
+                openCreateRequest: () => [],
+                closeCreateRequest: () => [],
                 openAddAccount: () => [],
                 openNewEvidence: () => [],
                 openEditEvidence: (_, { evidence }) => [...evidence.image_ids],
@@ -1288,6 +1305,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         evidenceError: [
             null as string | null,
             {
+                openCreateRequest: () => null,
+                closeCreateRequest: () => null,
                 openAddAccount: () => null,
                 openNewEvidence: () => null,
                 openEditEvidence: () => null,
@@ -1331,16 +1350,24 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectedAccount: FeatureRequestAccountApi | null,
                 activeRequest: FeatureRequestApi | null
             ): { key: string; label: string }[] => {
-                const accountById = new Map<string, FeatureRequestAccountApi>(
+                const accountById = new Map<string, AccountApi | FeatureRequestAccountApi>(
                     accounts.map((account) => [account.id, account])
                 )
-                if (selectedAccount) {
+                if (selectedAccount && !accountById.has(selectedAccount.id)) {
                     accountById.set(selectedAccount.id, selectedAccount)
                 }
                 for (const link of activeRequest?.account_links ?? []) {
-                    accountById.set(link.account.id, link.account)
+                    if (!accountById.has(link.account.id)) {
+                        accountById.set(link.account.id, link.account)
+                    }
                 }
-                return [...accountById.values()].map((account) => ({ key: account.id, label: account.name }))
+                return [...accountById.values()].map((account) => ({
+                    key: account.id,
+                    label:
+                        'external_id' in account && account.external_id
+                            ? `${account.name} (${account.external_id})`
+                            : account.name,
+                }))
             },
         ],
         addAccountOptions: [
@@ -1412,13 +1439,18 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.accountId,
                 selectors.productAreaIds,
                 selectors.submittingRequest,
+                selectors.uploadingEvidenceImages,
             ],
             (
                 title: string,
                 accountId: string | null,
                 productAreaIds: string[],
-                submittingRequest: boolean
+                submittingRequest: boolean,
+                uploadingEvidenceImages: boolean
             ): string | undefined => {
+                if (uploadingEvidenceImages) {
+                    return 'Uploading images'
+                }
                 if (submittingRequest) {
                     return 'Saving request'
                 }
@@ -1660,12 +1692,24 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             }
             actions.setSubmittingRequest(true)
             try {
+                const evidence = {
+                    summary: values.evidenceSummary.trim(),
+                    customer_quote: values.evidenceQuote.trim(),
+                    evidence_source: values.evidenceSource,
+                    source_url: values.evidenceUrl.trim(),
+                    requested_on: values.evidenceRequestedOn,
+                    image_ids: values.evidenceImageIds,
+                }
+                const hasEvidence = Boolean(
+                    evidence.summary || evidence.customer_quote || evidence.source_url || evidence.image_ids.length
+                )
                 const created = await featureRequestsCreate(values.currentTeamId, {
                     title: values.title.trim(),
                     description: values.description.trim(),
                     account_id: values.accountId,
                     product_area_ids: values.productAreaIds,
                     idempotency_key: values.idempotencyKey,
+                    evidence: hasEvidence ? evidence : undefined,
                 })
                 actions.closeCreateRequest()
                 router.actions.push(urls.customerAnalyticsFeatureRequests(created.id), values.listSearchParams)

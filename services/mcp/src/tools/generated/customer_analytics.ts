@@ -1411,6 +1411,9 @@ const featureRequestsCreate = (): ToolBase<
         if (params.idempotency_key !== undefined) {
             body['idempotency_key'] = params.idempotency_key
         }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
         const result = await context.api.request<Schemas.FeatureRequest>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_requests/`,

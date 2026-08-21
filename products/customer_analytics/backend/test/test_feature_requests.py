@@ -140,6 +140,26 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(retrieved.json()["request_status"], "requested")
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 1)
 
+    def test_create_can_include_initial_evidence(self) -> None:
+        payload = self._payload()
+        payload["evidence"] = {
+            "summary": "Acme needs this export for its weekly review.",
+            "customer_quote": "We need this every Monday.",
+            "evidence_source": "meeting",
+            "source_url": "https://example.com/meetings/1",
+            "requested_on": "2026-01-01",
+        }
+
+        response = self.client.post(self.requests_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        evidence = response.json()["account_links"][0]["evidence"]
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["summary"], "Acme needs this export for its weekly review.")
+        history = self.client.get(f"{self.requests_url}{response.json()['id']}/history/").json()
+        initial_changes = {change["field"]: change for change in history[0]["changes"]}
+        self.assertEqual(initial_changes["evidence"]["after"]["summary"], evidence[0]["summary"])
+
     def test_description_can_be_omitted_or_cleared(self) -> None:
         payload_without_description = self._payload()
         payload_without_description.pop("description")
