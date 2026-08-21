@@ -277,6 +277,7 @@ export function ActivityTimeline({
         runId,
         artifactId: payload.artifactId,
         name: payload.name,
+        objectKind: payload.objectKind ?? undefined,
       });
   };
 
