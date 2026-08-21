@@ -2532,6 +2532,7 @@ export class PostHogAPIClient {
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
+        naming_source?: string;
       },
   ): Promise<Task> {
     const teamId = await this.getTeamId();
