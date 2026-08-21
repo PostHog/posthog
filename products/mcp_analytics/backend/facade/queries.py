@@ -13,6 +13,7 @@ from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHa
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
     MCPToolCategoriesQueryRunner,
     MCPToolCategoryCountsQueryRunner,
+    MCPToolCategoryMapQueryRunner,
     MCPToolQualityDailyStatsQueryRunner,
     MCPToolQualityRowsQueryRunner,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "MCPToolCallsAndErrorsQueryRunner",
     "MCPToolCategoriesQueryRunner",
     "MCPToolCategoryCountsQueryRunner",
+    "MCPToolCategoryMapQueryRunner",
     "MCPToolDailyStatsQueryRunner",
     "MCPToolDescriptionsQueryRunner",
     "MCPToolFailureOccurrencesQueryRunner",
