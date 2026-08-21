@@ -539,7 +539,7 @@ const DJANGO_SEGMENTS = {
         include: [
             'posthog/clickhouse/',
             'posthog/queries/',
-            'products/product_analytics/backend/api/test/',
+            'products/product_analytics/backend/tests/api/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
@@ -566,11 +566,13 @@ function getSegmentDuration(segment, durations) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
-function calculateShards(totalWorkSeconds, overheadSeconds) {
+// minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
+// (test-selection) run may legitimately fit one shard.
+function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
     const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
     if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
     const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
-    return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
+    return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
 function buildDjangoShards(durations) {
@@ -667,8 +669,11 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
-// Exported for unit tests only — not part of the public API.
+// Exported for unit tests, plus the Django sizing pieces that
+// selected-django-shards.js reuses so narrowed runs share one budget.
 module.exports = {
+    calculateShards,
+    DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,

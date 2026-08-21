@@ -14,7 +14,7 @@ export interface UrlFetchConsumerOptions {
     /** The lane drops a URL older than this, so a backlog sheds work instead of fetching stale URLs. */
     maxAgeMs: number
     dedupMaxRefs: number
-    /** TTL on each crawl history entry, which is both the recrawl interval and the ledger's Redis footprint. */
+    /** TTL on each crawl history entry, which sets the recrawl interval. */
     seenTtlSeconds: number
     /** While true, no request leaves this process. Everything else still runs, including the crawl history write. */
     dryRun: boolean
@@ -23,8 +23,8 @@ export interface UrlFetchConsumerOptions {
 /**
  * The image fetch lane.
  *
- * The consumer handles a bad record and an unreachable Redis instead of throwing. This lane shares a
- * partition with every site whose URLs key to it, and a throw here stops the consumer, replays the
+ * The consumer handles a bad record and an unavailable crawl history instead of throwing. This lane
+ * shares a partition with every site whose URLs key to it, and a throw here stops the consumer, replays the
  * same batch, and holds that partition against all of them.
  */
 export class UrlFetchConsumer {
@@ -46,13 +46,12 @@ export class UrlFetchConsumer {
                 `SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS must be a positive number, got ${options.maxAgeMs}`
             )
         }
-        // A NaN TTL would not disable expiry: SET with EX NaN fails per command, so every ledger
-        // write fails and the lane stops recording while looking healthy. The hour floor catches
+        // A NaN TTL makes every ledger write fail while the lane appears healthy. The hour floor catches
         // unit suffixes, which the env parser truncates rather than rejects: "7d" parses to 7, and
         // a 7-second TTL empties the ledger as fast as it fills, so nothing dedups.
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error(
-                `SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS must be an integer of at least 3600, got ` +
+                `AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be an integer of at least 3600, got ` +
                     `${options.seenTtlSeconds} (a unit suffix like "7d" parses as 7: give the value in seconds)`
             )
         }
@@ -119,7 +118,7 @@ export class UrlFetchConsumer {
             }
         }
 
-        const fetchable = await this.removeAlreadySeen(candidates)
+        const fetchable = await this.removeAlreadySeen(candidates, nowMs)
         if (fetchable.length > 0) {
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
         }
@@ -206,14 +205,14 @@ export class UrlFetchConsumer {
      * batch, because our own store is down. It counts as unaccounted instead, which holds the batch
      * rather than loses it. Requirement 21.
      */
-    private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
+    private async removeAlreadySeen(candidates: FetchCandidate[], nowMs: number): Promise<FetchCandidate[]> {
         if (candidates.length === 0) {
             return []
         }
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let result
         try {
-            result = await this.crawlHistory.read(keys)
+            result = await this.crawlHistory.read(keys, nowMs)
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('read', keys.length)
             logger.warn('🌐', 'ml_image_fetch_crawl_history_read_failed', { count: keys.length, error: String(error) })

@@ -44,6 +44,9 @@ from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQu
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
@@ -1051,6 +1054,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for runner_class in (
             ErrorTrackingQueryRunner,
             ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingFingerprintProjectionQueryRunner,
             ErrorTrackingIssueCorrelationQueryRunner,
             ErrorTrackingSimilarIssuesQueryRunner,
         ):

@@ -75,7 +75,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -626,10 +626,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
-    // A constrained surface (e.g. the canvas generator) supplies its own prompt
-    // and does NOT want the default coding/attribution guidance.
+    // Overrides replace coding guidance, but rich tags must stay available in every agent response.
     if (systemPromptOverride) {
-      return { append: systemPromptOverride };
+      return { append: appendRichOutputPrompt(systemPromptOverride) };
     }
 
     let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
@@ -674,8 +673,7 @@ Optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have.
 
-## Rich output in replies
-${RICH_OUTPUT_TAGS_PROMPT}`;
+`;
 
     if (channelMode) {
       prompt += `
@@ -703,7 +701,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
     }
 
-    return { append: prompt };
+    return { append: appendRichOutputPrompt(prompt) };
   }
 
   async startSession(params: StartSessionInput): Promise<SessionResponse> {

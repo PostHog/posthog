@@ -28,6 +28,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'cohort:read',
     'cohort:write',
     'comment:read',
+    'comment:write',
     'customer_analytics:read',
     'customer_analytics:write',
     'data_catalog:read',

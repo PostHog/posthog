@@ -69,6 +69,7 @@ jobs:
                         - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
+                        - 'tools/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
                       go:
@@ -173,6 +174,7 @@ jobs:
                       --include /products
                       --include /services/llm-gateway
                       --include /services/stripe-mock
+                      --include /tools
                       --exclude products/desktop
                       --jobs 4
 
