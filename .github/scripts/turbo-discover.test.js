@@ -141,6 +141,33 @@ for (const workflow of WORKFLOWS) {
     })
 }
 
+// The backend test selector is the fourth copy of the partition: it routes each
+// selected test file to a segment so the verdict can say which matrix leg missed
+// it. Its prefix tuples are plain literals, read here the same way the workflow is.
+const SELECTOR = 'tools/snob_backend_test_selection_shadow.py'
+
+function pythonTuple(text, name) {
+    const match = text.match(new RegExp(`${name} = \\(([^)]*)\\)`))
+    assert.notEqual(match, null, `missing ${name} in ${SELECTOR}`)
+    return matchAll(match[1], /"([^"]+)"/g)
+}
+
+test('the backend test selector routes files with the same partition', () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, SELECTOR), 'utf8')
+    const temporal = pythonTuple(text, '_TEMPORAL_PREFIXES')
+    const poe = [...pythonTuple(text, '_POE_PREFIXES'), ...matchAll(text, /path == "([^"]+)"/g)]
+    const ignored = pythonTuple(text, '_CORE_IGNORED_PREFIXES')
+
+    assert.deepEqual(sorted(temporal), sorted(DJANGO_SEGMENTS.Temporal.include))
+    assert.deepEqual(sorted(poe), sorted(DJANGO_SEGMENTS.CorePOE.include))
+    // The selector checks the temporal prefixes first, so Core's exclusion of
+    // them is implicit there and explicit in the table.
+    const claimedFromCore = temporal.filter((prefix) =>
+        DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include))
+    )
+    assert.deepEqual(sorted([...ignored, ...claimedFromCore]), sorted(DJANGO_SEGMENTS.Core.exclude))
+})
+
 // Isolation is the claim that a product can be tested without the Django suite.
 // A product that ships the contract-check script but no turbo.json of its own
 // leaves the task on the root definition, whose inputs are its whole backend,

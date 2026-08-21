@@ -25,7 +25,7 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
-const { stripJsonComments } = require('./trunk-impacted-targets')
+const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -128,35 +128,16 @@ function packageToProduct(pkg) {
     return pkg.replace('@posthog/products-', '')
 }
 
-const CONTRACT_TASK = 'backend:contract-check'
-
 // A product that ships the contract-check script but no turbo.json of its own
 // inherits the root task, whose inputs are the product's whole backend. Every
 // backend edit then reads as a contract change, so the isolation it claims can
 // never pay out. Requiring the narrowed declaration keeps "isolated" meaning
-// what turbo-discover uses it for. Unreadable turbo.json counts as undeclared,
-// which widens rather than narrows.
-function declaresNarrowedContractInputs(product, repoRoot) {
-    const manifest = path.join(repoRoot, 'products', product, 'turbo.json')
-    let inputs
-    try {
-        const parsed = JSON.parse(stripJsonComments(fs.readFileSync(manifest, 'utf8')))
-        inputs = ((parsed.tasks || parsed.pipeline || {})[CONTRACT_TASK] || {}).inputs
-    } catch (error) {
-        if (error.code !== 'ENOENT') {
-            console.error(`Could not read products/${product}/turbo.json (${error.message}); it is not isolated`)
-        }
-        return false
-    }
-    return Array.isArray(inputs) && inputs.length > 0
-}
-
+// what turbo-discover uses it for, and reading it through loadContractSurfaces
+// keeps this reader and the Trunk lane reader on one definition.
 function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
-    return new Set(
-        contractTasks
-            .map((t) => packageToProduct(t.package))
-            .filter((product) => declaresNarrowedContractInputs(product, repoRoot))
-    )
+    const products = contractTasks.map((t) => packageToProduct(t.package))
+    const surfaces = loadContractSurfaces(repoRoot, products)
+    return new Set(products.filter((product) => surfaces.has(product)))
 }
 
 function getAffectedTaskProducts(tasks) {
