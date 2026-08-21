@@ -95,8 +95,9 @@ XMP is an opt-out for that image when it has one of these values:
 - `DMI-PROHIBITED-GENAIMLTRAINING`
 - `DMI-PROHIBITED-EXCEPTSEARCHENGINEINDEXING`
 - `DMI-PROHIBITED`
-
-The image scrubber must also fail closed for `DMI-PROHIBITED-SEECONSTRAINT`, `DMI-PROHIBITED-SEEEMBEDDEDRIGHTSEXPR`, and `DMI-PROHIBITED-SEELINKEDRIGHTSEXPR`. The lane cannot confirm that the referenced constraints permit AI training.
+- `DMI-PROHIBITED-SEECONSTRAINT`
+- `DMI-PROHIBITED-SEEEMBEDDEDRIGHTSEXPR`
+- `DMI-PROHIBITED-SEELINKEDRIGHTSEXPR`
 
 **2.8** A terminal refusal must be written to the URL crawl history. A transient configuration failure uses the shorter configuration-cache TTL in requirement 3.20 instead.
 
