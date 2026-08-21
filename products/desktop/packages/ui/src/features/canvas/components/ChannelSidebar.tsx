@@ -91,6 +91,27 @@ import {
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
+function commandCenterAssigner(item: ChannelItemModel): () => void {
+  return () => {
+    if (item.kind === "canvas") {
+      placeCanvasInCommandCenter(item.id, item.title);
+    } else {
+      placeTaskInCommandCenter(item.id, item.title);
+    }
+  };
+}
+
+function isInCommandCenter(
+  item: ChannelItemModel,
+  commandCenterCells: readonly (string | null)[],
+): boolean {
+  return commandCenterCells.some((cell) =>
+    item.kind === "canvas"
+      ? getCanvasCellId(cell) === item.id
+      : cell === item.id,
+  );
+}
+
 /** The list holds two kinds of thing, and shows one of them at a time. */
 type ChannelTab = ChannelItemModel["kind"];
 
@@ -528,21 +549,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     actions.open(item);
   };
 
-  const commandCenterAssigner = (item: ChannelItemModel) => () => {
-    if (item.kind === "canvas") {
-      placeCanvasInCommandCenter(item.id, item.title);
-    } else {
-      placeTaskInCommandCenter(item.id, item.title);
-    }
-  };
-
-  const isInCommandCenter = (item: ChannelItemModel): boolean =>
-    commandCenterCells.some((cell) =>
-      item.kind === "canvas"
-        ? getCanvasCellId(cell) === item.id
-        : cell === item.id,
-    );
-
   const rowTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -641,7 +647,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           // Undefined disables the menu item when this item is already present;
           // duplicating the same task or canvas would make the grid ambiguous.
           onAddToCommandCenter={
-            !isInCommandCenter(item) ? commandCenterAssigner(item) : undefined
+            !isInCommandCenter(item, commandCenterCells)
+              ? commandCenterAssigner(item)
+              : undefined
           }
           onEditSubmit={
             item.kind === "task"
