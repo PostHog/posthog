@@ -1,9 +1,6 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import {
-  PROJECT_BLUEBIRD_FLAG,
-  REPORT_CANVAS_INBOX_FLAG,
-} from "@posthog/shared";
+import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
@@ -15,7 +12,6 @@ import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   clearKeepListForRoute,
@@ -114,11 +110,6 @@ function ChannelPanes({
   );
 }
 export function ChannelsSidebar() {
-  const reportCanvasesEnabled = useFeatureFlag(
-    REPORT_CANVAS_INBOX_FLAG,
-    import.meta.env.DEV,
-  );
-  useReportSpace(reportCanvasesEnabled);
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
