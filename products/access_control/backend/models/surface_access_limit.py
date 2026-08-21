@@ -49,6 +49,8 @@ class SurfaceAccessLimit(UUIDModel):
     resource: models.CharField = models.CharField(max_length=64, null=True, blank=True)
     max_level: models.CharField = models.CharField(max_length=32, choices=MaxLevel.choices)
 
+    # Not CreatedMetaFields: its created_by FK carries a real DB constraint on posthog_user,
+    # a hot table, and Django cannot override a field inherited from an abstract base.
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
