@@ -1,12 +1,12 @@
 ---
-name: maintaining-tests
+name: maintaining-python-tests
 description: >
-  Maintains existing pytest, Jest, and Playwright suites without weakening correctness. Use when asked to reduce test runtime or CI work, investigate slow test families, remove stale tests, consolidate repeated setup, improve test ownership, or measure whether a test optimization worked after merge. Ranks work by measured cost, applies the writing-tests value gate to existing coverage, preserves distinct behavior cases, validates isolation after shared-fixture changes, and separates CPU work from CI critical-path time. For an intermittent failure, use fixing-flaky-tests instead.
+  Maintains existing pytest and Django test suites without weakening correctness. Use when asked to reduce Python test runtime or CI work, investigate slow pytest families, remove stale migration tests, consolidate repeated setup, improve Python test ownership, or measure whether a test optimization worked after merge. Ranks work by measured cost, applies the writing-tests value gate to existing coverage, preserves distinct behavior cases, validates isolation after shared-fixture changes, and separates CPU work from CI critical-path time. For an intermittent failure, use fixing-flaky-tests instead.
 ---
 
-# Maintaining tests
+# Maintaining Python tests
 
-Use this skill for an existing test suite. Use `/writing-tests` before adding or substantially changing coverage. Use `/fixing-flaky-tests` when intermittent failure is the main problem.
+Use this skill for an existing Python test suite. Use `/writing-tests` before adding or substantially changing coverage. Use `/fixing-flaky-tests` when intermittent failure is the main problem.
 
 The goal is not a smaller test count. The goal is a suite that catches the same realistic regressions with less compute, less waiting, and less maintenance.
 
@@ -206,3 +206,4 @@ Delete expired tests. Do not leave them skipped. A skip preserves dead code and 
 - `/debugging-ci-failures`: classify a failing CI run before changing a test.
 - `/django-migrations`: change or remove migration-related code safely.
 - `/establishing-code-ownership`: add or correct ownership rules.
+- `/querying-posthog-data`: verify the trace schema and HogQL before reading CI timing data.

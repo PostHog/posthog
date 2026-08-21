@@ -80,7 +80,7 @@ Keep API and integration cases after the production optimization. Strengthen per
 Move a test down the cost ladder when its regression does not require its current boundary:
 
 ```text
-pure function -> logic -> Django SimpleTestCase -> Django TestCase -> integration service -> browser
+pure function -> Django SimpleTestCase -> Django TestCase -> integration service
 ```
 
 Keep one wiring guard at the higher level when the lower-level test cannot prove that the production entry point uses the tested component.
@@ -89,7 +89,6 @@ Examples:
 
 - Put a DRF validation matrix in `SimpleTestCase`. Keep one endpoint 400 case.
 - Test transformation logic as a pure function. Keep one pipeline round trip.
-- Test kea state transitions in logic. Keep a DOM test only for visible behavior.
 
 Do not mock the boundary that the test exists to prove.
 

@@ -74,7 +74,7 @@ is_root_span
 duration_nano
 ```
 
-Read timing data with `posthog:execute-sql`. Use `master` for post-merge impact. Use explicit UTC windows.
+Invoke `/querying-posthog-data` before using `posthog:execute-sql`. Verify the available trace fields before querying them. Use `master` for post-merge impact. Use explicit UTC windows.
 
 ### Rank individual pytest tests
 
@@ -87,7 +87,7 @@ SELECT
     round(quantile(0.95)(duration_nano / 1000000000), 3) AS p95_seconds,
     round(sum(duration_nano) / 1000000000 / 3600, 2) AS observed_hours
 FROM posthog.trace_spans
-WHERE timestamp >= toDateTime('2026-01-01 00:00:00', 'UTC')
+WHERE timestamp >= now() - INTERVAL 2 DAY
   AND service_name = 'ci-backend'
   AND resource_attributes['ci.branch'] = 'master'
   AND attributes['test.runner'] = 'pytest'
@@ -99,7 +99,7 @@ ORDER BY observed_hours DESC
 LIMIT 50
 ```
 
-Replace the example date with a recent complete window.
+Adjust the two-day window only when the sample is too small or includes a known incident.
 
 ### Compare a test before and after a merge
 
@@ -145,7 +145,7 @@ WITH per_run AS (
         sum(duration_nano) / 1000000000 AS call_seconds,
         uniq(name) AS cases
     FROM posthog.trace_spans
-    WHERE timestamp >= toDateTime('2026-01-01 00:00:00', 'UTC')
+    WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
       AND attributes['test.outcome'] = 'passed'
@@ -172,7 +172,7 @@ WITH per_run AS (
         sum(duration_nano) / 1000000000 AS total_job_seconds,
         count() AS jobs
     FROM posthog.trace_spans
-    WHERE timestamp >= toDateTime('2026-01-01 00:00:00', 'UTC')
+    WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
       AND is_root_span
@@ -200,7 +200,7 @@ WITH per_run AS (
         maxIf(duration_nano, is_root_span) / 1000000000 AS critical_job_seconds,
         uniqIf(trace_id, is_root_span) AS jobs
     FROM posthog.trace_spans
-    WHERE timestamp >= toDateTime('2026-01-01 00:00:00', 'UTC')
+    WHERE timestamp >= now() - INTERVAL 2 DAY
       AND service_name = 'ci-backend'
       AND resource_attributes['ci.branch'] = 'master'
     GROUP BY run_id
@@ -226,7 +226,7 @@ SELECT
     countIf(attributes['test.owner_team'] IS NULL) AS unowned_spans,
     round(100 * unowned_spans / test_spans, 2) AS unowned_percent
 FROM posthog.trace_spans
-WHERE timestamp >= toDateTime('2026-01-01 00:00:00', 'UTC')
+WHERE timestamp >= now() - INTERVAL 2 DAY
   AND service_name = 'ci-backend'
   AND attributes['test.runner'] = 'pytest'
 GROUP BY day
