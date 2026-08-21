@@ -252,6 +252,7 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
             ("window", "SELECT id, count() OVER () FROM persons LIMIT 10", "LIMIT 11"),
         ]
     )
+    @snapshot_clickhouse_queries
     def test_v2_full_row_set_selects_do_not_push_limit_down(self, _name, query, pushed_down_limit):
         response = execute_hogql_query(query, self.team, modifiers=self._v2_modifiers(), pretty=False)
         assert response.clickhouse is not None
