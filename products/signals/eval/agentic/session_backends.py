@@ -29,7 +29,13 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
-from products.signals.eval.agentic.cassette import Cassette, RecordedTurn, TurnCursor, prompt_fingerprint
+from products.signals.eval.agentic.cassette import (
+    Cassette,
+    CassetteDriftError,
+    RecordedTurn,
+    TurnCursor,
+    prompt_fingerprint,
+)
 
 # Module-level reference to the genuine class so replay reuses its real `_parse_and_validate`
 # even while `inject_session` patches the facade's bound name.
@@ -91,13 +97,27 @@ def inject_session(session_cls: type) -> Iterator[None]:
 
 @contextmanager
 def active_cassette(cassette: Cassette) -> Iterator[TurnCursor]:
-    """Bind ``cassette`` as the replay source for the block (one cursor per run)."""
+    """Bind ``cassette`` as the replay source for the block (one cursor per run).
+
+    On a clean exit every recorded turn must have been consumed. Leftover turns mean the step
+    drove a shorter sequence than was recorded (e.g. a trailing follow-up was removed or made
+    conditional), so the cassette is stale and the case would be graded on a result collapsed
+    from fewer turns. This mirrors the ``CassetteExhaustedError`` raised when replay asks for
+    *more* turns than were recorded. The check runs only past the ``finally`` — so when the
+    block exits with its own exception it is skipped and never masks the original error.
+    """
     cursor = TurnCursor(cassette)
     token = _active_cursor.set(cursor)
     try:
         yield cursor
     finally:
         _active_cursor.reset(token)
+    if cursor.consumed < cursor.total:
+        raise CassetteDriftError(
+            f"cassette {cassette.case_id!r} ({cassette.step}) recorded {cursor.total} turns but replay "
+            f"consumed only {cursor.consumed} — the step's turn sequence dropped a trailing turn; "
+            "re-record the cassette"
+        )
 
 
 def _require_cursor() -> TurnCursor:

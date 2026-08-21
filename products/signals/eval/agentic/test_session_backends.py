@@ -132,6 +132,31 @@ def test_replay_session_rejects_invalid_recorded_text():
         raise AssertionError("expected a validation error from replay")
 
 
+def test_active_cassette_rejects_unconsumed_turns():
+    # Two recorded turns, but the step only asks for one (a trailing follow-up was dropped).
+    # Replay must not silently pass on the collapsed prefix — the clean exit raises drift.
+    async def run() -> None:
+        cassette = _cassette('{"value": 1, "label": "first"}', '{"value": 2, "label": "second"}')
+        with active_cassette(cassette):
+            await ReplayMultiTurnSession.start(prompt="p", context=None, model=_Probe)
+
+    with pytest.raises(CassetteDriftError) as exc_info:
+        asyncio.run(run())
+    assert "re-record" in str(exc_info.value)
+
+
+def test_active_cassette_does_not_mask_block_exception():
+    # An error inside the block must surface unchanged — the unconsumed-turns check runs past
+    # the finally, so it never replaces the original exception with CassetteDriftError.
+    async def run() -> None:
+        cassette = _cassette('{"value": 1, "label": "a"}', '{"value": 2, "label": "b"}')
+        with active_cassette(cassette):
+            raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        asyncio.run(run())
+
+
 def test_replay_raw_paths():
     async def run() -> None:
         cassette = _cassette("raw-one", "raw-two")
