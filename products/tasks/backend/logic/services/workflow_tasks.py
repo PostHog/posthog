@@ -250,7 +250,9 @@ def _render_event_json(event: dict[str, Any]) -> str:
             serialized = json.dumps(event, default=str)
     if len(serialized) > EVENT_PROMPT_MAX_CHARS:
         serialized = serialized[:EVENT_PROMPT_MAX_CHARS] + " [truncated]"
-    return serialized
+    # json.dumps leaves `<`/`>` alone, so event text could otherwise carry a verbatim
+    # `</triggering_event>` and close the data block. Escape it as render_loop_run_message does.
+    return serialized.replace("</triggering_event>", "&lt;/triggering_event&gt;")
 
 
 @frozen
