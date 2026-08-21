@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import datetime
 import itertools
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    REWRITE_BATCH_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -31,6 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
+    _redis_client,
+    run_key,
+    workload_reporting,
 )
 
 logger = structlog.get_logger(__name__)
@@ -526,6 +533,65 @@ class TestRewriteIntoTemp:
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
 
+    def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
+        # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+
+        with workload_reporting(team_id=1, schema_id="s-rw", run_id="repartition:rw-test", host="pod-rw"):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=1,
+                    logger=logger,
+                )
+            )
+
+        redis = _redis_client()
+        assert redis is not None
+        sample = json.loads(redis.get(run_key("repartition:rw-test")))
+        assert sample["peak_buffer_bytes"] > 0
+
+    def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
+        # The default 16-batch prefetch is invisible to the coalescing buffer.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        captured: dict = {}
+        real_scanner = old_delta.to_pyarrow_dataset().scanner
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_scanner(**kwargs)
+
+        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset") as dataset:
+            dataset.return_value = SimpleNamespace(scanner=spy)
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=10,
+                    logger=logger,
+                )
+            )
+
+        assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
+        assert "fragment_readahead" not in captured
+
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -797,7 +863,7 @@ class TestRewriteIntoTemp:
 
         old_delta = SimpleNamespace(
             to_pyarrow_dataset=lambda: SimpleNamespace(
-                scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
+                scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
             schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
         )

@@ -28,6 +28,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_actor_user,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
     upgrade_run_to_user_authorship,
@@ -1373,3 +1374,38 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
 
         self.task_run.refresh_from_db()
         assert self.task_run.state == state_before
+
+
+class TestIsBotAuthorshipFallback(_AuthorshipFixture):
+    def _set_state(self, state: dict) -> None:
+        self.task_run.state = state
+        self.task_run.save(update_fields=["state"])
+
+    def test_a_slack_run_without_a_personal_install_is_a_fallback(self) -> None:
+        assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is True
+
+    def _user_authored(self) -> None:
+        self._set_state({"pr_authorship_mode": "user"})
+
+    def _caller_token_run(self) -> None:
+        self._set_state({"pr_authorship_mode": "bot", "github_credential_source": "caller_token"})
+
+    def _signal_report_run(self) -> None:
+        self._set_state({"pr_authorship_mode": "bot", "run_source": "signal_report"})
+
+    def _signal_report_origin(self) -> None:
+        self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        self.task.save(update_fields=["origin_product"])
+
+    @parameterized.expand(
+        [
+            ("user_authored",),
+            ("caller_token_run",),
+            ("signal_report_run",),
+            ("signal_report_origin",),
+        ]
+    )
+    def test_nothing_is_flagged(self, case: str) -> None:
+        getattr(self, f"_{case}")()
+
+        assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False

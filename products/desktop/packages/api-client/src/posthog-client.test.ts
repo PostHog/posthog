@@ -999,6 +999,80 @@ describe("PostHogAPIClient", () => {
     );
   });
 
+  it("registers PostHog references without file upload fields", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        artifacts: [
+          {
+            id: "phref-1",
+            name: "Checkout funnel",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "insight",
+              object_id: "9pQx3",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    });
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+
+    await expect(
+      client.registerTaskRunPostHogReferences("task-123", "run-123", [
+        {
+          name: "Checkout funnel",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_id: "turn-1",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "phref-1",
+        type: "reference",
+        source: "posthog_object",
+        metadata: expect.objectContaining({ object_id: "9pQx3" }),
+      }),
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "post",
+        path: "/api/projects/123/tasks/task-123/runs/run-123/artifacts/references/",
+        overrides: {
+          body: JSON.stringify({
+            references: [
+              {
+                name: "Checkout funnel",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_id: "turn-1",
+              },
+            ],
+          }),
+        },
+      }),
+    );
+  });
+
   it("presigns a task run artifact for preview", async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -1898,91 +1972,6 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("agent model policy + catalog", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = { baseUrl: "http://localhost:8000", fetcher: { fetch } };
-      return client;
-    }
-
-    it("createAgentDraftRevisionFrom unwraps the { revision } envelope", async () => {
-      // Regression: new_draft returns `{ revision, source_revision_id }`, not a
-      // flat revision — returning the wrapper left `.id` undefined and broke the
-      // follow-up PATCH (404 on /revisions/undefined/).
-      const fetch = vi.fn().mockResolvedValue({
-        json: async () => ({
-          revision: { id: "draft-1", state: "draft" },
-          source_revision_id: "rev-0",
-        }),
-      });
-      const client = makeClient(fetch);
-
-      const rev = await client.createAgentDraftRevisionFrom("app-1", "rev-0");
-
-      expect(rev.id).toBe("draft-1");
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "post",
-          path: "/api/projects/123/agent_applications/app-1/revisions/new_draft/",
-          overrides: {
-            body: JSON.stringify({
-              application_id: "app-1",
-              source_revision_id: "rev-0",
-            }),
-          },
-        }),
-      );
-    });
-
-    it("updateAgentRevisionSpec PATCHes the revision with the full spec", async () => {
-      const fetch = vi.fn().mockResolvedValue({
-        json: async () => ({ id: "draft-1", state: "draft" }),
-      });
-      const client = makeClient(fetch);
-      const spec = { models: { mode: "auto", level: "high" } };
-
-      await client.updateAgentRevisionSpec(
-        "agent-slug",
-        "draft-1",
-        spec as never,
-      );
-
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "patch",
-          path: "/api/projects/123/agent_applications/agent-slug/revisions/draft-1/",
-          overrides: { body: JSON.stringify({ spec }) },
-        }),
-      );
-    });
-
-    it("getAgentModelCatalog GETs the project-level models endpoint", async () => {
-      const catalog = {
-        models: [{ model: "anthropic/claude-haiku-4.5" }],
-        levels: { low: ["anthropic/claude-haiku-4.5"] },
-      };
-      const fetch = vi.fn().mockResolvedValue({ json: async () => catalog });
-      const client = makeClient(fetch);
-
-      await expect(client.getAgentModelCatalog()).resolves.toEqual(catalog);
-      expect(fetch).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: "get",
-          path: "/api/projects/123/agent_applications/models/",
-        }),
-      );
-    });
-  });
-
   describe("batched scout emissions", () => {
     const EMISSIONS_PATH =
       "/api/projects/123/signals/scout/runs/emissions/batch/";
@@ -2475,243 +2464,6 @@ describe("PostHogAPIClient", () => {
 
       expect(result).toHaveLength(0);
       expect(fetch).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("custom tool authoring", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = { baseUrl: "http://localhost:8000", fetcher: { fetch } };
-      return client;
-    }
-
-    // The shared fetcher throws `Failed request: [<status>] <json>` on non-2xx.
-    const failWith = (status: number, body: unknown) =>
-      new Error(`Failed request: [${status}] ${JSON.stringify(body)}`);
-
-    describe("putRevisionTool", () => {
-      it("returns an ok result with capabilities on 200", async () => {
-        const fetch = vi.fn().mockResolvedValue({
-          json: async () => ({
-            ok: true,
-            tool_id: "t1",
-            capabilities: {
-              secret_refs: ["API_KEY"],
-              dynamic_secret_refs: false,
-            },
-          }),
-        });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "export default {}",
-          }),
-        ).resolves.toEqual({
-          ok: true,
-          tool_id: "t1",
-          capabilities: {
-            secret_refs: ["API_KEY"],
-            dynamic_secret_refs: false,
-          },
-        });
-        const call = fetch.mock.calls[0][0];
-        expect(call.method).toBe("put");
-        expect(call.path).toBe(
-          "/api/projects/123/agent_applications/agent/revisions/rev-1/tools/t1/",
-        );
-      });
-
-      it("returns a typed compile-failed result on 422 (not a throw)", async () => {
-        const errors = [
-          {
-            kind: "parse_failed",
-            message: "Unexpected token",
-            line: 3,
-            column: 5,
-          },
-        ];
-        const fetch = vi.fn().mockRejectedValue(
-          failWith(422, {
-            error: "tool_compile_failed",
-            tool_id: "t1",
-            errors,
-          }),
-        );
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "bad(",
-          }),
-        ).resolves.toEqual({
-          ok: false,
-          error: "tool_compile_failed",
-          tool_id: "t1",
-          errors,
-        });
-      });
-
-      it("rethrows non-422 failures (e.g. 409 sealed revision)", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(409, { error: "revision_sealed" }));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.putRevisionTool("agent", "rev-1", "t1", {
-            description: "d",
-            args_schema: {},
-            source: "x",
-          }),
-        ).rejects.toThrow("[409]");
-      });
-    });
-
-    describe("deleteRevisionTool", () => {
-      it("resolves on 200", async () => {
-        const fetch = vi.fn().mockResolvedValue({ json: async () => ({}) });
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "t1"),
-        ).resolves.toBeUndefined();
-        expect(fetch.mock.calls[0][0].method).toBe("delete");
-      });
-
-      it("treats a 404 (tool_not_found) as success", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(404, { error: "tool_not_found" }));
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "gone"),
-        ).resolves.toBeUndefined();
-      });
-
-      it("rethrows other failures", async () => {
-        const fetch = vi.fn().mockRejectedValue(failWith(500, "boom"));
-        const client = makeClient(fetch);
-        await expect(
-          client.deleteRevisionTool("agent", "rev-1", "t1"),
-        ).rejects.toThrow("[500]");
-      });
-    });
-
-    describe("dryRunRevisionTool", () => {
-      it("returns a completed envelope on a 200 success", async () => {
-        const envelope = {
-          ok: true,
-          tool_id: "t1",
-          result: { hello: "world" },
-          duration_ms: 42,
-        };
-        const fetch = vi.fn().mockResolvedValue({ json: async () => envelope });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("returns a completed envelope for a 200 with ok:false (tool threw)", async () => {
-        const envelope = {
-          ok: false,
-          tool_id: "t1",
-          error: { code: "timeout", message: "wall clock exceeded" },
-          duration_ms: 5000,
-        };
-        const fetch = vi.fn().mockResolvedValue({ json: async () => envelope });
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("surfaces a 500 envelope as completed (infra failure carries error.code)", async () => {
-        const envelope = {
-          ok: false,
-          tool_id: "t1",
-          error: { code: "sandbox_acquire_failed", message: "no sandbox" },
-          duration_ms: 12,
-        };
-        const fetch = vi.fn().mockRejectedValue(failWith(500, envelope));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "completed", envelope });
-      });
-
-      it("returns a throttled outcome on 429 (never throws, carries max_concurrent)", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(
-            failWith(429, { error: "dry_run_throttled", max_concurrent: 2 }),
-          );
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "throttled", max_concurrent: 2 });
-      });
-
-      it("throttles without a count when max_concurrent is absent", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(429, { error: "dry_run_throttled" }));
-        const client = makeClient(fetch);
-
-        const result = await client.dryRunRevisionTool("agent", "rev-1", "t1", {
-          args: {},
-        });
-        expect(result).toEqual({ outcome: "throttled" });
-        expect(
-          (result as { max_concurrent?: number }).max_concurrent,
-        ).toBeUndefined();
-      });
-
-      it("returns an unavailable outcome on 503", async () => {
-        const fetch = vi
-          .fn()
-          .mockRejectedValue(failWith(503, "not configured"));
-        const client = makeClient(fetch);
-
-        await expect(
-          client.dryRunRevisionTool("agent", "rev-1", "t1", { args: {} }),
-        ).resolves.toEqual({ outcome: "unavailable" });
-      });
-
-      it("passes mock_secrets through in the request body", async () => {
-        const fetch = vi.fn().mockResolvedValue({
-          json: async () => ({ ok: true, tool_id: "t1", duration_ms: 1 }),
-        });
-        const client = makeClient(fetch);
-
-        await client.dryRunRevisionTool("agent", "rev-1", "t1", {
-          args: { q: 1 },
-          mock_secrets: { API_KEY: "placeholder" },
-        });
-
-        const body = JSON.parse(fetch.mock.calls[0][0].overrides.body);
-        expect(body).toEqual({
-          args: { q: 1 },
-          mock_secrets: { API_KEY: "placeholder" },
-        });
-      });
     });
   });
 

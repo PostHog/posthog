@@ -1,5 +1,6 @@
 import json
 import uuid
+import typing
 import asyncio
 import hashlib
 
@@ -16,12 +17,14 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.sync import database_sync_to_async_pool
 
 from products.cdp.backend.models.hog_functions import HogFunction
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
@@ -42,24 +45,54 @@ CDP_PRODUCER_ROWS_TOTAL = Counter(
     labelnames=["team_id"],
 )
 
+TableKind = typing.Literal["source", "view"]
+
+# Trigger identifiers a HogFunction's `filters.source` or a HogFlow's `trigger.type` carries,
+# keyed by the kind of warehouse table the rows came from.
+TRIGGER_SOURCE_BY_KIND: dict[TableKind, str] = {
+    "source": "data-warehouse-table",
+    "view": "data-warehouse-view",
+}
+
+
+@frozen
+class CDPTriggerTable:
+    """The warehouse table a producer run emits rows for.
+
+    A source-synced table is identified by its ExternalDataSchema, a materialized view by its
+    DataWarehouseSavedQuery. The two share every step after this — the staging area, the Kafka
+    topic, the consumer — so they differ only in how the table's name and subscribers resolve.
+    """
+
+    kind: TableKind
+    id: str
+
 
 class CDPProducer:
     team_id: int
-    schema_id: str
+    table: CDPTriggerTable
     job_id: str
     logger: FilteringBoundLogger
     _should_run_cache: bool | None
     _table_name_cache: str | None
     _fs_cache: pa_fs.S3FileSystem | None
 
-    def __init__(self, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> None:
+    def __init__(self, team_id: int, table: CDPTriggerTable, job_id: str, logger: FilteringBoundLogger) -> None:
         self.team_id = team_id
-        self.schema_id = schema_id
+        self.table = table
         self.job_id = job_id
         self.logger = logger
         self._should_run_cache = None
         self._table_name_cache = None
         self._fs_cache = None
+
+    @classmethod
+    def for_source(cls, *, team_id: int, schema_id: str, job_id: str, logger: FilteringBoundLogger) -> "CDPProducer":
+        return cls(team_id, CDPTriggerTable(kind="source", id=schema_id), job_id, logger)
+
+    @classmethod
+    def for_view(cls, *, team_id: int, saved_query_id: str, job_id: str, logger: FilteringBoundLogger) -> "CDPProducer":
+        return cls(team_id, CDPTriggerTable(kind="view", id=saved_query_id), job_id, logger)
 
     def _get_fs(self) -> pa_fs.S3FileSystem:
         # Cached per instance: stage_chunk() calls this once per chunk, and a producer lives for
@@ -88,7 +121,10 @@ class CDPProducer:
         return self._fs_cache
 
     def _get_path_prefix(self) -> str:
-        return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{self.schema_id}/{self.job_id}"
+        # Views get their own middle segment so the two kinds never share a prefix and the source
+        # layout stays exactly what it was.
+        segment = self.table.id if self.table.kind == "source" else f"view_{self.table.id}"
+        return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{segment}/{self.job_id}"
 
     async def _list_files_to_produce(self) -> list[str]:
         async with aget_s3_client() as s3_client:
@@ -99,10 +135,21 @@ class CDPProducer:
                 return files
             except FileNotFoundError:
                 return []
+            except PermissionError:
+                # The worker may lack an s3:ListBucket grant on the cdp_producer/ prefix. Row
+                # staging is best effort, so degrade to producing nothing and log a warning rather
+                # than raise into error tracking.
+                await self.logger.awarning(
+                    f"No permission to list CDP staging files at {self._get_path_prefix()}; skipping CDP row staging"
+                )
+                return []
 
     def _serialize_json(self, record: object, *, sort_keys: bool = False) -> bytes:
         try:
-            return orjson.dumps(record, option=orjson.OPT_SORT_KEYS if sort_keys else None)
+            # `default=str` covers Decimal, which orjson refuses natively and which materialized
+            # view aggregates produce routinely. Without it the fallback below stringifies every
+            # value in the row, not just the offending one.
+            return orjson.dumps(record, default=str, option=orjson.OPT_SORT_KEYS if sort_keys else None)
         except TypeError:
             try:
                 return json.dumps(record, sort_keys=sort_keys).encode("utf-8")
@@ -119,7 +166,13 @@ class CDPProducer:
 
         @database_sync_to_async_pool
         def _resolve() -> str:
-            schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
+            if self.table.kind == "view":
+                # A saved query's name is already the name it is queryable by in HogQL.
+                return DataWarehouseSavedQuery.objects.values_list("name", flat=True).get(
+                    id=self.table.id, team_id=self.team_id
+                )
+
+            schema = ExternalDataSchema.objects.get(id=self.table.id, team_id=self.team_id)
             raw_table_name = build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
@@ -127,32 +180,60 @@ class CDPProducer:
         return self._table_name_cache
 
     def _build_event_id(self, row: object) -> str:
-        """Build a deterministic event id that is unique per row per job.
+        """Build a deterministic event id for a row.
 
-        The row is hashed (sorted keys so re-runs of the same job produce the same hash)
-        and combined with the job id, so the id is stable for the same row + job but
-        changes whenever the row's data changes.
+        The row is hashed with sorted keys, so the id is stable for identical row data and changes
+        whenever the data changes.
+
+        A source sync also mixes in the job id: the same row arriving in a later sync is a new
+        delivery. A materialized view does not, because its incremental filter is inclusive of the
+        watermark — the rows on the boundary are recomputed and re-emitted on every run without
+        having changed. Keying those on content alone lets a destination recognize the repeat.
         """
         row_hash = hashlib.sha256(self._serialize_json(row, sort_keys=True)).hexdigest()
-        return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{self.job_id}:{row_hash}"))
+        scope = self.table.id if self.table.kind == "view" else self.job_id
+        return str(uuid.uuid5(uuid.NAMESPACE_OID, f"{scope}:{row_hash}"))
+
+    def _view_can_trigger(self) -> bool:
+        """Only a user-created, materialized saved query can drive a trigger.
+
+        Endpoints carry a version suffix (`name_v1`), so a trigger's stored name would break on
+        every version bump, and managed viewsets are generated by other products rather than chosen
+        by the user.
+        """
+        return (
+            DataWarehouseSavedQuery.objects.filter(
+                id=self.table.id,
+                team_id=self.team_id,
+                is_materialized=True,
+                is_test=False,
+                origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+            )
+            .exclude(deleted=True)
+            .exists()
+        )
 
     async def should_run(self) -> bool:
         if self._should_run_cache is not None:
             return self._should_run_cache
 
         dot_notated_table_name = await self.get_dot_notated_table_name()
+        trigger_source = TRIGGER_SOURCE_BY_KIND[self.table.kind]
 
         @database_sync_to_async_pool
         def _check() -> bool:
             self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any hog functions or workflows")
-            self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
+            self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = {trigger_source}")
 
             try:
+                if self.table.kind == "view" and not self._view_can_trigger():
+                    return False
+
                 has_matching_hog_function = (
                     HogFunction.objects.filter(
                         team_id=self.team_id,
                         enabled=True,
-                        filters__source="data-warehouse-table",
+                        filters__source=trigger_source,
                         filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
                     )
                     .exclude(deleted=True)
@@ -167,7 +248,7 @@ class CDPProducer:
                 return HogFlow.objects.filter(
                     team_id=self.team_id,
                     status=HogFlow.State.ACTIVE,
-                    trigger__type="data-warehouse-table",
+                    trigger__type=trigger_source,
                     trigger__table_name=dot_notated_table_name,
                 ).exists()
             except (DjangoOperationalError, OSError) as e:
@@ -198,8 +279,13 @@ class CDPProducer:
                 except FileNotFoundError:
                     pass
 
-    async def stage_chunk(self, chunk: int, table: pa.Table) -> None:
+    async def stage_chunk(self, chunk: int, table: pa.Table | pa.RecordBatch) -> None:
         await self.logger.adebug(f"Writing chunk {chunk} for CDP producer to S3 path prefix {self._get_path_prefix()}")
+
+        # The import pipeline hands over tables, the data modeling activity record batches. Normalize
+        # here so neither call site has to know what parquet writing wants. from_batches is zero-copy.
+        if isinstance(table, pa.RecordBatch):
+            table = pa.Table.from_batches([table])
 
         # Write operations in pyarrow are CPU-bound, so run in thread pool
         await asyncio.to_thread(
@@ -217,7 +303,7 @@ class CDPProducer:
         await self.logger.adebug(f"Producing CDP data to Kafka from S3 path prefix {self._get_path_prefix()}")
 
         # Propagate the dot-notated table name so the Node consumer can match warehouse-triggered
-        # workflows (HogFlows) against trigger.table_name without an extra lookup.
+        # destinations and workflows against their configured table without an extra lookup.
         dot_notated_table_name = await self.get_dot_notated_table_name()
 
         files_to_produce = await self._list_files_to_produce()
@@ -239,6 +325,7 @@ class CDPProducer:
                                 row_as_props = {
                                     "team_id": self.team_id,
                                     "table_name": dot_notated_table_name,
+                                    "table_type": self.table.kind,
                                     "event_id": self._build_event_id(row),
                                     "properties": row,
                                 }

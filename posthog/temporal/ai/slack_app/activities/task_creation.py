@@ -19,7 +19,7 @@ from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from posthog.temporal.common.utils import close_db_connections
 
-from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
+from products.slack_app.backend.services.slack_messages import context_block, post_slack_thread_reply
 
 logger = structlog.get_logger(__name__)
 
@@ -766,11 +766,17 @@ def forward_posthog_code_followup_activity(
     slack_user_id: str,
     event_text: str,
     user_message_ts: str | None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Forward a follow-up message to the running agent if a mapping exists.
 
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
+
+    ``model_override`` is classified by the workflow, above the point where the
+    follow-up and new-task paths diverge, so a retry of this activity reuses the model
+    the first attempt announced. It defaults to ``None`` for histories recorded before
+    the workflow classified this early, which simply leave the run on its own model.
     """
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -861,6 +867,7 @@ def forward_posthog_code_followup_activity(
             user_message_ts,
             actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
+            model_override=model_override,
         )
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
@@ -937,6 +944,18 @@ def forward_posthog_code_followup_activity(
         or user_text
     )
 
+    # Switch the running agent before the message is queued, so the turn this reply
+    # opens is the first one on the model it asked for.
+    _apply_followup_model_override(
+        slack,
+        channel,
+        thread_ts,
+        task_run=task_run,
+        task_id=mapping.task_id,
+        override=model_override,
+        actor_user=actor_user,
+    )
+
     # Queue on the workflow so delivery is ordered with the web path. The
     # deterministic message id keeps redelivery idempotent.
     signal_result = tasks_facade.signal_task_run_user_message(
@@ -1002,6 +1021,121 @@ def forward_posthog_code_followup_activity(
 
     logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
+
+
+def _apply_followup_model_override(
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    *,
+    task_run: Any,
+    task_id: Any,
+    override: SlackAppModelOverride | None,
+    actor_user: Any | None,
+) -> None:
+    """Move a running agent onto the model and effort a follow-up asked for.
+
+    The harness is fixed once a sandbox starts, so a model belonging to the other
+    runtime is answered rather than attempted: that one needs a new task. A switch that
+    lands says nothing, because the footer under the next reply reads the model back out
+    of the run's state. A failure to apply leaves the run on what it was already using
+    rather than derailing the follow-up.
+    """
+    from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
+    from products.tasks.backend.facade import api as tasks_facade
+
+    state = task_run.state or {}
+    try:
+        change = resolve_live_run_override(
+            override,
+            runtime_adapter=state.get("runtime_adapter"),
+            model=state.get("model"),
+            reasoning_effort=state.get("reasoning_effort"),
+        )
+    except Exception:
+        logger.exception("slack_app_followup_model_override_resolve_failed", task_run_id=str(task_run.id))
+        return
+
+    if change.is_empty:
+        return
+
+    if change.refused_model:
+        _post_thread_context(
+            slack,
+            channel,
+            thread_ts,
+            f"I can't move this task onto {describe_run_model(change.refused_model, None)}. The runtime is fixed "
+            "once an agent starts, so start a new thread to run on it.",
+        )
+        return
+
+    try:
+        applied = tasks_facade.apply_task_run_model_config(
+            task_run.id,
+            task_id,
+            task_run.team_id,
+            model=change.model,
+            reasoning_effort=change.reasoning_effort,
+            actor_user_id=actor_user.id if actor_user and actor_user.id else None,
+        )
+    except Exception:
+        logger.exception("slack_app_followup_model_override_apply_failed", task_run_id=str(task_run.id))
+        return
+
+    if not applied:
+        logger.warning(
+            "slack_app_followup_model_override_not_applied",
+            task_run_id=str(task_run.id),
+            model=change.model,
+            reasoning_effort=change.reasoning_effort,
+        )
+        return
+
+    logger.info(
+        "slack_app_followup_model_override_applied",
+        task_run_id=str(task_run.id),
+        model=change.model,
+        reasoning_effort=change.reasoning_effort,
+    )
+
+
+def _run_preference_state(
+    integration: Any,
+    slack_user_id: str,
+    model_override: SlackAppModelOverride | None,
+) -> dict[str, Any]:
+    """The run-state keys that pin a new run's harness, model and effort.
+
+    ``create_and_run_task`` derives these from its own arguments; a run created straight
+    off a task has to write them itself, and a run with none of them set falls back to
+    whatever the agent server defaults to.
+    """
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
+    from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
+
+    prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
+    state = {
+        "runtime_adapter": prefs.runtime_adapter,
+        "provider": provider.value if provider else None,
+        "model": prefs.model,
+        "reasoning_effort": prefs.reasoning_effort,
+    }
+    return {key: value for key, value in state.items() if value}
+
+
+def _post_thread_context(slack: Any, channel: str, thread_ts: str, text: str) -> None:
+    """A one-line context block in the thread. Best-effort — it annotates the run."""
+    try:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=text,
+            blocks=[context_block(text)],
+        )
+    except Exception:
+        logger.warning("slack_app_thread_context_post_failed", channel=channel, thread_ts=thread_ts)
 
 
 def _terminal_recovery_strategy(previous_run: Any) -> str | None:
@@ -1081,9 +1215,9 @@ def _resume_task_with_new_run(
     user_message_ts: str | None,
     actor_user: Any | None = None,
     user_text_prefix: str | None = None,
+    model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences  # noqa: PLC0415
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -1126,21 +1260,15 @@ def _resume_task_with_new_run(
         **_artifact_delivery_state_updates(integration),
     }
 
-    # `create_run` builds a fresh state, so a follow-up that says nothing about the model
-    # reaches the sandbox with none and the agent server picks its own — the thread then
-    # can't say what ran. Resolved again rather than carried over, like the keys above: a
-    # follow-up honours whatever the picker says now.
-    run_prefs = resolve_run_preferences(integration, slack_user_id)
-    if run_prefs.model:
-        extra_state["model"] = run_prefs.model
-    if run_prefs.runtime_adapter:
-        extra_state["runtime_adapter"] = run_prefs.runtime_adapter
-    if run_prefs.reasoning_effort:
-        extra_state["reasoning_effort"] = run_prefs.reasoning_effort
-
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
+
+    # A successor launches its own agent server, so the whole triple is open again —
+    # including the runtime a live run could never be moved onto. Resolved rather than
+    # carried over, like the keys above: a preference changed since the previous run is
+    # picked up too.
+    extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
