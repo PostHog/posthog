@@ -3,8 +3,6 @@ import { Node } from '@xyflow/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'
@@ -17,9 +15,6 @@ const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
 const meta: Meta<typeof StepDelayConfiguration> = {
     title: 'Products/Workflows/Steps/Delay',
     component: StepDelayConfiguration,
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_DELAY_UNTIL_DATE],
-    },
 }
 export default meta
 
@@ -66,7 +61,3 @@ export const DateNotChosenYet: StoryFn<{ action: DelayAction }> = Template.bind(
 DateNotChosenYet.args = {
     action: delayAction({ delay_until: { expression: '' } }, 'Wait until a date on the person or event.'),
 }
-
-export const WithoutTheDateFlag: StoryFn<{ action: DelayAction }> = Template.bind({})
-WithoutTheDateFlag.args = { action: delayAction({ delay_duration: '10m' }, 'Wait for 10 minutes.') }
-WithoutTheDateFlag.parameters = { featureFlags: [] }
