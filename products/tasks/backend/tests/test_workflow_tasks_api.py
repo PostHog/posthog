@@ -382,10 +382,49 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "integration_id": integration.id,
             "channel": "C0ALERTS",
             "thread_ts": "1700000000.000100",
+            "message_ts": "1700000000.000100",
             "slack_user_id": "U123",
             "slack_team_id": "T123",
             **overrides,
         }
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.SlackIntegration")
+    def test_reacts_to_the_message_that_triggered_the_run(self, slack_integration) -> None:
+        # A reply-triggered run carries a thread_ts pointing at the thread's parent, so
+        # reacting to that would mark a message the run has nothing to do with.
+        integration = self._slack_integration()
+        body = {"slack_context": self._slack_context(integration, thread_ts="1699999999.000001")}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        kwargs = slack_integration.return_value.client.reactions_add.call_args.kwargs
+        assert kwargs["channel"] == "C0ALERTS"
+        assert kwargs["timestamp"] == "1700000000.000100"
+        assert kwargs["name"] == "eyes"
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.SlackIntegration")
+    def test_holds_the_reaction_until_the_task_commits(self, slack_integration) -> None:
+        # Reacting inside the transaction leaves the emoji behind on a rollback, pointing
+        # at a task that was never created.
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        slack_integration.return_value.client.reactions_add.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.SlackIntegration")
+    def test_a_failing_reaction_does_not_fail_the_task(self, slack_integration) -> None:
+        slack_integration.return_value.client.reactions_add.side_effect = Exception("slack is down")
+        integration = self._slack_integration()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert SlackThreadTaskMapping.objects.filter(integration=integration).exists()
 
     def test_binds_the_task_run_to_the_slack_thread(self) -> None:
         integration = self._slack_integration()
@@ -410,6 +449,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "integration_id": integration.id,
             "channel": "C0ALERTS",
             "thread_ts": "1700000000.000100",
+            "user_message_ts": "1700000000.000100",
             "mentioning_slack_user_id": "U123",
         }
 

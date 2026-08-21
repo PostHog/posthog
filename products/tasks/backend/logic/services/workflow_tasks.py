@@ -14,7 +14,7 @@ from django.db import IntegrityError, connection, transaction
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -33,6 +33,10 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 # Caps how much of the triggering event enters the agent's prompt. Slack Block Kit payloads
 # are the usual offender; the flat properties beside them carry the same content.
 EVENT_PROMPT_MAX_CHARS = 16_000
+
+# Matches the in-progress marker the task's own Slack updates use, so the later swap to
+# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+TRIGGER_ACK_EMOJI = "eyes"
 
 WORKFLOW_FRAMING_BLOCK = (
     "This is an unattended run started by a PostHog workflow. No human is available to "
@@ -174,6 +178,7 @@ def create_workflow_task(
                 # on-commit, so the binding commits atomically with the run and is guaranteed
                 # visible before the agent can finish and try to report into the thread.
                 _bind_slack_thread(team=team, task=task, binding=slack_binding)
+                _acknowledge_trigger_message(slack_binding)
     except IntegrityError:
         if origin_key is None:
             raise
@@ -276,9 +281,34 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
             integration_id=integration.id,
             channel=ctx.channel,
             thread_ts=ctx.thread_ts,
+            # The message that fired the run, which the reaction and later relays target.
+            # Falls back to the thread for a context that predates the field.
+            user_message_ts=ctx.message_ts or ctx.thread_ts,
             mentioning_slack_user_id=ctx.slack_user_id or None,
         ),
     )
+
+
+def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
+    """React to the triggering message so the channel sees the task was picked up.
+
+    Deferred to commit: an outbound call inside the create transaction would leave the
+    reaction behind on a rollback, pointing at a task that does not exist. Never raises,
+    for the same reason the binding doesn't - an unacknowledged run still does its work.
+    """
+    thread = binding.thread_context
+
+    def _react() -> None:
+        try:
+            SlackIntegration(binding.integration).client.reactions_add(
+                channel=thread.channel,
+                timestamp=thread.user_message_ts or thread.thread_ts,
+                name=TRIGGER_ACK_EMOJI,
+            )
+        except Exception:
+            logger.warning("workflow_task_slack_ack_failed", channel=thread.channel, ts=thread.user_message_ts)
+
+    transaction.on_commit(_react)
 
 
 def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> None:

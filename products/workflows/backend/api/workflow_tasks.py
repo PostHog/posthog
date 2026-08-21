@@ -47,6 +47,12 @@ class WorkflowTaskSlackContextSerializer(serializers.Serializer):
     )
     channel = serializers.CharField(max_length=64, help_text="Slack channel ID of the triggering message.")
     thread_ts = serializers.CharField(max_length=64, help_text="Slack thread timestamp the task replies under.")
+    message_ts = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Timestamp of the triggering message itself. Differs from thread_ts when a reply started the run.",
+    )
     slack_user_id = serializers.CharField(
         max_length=64,
         required=False,

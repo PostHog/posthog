@@ -113,10 +113,13 @@ describe('posthog create task template', () => {
     ])('sends slack context when triggered by a Slack message: %s', async (_name, properties, expectedThreadTs) => {
         const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals(properties))
 
+        // message_ts stays the triggering message's own ts even when thread_ts is the
+        // parent, so the acknowledgement reaction lands on the message that fired the run.
         expect(parseJSON(params.body!).slack_context).toEqual({
             integration_id: 42,
             channel: 'C0ALERTS',
             thread_ts: expectedThreadTs,
+            message_ts: '1700000000.000100',
             slack_user_id: 'U123',
             slack_team_id: 'T123',
         })

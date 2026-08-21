@@ -651,12 +651,14 @@ class WorkflowTaskSlackContext:
     ``integration_id`` is the PostHog integration pk stamped on the trigger event;
     ``slack_team_id`` is the Slack workspace id, kept as a fallback for re-resolving the
     integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
-    posted the triggering message.
+    posted the triggering message. ``message_ts`` is the triggering message itself,
+    which differs from ``thread_ts`` when a reply started the run.
     """
 
     integration_id: int
     channel: str
     thread_ts: str
+    message_ts: str = ""
     slack_user_id: str = ""
     slack_team_id: str = ""
 
