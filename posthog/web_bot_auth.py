@@ -21,7 +21,7 @@ _SIGNATURE_LIFETIME_SECONDS = 300
 # A request-controlled authority would let another site proxy this route. The returned directory
 # would verify for that site but contain our public key.
 #
-# The bot names us.posthog.com in Signature-Agent because Vercel reserves /.well-known on posthog.com.
+# The bot uses us.posthog.com as its origin in Signature-Agent because Vercel reserves /.well-known on posthog.com.
 # Vercel does not rewrite that path, so posthog.com cannot generate this response for each request.
 _AUTHORITY = "us.posthog.com"
 
