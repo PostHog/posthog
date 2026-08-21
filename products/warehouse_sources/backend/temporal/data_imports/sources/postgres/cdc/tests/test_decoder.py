@@ -562,37 +562,38 @@ class TestTransactionBufferGuard:
 
 
 class TestReplicaIdentityKeyColumns:
-    # A REPLICA IDENTITY FULL table flags every column as part of the key. Persisting that as the
-    # primary key makes the merge key every column, so an UPDATE lands as a new row instead of
-    # replacing the old one and the warehouse table accumulates stale versions forever.
-
-    def _decoder_with(self, replica_identity: int, key_flags: list[int]) -> PgOutputDecoder:
+    def _decoder_with(self, replica_identity: int = 0, key_flags: tuple[int, ...] = (1, 0, 0)) -> PgOutputDecoder:
         decoder = PgOutputDecoder()
         decoder._relations[1] = Relation(
             relation_id=1,
-            schema_name="public",
-            table_name="users",
+            schema_name="cdc_test",
+            table_name="orders",
             replica_identity=replica_identity,
             columns=[
-                RelationColumn(flags=f, name=n, type_oid=_OID_INT8, type_modifier=-1)
-                for f, n in zip(key_flags, ["id", "name", "email"])
+                RelationColumn(flags=flags, name=name, type_oid=_OID_INT8, type_modifier=-1)
+                for flags, name in zip(key_flags, ["id", "tenant_id", "total"])
             ],
         )
         return decoder
 
+    @parameterized.expand(
+        [
+            ("qualified", "cdc_test.orders", ["id"]),
+            ("bare", "orders", ["id"]),
+            ("other_schema", "public.orders", []),
+        ]
+    )
+    def test_lookup_by_name(self, _name, lookup, expected):
+        assert self._decoder_with().get_key_columns(lookup) == expected
+
     def test_full_replica_identity_yields_no_key(self):
-        decoder = self._decoder_with(replica_identity=2, key_flags=[1, 1, 1])
+        # FULL flags every column, so adopting it as the key would make the merge key the whole row
+        # and every update would insert instead of replace.
+        decoder = self._decoder_with(replica_identity=2, key_flags=(1, 1, 1))
 
-        assert decoder.get_key_columns("users") == []
+        assert decoder.get_key_columns("cdc_test.orders") == []
 
-    def test_default_replica_identity_yields_the_declared_key(self):
-        decoder = self._decoder_with(replica_identity=0, key_flags=[1, 0, 0])
+    def test_declared_key_covering_every_column_survives(self):
+        decoder = self._decoder_with(replica_identity=0, key_flags=(1, 1, 1))
 
-        assert decoder.get_key_columns("users") == ["id"]
-
-    def test_a_declared_key_covering_every_column_survives(self):
-        # Distinguished by replica identity, not by "every column is flagged" — otherwise a table
-        # whose composite PK genuinely spans all its columns would lose its key.
-        decoder = self._decoder_with(replica_identity=0, key_flags=[1, 1, 1])
-
-        assert decoder.get_key_columns("users") == ["id", "name", "email"]
+        assert decoder.get_key_columns("cdc_test.orders") == ["id", "tenant_id", "total"]

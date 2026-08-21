@@ -364,20 +364,32 @@ class PgOutputDecoder:
     def get_key_columns(self, table_name: str) -> list[str]:
         """Return the column names forming the replica identity key, or [] if there is no usable one.
 
-        REPLICA IDENTITY FULL flags every column as part of the key, which names no key at all —
-        merging on every column makes each row version its own key, so updates accumulate instead
-        of replacing. Callers fall back to the declared primary key when this is empty.
+        Callers key on `ExternalDataSchema.name`, which is qualified (`schema.table`) for every
+        source created through the API, so matching only the bare relation name returned [] for all
+        of them and made the caller's key-change detection dead code.
         """
+        relation = self._find_relation_by_name(table_name)
+        if relation is None:
+            return []
+        # replica_identity 2 = FULL, which flags every column as part of the key. That names no key:
+        # merging on every column makes each row version its own key, so updates accumulate instead
+        # of replacing. Checked by identity rather than by "all columns flagged", so a table whose
+        # declared PK genuinely covers every column still works.
+        if relation.replica_identity == _REPLICA_IDENTITY_FULL:
+            return []
+        return [col.name for col in relation.columns if col.flags & 1]
+
+    def _find_relation_by_name(self, table_name: str) -> Relation | None:
+        """Match `schema.table` first, falling back to the bare table name for schema rows that
+        predate qualification. Bare matching alone is also ambiguous once two source schemas expose
+        the same table name."""
+        bare_match: Relation | None = None
         for relation in self._relations.values():
-            if relation.table_name == table_name:
-                # replica_identity 2 = FULL, which flags every column as part of the key. That names
-                # no key: merging on every column makes each row version its own key, so updates
-                # accumulate instead of replacing. Checked by identity rather than by "all columns
-                # flagged", so a table whose declared PK genuinely covers every column still works.
-                if relation.replica_identity == _REPLICA_IDENTITY_FULL:
-                    return []
-                return [col.name for col in relation.columns if col.flags & 1]
-        return []
+            if relation.qualified_name == table_name:
+                return relation
+            if bare_match is None and relation.table_name == table_name:
+                bare_match = relation
+        return bare_match
 
     def _get_relation(self, relation_id: int) -> Relation | None:
         relation = self._relations.get(relation_id)

@@ -114,6 +114,12 @@ export interface TaskSearchResult {
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
  * user's private "#me" channel. `starred` is per-user.
  */
+export interface ProvisionedTaskChannels {
+  channels: TaskChannel[];
+  personal_created: boolean;
+  general_created: boolean;
+}
+
 export interface TaskChannel {
   id: string;
   name: string;
@@ -123,6 +129,7 @@ export interface TaskChannel {
   repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
+  system_role?: "personal" | "general" | null;
 }
 
 /** Lifecycle events a client may post into a channel's feed. */
@@ -293,14 +300,33 @@ export type ArtifactType =
 export type ArtifactSource =
   | "agent_output"
   | "user_attachment"
-  | "posthog_code_skill";
+  | "posthog_code_skill"
+  | "posthog_object";
 
-export interface TaskRunArtifactMetadata {
+export interface SkillBundleArtifactMetadata {
   skill_name: string;
   skill_source: UploadableSkillSource;
   content_sha256: string;
   bundle_format: "zip";
   schema_version: number;
+}
+
+export interface PostHogObjectArtifactMetadata {
+  reference_type: "posthog_object";
+  object_kind: string;
+  object_id: string;
+  source_message_ids: string[];
+  occurrence_count: number;
+}
+
+export type TaskRunArtifactMetadata =
+  | SkillBundleArtifactMetadata
+  | PostHogObjectArtifactMetadata;
+
+export function isSkillBundleArtifactMetadata(
+  metadata: TaskRunArtifactMetadata | undefined,
+): metadata is SkillBundleArtifactMetadata {
+  return metadata !== undefined && "skill_name" in metadata;
 }
 
 export interface TaskRunArtifact {
@@ -461,6 +487,10 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   kind: "snapshot";
   newEntries: StoredLogEntry[];
   totalEntryCount: number;
+  /** Chain index of newEntries[0] when the snapshot is a tail window rather
+   *  than the full history; older entries page in on demand. Absent means
+   *  the snapshot starts at the head of the chain. */
+  windowStart?: number;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;

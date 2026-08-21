@@ -3,6 +3,9 @@
 Renders the summary as Block Kit and posts it with a plain-text fallback for notifications. Raises
 ``DigestSlackError`` when the stored integration can't be resolved for the team so the caller can
 record the run as failed and retry the PRs tomorrow.
+
+Shape: one line per change, then a footer. Every part that is not a change was cut, because a daily
+bot post competes with the channel it lands in and loses on anything a reader has already read once.
 """
 
 from __future__ import annotations
@@ -17,18 +20,16 @@ from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
     from ..models import DigestChannel
-    from .digest import DigestPRSummary, DigestSummary
+    from .digest import DigestSummary
 
 logger = structlog.get_logger(__name__)
 
-# Slack rejects messages with more than 50 blocks; header/intro/divider/footer take a few.
-_MAX_PR_BLOCKS = 40
 # Slack rejects a section whose mrkdwn text exceeds 3000 chars, and the failure path unlinks the
 # claimed PRs — an oversized LLM summary would make every daily retry fail the same way forever.
 _MAX_SECTION_CHARS = 2900
 
 
-def _clip(text: str, limit: int = _MAX_SECTION_CHARS) -> str:
+def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -39,7 +40,7 @@ class DigestSlackError(Exception):
 def _escape_mrkdwn(text: str) -> str:
     """Neutralize Slack mrkdwn control characters in attacker-controlled text.
 
-    PR titles, author logins, and model-generated summaries come from outside contributors. Escaping
+    Model-generated summaries are written over contributor-authored PR text. Escaping
     ``&``/``<``/``>`` stops a merged PR from smuggling ``<!channel>`` mentions or breaking out of a link
     into the digest channel; Slack renders the escaped entities back as the literal characters.
     """
@@ -48,59 +49,67 @@ def _escape_mrkdwn(text: str) -> str:
 
 def _link(url: str, label: str) -> str:
     # url is trusted (built from the GitHub PR URL); the label is untrusted, so escape it and drop the
-    # `|` that would otherwise split the link syntax.
-    return f"<{url}|{_escape_mrkdwn(label).replace('|', '/')}>"
+    # `|` that would otherwise split the link syntax. Clipping happens inside the label rather than
+    # over the finished string: the label is now the whole line, so trimming the tail off the assembled
+    # link would take the closing `>` with it and leave Slack rendering raw markup instead of a link.
+    body = _clip(_escape_mrkdwn(label).replace("|", "/"), _MAX_SECTION_CHARS - len(url) - len("<|>"))
+    return f"<{url}|{body}>"
 
 
-def _pr_label(pr: DigestPRSummary, *, qualify: bool) -> str:
-    """``#412 Title``, or ``owner/repo#412 Title`` once the digest carries more than one repo.
+def _scope_line(shown: int, considered: int) -> str:
+    """The one line that stops a short digest from reading as everything that happened.
 
-    A team audience collects merges from every repo it owns code in, and PR numbers only mean
-    something within a repo. Qualifying unconditionally would put the same constant prefix on
-    every line of the far more common single-repo digest.
+    A reader who sees two changes and nothing else concludes two things merged. Naming the
+    denominator says more merged than this. It stops there and makes no claim about what was left
+    out, because nothing here can back one up: the digest only ever sees merges stamphog approved,
+    so even the denominator is a floor rather than the day's total.
+
+    It sits in the footer rather than the lead. The same sentence every morning is chrome the eye
+    learns to skip, and putting chrome first spends the only line the digest gets to earn attention.
     """
-    number = f"{pr.repository}#{pr.pr_number}" if qualify and pr.repository else f"#{pr.pr_number}"
-    return f"{number} {pr.title}"
-
-
-def _spans_repositories(summary: DigestSummary) -> bool:
-    return len({pr.repository for pr in summary.prs}) > 1
+    if considered > shown:
+        return f"{shown} of {considered} stamphog-approved merges."
+    return f"{shown} stamphog-approved {'merge' if shown == 1 else 'merges'}."
 
 
 def _build_blocks(summary: DigestSummary) -> list[dict]:
-    blocks: list[dict] = [
-        {"type": "header", "text": {"type": "plain_text", "text": "Merged PRs digest"}},
-    ]
-    if summary.intro:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _clip(_escape_mrkdwn(summary.intro))}})
-    blocks.append({"type": "divider"})
-    qualify = _spans_repositories(summary)
-    for pr in summary.prs[:_MAX_PR_BLOCKS]:
-        link = _link(pr.url, _pr_label(pr, qualify=qualify))
+    """One section per change, then a footer. No header and no intro.
+
+    The header said "Merged PRs digest" to people who could see it came from stamphog, in a channel
+    that gets one daily, and the intro was a model-written sentence about a list printed directly
+    below it. Both cost a reader their first line, which is the one that decides whether the rest
+    gets read, so the first line is now the first change.
+    """
+    blocks: list[dict] = []
+    for pr in summary.prs:
+        # The sentence is the link, and it is the whole line. A leading "#412" makes a reader parse
+        # an identifier before they reach what changed, and a trailing author repeats down the
+        # column on the common day where one person did most of the work. Both are on the PR, one
+        # click away, for the few readers who want them.
         blocks.append(
             {
                 "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": _clip(f"{link} — {_escape_mrkdwn(pr.author_login)}\n{_escape_mrkdwn(pr.summary)}"),
-                },
+                "text": {"type": "mrkdwn", "text": _link(pr.url, pr.summary)},
             }
         )
-    overflow = len(summary.prs) - _MAX_PR_BLOCKS
-    if overflow > 0:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"…and {overflow} more merged PRs."}})
-    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "via stamphog"}]})
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": _scope_line(len(summary.prs), summary.considered)}],
+        }
+    )
     return blocks
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
+    """Plain text for the notification preview and for clients that ignore blocks.
+
+    Leads with the first change, not with a title: the preview is what a reader sees on their lock
+    screen or in the channel list, and "Merged PRs digest" there tells them nothing they can act on.
+    """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
-    lines = [_escape_mrkdwn(summary.intro)] if summary.intro else []
-    qualify = _spans_repositories(summary)
-    lines.extend(
-        f"{_escape_mrkdwn(_pr_label(pr, qualify=qualify))} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs
-    )
-    return "\n".join(lines) or "Merged PRs digest"
+    lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
+    return "\n".join(lines) or "No merged PRs worth a mention."
 
 
 def _post_message(slack: SlackIntegration, digest_channel: DigestChannel, summary: DigestSummary) -> SlackResponse:

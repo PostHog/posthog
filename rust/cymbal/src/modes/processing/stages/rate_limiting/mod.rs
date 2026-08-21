@@ -222,6 +222,9 @@ async fn apply_rate_limits(
                 // Fail open: keep everything, but record it so we can alert on it.
                 warn!("error-tracking rate limiter failed open for team {team_id}: {e}");
                 counter!(RATE_LIMIT_FAIL_OPEN).increment(indices.len() as u64);
+                if crate::modes::processing::redis_heal::is_connection_error(&e) {
+                    limiter.spawn_heal();
+                }
                 continue;
             }
         };
