@@ -305,11 +305,14 @@ GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     labelnames=["scoped"],
 )
 
+GitHubWebhookAnalyticsEvent = Literal["pr_created", "pr_merged", "pr_closed", "pr_reviewed"]
 GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
 GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
 
 
-def observe_github_webhook_pr_event_dropped(*, analytics_event: str, reason: GitHubWebhookDropReason) -> None:
+def observe_github_webhook_pr_event_dropped(
+    *, analytics_event: GitHubWebhookAnalyticsEvent, reason: GitHubWebhookDropReason
+) -> None:
     GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL.labels(analytics_event=analytics_event, reason=reason).inc()
 
 

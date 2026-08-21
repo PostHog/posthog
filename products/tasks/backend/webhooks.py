@@ -17,12 +17,15 @@ from posthog.event_usage import groups
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import (
+    GitHubWebhookAnalyticsEvent,
+    GitHubWebhookAttributionOutcome,
     observe_github_webhook_attribution,
     observe_github_webhook_pr_event_dropped,
     observe_github_webhook_task_run_lookup,
@@ -207,7 +210,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     pr_state = _pr_state_for_action(action, pull_request)
-    analytics_event: str | None = None
+    analytics_event: GitHubWebhookAnalyticsEvent | None = None
     if action == "opened":
         event_action = "created"
         analytics_event = "pr_created"
@@ -230,7 +233,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(
-        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_installation_team_ids(payload)
+        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_task_run_scope_team_ids(payload)
     )
     claimed_pr_urls = (
         read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
@@ -339,7 +342,7 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(
-        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_installation_team_ids(payload)
+        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_task_run_scope_team_ids(payload)
     )
 
     # One review submission = one event; GitHub redeliveries collapse on the review id.
@@ -651,6 +654,24 @@ def _bounded_attribution_lookup() -> Iterator[None]:
         yield
 
 
+# PostgreSQL raises query_canceled when statement_timeout fires. Django wraps the driver
+# error in OperationalError, so the SQLSTATE lives on the cause -- psycopg3 spells it
+# `sqlstate`, psycopg2 `pgcode`. The message check is the fallback for anything that loses
+# the cause on the way up.
+_QUERY_CANCELED_SQLSTATE = "57014"
+
+
+def _is_statement_timeout(error: Exception) -> bool:
+    if not isinstance(error, OperationalError):
+        return False
+    cause = error.__cause__
+    if getattr(cause, "sqlstate", None) == _QUERY_CANCELED_SQLSTATE:
+        return True
+    if getattr(cause, "pgcode", None) == _QUERY_CANCELED_SQLSTATE:
+        return True
+    return "statement timeout" in str(error).lower()
+
+
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
     """Distinct id of the org member matching a GitHub login, or None when unresolvable.
 
@@ -662,13 +683,15 @@ def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | 
     try:
         with _bounded_attribution_lookup():
             resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
-    except OperationalError:
-        observe_github_webhook_attribution(outcome="timeout")
-        logger.warning("github_webhook_login_resolution_timed_out", login=login, team_id=team_id)
-        return None
     except Exception as e:
-        observe_github_webhook_attribution(outcome="error")
-        logger.warning("github_webhook_login_resolution_failed", login=login, team_id=team_id, error=str(e))
+        # timeout is meant to be the leading indicator for the cap we just installed, so it
+        # has to mean "statement cancelled", not "any OperationalError" -- connection resets
+        # and other DB incidents raise the same class and would drown the signal.
+        outcome: GitHubWebhookAttributionOutcome = "timeout" if _is_statement_timeout(e) else "error"
+        observe_github_webhook_attribution(outcome=outcome)
+        logger.warning(
+            "github_webhook_login_resolution_failed", login=login, team_id=team_id, outcome=outcome, error=str(e)
+        )
         return None
     if resolved is None:
         observe_github_webhook_attribution(outcome="unresolved")
@@ -752,7 +775,9 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
 
 
-def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+def _capture_pr_event(
+    payload: dict, task_run: TaskRun | None, analytics_event: GitHubWebhookAnalyticsEvent, event_uuid: str
+) -> None:
     pr_properties = _pr_payload_properties(payload)
 
     if task_run is not None:
@@ -802,22 +827,45 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         logger.warning("github_pr_webhook_capture_failed", analytics_event=analytics_event, error=str(e))
 
 
+def _installation_id(payload: dict) -> str | None:
+    """The delivery's GitHub App installation id, in the form the integration rows store it."""
+    installation_id = (payload.get("installation") or {}).get("id")
+    return None if installation_id is None else str(installation_id)
+
+
 def _installation_team_ids(payload: dict) -> list[int]:
-    """Teams the delivery's GitHub installation is connected to, in deterministic order.
+    """Teams whose GitHub Integration matches the delivery's installation, in deterministic order.
 
     Empty when the payload carries no installation id or no Integration matches it — the
     lookups that take this fall back to their unscoped behaviour in that case.
     """
-    installation_id = (payload.get("installation") or {}).get("id")
-    if installation_id is None:
+    external_id = _installation_id(payload)
+    if external_id is None:
         return []
 
     # One installation can map to multiple teams; order_by makes attribution deterministic.
     return list(
-        Integration.objects.filter(kind="github", integration_id=str(installation_id))
+        Integration.objects.filter(kind="github", integration_id=external_id)
         .order_by("team_id")
         .values_list("team_id", flat=True)
     )
+
+
+def _task_run_scope_team_ids(payload: dict) -> list[int]:
+    """Teams to scope the TaskRun lookup to, or empty to leave the lookup unscoped.
+
+    A personal install reaches a team only through the tasks that picked it, and
+    ``Task.github_user_integration`` is deliberately unindexed, so there is no cheap way to
+    turn one into a team scope. When the installation is linked personally as well, the team
+    Integration rows are not the whole picture: stay unscoped rather than exclude a run the
+    delivery legitimately belongs to.
+    """
+    external_id = _installation_id(payload)
+    if external_id is None:
+        return []
+    if UserIntegration.objects.filter(kind="github", integration_id=external_id).exists():
+        return []
+    return _installation_team_ids(payload)
 
 
 def _resolve_external_team(payload: dict) -> Team | None:

@@ -18,12 +18,19 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _account_type, _bounded_attribution_lookup, find_task_run
+from products.tasks.backend.webhooks import (
+    _account_type,
+    _bounded_attribution_lookup,
+    _installation_team_ids,
+    _task_run_scope_team_ids,
+    find_task_run,
+)
 
 
 class TestAccountType(TestCase):
@@ -223,6 +230,41 @@ class TestGitHubPRWebhook(TestCase):
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch(
+        "products.tasks.backend.webhooks.resolve_org_github_login_to_users",
+        side_effect=OperationalError("server closed the connection unexpectedly"),
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attribution_connection_error_is_not_counted_as_timeout(
+        self, mock_capture, mock_get_secret, _mock_resolve
+    ):
+        # timeout is the leading indicator for the statement cap, so a plain DB outage has to
+        # land on error -- otherwise an incident reads as statement-timeout pressure.
+        mock_get_secret.return_value = self.webhook_secret
+        timeouts = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
+        errors = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "error"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("pr_merged_by_distinct_id", mock_capture.call_args[1]["properties"])
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "error"}), errors + 1
+        )
+        self.assertEqual(
+            _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), timeouts
+        )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -1301,6 +1343,20 @@ class TestExternalPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
+
+    def test_personal_install_keeps_the_lookup_unscoped(self):
+        # A personal install reaches a team only through the tasks that picked it, and
+        # Task.github_user_integration is unindexed, so the team Integration rows are not the
+        # whole picture. Better to keep scanning than to drop a run that belongs to the PR.
+        payload = self._external_payload("opened", merged=False)
+        self.assertEqual(_task_run_scope_team_ids(payload), [self.team.id])
+
+        user = User.objects.create(email="personal@example.com", distinct_id="personal-1")
+        UserIntegration.objects.create(user=user, kind="github", integration_id="555000")
+
+        self.assertEqual(_task_run_scope_team_ids(payload), [])
+        # Attribution still resolves the team, so external PR events are unaffected.
+        self.assertEqual(_installation_team_ids(payload), [self.team.id])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
