@@ -9,9 +9,10 @@ import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
@@ -30,6 +31,7 @@ import {
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
+import { AlertPreviewCard } from './AlertPreviewCard'
 import { QuietHoursFields } from './QuietHoursFields'
 
 const alertEditorStoryLogic = kea([
@@ -386,6 +388,67 @@ function EvaluationHistoryStory(): JSX.Element {
     )
 }
 
+const PREVIEW_LABELS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
+
+function buildTrendsAlertForm(overrides: Partial<AlertFormType> = {}): AlertFormType {
+    return {
+        name: 'Preview alert',
+        enabled: true,
+        config: { type: 'TrendsAlertConfig', series_index: 0 },
+        condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+        threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 60, lower: 20 } } },
+        ...overrides,
+    } as AlertFormType
+}
+
+function PreviewStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm()}
+                trendsValues={[42, 48, 71, 64, 53, 68, 76]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+function PreviewRelativeStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    condition: { type: AlertConditionType.RELATIVE_INCREASE },
+                    threshold: { configuration: { type: InsightThresholdType.PERCENTAGE, bounds: { upper: 0.25 } } },
+                })}
+                trendsValues={[100, 90, 130, 120, 160, 140, 175]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+// Values span three orders of magnitude over a small threshold, so the card switches to a log scale.
+function PreviewLogScaleStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 5 } } },
+                })}
+                trendsValues={[3, 5200, 8, 6100, 12, 4800, 6]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
 const meta: Meta = {
     title: 'Products/Alerts/Shared components',
     parameters: {
@@ -415,3 +478,6 @@ export const Notifications: Story = { render: () => <NotificationsStory /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
+export const Preview: Story = { render: () => <PreviewStory /> }
+export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
+export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }
