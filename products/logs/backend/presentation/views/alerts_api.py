@@ -765,6 +765,19 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
+def _redact_destination_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.hostname:
+        return "<redacted>"
+    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    try:
+        port = parsed.port
+    except ValueError:
+        return "<redacted>"
+    authority = f"{hostname}:{port}" if port is not None else hostname
+    return f"{parsed.scheme}://{authority}/…"
+
+
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
     type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
     enabled = serializers.BooleanField(help_text="Whether every HogFunction in the destination group is enabled.")
@@ -775,10 +788,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
     def to_representation(self, instance: Any) -> dict[str, Any]:
         data = cast(dict[str, Any], super().to_representation(instance))
         if data.get("webhook_url"):
-            parsed = urlsplit(data["webhook_url"])
-            data["webhook_url"] = (
-                f"{parsed.scheme}://{parsed.netloc}/…" if parsed.scheme and parsed.netloc else "<redacted>"
-            )
+            data["webhook_url"] = _redact_destination_url(data["webhook_url"])
         return data
 
 

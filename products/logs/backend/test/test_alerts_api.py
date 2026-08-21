@@ -931,7 +931,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def test_list_destinations_groups_rows_and_redacts_webhook_credentials(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
-        webhook_url = "https://example.com/hooks/credential"
+        webhook_url = "https://user:password@example.com:8443/hooks/credential?token=secret"
         create_response = self.client.post(
             self._destinations_url(created["id"]),
             {"type": "webhook", "webhook_url": webhook_url},
@@ -946,7 +946,7 @@ class TestLogsAlertAPI(APIBaseTest):
         destination = response.json()["results"][0]
         assert set(destination["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
         assert destination["type"] == "webhook"
-        assert destination["webhook_url"] == "https://example.com/…"
+        assert destination["webhook_url"] == "https://example.com:8443/…"
         assert webhook_url not in response.content.decode()
 
     @parameterized.expand(
