@@ -91,7 +91,9 @@ export function IntegrationView({
                     <div>
                         <div className="flex gap-2">
                             <span>
-                                {refreshedAtTimestamp ? (
+                                {installationUnavailable ? (
+                                    <>No longer connected</>
+                                ) : refreshedAtTimestamp ? (
                                     <Tooltip
                                         title={
                                             <div className="flex gap-1 items-baseline">
