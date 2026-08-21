@@ -296,9 +296,13 @@ describe('CdpEventsConsumer', () => {
                 const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)
+                // 2 disabled_permanently app metrics + 2 $hog_function_state_changed internal
+                // events (one per disable transition, produced by the watcher).
+                expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(4)
 
-                expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject([
                     {
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
@@ -319,6 +323,41 @@ describe('CdpEventsConsumer', () => {
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
                             team_id: 2,
+                        },
+                    },
+                ])
+
+                // The disable transition emits the customer-facing internal event through the
+                // wired-up producer — this is what internal_destination alerts trigger on.
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_internal_events_test')
+                ).toMatchObject([
+                    {
+                        topic: 'cdp_internal_events_test',
+                        value: {
+                            team_id: 2,
+                            event: {
+                                event: '$hog_function_state_changed',
+                                properties: {
+                                    hog_function_id: fnFetchNoFilters.id,
+                                    state: 'disabled',
+                                    previous_state: 'healthy',
+                                },
+                            },
+                        },
+                    },
+                    {
+                        topic: 'cdp_internal_events_test',
+                        value: {
+                            team_id: 2,
+                            event: {
+                                event: '$hog_function_state_changed',
+                                properties: {
+                                    hog_function_id: fnPrinterPageviewFilters.id,
+                                    state: 'disabled',
+                                    previous_state: 'healthy',
+                                },
+                            },
                         },
                     },
                 ])

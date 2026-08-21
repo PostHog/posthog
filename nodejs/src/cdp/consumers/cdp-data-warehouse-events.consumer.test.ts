@@ -299,19 +299,23 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(invocations).toHaveLength(0)
             expect(mockQueueInvocations).toHaveBeenCalledWith([])
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
-                {
-                    topic: 'clickhouse_app_metrics2_test',
-                    value: {
-                        app_source: 'hog_function',
-                        app_source_id: fnFetchNoFilters.id,
-                        count: 1,
-                        metric_kind: 'failure',
-                        metric_name: 'disabled_permanently',
-                        team_id: team.id,
+            // Scoped to app metrics — the disable transition itself also produces a
+            // $hog_function_state_changed internal event, asserted in the events consumer test.
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject(
+                [
+                    {
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'failure',
+                            metric_name: 'disabled_permanently',
+                            team_id: team.id,
+                        },
                     },
-                },
-            ])
+                ]
+            )
         })
 
         it('should handle degraded state by setting queue priority', async () => {
