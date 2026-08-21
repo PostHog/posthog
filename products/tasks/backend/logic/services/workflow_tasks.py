@@ -241,16 +241,42 @@ def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:
 
 
 def _render_event_json(event: dict[str, Any]) -> str:
-    serialized = json.dumps(event, default=str)
-    if len(serialized) > EVENT_PROMPT_MAX_CHARS:
-        properties = event.get("properties")
-        if isinstance(properties, dict) and "slack_event" in properties:
-            # The raw Slack payload duplicates the flat properties beside it, so it goes first.
-            event = {**event, "properties": {k: v for k, v in properties.items() if k != "slack_event"}}
-            serialized = json.dumps(event, default=str)
+    """The event as JSON, with every angle bracket escaped.
+
+    `json.dumps` escapes quotes and control characters but leaves `<` and `>`, so a Slack
+    message containing `</triggering_event>` would close the block and have the rest of
+    itself read as instructions. Anyone who can post in the channel can write that.
+    """
+    serialized = _escape_angle_brackets(json.dumps(event, default=str))
+    if len(serialized) <= EVENT_PROMPT_MAX_CHARS:
+        return serialized
+
+    serialized = _escape_angle_brackets(json.dumps(_trimmed_event(event), default=str))
     if len(serialized) > EVENT_PROMPT_MAX_CHARS:
         serialized = serialized[:EVENT_PROMPT_MAX_CHARS] + " [truncated]"
     return serialized
+
+
+def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Drop the raw Slack payload only when the flat properties already carry the message.
+
+    An alerting app posts Block Kit, so `text` is often empty and the words live in
+    `slack_event.blocks` alone (see `_event_properties` in slack_workflow_events.py).
+    Dropping it there would hand the agent an alert with no content, which is the case
+    this feature exists for.
+    """
+    properties = event.get("properties")
+    if not isinstance(properties, dict) or "slack_event" not in properties:
+        return event
+    if not str(properties.get("text") or "").strip():
+        return event
+    return {**event, "properties": {k: v for k, v in properties.items() if k != "slack_event"}}
+
+
+def _escape_angle_brackets(serialized: str) -> str:
+    # < / > are valid JSON escapes for the same characters, so the value still
+    # reads normally to the agent while no substring of it can spell a closing tag.
+    return serialized.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 @frozen
@@ -276,6 +302,17 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
             team_id=team_id,
             integration_id=ctx.integration_id,
             slack_team_id=ctx.slack_team_id,
+        )
+        return None
+    if _thread_has_a_live_run(integration, ctx):
+        # No binding at all, rather than a binding that only loses the mapping race. The
+        # thread context also drives the run's own status posts, so a task that kept it
+        # would keep talking into a thread another agent owns.
+        logger.info(
+            "workflow_task_slack_thread_already_bound",
+            team_id=team_id,
+            channel=ctx.channel,
+            thread_ts=ctx.thread_ts,
         )
         return None
     return _SlackBinding(
@@ -318,6 +355,21 @@ def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
     transaction.on_commit(_react)
 
 
+def _thread_has_a_live_run(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+    """Whether another agent already owns this thread's reply channel.
+
+    Checked before the binding is built, not just before the row is written: the same
+    context drives the run's outbound status posts, so a task that carried it would talk
+    into the thread whether or not it won the mapping.
+    """
+    existing = (
+        SlackThreadTaskMapping.objects.select_related("task_run")
+        .filter(integration=integration, channel=ctx.channel, thread_ts=ctx.thread_ts)
+        .first()
+    )
+    return existing is not None and existing.task_run is not None and existing.task_run.status in ACTIVE_RUN_STATUSES
+
+
 def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> None:
     """Bind the run to the thread that triggered it so agent replies land there and thread
     replies forward to the agent. Never raises: a task that can't report back is still worth
@@ -326,21 +378,6 @@ def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> Non
     try:
         run = task.latest_run
         if run is None:
-            return
-        existing = (
-            SlackThreadTaskMapping.objects.select_related("task_run")
-            .filter(integration=binding.integration, channel=thread.channel, thread_ts=thread.thread_ts)
-            .first()
-        )
-        if existing is not None and existing.task_run is not None and existing.task_run.status in ACTIVE_RUN_STATUSES:
-            # The thread already carries a live agent (e.g. the workflow fired on a reply
-            # inside it). Repointing would steal that agent's reply channel.
-            logger.info(
-                "workflow_task_slack_thread_already_bound",
-                team_id=team.id,
-                task_id=str(task.id),
-                bound_task_run_id=str(existing.task_run_id),
-            )
             return
         SlackThreadTaskMapping.objects.update_or_create(
             integration=binding.integration,
