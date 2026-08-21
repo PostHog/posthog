@@ -7,10 +7,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
-import { ObservationSeekbarMark, observationSeekbarMarks } from '../utils/observation'
+import { ObservationSeekbarMark, isSummaryObservation, observationSeekbarMarks } from '../utils/observation'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import { SUMMARIZE_RECORDING_CONFIG, summarizeOutcomeMessage } from './summarizeRecording'
+import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
@@ -22,6 +23,7 @@ export interface ObservationsDockLogicProps {
 export interface observationsDockLogicValues {
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    summaryDockAutoExpand: boolean // visionDockPreferenceLogic
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
@@ -68,6 +70,9 @@ export interface observationsDockLogicActions {
     setDockOpen: (open: boolean) => {
         open: boolean
     }
+    setSummaryDockAutoExpand: (autoExpand: boolean) => {
+        autoExpand: boolean
+    } // visionDockPreferenceLogic
     setScannerPickerOpen: (open: boolean) => {
         open: boolean
     }
@@ -109,7 +114,13 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
 
     connect(() => ({
         // The scanner list is team-wide — shared so per-recording dock instances don't each refetch it.
-        values: [visionScannersListLogic, ['scanners', 'scannersLoading']],
+        values: [
+            visionScannersListLogic,
+            ['scanners', 'scannersLoading'],
+            visionDockPreferenceLogic,
+            ['summaryDockAutoExpand'],
+        ],
+        actions: [visionDockPreferenceLogic, ['setSummaryDockAutoExpand']],
     })),
 
     actions({
@@ -232,9 +243,19 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
+        // A summary is only readable once the dock is open, so a recording that already has one opens it
+        // rather than hiding it behind the caret. Collapsing the dock turns this off until it is expanded
+        // again, otherwise the next recording in the playlist would re-open what the user just closed.
+        const openDockForExistingSummary = (): void => {
+            if (values.dockOpen || !values.summaryDockAutoExpand) {
+                return
+            }
+            if (values.observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')) {
+                actions.setDockOpen(true)
+            }
+        }
         // Show the row that is coming, and re-read the quota the scan spent. Only call this when a scan
-        // actually started, or the poll window opens for work that will never land. The dock is opened
-        // by the summarize path alone; it only surfaces summaries.
+        // actually started, or the poll window opens for work that will never land.
         const afterScanStarted = (): void => {
             actions.loadObservations()
             refreshVisionQuota()
@@ -265,8 +286,14 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             // Poll while in flight and through the observe grace window; rescheduled on failure so one hiccup can't kill it.
-            loadObservationsSuccess: reschedulePoll,
+            loadObservationsSuccess: () => {
+                openDockForExistingSummary()
+                reschedulePoll()
+            },
             loadObservationsFailure: reschedulePoll,
+
+            // Every open and close runs through here, so the preference tracks the last one the user made.
+            setDockOpen: ({ open }) => actions.setSummaryDockAutoExpand(open),
 
             observe: async ({ scannerId }) => {
                 // A cache flag, not `values.observing`: the reducer has already flipped that to true by the
