@@ -1941,7 +1941,7 @@ export function ChannelsList() {
   const body = (
     <Flex direction="column" className="h-full min-h-0">
       {channelsLayout && (
-        <Box className="shrink-0 px-2 pt-1">
+        <Box className="shrink-0 px-2 pt-2">
           <AutocompleteInput
             ref={searchRef}
             placeholder="Search spaces…"

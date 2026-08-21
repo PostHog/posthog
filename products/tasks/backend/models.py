@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 from pydantic import BaseModel
 
@@ -80,6 +81,19 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 def _task_ownership_version(state: dict | None) -> str | None:
     value = (state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
     return value if isinstance(value, str) else None
+
+
+def _has_pending_user_input(state: dict[str, Any]) -> bool:
+    return bool(state.get("pending_user_message") or state.get("pending_user_artifact_ids"))
+
+
+def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = False) -> None:
+    if not _has_pending_user_input(state):
+        return
+    existing = state.get("pending_user_message_id")
+    if not refresh and isinstance(existing, str) and existing:
+        return
+    state["pending_user_message_id"] = str(uuid.uuid4())
 
 
 class TaskOwnershipChangedError(RuntimeError):
@@ -203,6 +217,11 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
 
 
+def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(Task.OriginProduct.choices)
+
+
 class Task(DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
@@ -253,7 +272,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(
         max_length=32,
         choices=TaskClientProvenance,
@@ -580,9 +599,8 @@ class Task(DeletedMetaFields, models.Model):
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
             is_resume = bool(resume_from_run_id)
-            has_pending = bool(
-                (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
-            )
+            has_pending = _has_pending_user_input(extra_state or {})
+            stamp_pending_user_message_id(state)
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
@@ -1689,7 +1707,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
     origin_product = models.CharField(
         max_length=32,
-        choices=Task.OriginProduct.choices,
+        choices=task_origin_product_choices,
         default=Task.OriginProduct.USER_CREATED,
         help_text="Which product or flow created this loop.",
     )
@@ -2106,8 +2124,13 @@ class TaskRun(models.Model):
         def _mutator(state: dict[str, Any]) -> None:
             for key in remove_keys or []:
                 state.pop(key, None)
-            if updates:
-                state.update(updates)
+            if not updates:
+                return
+            state.update(updates)
+            if "pending_user_message_id" in updates:
+                return
+            if "pending_user_message" in updates or "pending_user_artifact_ids" in updates:
+                stamp_pending_user_message_id(state, refresh=True)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -2193,6 +2216,26 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
+    def signal_client_activity(self) -> None:
+        from products.tasks.backend.redis import get_tasks_cache
+
+        cache_key = f"tasks:task_run:client_activity:{self.id}"
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
+            return
+
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
+        except Exception as e:
+            logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
 
     @property
     def log_url(self) -> str:
@@ -2383,7 +2426,12 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Capture an analytics event for this run. Returns False when it never reached capture.
+
+        The exception stays swallowed — no caller wants a failed analytics call to fail their
+        work — but the outcome is reported so callers tracking event loss can count it.
+        """
         try:
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
@@ -2427,6 +2475,8 @@ class TaskRun(models.Model):
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+            return False
+        return True
 
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
@@ -2909,7 +2959,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
     origin_product = models.CharField(
         max_length=20,
-        choices=Task.OriginProduct,
+        choices=task_origin_product_choices,
         null=True,
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
