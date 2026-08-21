@@ -31,6 +31,10 @@ const EXPANDED_BY_DEFAULT = 3
 const CELL_COLOR = '#1d4aff'
 const CELL_COLOR_FLOOR = 0.1
 
+/** Above this rate the cell is dark enough that the theme's dark text fails WCAG AA contrast, so the
+ *  text flips to white. Same threshold PostHog's retention table uses. */
+const CELL_TEXT_LIGHT_THRESHOLD = 0.4
+
 /** Read in the team's timezone, not the browser's: a UTC cohort viewed from New York would otherwise
  *  be labelled with the previous day. */
 const cohortLabel = (isoDate: string, interval: MarketingAnalyticsRetentionInterval, timezone: string): string => {
@@ -140,7 +144,10 @@ export function RetentionCohortTable({
                         <div
                             className="rounded px-2 py-1"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: gradateColor(CELL_COLOR, cell.rate ?? 0, CELL_COLOR_FLOOR) }}
+                            style={{
+                                backgroundColor: gradateColor(CELL_COLOR, cell.rate ?? 0, CELL_COLOR_FLOOR),
+                                color: (cell.rate ?? 0) > CELL_TEXT_LIGHT_THRESHOLD ? '#fff' : 'var(--text-3000)',
+                            }}
                         >
                             {cell.rate === null ? '–' : percentage(cell.rate, 1)}
                         </div>
