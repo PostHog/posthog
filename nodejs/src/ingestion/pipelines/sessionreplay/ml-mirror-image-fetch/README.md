@@ -363,7 +363,7 @@ built from a redirect target matches no recording.
 
 A terminal refusal has no destination Kafka record, so it starts at step 2. A delayed retry has no terminal URL result in crawl history. These systems do not share a transaction. A failure before step 3 must throw. A replay can create a duplicate, which requirement 10.2 permits.
 
-**10.4** An unparseable message is simply dropped. There is no DLQ.
+**10.4** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
 
 **10.5** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
@@ -546,9 +546,9 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.8** Existing inline image records keep their current format: the key is an `image:<pseudo-team>:<hash>` ref, the value is the raw image bytes, and no transport headers are required.
 
-**17.9** A dead-letter record and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
+**17.9** This design does not add a dead-letter topic. The existing image-scrubber dead-letter path and its replay preserve the original key, value, `content-type`, and `content-encoding`. The dead-letter path can add diagnostic headers and update its replay counter.
 
-**17.10** The producer, topic, dead-letter topic, and consumers must accept the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead.
+**17.10** The maximum record size is the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead. The fetcher producer, image-scrub topic, existing image-scrub dead-letter topic, and their consumers must accept that size.
 
 ## External specifications
 
