@@ -185,6 +185,30 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
     return False
 
 
+def set_synced_custom_property_value(
+    *, team_id: int, account_id: str | UUID, definition: CustomPropertyDefinition, value: Any
+) -> bool:
+    """Set a staged warehouse value for an account already resolved inside this team."""
+    _, coerced = _coerce_to_column(definition, value)
+    current = (
+        CustomPropertyValue.objects.for_team(team_id)
+        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+        .first()
+    )
+    if current is not None:
+        current.definition = definition
+        if value_of(current) == coerced:
+            return False
+    _set_value(
+        team_id=team_id,
+        account_id=account_id,
+        definition=definition,
+        value=value,
+        created_by_id=None,
+    )
+    return True
+
+
 def _set_value(
     *,
     team_id: int,
@@ -226,8 +250,6 @@ def _set_value(
                 f"An active value for custom property '{definition.name}' was set concurrently."
             ) from exc
         raise
-    # Cache the definition we already hold so callers reading row.definition.* don't trigger a
-    # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
 
