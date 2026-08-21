@@ -552,7 +552,7 @@ ai_research_session_replay_image_fetch_retry_10m
 ai_research_session_replay_image_fetch_retry_1h
 ```
 
-**16.3** The delay-topic consumer reads the publishing time of all URLs in the batch. It waits one time, until `max(publishing_times) + delay_period`. It does not wait separately for each record.
+**16.3** All three delay topics set `message.timestamp.type=LogAppendTime`. The broker replaces each producer timestamp with the time when it appends the record. The delay-topic consumer uses these broker timestamps as the publishing times for all records in the batch. It waits one time, until `max(publishing_times) + delay_period`. It does not wait separately for each record.
 
 **16.4** A delay topic consumer needs to report itself healthy despite sleeping for long periods, e.g. using `KafkaConsumer.reportDeliberateWait()`
 

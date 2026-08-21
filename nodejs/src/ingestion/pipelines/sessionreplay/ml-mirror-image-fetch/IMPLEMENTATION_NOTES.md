@@ -74,6 +74,8 @@ The current host budget halves its rate after a failure, mixes refusals with tra
 
 The current delay consumer requires a batch size of 1 because it waits separately for each record. Change it to calculate the latest ready time for the batch, wait once, and then publish the batch.
 
+The current delay topics do not require broker timestamps. Set `message.timestamp.type=LogAppendTime` on all three topics. The delay consumer must use the resulting Kafka record timestamp and must not use a producer timestamp.
+
 The current publisher sends a delay longer than 1 hour through the 1-hour topic more than once. Change it to record a refusal when the required delay is longer than the longest delay topic.
 
 ## Load handling
