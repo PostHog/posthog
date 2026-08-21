@@ -241,7 +241,7 @@ class ScannerCandidateQuery:
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
-            resolve_group_properties=True,
+            resolve_group_properties=ClickHouseUser.REPLAY_VISION,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -277,6 +277,12 @@ class ScannerCandidateQuery:
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
     def get_query(self) -> ast.SelectQuery:
+        # Building resolves group filters, which runs its own ClickHouse query. Tagging the build too
+        # keeps that read attributable, so the throttle charges the sweep for it.
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=self._scanner_id):
+            return self._build_query()
+
+    def _build_query(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
         inner = self._inner.get_query()
         inner.order_by = None
@@ -598,7 +604,7 @@ class WindowedCandidateQuery:
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
-            resolve_group_properties=True,
+            resolve_group_properties=ClickHouseUser.REPLAY_VISION,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -645,6 +651,12 @@ class WindowedCandidateQuery:
 
     def _windowed_candidates(self) -> ast.SelectQuery:
         """Window and eligibility predicates shared by the batch walk and the exact count."""
+        # Tagged for the same reason as `ScannerCandidateQuery.get_query`: building resolves group
+        # filters, and that read has to stay attributable to this scanner.
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=self._scanner_id):
+            return self._build_windowed_candidates()
+
+    def _build_windowed_candidates(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
         inner = self._inner.get_query()
         inner.order_by = None

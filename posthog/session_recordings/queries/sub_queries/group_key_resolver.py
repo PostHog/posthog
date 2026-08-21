@@ -20,6 +20,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
@@ -57,12 +58,12 @@ _NUMERIC_OPERATORS = {
 _FALLBACK = "fallback"
 
 
-def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter) -> ast.Expr | None:
+def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> ast.Expr | None:
     """`$group_N IN (keys)` for this filter, or None when the caller should keep the join."""
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
 
-    keys = _group_keys(team, prop)
+    keys = _group_keys(team, prop, ch_user)
     if keys is None:
         return None
 
@@ -73,7 +74,7 @@ def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter) -> ast.Expr |
     )
 
 
-def _group_keys(team: Team, prop: GroupPropertyFilter) -> list[str] | None:
+def _group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> list[str] | None:
     cache_key = _cache_key(team, prop)
     cached = cache.get(cache_key)
     if cached == _FALLBACK:
@@ -82,7 +83,7 @@ def _group_keys(team: Team, prop: GroupPropertyFilter) -> list[str] | None:
         return _cast_keys(cached)
 
     try:
-        keys = _query_group_keys(team, prop)
+        keys = _query_group_keys(team, prop, ch_user)
     except Exception:
         # The join still produces the right answer, so a resolution failure costs reads, not results.
         logger.exception("group_key_resolution_failed", team_id=team.pk, property_key=prop.key)
@@ -114,7 +115,7 @@ def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:
     )
 
 
-def _query_group_keys(team: Team, prop: GroupPropertyFilter) -> list[str]:
+def _query_group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> list[str]:
     predicate = _resolution_predicate(team, prop)
     query = ast.SelectQuery(
         select=[ast.Field(chain=["key"])],
@@ -132,7 +133,7 @@ def _query_group_keys(team: Team, prop: GroupPropertyFilter) -> list[str]:
         # One over the ceiling, so an over-broad filter is recognised without materialising the rest.
         limit=ast.Constant(value=MAX_RESOLVED_GROUP_KEYS + 1),
     )
-    response = execute_hogql_query(query=query, team=team, query_type=GROUP_KEY_RESOLUTION_QUERY_TYPE)
+    response = execute_hogql_query(query=query, team=team, query_type=GROUP_KEY_RESOLUTION_QUERY_TYPE, ch_user=ch_user)
     return [row[0] for row in (response.results or []) if row[0]]
 
 

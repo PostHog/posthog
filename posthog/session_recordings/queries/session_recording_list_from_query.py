@@ -19,6 +19,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
@@ -144,7 +145,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         events_sample_factor: float | None = None,
         events_timestamp_floor: datetime | None = None,
         # Opt-in: resolve group property filters to group keys instead of joining the groups table.
-        resolve_group_properties: bool = False,
+        # Naming the ClickHouse user is the opt-in, since the resolution is itself a heavy query.
+        resolve_group_properties: ClickHouseUser | None = None,
         **_,
     ):
         self._user = user

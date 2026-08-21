@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
@@ -97,7 +98,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
         sample_factor: Optional[float] = None,
         events_timestamp_floor: Optional[datetime] = None,
-        resolve_group_properties: bool = False,
+        resolve_group_properties: ClickHouseUser | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
@@ -494,7 +495,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         for p in self.group_properties:
             if skip_negative_properties and is_negative_prop(p):
                 continue
-            resolved = resolved_group_key_expr(self._team, p) if self._resolve_group_properties else None
+            resolved = (
+                resolved_group_key_expr(self._team, p, self._resolve_group_properties)
+                if self._resolve_group_properties is not None
+                else None
+            )
             gathered_exprs.append(resolved if resolved is not None else property_to_expr(p, team=self._team))
 
         # Handle person properties with hybrid query mode if enabled and appropriate

@@ -9,6 +9,7 @@ from posthog.schema import GroupPropertyFilter, PropertyOperator
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
     MAX_RESOLVED_GROUP_KEYS,
     _resolution_predicate,
@@ -16,6 +17,7 @@ from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
 )
 
 _RESOLVER = "posthog.session_recordings.queries.sub_queries.group_key_resolver._query_group_keys"
+_CH_USER = ClickHouseUser.DEFAULT
 
 
 def _filter(operator: PropertyOperator = PropertyOperator.EXACT) -> GroupPropertyFilter:
@@ -29,7 +31,7 @@ class TestGroupKeyResolver(BaseTest):
 
     def test_a_resolvable_filter_becomes_an_in_over_the_group_column(self) -> None:
         with patch(_RESOLVER, return_value=["org-1", "org-2"]):
-            expr = resolved_group_key_expr(self.team, _filter())
+            expr = resolved_group_key_expr(self.team, _filter(), _CH_USER)
 
         assert isinstance(expr, ast.CompareOperation)
         assert expr.op == ast.CompareOperationOp.In
@@ -42,16 +44,16 @@ class TestGroupKeyResolver(BaseTest):
         # Without the cache every sweep tick re-scans the whole groups table, which is the cost this
         # resolution exists to remove.
         with patch(_RESOLVER, return_value=["org-1"]) as resolve:
-            resolved_group_key_expr(self.team, _filter())
-            resolved_group_key_expr(self.team, _filter())
+            resolved_group_key_expr(self.team, _filter(), _CH_USER)
+            resolved_group_key_expr(self.team, _filter(), _CH_USER)
 
         assert resolve.call_count == 1
 
     def test_a_different_team_does_not_read_another_teams_keys(self) -> None:
         other = self.organization.teams.create(name="other")
         with patch(_RESOLVER, return_value=["org-1"]) as resolve:
-            resolved_group_key_expr(self.team, _filter())
-            resolved_group_key_expr(other, _filter())
+            resolved_group_key_expr(self.team, _filter(), _CH_USER)
+            resolved_group_key_expr(other, _filter(), _CH_USER)
 
         assert resolve.call_count == 2
 
@@ -67,13 +69,13 @@ class TestGroupKeyResolver(BaseTest):
         self, _name: str, operator: PropertyOperator
     ) -> None:
         with patch(_RESOLVER, return_value=["org-1"]):
-            assert resolved_group_key_expr(self.team, _filter(operator)) is None
+            assert resolved_group_key_expr(self.team, _filter(operator), _CH_USER) is None
 
     def test_an_over_broad_filter_keeps_the_join(self) -> None:
         keys = [f"org-{i}" for i in range(MAX_RESOLVED_GROUP_KEYS + 1)]
         with patch(_RESOLVER, return_value=keys) as resolve:
-            assert resolved_group_key_expr(self.team, _filter()) is None
-            assert resolved_group_key_expr(self.team, _filter()) is None
+            assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
+            assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
 
         assert resolve.call_count == 1
 
@@ -93,4 +95,4 @@ class TestGroupKeyResolver(BaseTest):
 
     def test_a_failed_resolution_keeps_the_join(self) -> None:
         with patch(_RESOLVER, side_effect=Exception("clickhouse said no")):
-            assert resolved_group_key_expr(self.team, _filter()) is None
+            assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
