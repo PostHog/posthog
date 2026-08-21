@@ -1148,6 +1148,50 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(config.active_provider_key, active_key)
         self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
 
+    def test_cannot_replace_key_pinned_to_denied_evaluation(self):
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        pinned_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Pinned Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-pinned"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=pinned_key,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{pinned_key.id}/"
+            f"?replacement_key_id={replacement_key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, pinned_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=pinned_key.id).exists())
+
     def test_delete_non_active_key_with_replacement_keeps_active_key(self):
         active_key = LLMProviderKey.objects.create(
             team=self.team,

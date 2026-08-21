@@ -282,6 +282,16 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         ):
             raise exceptions.PermissionDenied("You do not have editor access to evaluations.")
 
+    def _require_write_access_to_evaluations(self, evaluations: list[Evaluation]) -> None:
+        if is_service_auth(self.request):
+            return
+
+        if any(
+            not self.user_access_control.check_access_level_for_object(evaluation, "editor")
+            for evaluation in evaluations
+        ):
+            raise exceptions.PermissionDenied("You do not have editor access to all affected evaluations.")
+
     def perform_create(self, serializer):
         if serializer.validated_data.get("set_as_active", False):
             self._require_evaluation_write_access()
@@ -439,6 +449,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         if EvaluationConfig.objects.filter(team_id=self.team_id, active_provider_key=instance).exists():
             self._require_evaluation_write_access()
+        else:
+            affected_evaluations = list(
+                Evaluation.objects.filter(
+                    team_id=self.team_id,
+                    model_configuration__provider_key=instance,
+                    deleted=False,
+                )
+            )
+            self._require_write_access_to_evaluations(affected_evaluations)
 
         if replacement_key_id:
             try:
