@@ -2062,7 +2062,9 @@ class IntegrationViewSet(
         return Response(serializer.data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Inlined from RetrieveModelMixin too: deferring to it would re-run `get_object`, paying a
+        # second query and permission check for the row already in hand.
         instance = self.get_object()
         if instance.kind == "github":
             GitHubIntegration(instance).ensure_account_name()
-        return super().retrieve(request, *args, **kwargs)
+        return Response(self.get_serializer(instance).data)
