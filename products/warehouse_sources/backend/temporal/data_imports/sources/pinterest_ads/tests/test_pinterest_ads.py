@@ -682,6 +682,56 @@ class TestIterAnalyticsRowsFresh:
         # The failed chunk did not advance the cursor, so it is retried on resume.
         manager.save_state.assert_not_called()
 
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 404, 429])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_entity_ids"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._make_request"
+    )
+    def test_client_error_aborts_instead_of_being_skipped(
+        self, mock_request, mock_entity_ids, mock_currency, status_code
+    ):
+        # A 4xx is a real failure (bad request, auth, forbidden, not found, rate limit) that must
+        # reach the source framework, not be silently skipped like a 5xx. The HTTPError propagates
+        # so get_non_retryable_errors can surface a user-facing message and the job fails.
+        mock_entity_ids.return_value = ["1", "2"]
+        mock_currency.return_value = None
+        error_response = mock.MagicMock()
+        error_response.status_code = status_code
+        mock_request.side_effect = requests.HTTPError(f"{status_code} Client Error", response=error_response)
+        manager = _make_resume_manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_date_range",
+                return_value=[("2024-01-01", "2024-01-31")],
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads._chunk_list",
+                return_value=[["1"], ["2"]],
+            ),
+            pytest.raises(requests.HTTPError),
+        ):
+            list(
+                _iter_analytics_rows(
+                    mock.MagicMock(),
+                    "acc123",
+                    "campaign_analytics",
+                    manager,
+                    mock.MagicMock(),
+                    False,
+                    None,
+                )
+            )
+
+        # The fan-out stopped on the first chunk: no later chunk ran, no cursor was saved.
+        assert mock_request.call_count == 1
+        manager.save_state.assert_not_called()
+
 
 class TestIterAnalyticsRowsResume:
     @mock.patch(

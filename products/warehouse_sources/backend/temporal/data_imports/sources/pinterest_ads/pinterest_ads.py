@@ -334,13 +334,21 @@ def _iter_fanned_out_analytics(
             try:
                 data = _make_request(session, url, params)
             except requests.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                # Only a 5xx is a chunk Pinterest transiently won't serve. A 4xx (bad request,
+                # auth, forbidden, not found, rate limit) is a real failure the source framework
+                # must see: get_non_retryable_errors maps it to a user-facing message, and letting
+                # it escape fails the job instead of finishing "completed" with an empty or partial
+                # table. Re-raise anything we can't confirm is a 5xx.
+                if status_code is None or status_code < 500:
+                    raise
                 source_logger.exception(
                     "pinterest_ads_analytics_http_error",
                     endpoint=endpoint,
                     url=url,
                     start_date=chunk_start,
                     end_date=chunk_end,
-                    status_code=e.response.status_code if e.response is not None else None,
+                    status_code=status_code,
                 )
                 # A single chunk Pinterest won't serve must not abort the whole fan-out. Skip it
                 # without advancing the cursor so it is retried on resume, same as a bad payload.
