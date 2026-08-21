@@ -57,6 +57,7 @@ export interface DateFilterProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
     showCustomRelativeRange?: boolean
+    footerComponent?: (onClose: () => void) => React.ReactNode
     /**
      * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
      * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
@@ -129,6 +130,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
         onOpenChange,
+        footerComponent,
     },
     ref
 ) {
@@ -202,7 +204,12 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
     const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime
     const showExclusions =
         (showIncompletePeriodExclusion || showDaysOfWeekExclusions) && !!exclusions && !!onExclusionsChange
-    const showFooter = showCustomRangeOptions || showExplicitDateToggle || showExclusions || showJumpToTimestamp
+    const showFooter =
+        showCustomRangeOptions ||
+        showExplicitDateToggle ||
+        showExclusions ||
+        showJumpToTimestamp ||
+        Boolean(footerComponent)
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -405,6 +412,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                                 )}
                             </>
                         )}
+                        {footerComponent?.(close)}
                         {showCustomRangeOptions && (showExplicitDateToggle || showExclusions) && <LemonDivider />}
                         {showExplicitDateToggle && (
                             <div

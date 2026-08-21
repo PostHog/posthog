@@ -21,6 +21,12 @@ tools:
     review-hog-perspectives-partial-update:
         operation: review_hog_perspectives_partial_update
         enabled: false
+    review-hog-resolution-list:
+        operation: review_hog_resolution_list
+        enabled: false
+    review-hog-resolution-partial-update:
+        operation: review_hog_resolution_partial_update
+        enabled: false
     review-hog-reviews-get:
         operation: review_hog_reviews_retrieve
         enabled: true
@@ -70,12 +76,19 @@ tools:
             idempotent: false
         title: Trigger a ReviewHog review
         description: >
-            Start a ReviewHog review of a pull request and publish it back to the PR. Pass the PR as `pr_url` (e.g.
+            Start a ReviewHog run on a pull request. Pass the PR as `pr_url` (e.g.
             `https://github.com/PostHog/posthog/pull/123`); the repository must be accessible to the project's GitHub
-            App installation. Non-blocking: returns a `workflow_id` and `status` of `started` while the review runs. If
-            the PR's current commit already has a published review it returns `already_reviewed` without starting a run,
-            and triggering a PR whose review is already running joins the in-flight run. Poll progress with
-            `review-hog-reviews-list` and read the finished findings with `review-hog-reviews-get`.
+            App installation. `run_mode` picks the variant: `review` (the default) reviews the PR, publishes the review
+            to it, and then chains the comment-resolution stage when the requesting user's `resolve_comments` setting is
+            on; `review_only` reviews without resolving; `resolve_only` skips the review and only works the PR's
+            existing unresolved review threads. IMPORTANT: resolve-capable runs write to the PR itself. They may push
+            signed fix commits to the PR's branch, reply to review threads, and resolve bot-authored threads. Nothing is
+            deleted and the commits are plain appends, but the actions are public to everyone on the PR. Non-blocking:
+            returns a `workflow_id` and `status` of `started` while the run executes. If the PR's current commit already
+            has a published review it returns `already_reviewed` without starting a run (`resolve_only` skips that
+            check, since resolving is useful exactly then), and triggering a PR whose review is already running joins
+            the in-flight run. Poll progress with `review-hog-reviews-list` and read the finished findings with
+            `review-hog-reviews-get`.
         feature_flag: review-hog
     review-hog-settings-partial-update:
         operation: review_hog_settings_partial_update

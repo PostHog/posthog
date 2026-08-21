@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "ThreadOutcome": {
+      "description": "Terminal outcome of one work-list thread (see CONTEXT.md \u2014 \"Thread outcome\").",
+      "enum": [
+        "fixed",
+        "wont_fix",
+        "already_fixed",
+        "obsolete",
+        "escalate"
+      ],
+      "title": "ThreadOutcome",
+      "type": "string"
+    }
+  },
+  "description": "One resolution turn's validated output: the verdict on a single review thread.\n\nThe agent judges the thread (worth? safe?), implements + signed-commits when warranted, and\nreturns this. GitHub side effects (reply, resolve) are performed by the driver from this\nverdict \u2014 the agent never posts comments or resolves threads itself.",
+  "properties": {
+    "thread_id": {
+      "description": "The review thread's node id, echoed back verbatim from the turn's input.",
+      "title": "Thread Id",
+      "type": "string"
+    },
+    "outcome": {
+      "$ref": "#/$defs/ThreadOutcome",
+      "description": "fixed: implemented and committed via the signed-commit tooling. wont_fix: deliberately declined (not worth doing). already_fixed: the current code already addresses it. obsolete: superseded by other changes (name them in the reply). escalate: worth doing but not safe to do unattended \u2014 a human must decide."
+    },
+    "reasoning": {
+      "description": "Internal assessment for the work log: the worth/safe judgment and what was checked against the current code, with file:line evidence.",
+      "title": "Reasoning",
+      "type": "string"
+    },
+    "reply": {
+      "description": "The reply to post on the thread: plain, self-contained language a reader can act on without opening the code \u2014 what was done (or why not) and what happens next.",
+      "title": "Reply",
+      "type": "string"
+    },
+    "commit_sha": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The pushed commit's SHA exactly as reported by the signed-commit tooling. Required when outcome is fixed; null otherwise.",
+      "title": "Commit Sha"
+    },
+    "verification": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What was run to verify a fix (lint, tests) and the honest result, failures included.",
+      "title": "Verification"
+    }
+  },
+  "required": [
+    "thread_id",
+    "outcome",
+    "reasoning",
+    "reply"
+  ],
+  "title": "ThreadResolution",
+  "type": "object"
+}

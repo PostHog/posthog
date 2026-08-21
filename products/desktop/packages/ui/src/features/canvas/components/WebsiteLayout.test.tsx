@@ -11,6 +11,7 @@ vi.mock("@posthog/host-router/react", () => ({
     dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
   }),
 }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
   vi.hoisted(() => ({
@@ -50,6 +51,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: [{ id: "chan-1", name: "project-bluebird" }],
   }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
+  useChannelStarMutations: () => ({
+    star: vi.fn(),
+    unstar: vi.fn(),
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboard,
   useDashboardMutations: () => ({}),
@@ -85,6 +92,9 @@ vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
   useDashboardEditStore: (sel: (s: unknown) => unknown) =>
     sel({ setEditing: vi.fn() }),
   useIsDashboardEditing: () => false,
+}));
+vi.mock("@posthog/ui/features/canvas/components/ActivityDetailPane", () => ({
+  ActivityDetailPane: () => <div data-testid="activity-detail" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
   NewCanvasMenu: () => null,
@@ -160,6 +170,26 @@ describe("WebsiteLayout task header actions", () => {
       });
     },
   );
+
+  it("opens the chat panel when entering edit mode", () => {
+    renderLayout({
+      pathname: "/website/chan-1/dashboards/canvas-1",
+      params: { channelId: "chan-1", dashboardId: "canvas-1" },
+      dashboard: {
+        name: "Launch",
+        templateId: "freeform",
+        generationTaskId: "task-1",
+      },
+    });
+
+    useCanvasChatPanelStore.setState({ collapsed: true, tab: "comments" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(useCanvasChatPanelStore.getState()).toMatchObject({
+      collapsed: false,
+      tab: "chat",
+    });
+  });
 
   it("renders the task action row on a channel task detail", () => {
     renderLayout({

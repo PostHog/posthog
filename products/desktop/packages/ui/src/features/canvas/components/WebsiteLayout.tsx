@@ -24,9 +24,11 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { ActivityDetailPane } from "@posthog/ui/features/canvas/components/ActivityDetailPane";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
+import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
@@ -40,24 +42,30 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
+import {
+  CONTENT_CHROME_RIGHT_VAR,
+  SWITCHER_WIDTH_PX,
+  useRightPanelOpen,
+} from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
-import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { useHeaderStore } from "@posthog/ui/shell/headerStore";
-import { Box, Flex } from "@radix-ui/themes";
+import { Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
@@ -65,7 +73,7 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -84,6 +92,7 @@ function FreeformEditControls({
   const containerNoun = spacesLayout ? "space" : "channel";
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
@@ -91,8 +100,8 @@ function FreeformEditControls({
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  // Once confirmed the canvas vanishes from every list and we leave for the
-  // space's artifacts list, but the delete isn't sent until the undo toast's
+  // Once confirmed the canvas vanishes from every list and we return to the
+  // space, but the delete isn't sent until the undo toast's
   // timer runs out — Undo simply cancels it.
   const confirmDelete = () => {
     setConfirmDeleteOpen(false);
@@ -104,7 +113,7 @@ function FreeformEditControls({
       invalidate: invalidateDashboards,
     });
     void navigate({
-      to: "/website/$channelId/artifacts",
+      to: "/website/$channelId",
       params: { channelId },
     });
   };
@@ -117,7 +126,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: true,
         }),
       )
@@ -127,7 +135,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: false,
         });
         toast.error(
@@ -158,7 +165,6 @@ function FreeformEditControls({
       surface: "canvas",
       channel_id: channelId,
       dashboard_id: dashboardId,
-      kind: "freeform",
     });
     void queryClient.invalidateQueries({ queryKey: [CANVAS_QUERY_KEY] });
     remountFrame(dashboardId);
@@ -257,9 +263,9 @@ function FreeformEditControls({
             surface: "canvas",
             channel_id: channelId,
             dashboard_id: dashboardId,
-            kind: "freeform",
             editing: !editing,
           });
+          if (!editing) openChat();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -348,26 +354,26 @@ export function WebsiteLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const params = useParams({ strict: false });
 
-  // App pages mirrored into the Channels space (Home, Skills, MCP servers,
-  // Command Center) are channel-less and push their title into the shared
-  // header store. With no code HeaderRow here, surface that title in this bar so
-  // the mirrored pages read the same as in Code.
-  const headerContent = useHeaderStore((s) => s.content);
-
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
-  const taskId = params.taskId;
+
+  // Activity reads a task into this pane without routing, so the session is
+  // not always the one in the URL.
+  const { showsActivityDetail } = useRailSurface();
+  const { taskId, channelId: taskChannelId } = useActiveSession();
+
+  const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
-  const { tasks: filedTasks } = useChannelTasks(channelId);
+  const { tasks: filedTasks } = useChannelTasks(taskChannelId);
   const channelTask = filedTasks.some((record) => record.taskId === taskId)
     ? tasks?.find((task) => task.id === taskId)
     : undefined;
 
   const { channels } = useChannels();
   const mentionsDisabledReason =
-    channels.find((channel) => channel.id === channelId)?.channelType ===
+    channels.find((channel) => channel.id === taskChannelId)?.channelType ===
     "personal"
       ? PRIVATE_SPACE_MENTIONS_DISABLED
       : null;
@@ -394,32 +400,16 @@ export function WebsiteLayout() {
       {/* Title bar for non-canvas views: every channel scene (task detail,
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
-          Hidden when the canvas toolbar is showing (grid / a single canvas). */}
-      {!showToolbar && headerContent && (
-        <Flex
-          align="center"
-          gap="2"
-          className="h-10 shrink-0 border-gray-6 border-b px-3"
-        >
-          <Flex
-            align="center"
-            justify="between"
-            className="h-full min-w-0 flex-1 overflow-hidden"
-          >
-            {headerContent}
-          </Flex>
-          {channelTask && <TaskHeaderActions task={channelTask} />}
-        </Flex>
-      )}
+          Hidden when the canvas toolbar is showing (grid / a single canvas),
+          and skipped entirely when there is neither a title nor a session's
+          actions to carry. */}
+      {!showToolbar && <SpaceHeaderRow task={channelTask} />}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && channelId && (
-        <Flex
-          align="center"
-          className="h-10 shrink-0 border-border border-b px-3"
-        >
+        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
           {isDashboardDetail && dashboardId ? (
             <CanvasBreadcrumb
               channelName={channelName}
@@ -440,13 +430,39 @@ export function WebsiteLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
-        </Flex>
+        </div>
       )}
-      <Box flexGrow="1" overflow="hidden">
-        <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-          <Outlet />
-        </MentionAvailabilityProvider>
-      </Box>
+      {/* The right panel lays itself over this row's right edge and pins its
+          switcher to the row's top right, so the row is its positioning context
+          and its ceiling - the panel never reaches over the nav beside it.
+          `isolate` keeps the switcher's stacking rank inside the row, where it
+          only has to beat the panel's own layer, rather than reaching the app's
+          dialogs and popovers. While the panel is closed the switcher floats
+          over the content pane, so the row publishes how much of its right edge
+          is spoken for and the pane's own chrome stops short of it. */}
+      <div
+        className="relative isolate flex min-h-0 flex-1 overflow-hidden"
+        style={
+          {
+            [CONTENT_CHROME_RIGHT_VAR]: rightPanelOpen
+              ? "0px"
+              : `${SWITCHER_WIDTH_PX}px`,
+          } as CSSProperties
+        }
+      >
+        {/* `isolate`: the pane's own chrome climbs to z-50, and without a
+            stacking context of its own that would outrank the right panel's
+            scrim, which has to sit under the panel and so cannot simply outbid
+            it. */}
+        <div className="isolate min-w-0 flex-1 overflow-hidden">
+          <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+            {showsActivityDetail ? <ActivityDetailPane /> : <Outlet />}
+          </MentionAvailabilityProvider>
+        </div>
+        {/* One panel at a time at the right of the content: the session's
+            timeline, artifacts, comments, or changes. */}
+        {spacesLayout && <RightPanel />}
+      </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's
           placeholder and stays warm-but-hidden otherwise. */}

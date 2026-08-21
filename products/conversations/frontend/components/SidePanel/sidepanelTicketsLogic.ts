@@ -473,22 +473,37 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
                     cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
-                } else if (!cache.conversationsUnavailableWarned) {
-                    // Out of retries. Kept separate from the send-failure event because nothing was
-                    // submitted here, and recorded even when we stay quiet so the rate is measurable.
-                    cache.conversationsUnavailableWarned = true
+                    return
+                }
+                // Out of retries. Kept separate from the send-failure event because nothing was
+                // submitted here, and recorded even when we stay quiet so the rate is measurable.
+                if (!cache.conversationsUnavailableCaptured) {
+                    cache.conversationsUnavailableCaptured = true
                     captureSupportWidgetLoadFailed({
                         surface: 'side_panel_tickets',
                         reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
                     })
-                    // Only warn people who could act on it. A free plan has no email fallback, and the
-                    // panel already shows them the community and upgrade options, so a toast offering
-                    // to email us would promise a channel they don't get. Warn while entitlement is
-                    // still unresolved, matching how the composer opens rather than drop a message.
-                    if (values.canCreateTicket || !values.isBillingResolved) {
-                        warnSupportWidgetUnavailable()
-                    }
+                }
+                // This logic also mounts from the panel bar's unread badge, which renders on every
+                // page, so an unavailable widget (an ad blocker is enough) would otherwise raise a
+                // persistent error toast on surfaces that have nothing to do with support and block
+                // clicks on whatever sits under the toast container. Only warn while the person is
+                // actually on a support surface; opening one later re-runs loadTickets and warns then.
+                const onSupportSurface =
+                    (values.sidePanelOpen && values.selectedTab === SidePanelTab.Support) ||
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.myTickets()
+                // Only warn people who could act on it. A free plan has no email fallback, and the
+                // panel already shows them the community and upgrade options, so a toast offering
+                // to email us would promise a channel they don't get. Warn while entitlement is
+                // still unresolved, matching how the composer opens rather than drop a message.
+                if (
+                    !cache.conversationsUnavailableWarned &&
+                    onSupportSurface &&
+                    (values.canCreateTicket || !values.isBillingResolved)
+                ) {
+                    cache.conversationsUnavailableWarned = true
+                    warnSupportWidgetUnavailable()
                 }
                 return
             }

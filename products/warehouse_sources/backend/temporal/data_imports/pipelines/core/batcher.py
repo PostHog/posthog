@@ -6,7 +6,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BinaryColumnReporter,
+    table_from_py_list,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
     record_table_stats,
     table_payload_bytes,
@@ -68,6 +71,7 @@ class Batcher:
     _table_buffer_rows: int
     _table_buffer_bytes: int
     _table_buffer_schema: Optional[pa.Schema]
+    _ready_bytes: int
     _coalesce_tables: bool
     _ready: deque[pa.Table]
     _logger: FilteringBoundLogger
@@ -78,6 +82,8 @@ class Batcher:
     _source_type: Optional[str]
     _team_id: Optional[int]
     _schema_name: Optional[str]
+    _primary_keys: Optional[list[str]]
+    _binary_reporter: BinaryColumnReporter
 
     def __init__(
         self,
@@ -90,8 +96,11 @@ class Batcher:
         team_id: Optional[int] = None,
         schema_name: Optional[str] = None,
         coalesce_tables: bool = False,
+        primary_keys: Optional[list[str]] = None,
     ) -> None:
         self._logger = logger
+        self._primary_keys = primary_keys
+        self._binary_reporter = BinaryColumnReporter(logger)
 
         self._chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
         self._chunk_size_bytes = chunk_size_bytes or DEFAULT_CHUNK_SIZE_BYTES
@@ -117,6 +126,10 @@ class Batcher:
         self._table_buffer_bytes = 0
         self._table_buffer_schema = None
         self._ready = deque()
+        self._ready_bytes = 0
+
+    def _rows_to_table(self, rows: list[Any]) -> pa.Table:
+        return table_from_py_list(rows, primary_keys=self._primary_keys, binary_reporter=self._binary_reporter)
 
     def _set_ready(self, table: pa.Table) -> None:
         """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds
@@ -130,6 +143,8 @@ class Batcher:
         # would be misreported as a merge death, biasing the exact distribution this signal exists
         # to measure.
         report_phase("extract")
+        # Held until `get_table` drains every chunk, so it stays part of what this activity occupies.
+        self._ready_bytes = payload_bytes
         report_buffer_bytes(payload_bytes)
         if self._source_type is not None:
             # The materialised table is the true in-memory peak (an unbounded source yields one giant
@@ -247,6 +262,16 @@ class Batcher:
             return sys.getsizeof(obj)
 
     def batch(self, item: list[Any] | dict | pa.Table) -> None:
+        self._batch(item)
+        # Report after every item, not only when a chunk completes. `_set_ready` fires once a chunk
+        # is materialised, so an activity accumulating toward one reported whatever the *previous*
+        # chunk measured — a long accumulation looked like it held nothing, and a death inside it
+        # was attributed to a co-tenant. The phase is re-declared for the same reason `_set_ready`
+        # does it: without it a death mid-accumulation reads as a merge death.
+        report_phase("extract")
+        report_buffer_bytes(self._ready_bytes + self._table_buffer_bytes + self._buffer_size_bytes)
+
+    def _batch(self, item: list[Any] | dict | pa.Table) -> None:
         if self._ready:
             raise Exception("Batcher already has a table ready to yield. Call get_table() before batching more items.")
 
@@ -262,14 +287,14 @@ class Batcher:
                 if self._buffer_size_bytes >= self._chunk_size_bytes or len(self._buffer) >= self._chunk_size:
                     self._logger.debug(f"Processing buffer (list). Length of buffer = {len(self._buffer)}")
 
-                    self._set_ready(table_from_py_list(self._buffer))
+                    self._set_ready(self._rows_to_table(self._buffer))
                 else:
                     return
             else:
                 self._buffer_size_bytes += self._estimate_size(item)
                 if self._buffer_size_bytes >= self._chunk_size_bytes or len(item) >= self._chunk_size:
                     self._logger.debug(f"Processing item (list). Length of item = {len(item)}")
-                    self._set_ready(table_from_py_list(item))
+                    self._set_ready(self._rows_to_table(item))
                 else:
                     self._buffer.extend(item)
                     return
@@ -280,7 +305,7 @@ class Batcher:
                 return
 
             self._logger.debug(f"Processing buffer (dict). Length of buffer = {len(self._buffer)}")
-            self._set_ready(table_from_py_list(self._buffer))
+            self._set_ready(self._rows_to_table(self._buffer))
         elif isinstance(item, pa.Table):
             # A pa.Table never joins the list/dict buffer. Clearing the buffer
             # below would silently drop any rows accumulated from earlier list/dict
@@ -310,7 +335,7 @@ class Batcher:
     def get_table(self) -> pa.Table:
         if not self._ready and len(self._buffer) > 0:
             self._logger.debug(f"Processing leftover buffer. Length of buffer = {len(self._buffer)}")
-            self._set_ready(table_from_py_list(self._buffer))
+            self._set_ready(self._rows_to_table(self._buffer))
             self._buffer = []
             self._buffer_size_bytes = 0
 
@@ -321,6 +346,9 @@ class Batcher:
             self._flush_table_buffer()
 
         if self._ready:
-            return self._ready.popleft()
+            chunk = self._ready.popleft()
+            if not self._ready:
+                self._ready_bytes = 0
+            return chunk
 
         raise Exception("No chunks available to yield")

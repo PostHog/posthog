@@ -52,7 +52,6 @@ export function CanvasFrameHost() {
             <ErrorBoundary name="freeform-canvas" resetKey={slot.dashboardId}>
               <FreeformCanvas
                 code={slot.inputs.code}
-                mode="edit"
                 analytics={slot.inputs.analytics}
                 onDataRequest={slot.inputs.onDataRequest}
                 onError={slot.inputs.onError}

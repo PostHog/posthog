@@ -456,6 +456,15 @@ jobs:
                               `with the hogland token in scope.`);
                       }
 
+            # Shared t0 for the stage breadcrumbs. Bring-up and the frontend swap
+            # are separate tool processes, so each timed from its own start and
+            # their `+NNNs` lines couldn't be read as one timeline. Anchoring both
+            # here makes the whole job one clock. Computed in a step rather than
+            # a job-level env because no `github` context field is reliably epoch
+            # seconds, and a non-numeric value silently falls back to per-process.
+            - name: Anchor preview stage timings
+              run: echo "HOGBOX_PREVIEW_T0=$(date +%s)" >> "$GITHUB_ENV"
+
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.
             # A blip is infra: bring-up then fails into the failure reporter, not a red X.

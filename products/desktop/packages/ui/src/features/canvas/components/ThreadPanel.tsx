@@ -311,6 +311,23 @@ export function ThreadArtifactRow({
   );
 }
 
+/** Just the card an artifact announcement carries, without the thread row around it, for
+ *  surfaces that supply their own row (the activity timeline opens it as a row's detail). */
+export function ThreadArtifactCard({
+  artifact,
+  openInPlaceTaskId,
+}: {
+  artifact: ThreadArtifact;
+  /** Task whose review pane is mounted alongside; absent means open externally. */
+  openInPlaceTaskId?: string;
+}) {
+  return artifact.kind === "canvas" ? (
+    <CanvasArtifactCard name={artifact.name} url={artifact.url} />
+  ) : (
+    <PrArtifactCard url={artifact.url} openInPlaceTaskId={openInPlaceTaskId} />
+  );
+}
+
 export function ThreadLoadingState() {
   return (
     <Empty className="h-full border-0">

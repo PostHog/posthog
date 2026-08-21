@@ -224,12 +224,6 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await infra.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-                [CookielessServerHashMode.Stateful, team.id],
-                'set cookieless to stateful'
-            )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()

@@ -657,7 +657,7 @@ describe('BarChart', () => {
             expect(container.querySelector('[data-attr="hog-chart-bar-legend"]')).toBeNull()
         })
 
-        it('toggles a series off and on when its legend row is clicked', () => {
+        it('isolates a series when its legend row is clicked, and restores all on the next click', () => {
             const { container, chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
             )
@@ -667,9 +667,26 @@ describe('BarChart', () => {
 
             fireEvent.click(buttons()[1])
             expect(getHogChart(container).seriesCount).toBe(1)
-            expect(buttons()[1].className).toContain('opacity-40')
+            expect(buttons()[0].className).toContain('opacity-40')
+            expect(buttons()[1].className).not.toContain('opacity-40')
 
             fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
+
+        it('toggles just one series off and on when its legend row is meta-clicked', () => {
+            const { container, chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
+
+            fireEvent.click(buttons()[1], { metaKey: true })
+            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(buttons()[1].className).toContain('opacity-40')
+
+            fireEvent.click(buttons()[1], { metaKey: true })
             expect(getHogChart(container).seriesCount).toBe(2)
         })
     })

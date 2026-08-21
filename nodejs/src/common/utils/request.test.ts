@@ -63,6 +63,7 @@ describe('fetch', () => {
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
     describe('raiseIfUserProvidedUrlUnsafe', () => {
         it.each([
@@ -271,6 +272,7 @@ describe('legacyFetch', () => {
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
 
     describe('calls', () => {

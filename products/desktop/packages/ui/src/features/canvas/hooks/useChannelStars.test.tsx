@@ -30,7 +30,14 @@ function taskChannel(id: string, name: string, starred = false): TaskChannel {
 }
 
 function channel(id: string, name: string, starred = false): Channel {
-  return { id, name, channelType: "public", starred };
+  return {
+    id,
+    name,
+    channelType: "public",
+    starred,
+    repositories: [],
+    createdBy: null,
+  };
 }
 
 let queryClient: QueryClient;

@@ -48,9 +48,8 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
-from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.surveys.backend.models import Survey
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -66,6 +65,14 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
     from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
     from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
+    from products.customer_analytics.backend.models.feature_request import (
+        FeatureRequest,
+        FeatureRequestAccountLink,
+        FeatureRequestEvidence,
+        FeatureRequestHistory,
+        FeatureRequestProductArea,
+        FeatureRequestProductAreaLink,
+    )
     from products.customer_analytics.backend.models.relationship import (
         AccountRelationship,
         AccountRelationshipDefinition,
@@ -77,6 +84,7 @@ if TYPE_CHECKING:
         ErrorTrackingIssueAssignment,
         ErrorTrackingIssueFingerprintV2,
         ErrorTrackingRelease,
+        ErrorTrackingSeverityRule,
         ErrorTrackingSuppressionRule,
         ErrorTrackingSymbolSet,
     )
@@ -84,6 +92,12 @@ else:
     Account = apps.get_model("customer_analytics", "Account")
     CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
     CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
+    FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
+    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
+    FeatureRequestEvidence = apps.get_model("customer_analytics", "FeatureRequestEvidence")
+    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
+    FeatureRequestProductArea = apps.get_model("customer_analytics", "FeatureRequestProductArea")
+    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
     AccountRelationship = apps.get_model("customer_analytics", "AccountRelationship")
     AccountRelationshipDefinition = apps.get_model("customer_analytics", "AccountRelationshipDefinition")
     ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
@@ -94,6 +108,7 @@ else:
     ErrorTrackingBypassRule = apps.get_model("error_tracking", "ErrorTrackingBypassRule")
     ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
     ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
+    ErrorTrackingSeverityRule = apps.get_model("error_tracking", "ErrorTrackingSeverityRule")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -109,6 +124,9 @@ TEAM_ID_FILTER_PATTERNS = {
     "_account_tagged_items": "system__accounts.team_id",
     # The custom property tables declare their real team_id column, so the standard direct
     # guard applies (and is pushed into the federated read).
+    # Runs have no team_id column; isolation is enforced via a predicate scoping through the
+    # run's parent (scheduled or on-demand batch export)
+    "batch_export_runs": "system__batch_exports.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
@@ -196,6 +214,33 @@ def _create_batch_export_backfill(team: Team, label: str):
     return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
 
 
+def _create_batch_export_run(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    batch_export = BatchExport.objects.create(
+        team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
+    )
+    return BatchExportRun.objects.create(batch_export=batch_export, status="Running", data_interval_end=timezone.now())
+
+
+def _create_batch_export_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
+
+    destination = BatchExportDestination.objects.create(type="S3", config={})
+    with team_scope(team.pk):
+        return BatchExportOnDemand.objects.create(team=team, destination=destination)
+
+
+def _create_batch_export_run_on_demand(team: Team, label: str):
+    from products.batch_exports.backend.models.batch_export import BatchExportRun
+
+    on_demand = _create_batch_export_on_demand(team, label)
+    return BatchExportRun.objects.create(
+        batch_export_on_demand=on_demand, status="Running", data_interval_end=timezone.now()
+    )
+
+
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
@@ -221,6 +266,50 @@ def _create_account_relationship(team: Team, label: str) -> "AccountRelationship
 
 def _create_account_relationship_definition(team: Team, label: str) -> "AccountRelationshipDefinition":
     return AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_def_{label}")
+
+
+def _create_feature_request(team: Team, label: str) -> "FeatureRequest":
+    account = Account.objects.unscoped().create(team=team, name=f"feature_request_account_{label}")
+    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"feature_request_{label}")
+    FeatureRequestAccountLink.objects.unscoped().create(team=team, feature_request=feature_request, account=account)
+    return feature_request
+
+
+def _create_feature_request_product_area(team: Team, label: str) -> "FeatureRequestProductArea":
+    return FeatureRequestProductArea.objects.unscoped().create(team=team, name=f"product_area_{label}")
+
+
+def _create_feature_request_account_link(team: Team, label: str) -> "FeatureRequestAccountLink":
+    account = Account.objects.unscoped().create(team=team, name=f"linked_account_{label}")
+    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"linked_request_{label}")
+    return FeatureRequestAccountLink.objects.unscoped().create(
+        team=team, feature_request=feature_request, account=account
+    )
+
+
+def _create_feature_request_evidence(team: Team, label: str) -> "FeatureRequestEvidence":
+    account_link = _create_feature_request_account_link(team, label)
+    return FeatureRequestEvidence.objects.unscoped().create(
+        team=team, account_link=account_link, source="conversation", summary=f"evidence_{label}"
+    )
+
+
+def _create_feature_request_product_area_link(team: Team, label: str) -> "FeatureRequestProductAreaLink":
+    feature_request = _create_feature_request(team, label)
+    product_area = _create_feature_request_product_area(team, label)
+    return FeatureRequestProductAreaLink.objects.unscoped().create(
+        team=team, feature_request=feature_request, product_area=product_area
+    )
+
+
+def _create_feature_request_history(team: Team, label: str) -> "FeatureRequestHistory":
+    feature_request = _create_feature_request(team, label)
+    return FeatureRequestHistory.objects.unscoped().create(
+        team=team,
+        feature_request=feature_request,
+        changes=[],
+        changed_at=timezone.now(),
+    )
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -398,6 +487,12 @@ def _create_error_tracking_assignment_rule(team: Team, label: str):
 def _create_error_tracking_bypass_rule(team: Team, label: str):
     return ErrorTrackingBypassRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
+def _create_error_tracking_severity_rule(team: Team, label: str):
+    return ErrorTrackingSeverityRule.objects.unscoped().create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], severity="high", order_key=0
     )
 
 
@@ -645,6 +740,14 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_survey_response_archive(team: Team, label: str) -> SurveyResponseArchive:
+    return SurveyResponseArchive.objects.create(
+        team=team,
+        survey=_create_survey(team, f"archived_{label}"),
+        response_uuid=uuid.uuid4(),
+    )
+
+
 def _create_public_task_channel(team: Team, label: str):
     Channel = apps.get_model("tasks", "Channel")
 
@@ -769,6 +872,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
+    ("batch_export_on_demands", _create_batch_export_on_demand),
+    ("batch_export_runs", _create_batch_export_run),
+    # A run parented by an on-demand export exercises the other branch of the runs table's scoping predicate
+    ("batch_export_runs", _create_batch_export_run_on_demand),
     ("batch_exports", _create_batch_export),
     ("business_knowledge_chunks", _create_business_knowledge_chunk),
     ("business_knowledge_documents", _create_business_knowledge_document),
@@ -797,6 +904,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_severity_rules", _create_error_tracking_severity_rule),
     ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("evaluation_directories", _create_evaluation_directory),
@@ -804,6 +912,12 @@ SYSTEM_TABLE_FACTORIES = [
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
+    ("feature_request_account_links", _create_feature_request_account_link),
+    ("feature_request_evidence", _create_feature_request_evidence),
+    ("feature_request_history", _create_feature_request_history),
+    ("feature_request_product_area_links", _create_feature_request_product_area_link),
+    ("feature_request_product_areas", _create_feature_request_product_area),
+    ("feature_requests", _create_feature_request),
     ("file_system", _create_file_system),
     ("groups", _create_group),
     ("group_type_mappings", _create_group_type_mapping),
@@ -826,6 +940,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
+    ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
@@ -870,6 +985,22 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+    def test_error_tracking_issue_severity(self):
+        ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="high_severity_issue",
+            status=ErrorTrackingIssue.Status.ACTIVE,
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
+
+        response = execute_hogql_query(
+            "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("high",)]
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
