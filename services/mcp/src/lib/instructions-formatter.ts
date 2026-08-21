@@ -146,6 +146,15 @@ export class InstructionsFormatter {
             })
         }
 
+        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        entries.push({
+            id: 'urls',
+            kind: 'guide',
+            title: 'URL patterns',
+            description: 'Load before writing any PostHog app link or URL.',
+            content: this.compose([URL_PATTERNS], ctx, { compact: false }),
+        })
+
         entries.push({
             id: 'feedback',
             kind: 'guide',
@@ -187,7 +196,6 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
-                URL_PATTERNS,
             ],
             renderCtx,
             {
