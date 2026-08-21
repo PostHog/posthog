@@ -10,6 +10,12 @@ Change the URL collector, Kafka record parser, crawl-history key, image scrubber
 
 Derive one URL HMAC key from the existing ML pseudonymization secret without a team input. Pin the derivation from requirement 13.5 and the resulting test vectors in the shared Rust and Node fixtures before changing either producer.
 
+## Data-preparation ref attributes
+
+The anonymizer already stores a remote-image ref in `data-anon-image-ref-<attribute>`. The current data-preparation resolver handles `image:` refs that replace an image value directly. It does not recognize `imageurl:` or use a sibling ref attribute to identify the placeholder that it must replace.
+
+Change the resolver to read the sibling attribute and use its suffix as the destination attribute. Remove the sibling attribute after the lookup, including when the image is missing.
+
 ## Fetcher-to-scrubber record
 
 The mirror currently sends an image to the scrub topic with the ref as the Kafka key and the raw image bytes as the Kafka value. It sends no JSON envelope. The scrubber accepts `image:` refs and rejects `imageurl:` refs.

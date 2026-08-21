@@ -386,6 +386,12 @@ that scenario.
 
 **13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `global_url_key` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(global_url_key, canonical_url)`. Every producer must use this construction.
 
+**13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
+
+**13.7** Data preparation uses the suffix of the ref attribute to find the source attribute. If the ref resolves, data preparation replaces the placeholder with the scrubbed image.
+
+**13.8** Data preparation removes the ref attribute whether or not the ref resolves. The ref is a hash that has no meaning in training data and would appear as random noise.
+
 ### 14. HTTP request/response
 
 **14.1** The lane accepts a compressed response. It specifies the encodings it can read in
