@@ -1365,18 +1365,21 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
 
-    def test_personal_install_keeps_the_lookup_unscoped(self):
+    def test_personal_install_scopes_to_the_users_org_teams(self):
         # A personal install reaches a team only through the tasks that picked it, and
-        # Task.github_user_integration is unindexed, so the team Integration rows are not the
-        # whole picture. Better to keep scanning than to drop a run that belongs to the PR.
+        # Task.github_user_integration is unindexed. Such a task lives in a team of the
+        # installing user's org, so widen the scope there rather than give up and scan.
         payload = self._external_payload("opened", merged=False)
         self.assertEqual(_task_run_scope_team_ids(payload), [self.team.id])
 
+        personal_org = Organization.objects.create(name="Personal Org")
+        personal_team = Team.objects.create(organization=personal_org, name="Personal Team")
         user = User.objects.create(email="personal@example.com", distinct_id="personal-1")
+        OrganizationMembership.objects.create(organization=personal_org, user=user)
         UserIntegration.objects.create(user=user, kind="github", integration_id="555000")
 
-        self.assertEqual(_task_run_scope_team_ids(payload), [])
-        # Attribution still resolves the team, so external PR events are unaffected.
+        self.assertEqual(_task_run_scope_team_ids(payload), sorted([self.team.id, personal_team.id]))
+        # Attribution still resolves off the Integration rows alone.
         self.assertEqual(_installation_team_ids(payload), [self.team.id])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")

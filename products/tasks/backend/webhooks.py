@@ -875,18 +875,32 @@ def _installation_team_ids(payload: dict) -> list[int]:
 def _task_run_scope_team_ids(payload: dict) -> list[int]:
     """Teams to scope the TaskRun lookup to, or empty to leave the lookup unscoped.
 
-    A personal install reaches a team only through the tasks that picked it, and
-    ``Task.github_user_integration`` is deliberately unindexed, so there is no cheap way to
-    turn one into a team scope. When the installation is linked personally as well, the team
-    Integration rows are not the whole picture: stay unscoped rather than exclude a run the
-    delivery legitimately belongs to.
+    An installation reaches a team two ways. Team-level ``Integration`` rows are the obvious
+    one. The other is a personal install: a task picks a ``UserIntegration`` through
+    ``Task.github_user_integration``, which is deliberately unindexed, so the run cannot be
+    reached from the integration side at all. Those tasks live in a team of the installing
+    user's organization, so widening the scope to those teams keeps the run findable while
+    every leg still runs as ``team_id IN (...)`` on the FK index.
+
+    Accepted edge: a user who has since left the organization no longer widens the scope, so
+    a delivery for a run they created that way stops matching. Anything with no installation
+    id, or an installation nothing is linked to, falls back to the unscoped lookup.
     """
     external_id = _installation_id(payload)
     if external_id is None:
         return []
-    if UserIntegration.objects.filter(kind="github", integration_id=external_id).exists():
-        return []
-    return _installation_team_ids(payload)
+
+    team_ids = set(_installation_team_ids(payload))
+
+    # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
+    # indexed round-trip rather than three.
+    user_ids = UserIntegration.objects.filter(kind="github", integration_id=external_id).values_list(
+        "user_id", flat=True
+    )
+    org_ids = OrganizationMembership.objects.filter(user_id__in=user_ids).values_list("organization_id", flat=True)
+    team_ids.update(Team.objects.filter(organization_id__in=org_ids).values_list("id", flat=True))
+
+    return sorted(team_ids)
 
 
 def _resolve_external_team(payload: dict) -> Team | None:
