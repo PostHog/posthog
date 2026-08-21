@@ -157,6 +157,27 @@ describe("toast wrapper", () => {
     expect(callerAction).not.toHaveBeenCalled();
   });
 
+  it("opens the latest payload after a stable error toast is updated", () => {
+    toast.error("First failure", {
+      id: "updated-error",
+      error: { message: "first" },
+    });
+    const latestError = { message: "second" };
+    toast.error("Second failure", {
+      id: "updated-error",
+      error: latestError,
+    });
+
+    const update = quill.update.mock.calls[0]?.[1] as {
+      action: { label: string; onClick: () => void };
+    };
+    expect(update.action.label).toBe("View larger");
+    update.action.onClick();
+    expect(useErrorDetailsStore.getState().detail).toEqual(
+      expect.objectContaining({ title: "Second failure", error: latestError }),
+    );
+  });
+
   it.each([
     [undefined, undefined],
     ["stable-id", "stable-id"],
