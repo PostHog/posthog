@@ -32,7 +32,7 @@ Slack  ──HTTPS──▶  ngrok edge  ──▶  ngrok agent (laptop)  ──
   through to nothing and you get `200 OK` with an **empty body**. That's why the tunnel
   must rewrite the Host header to `localhost` (Step 1).
 - The OAuth `redirect_uri` is built **server-side** from `SITE_URL`, not from the browser
-  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration.py`), and it
+  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration/oauth.py`), and it
   force-upgrades the scheme to https — `SITE_URL.replace('http://', 'https://')`. `SITE_URL`
   defaults to `http://localhost:8010` (`posthog/settings/__init__.py:69`), so at that default
   Slack is handed `https://localhost:8010/...` — which has no TLS, hence the browser SSL error.

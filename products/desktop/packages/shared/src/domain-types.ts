@@ -254,8 +254,6 @@ export interface TaskActivity {
   latest_comment_id?: string | null;
   latest_comment_scope?: string | null;
   latest_comment_item_id?: string | null;
-  target_scope?: "desktop_canvas" | null;
-  target_id?: string | null;
   is_unread: boolean;
 }
 
@@ -300,14 +298,33 @@ export type ArtifactType =
 export type ArtifactSource =
   | "agent_output"
   | "user_attachment"
-  | "posthog_code_skill";
+  | "posthog_code_skill"
+  | "posthog_object";
 
-export interface TaskRunArtifactMetadata {
+export interface SkillBundleArtifactMetadata {
   skill_name: string;
   skill_source: UploadableSkillSource;
   content_sha256: string;
   bundle_format: "zip";
   schema_version: number;
+}
+
+export interface PostHogObjectArtifactMetadata {
+  reference_type: "posthog_object";
+  object_kind: string;
+  object_id: string;
+  source_message_ids: string[];
+  occurrence_count: number;
+}
+
+export type TaskRunArtifactMetadata =
+  | SkillBundleArtifactMetadata
+  | PostHogObjectArtifactMetadata;
+
+export function isSkillBundleArtifactMetadata(
+  metadata: TaskRunArtifactMetadata | undefined,
+): metadata is SkillBundleArtifactMetadata {
+  return metadata !== undefined && "skill_name" in metadata;
 }
 
 export interface TaskRunArtifact {
@@ -642,16 +659,6 @@ export interface SignalReport {
   implementation_pr_url?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
-  /** The persistent canvas session generated for this report, when available. */
-  canvas_session?: {
-    canvas_id: string;
-    discussion_task_id: string;
-    generation_task_id?: string | null;
-    generation_status: "pending" | "generating" | "ready" | "failed";
-    collaboration_mode: "managed" | "collaborative";
-    failure_reason: string;
-    updated_at: string;
-  } | null;
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */

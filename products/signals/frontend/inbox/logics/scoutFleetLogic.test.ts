@@ -142,9 +142,8 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    // The roster is the only consumer of the tag filter, so assert through the buckets it renders.
-    const rosterConfigIds = (): string[] =>
-        logic.values.rosterBuckets.flatMap((bucket) => bucket.configs.map((config) => config.id))
+    // The roster is the only consumer of the tag filter, so assert through the rows it renders.
+    const rosterConfigIds = (): string[] => logic.values.rosterScouts.map((row) => row.config.id)
 
     it('filters scouts by any selected tag and stops applying tags that are no longer in use', () => {
         const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
@@ -175,7 +174,7 @@ describe('scoutFleetLogic', () => {
         expect(rosterConfigIds()).toHaveLength(3)
     })
 
-    it('groups the roster by lifecycle, leading with the scouts that are producing', () => {
+    it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
         logic.actions.loadScoutConfigsSuccess([
             { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
             { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
@@ -198,48 +197,15 @@ describe('scoutFleetLogic', () => {
         // `busy` filed a report in the window, which is what separates Working from Watching.
         logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
 
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual([
-            'working',
-            'needs_you',
-            'watching',
-            'off',
+        // One flat list ordered by name, not split across lifecycle sections.
+        expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
+            ['broken', 'needs_you'],
+            ['busy', 'working'],
+            ['off', 'off'],
+            ['quiet', 'watching'],
         ])
+        // The header still tallies the fleet by group, unnarrowed by search.
         expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
-    })
-
-    it('leaves a row where it is when its switch is flipped, instead of relocating it mid-click', async () => {
-        logic.actions.loadScoutConfigsSuccess([
-            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
-            { ...BASE_CONFIG, id: 'other', skill_name: 'signals-scout-other' },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-
-        // The optimistic half of a toggle: the switch reads off immediately...
-        logic.actions.patchScoutConfigLocally('quiet', { enabled: false })
-
-        // ...but the row stays in the group it was rendered in, rather than jumping to Off.
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-        expect(rosterConfigIds()).toEqual(['other', 'quiet'])
-        expect(logic.values.scoutConfigs?.find((config) => config.id === 'quiet')?.enabled).toBe(false)
-    })
-
-    it('re-places rows once server data lands', async () => {
-        logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' }])
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.loadScoutConfigsSuccess([
-            {
-                ...BASE_CONFIG,
-                id: 'quiet',
-                skill_name: 'signals-scout-quiet',
-                enabled: false,
-                status: 'paused_by_user',
-            },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['off'])
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
