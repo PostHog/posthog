@@ -154,10 +154,13 @@ export class ApiError extends Error {
 }
 
 /**
- * Why a request never reached the server. `offline` and `navigating` describe the state of the
- * client rather than a fault in the request path, so they are dropped before they reach error
- * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
- * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ * Why a request never reached the server. All three describe transport that failed outside the
+ * request path, so none is a defect the app can act on, and every `NetworkError` is dropped before
+ * it reaches error tracking (see `dropUnactionableNetworkExceptions`). `offline` and `navigating`
+ * name a client state we can detect; `network` is everything else — a wifi blip, a sleeping laptop,
+ * an ad blocker, a client-side proxy — which `navigator.onLine` and the `pagehide` flag rarely
+ * catch, so nearly all failures land here. The `client_request_failure` event still records each
+ * one with its `failure_reason`, so failure rates stay queryable without an error tracking issue.
  */
 export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
 
@@ -172,12 +175,6 @@ export const NETWORK_ERROR_MESSAGES = {
     navigating: 'Network request failed: page was closing',
     network: 'Network request failed',
 } as const satisfies Record<NetworkFailureReason, string>
-
-/** The reasons that are never a defect, so filing them as error tracking issues only adds noise. */
-export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set([
-    NETWORK_ERROR_MESSAGES.offline,
-    NETWORK_ERROR_MESSAGES.navigating,
-])
 
 /**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left

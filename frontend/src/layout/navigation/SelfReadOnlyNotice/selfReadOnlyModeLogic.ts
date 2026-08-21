@@ -14,7 +14,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { UNACTIONABLE_NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
@@ -78,11 +77,12 @@ export function dropHandledAuthGateExceptions<T extends { event?: string; proper
     return event
 }
 
-// Filters `$exception` events for requests the browser never sent because the client was offline or
-// the document was being torn down. Neither is a defect, and both arrive as unhandled rejections
-// from whichever logic happened to be fetching, so each one fingerprints against a different stack
-// and files its own error tracking issue. `NetworkError` with reason `network` is deliberately kept:
-// a request that failed while the user was online and staying put is worth seeing. Exported for
+// Filters `$exception` events for requests the browser never sent — a `NetworkError` from
+// `handleFetch`. The transport failed outside the request path, so none of these is a defect the
+// app can act on, whatever the reason. They arrive as unhandled rejections from whichever logic
+// happened to be fetching, so each one fingerprints against a different stack and files its own
+// error tracking issue; one flaky connection can mint hundreds. `client_request_failure` still
+// records each failure with its `failure_reason`, so failure rates stay queryable. Exported for
 // unit testing.
 export function dropUnactionableNetworkExceptions<
     T extends { event?: string; properties?: Record<string, any> } | null,
@@ -91,12 +91,7 @@ export function dropUnactionableNetworkExceptions<
         return event
     }
     const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
-    if (
-        list.some(
-            (ex) =>
-                ex?.type === 'NetworkError' && ex?.value != null && UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(ex.value)
-        )
-    ) {
+    if (list.some((ex) => ex?.type === 'NetworkError')) {
         return null
     }
     return event

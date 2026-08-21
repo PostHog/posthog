@@ -107,15 +107,15 @@ describe('dropUnactionableNetworkExceptions', () => {
         properties: { $exception_list: [{ type, value }] },
     })
 
-    // The asymmetry is the whole point of the filter: the first two say something about the client's
-    // situation, the third says a request failed while the user was online and staying put.
+    // Every reason drops: a request the browser never sent is transport failing outside the
+    // request path, not a defect the app can act on, whatever the reason.
     it.each([
-        ['device is offline', NETWORK_ERROR_MESSAGES.offline, true],
-        ['page was closing', NETWORK_ERROR_MESSAGES.navigating, true],
-        ['an unexplained connection failure', NETWORK_ERROR_MESSAGES.network, false],
-    ])('given %s, drops the event: %s', (_desc, value, dropped) => {
+        ['device is offline', NETWORK_ERROR_MESSAGES.offline],
+        ['page was closing', NETWORK_ERROR_MESSAGES.navigating],
+        ['an unexplained connection failure', NETWORK_ERROR_MESSAGES.network],
+    ])('given %s, drops the event', (_desc, value) => {
         const event = exceptionWith(value)
-        expect(dropUnactionableNetworkExceptions(event)).toBe(dropped ? null : event)
+        expect(dropUnactionableNetworkExceptions(event)).toBeNull()
     })
 
     it('keeps an unrelated error that happens to carry a network message', () => {
