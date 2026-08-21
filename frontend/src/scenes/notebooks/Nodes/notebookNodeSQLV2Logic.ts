@@ -39,17 +39,20 @@ export type SqlV2RunRef = {
     kind: 'hogql' | 'local'
 }
 
-// Turn a run/result request failure into a message the user can act on. A 404 from the data
-// plane arrives as a bare backend string ("Notebook not found", "Query not found or expired",
-// "Not found") with no context, so name the object that is gone and what to do next. Every other
+// Turn a run/result request failure into a message the user can act on. The browser endpoints
+// render every 404 as DRF's generic {"detail": "Not found."}, so the response can't say what is
+// gone — the caller does, via notFoundKind: a run dispatch that 404s means the notebook itself is
+// gone, while a result poll or page fetch that 404s means that run's result is gone. Every other
 // failure keeps its original message.
-export function sqlV2RunErrorMessage(error: unknown, fallback: string): string {
+export function sqlV2RunErrorMessage(
+    error: unknown,
+    fallback: string,
+    notFoundKind: 'notebook' | 'result' = 'result'
+): string {
     if (error instanceof ApiError && error.status === 404) {
-        const raw = (error.detail || error.message || '').toLowerCase()
-        if (raw.includes('notebook')) {
-            return 'This notebook could not be found. It may have been deleted.'
-        }
-        return 'This query result is no longer available. Run the cell again.'
+        return notFoundKind === 'notebook'
+            ? 'This notebook could not be found. It may have been deleted.'
+            : 'This query result is no longer available. Run the cell again.'
     }
     return error instanceof Error ? error.message : fallback
 }
@@ -539,7 +542,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     actions.startPolling(run_id)
                 } catch (error) {
-                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to run query'))
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to run query', 'notebook'))
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
