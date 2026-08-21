@@ -7,7 +7,7 @@ import { ApiError } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
-import type { FeatureRequestApi } from '../../generated/api.schemas'
+import type { FeatureRequestApi, PaginatedFeatureRequestListApi } from '../../generated/api.schemas'
 import { accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
 const existingRequest: FeatureRequestApi = {
@@ -120,6 +120,41 @@ describe('accountFeatureRequestsLogic', () => {
                 search: 'scheduled',
             })
         )
+        logic.unmount()
+    })
+
+    it('ignores a stale page response after a newer request finishes', async () => {
+        let resolvePageTwo: (response: PaginatedFeatureRequestListApi) => void = () => undefined
+        let resolvePageThree: (response: PaginatedFeatureRequestListApi) => void = () => undefined
+        const pageTwoResponse = new Promise<PaginatedFeatureRequestListApi>((resolve) => {
+            resolvePageTwo = resolve
+        })
+        const pageThreeResponse = new Promise<PaginatedFeatureRequestListApi>((resolve) => {
+            resolvePageThree = resolve
+        })
+        jest.spyOn(generatedApi, 'featureRequestsList')
+            .mockResolvedValueOnce(emptyPage)
+            .mockImplementation(async (_teamId, params) => {
+                if (params?.offset === 20) {
+                    return pageTwoResponse
+                }
+                if (params?.offset === 40) {
+                    return pageThreeResponse
+                }
+                return emptyPage
+            })
+        const logic = accountFeatureRequestsLogic({ accountId: 'account-2' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setAccountRequestsPage(2)
+        logic.actions.setAccountRequestsPage(3)
+        resolvePageThree({ ...emptyPage, count: 41, results: [{ ...existingRequest, id: 'request-page-3' }] })
+        resolvePageTwo({ ...emptyPage, count: 41, results: [{ ...existingRequest, id: 'request-page-2' }] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.accountRequestsPage).toBe(3)
+        expect(logic.values.accountRequests.results.map((request) => request.id)).toEqual(['request-page-3'])
         logic.unmount()
     })
 

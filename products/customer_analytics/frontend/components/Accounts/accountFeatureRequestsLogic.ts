@@ -51,7 +51,7 @@ export interface accountFeatureRequestsLogicActions {
     linkSelectedRequest: () => {
         value: true
     }
-    loadAccountRequests: () => any
+    loadAccountRequests: (_: any) => any
     loadAccountRequestsFailure: (
         error: string,
         errorObject?: any
@@ -138,14 +138,17 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         accountRequests: [
             EMPTY_REQUESTS_RESPONSE,
             {
-                loadAccountRequests: async () =>
-                    featureRequestsList(String(values.currentTeam?.id), {
+                loadAccountRequests: async (_, breakpoint) => {
+                    const response = await featureRequestsList(String(values.currentTeam?.id), {
                         account_ids: [props.accountId],
                         archive_state: 'all',
                         search: values.accountRequestsSearch.trim() || undefined,
                         limit: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
                         offset: (values.accountRequestsPage - 1) * ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
-                    }),
+                    })
+                    breakpoint()
+                    return response
+                },
             },
         ],
         availableRequests: [
