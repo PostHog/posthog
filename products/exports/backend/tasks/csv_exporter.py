@@ -423,7 +423,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
     if exported_asset.source_authentication is None:
         _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
-    token_payload: dict[str, Any] = {"id": exported_asset.created_by_id}
+    token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
     if exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
         if not exported_asset.source_personal_api_key_id:
             _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
