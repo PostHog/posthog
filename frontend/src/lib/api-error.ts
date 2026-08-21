@@ -41,6 +41,14 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * DRF's generic 500 body. An unhandled backend exception has no code of its own, so `exceptions-hog`
+ * stamps `code: "error"` and this exact `detail`. A deliberate `APIException` with a custom message
+ * reuses the same `error` code but keeps its own detail, so the detail is what tells a truly untyped
+ * 500 apart from a typed one that named a specific failure.
+ */
+const UNTYPED_SERVER_ERROR_DETAIL = 'A server error occurred.'
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -64,13 +72,16 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it. But
  * an untyped 500 ("A server error occurred.", DRF `code` `error`) from a non-cloud host is that
  * host's own backend failing — a self-hosted or dev instance we cannot fix from this repo — so it is
- * dropped. `isCloud` is only known false when the app is sure; an unknown value keeps reporting.
+ * dropped. Both markers are required: a deliberate `APIException` with a custom message reuses the
+ * same `error` code, so matching the code alone would also drop typed failures (e.g. "ClickHouse
+ * error while executing query.") that name a real defect worth seeing off cloud. `isCloud` is only
+ * known false when the app is sure; an unknown value keeps reporting.
  */
 export function shouldReportApiFailure(error: unknown, options?: { isCloud?: boolean }): boolean {
     if (error === null || typeof error !== 'object') {
         return true
     }
-    const failure = error as { status?: number; code?: string | null; data?: any }
+    const failure = error as { status?: number; code?: string | null; detail?: string | null; data?: any }
     const status = typeof failure.status === 'number' ? failure.status : undefined
     if (status === undefined) {
         return true
@@ -84,7 +95,12 @@ export function shouldReportApiFailure(error: unknown, options?: { isCloud?: boo
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
         return false
     }
-    if (status === 500 && failure.code === 'error' && options?.isCloud === false) {
+    if (
+        status === 500 &&
+        failure.code === 'error' &&
+        failure.detail === UNTYPED_SERVER_ERROR_DETAIL &&
+        options?.isCloud === false
+    ) {
         return false
     }
     return !isApprovalRequiredError(failure)

@@ -120,17 +120,32 @@ describe('api-error', () => {
         })
 
         // A self-hosted or dev instance's own backend threw the untyped 500, so it is not our defect.
+        // The generic DRF detail is the untyped marker alongside the `error` code.
         it.each([
             ['on cloud', true, true],
             ['on a self-hosted host', false, false],
             ['when cloud is unknown', undefined, true],
         ])('reports an untyped 500 %s', (_, isCloud, expected) => {
-            expect(shouldReportApiFailure({ status: 500, code: 'error' }, { isCloud })).toBe(expected)
+            expect(
+                shouldReportApiFailure({ status: 500, code: 'error', detail: 'A server error occurred.' }, { isCloud })
+            ).toBe(expected)
         })
 
         // A typed 500 carries a real backend code, so it stays reportable even off cloud.
         it('reports a typed 500 off cloud', () => {
             expect(shouldReportApiFailure({ status: 500, code: 'clickhouse_error' }, { isCloud: false })).toBe(true)
+        })
+
+        // A deliberate `APIException` with a custom message reuses DRF's `error` code but keeps its
+        // own detail. Matching the code alone would drop these off cloud; the specific message must
+        // keep it reportable.
+        it('reports a 500 that reuses the error code but names a specific failure off cloud', () => {
+            expect(
+                shouldReportApiFailure(
+                    { status: 500, code: 'error', detail: 'ClickHouse error while executing query.' },
+                    { isCloud: false }
+                )
+            ).toBe(true)
         })
     })
 
