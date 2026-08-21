@@ -16548,6 +16548,7 @@ export namespace Schemas {
     export interface ChannelDTO {
       id: string;
       name: string;
+      description?: string;
       channel_type: string;
       /** @nullable */
       github_integration: number | null;
@@ -16697,6 +16698,11 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
+      /**
+         * Short summary of what the channel is for, shown in its empty area and searchable. Applies only when this call creates the channel.
+         * @maxLength 200
+         */
+      description?: string;
       /** Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched. */
       star?: boolean;
     }
@@ -57374,6 +57380,11 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
+      /**
+         * Short summary of what the channel is for, shown in its empty area and searchable.
+         * @maxLength 200
+         */
+      description?: string;
       /**
          * Team GitHub integration used for repositories linked to this channel.
          * @nullable

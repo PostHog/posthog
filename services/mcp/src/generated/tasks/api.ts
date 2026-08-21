@@ -765,6 +765,9 @@ export const TaskChannelsCreateParams = /* @__PURE__ */ zod.object({
 
 export const taskChannelsCreateBodyNameMax = 128
 
+export const taskChannelsCreateBodyDescriptionDefault = ``
+export const taskChannelsCreateBodyDescriptionMax = 200
+
 export const taskChannelsCreateBodyStarDefault = true
 
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
@@ -773,6 +776,13 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        description: zod
+            .string()
+            .max(taskChannelsCreateBodyDescriptionMax)
+            .default(taskChannelsCreateBodyDescriptionDefault)
+            .describe(
+                'Short summary of what the channel is for, shown in its empty area and searchable. Applies only when this call creates the channel.'
+            ),
         star: zod
             .boolean()
             .default(taskChannelsCreateBodyStarDefault)
