@@ -6,6 +6,7 @@ import { makeAttachmentUri } from "./promptContent";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
+  dropEventsCoveredByTail,
   extractUserPromptsFromEvents,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
@@ -227,6 +228,50 @@ describe("hasSessionPromptEvent", () => {
       hasSessionPromptEventForTaskRun(events.slice(0, 2), "resume-run"),
     ).toBe(false);
     expect(hasSessionPromptEventForTaskRun(events, "resume-run")).toBe(true);
+  });
+});
+
+describe("dropEventsCoveredByTail", () => {
+  const noteEntry = (method: string): StoredLogEntry =>
+    ({
+      type: "notification",
+      notification: { jsonrpc: "2.0", method },
+    }) as unknown as StoredLogEntry;
+
+  const positionedEvents = (
+    taskRunId: string,
+    startEntryIndex: number,
+    methods: string[],
+  ): AcpMessage[] =>
+    convertStoredEntriesToEvents(methods.map(noteEntry), undefined, {
+      taskRunId,
+      startEntryIndex,
+    });
+
+  it("returns undefined when no existing event is covered by the tail", () => {
+    const events = [
+      ...positionedEvents("run-1", 0, ["a", "b"]),
+      ...positionedEvents("other-run", 5, ["c"]),
+      { type: "acp_message", ts: 1, message: {} } as unknown as AcpMessage,
+    ];
+    expect(dropEventsCoveredByTail(events, "run-1", 2)).toBeUndefined();
+  });
+
+  it("drops the run's events at or after the tail start and keeps the rest", () => {
+    const kept = positionedEvents("run-1", 0, ["a", "b"]);
+    const covered = positionedEvents("run-1", 3, ["c", "d"]);
+    const otherRun = positionedEvents("other-run", 3, ["e"]);
+    const unpositioned = {
+      type: "acp_message",
+      ts: 1,
+      message: {},
+    } as unknown as AcpMessage;
+    const result = dropEventsCoveredByTail(
+      [...kept, unpositioned, ...covered, ...otherRun],
+      "run-1",
+      3,
+    );
+    expect(result).toEqual([...kept, unpositioned, ...otherRun]);
   });
 });
 

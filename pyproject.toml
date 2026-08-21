@@ -527,6 +527,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destination_configs",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destinations",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.validation",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.insight_alert_state_machine",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.models.alert",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -620,26 +627,6 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
-    # TODO: product_analytics presentation wave — newly surfaced debt from the backend/api/ →
-    # backend/presentation/ rename (same situation as experiments below), not new coupling. The
-    # insight viewset renders dashboard tiles, alert state, cohort filters and annotation context
-    # in-process; these drain as those products expose facades (or the rendering moves behind
-    # product_analytics' own facade). backend:contract-check stays off until this list is empty.
-    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.api.alert",
-    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.models.alert",
-    "products.product_analytics.backend.presentation.insight -> products.cohorts.backend.models.cohort",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.access",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard_tile",
-    "products.product_analytics.backend.presentation.insight_ee -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.insight_suggestions -> products.annotations.backend.api.annotation_context",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.alerts.backend.models.alert",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.cohorts.backend.models.cohort",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.access",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard_tile",
-    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard_tile",
     # TODO: experiments presentation wave — these were invisible to import-linter until
     # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
     # coupling. experiments is not isolated, so nothing was being skipped on their account.
@@ -697,7 +684,6 @@ ignore_imports = [
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.actions.backend.routes -> products.actions.backend.api.action",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
-    "products.alerts.backend.routes -> products.alerts.backend.api.alert",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
     "products.batch_exports.backend.routes -> products.batch_exports.backend.api.batch_export",
@@ -734,9 +720,6 @@ ignore_imports = [
     "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
-    # product_analytics registers the alerts viewset under insights; that moves with alerts'
-    # own routes.py and presentation/ (cross-product ownership is tach's concern, not this one)
-    "products.product_analytics.backend.routes -> products.alerts.backend.api.alert",
     "products.product_tours.backend.routes -> products.product_tours.backend.api",
     "products.pulse.backend.routes -> products.pulse.backend.api.brief",
     "products.reminders.backend.routes -> products.reminders.backend.api.reminder",

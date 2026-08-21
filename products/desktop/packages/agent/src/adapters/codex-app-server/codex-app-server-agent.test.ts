@@ -1590,14 +1590,13 @@ describe("CodexAppServerAgent", () => {
     },
   );
 
-  it("flattens the host's {append} systemPrompt and dedupes it against developerInstructions", async () => {
+  it("dedupes a system prompt contained in developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
       processOptions: {
         binaryPath: "/x/codex",
-        // The host pre-flattens into developerInstructions AND sends the raw {append} form.
-        developerInstructions: "Be a careful engineer.",
+        developerInstructions: "Be a careful engineer.\n\nUse RTK.",
       },
       rpcFactory: stub.factory,
     });
@@ -1608,11 +1607,10 @@ describe("CodexAppServerAgent", () => {
     } as unknown as NewSessionRequest);
 
     const threadStart = stub.requests.find((r) => r.method === "thread/start");
-    // {append} is flattened (not "[object Object]") and, being identical, deduped to one copy.
     expect(
       (threadStart?.params as { developerInstructions?: string })
         .developerInstructions,
-    ).toBe("Be a careful engineer.");
+    ).toBe("Be a careful engineer.\n\nUse RTK.");
   });
 
   it("appends a distinct {append} systemPrompt to developerInstructions", async () => {

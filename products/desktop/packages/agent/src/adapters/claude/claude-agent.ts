@@ -147,6 +147,11 @@ import {
 } from "./session/options";
 import { SettingsManager } from "./session/settings";
 import {
+  buildSideQuestionPrompt,
+  collectSideQuestionAnswer,
+  SIDE_QUESTION_TIMEOUT_MS,
+} from "./side-question";
+import {
   CODE_EXECUTION_MODES,
   type CodeExecutionMode,
   getAvailableModes,
@@ -351,6 +356,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private options?: ClaudeAcpAgentOptions;
   private enrichment?: Enrichment;
   private enrichedReadCache: EnrichedReadCache = new Map();
+  /**
+   * The in-flight side question's controller, so a newer question can abort it.
+   * Bounds concurrent forks off the transcript to one.
+   */
+  private sideQuestionAbort: AbortController | null = null;
 
   constructor(client: AgentSideConnection, options?: ClaudeAcpAgentOptions) {
     super(client);
@@ -368,6 +378,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   override async closeSession(): Promise<void> {
     try {
+      // A /btw fork runs on its own controller that the base close path never
+      // touches, so without this an in-flight side question keeps streaming
+      // (and burning tokens) until its own timeout fires after the session is
+      // gone.
+      this.sideQuestionAbort?.abort();
       await super.closeSession();
     } finally {
       this.enrichment?.dispose();
@@ -409,6 +424,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // retire, so the clear has to look unavailable rather than silently
             // not take.
             conversationClear: true,
+            sideQuestion: true,
           },
           claudeCode: {
             promptQueueing: true,
@@ -625,6 +641,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       isLocalOnlyCommand,
       commandName: command,
       broadcast: () => this.broadcastUserMessage(params),
+      pendingInput: userMessage,
       settled: false,
       resolve: () => {},
       reject: () => {},
@@ -635,9 +652,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
 
     this.session.turnQueue.push(turn);
-    this.session.input.push(userMessage);
+    this.dispatchQueuedInput(this.session);
     this.ensureConsumer(params.sessionId);
     return response;
+  }
+
+  private dispatchQueuedInput(session: Session): void {
+    if (session.queryClosed) {
+      return;
+    }
+    if (session.activeTurn && !session.activeTurn.settled) {
+      return;
+    }
+    const head = session.turnQueue.find((turn) => !turn.settled);
+    if (!head?.pendingInput) {
+      return;
+    }
+    const input = head.pendingInput;
+    head.pendingInput = undefined;
+    session.input.push(input);
   }
 
   private ensureConsumer(sessionId: string): void {
@@ -840,6 +873,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
+      this.dispatchQueuedInput(session);
       turn.resolve(result);
     };
 
@@ -858,6 +892,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
+      this.dispatchQueuedInput(session);
       turn.reject(error);
     };
 
@@ -1090,6 +1125,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 head.settled = true;
                 declinePendingSteers(head);
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
+                this.dispatchQueuedInput(session);
                 head.resolve({ stopReason: "end_turn" });
                 break;
               }
@@ -1570,8 +1606,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     session.cancelled = true;
 
-    // Settle not-yet-echoed turns immediately; the SDK still runs their
-    // pushed messages, so count the echo-less results they owe as orphans.
+    // Settle not-yet-echoed turns immediately; the SDK still runs the messages
+    // already pushed, so count the echo-less results those owe as orphans.
     for (const turn of [...session.turnQueue]) {
       if (turn === session.activeTurn || turn.settled) {
         continue;
@@ -1579,7 +1615,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.settled = true;
       declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
-      session.pendingOrphanResults += 1;
+      if (!turn.pendingInput) {
+        session.pendingOrphanResults += 1;
+      }
+      turn.pendingInput = undefined;
       turn.resolve(this.cancelledResponse());
     }
 
@@ -1626,10 +1665,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
-      throw RequestError.methodNotFound(method);
+    if (isMethod(method, POSTHOG_METHODS.SIDE_QUESTION)) {
+      if (typeof params.question !== "string" || !params.question.trim()) {
+        throw new RequestError(
+          -32602,
+          "side_question requires a non-empty question",
+        );
+      }
+      return await this.answerSideQuestion(params.question);
     }
+    if (isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      return await this.handleRefreshSession(params);
+    }
+    throw RequestError.methodNotFound(method);
+  }
 
+  private async handleRefreshSession(
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     // Trust boundary: refresh is only safe when the caller is trusted infra
     // (e.g. the sandbox agent-server). Do not route this method from
     // untrusted clients — parseMcpServers does no URL/command validation.
@@ -1942,6 +1995,110 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     this.refreshMcpMetadata(newQuery);
     return { stopReason: "end_turn" };
+  }
+
+  /**
+   * Answers a "/btw" side question by forking the live session's transcript
+   * into a one-shot, tool-less, single-turn query. Strictly non-mutating:
+   * the fork gets its own SDK session id and AbortController, and nothing on
+   * `this.session` is touched, so the main conversation (including an
+   * in-flight turn) never sees the exchange.
+   *
+   * A newer question supersedes an in-flight one: the card shows only the
+   * latest, so answering a question it has already replaced burns tokens on
+   * a result the stale-answer guard would discard anyway.
+   */
+  private async answerSideQuestion(
+    question: string,
+  ): Promise<{ answer: string }> {
+    this.sideQuestionAbort?.abort();
+
+    const abortController = new AbortController();
+    this.sideQuestionAbort = abortController;
+    try {
+      // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
+      // over live-session caches and task state), and `outputFormat` (a
+      // structured task run stores a json_schema here that would force the
+      // plain-text answer into the task's unrelated shape).
+      const {
+        sessionId: _sessionId,
+        hooks: _hooks,
+        outputFormat: _outputFormat,
+        ...rest
+      } = this.session.queryOptions;
+      const options: Options = {
+        ...rest,
+        // Fork the current SDK session, not the stable ACP id. `/clear` swaps
+        // `sdkSessionId` to a fresh session and deletes the pre-clear
+        // transcript, so `this.sessionId` would resume a retired one.
+        resume: this.session.sdkSessionId,
+        forkSession: true,
+        maxTurns: 1,
+        // Belt and braces: remove the toolset entirely and deny anything
+        // that slips through; the prompt wrapper also says "no tools".
+        tools: [],
+        allowedTools: [],
+        canUseTool: async () => ({
+          behavior: "deny",
+          message: "Tools are unavailable while answering a side question.",
+          interrupt: false,
+        }),
+        // Never reuse in-process MCP instances ("Already connected to a
+        // transport"); the fork has no tools, so it needs no servers.
+        mcpServers: {},
+        // `mcpServers: {}` alone only drops the servers passed in code — the
+        // CLI would still merge `.mcp.json`, user settings, and plugin/agent
+        // frontmatter servers back in.
+        strictMcpConfig: true,
+        // A side question is an isolated read of the transcript, so nothing
+        // the repo can write should get to run for it. `settingSources: []`
+        // keeps `.claude/settings*.json` (and the hooks they declare) off the
+        // fork, and plugins and agents ship their own hooks and skills.
+        settingSources: [],
+        plugins: [],
+        agents: {},
+        abortController,
+        // `rest.model` is the creation-time value; the user may have
+        // switched models since, so answer on the live session model.
+        ...(this.session.modelId && {
+          model: toSdkModelId(this.session.modelId),
+        }),
+      };
+
+      const oneShot = query({
+        prompt: buildSideQuestionPrompt(question),
+        options,
+      });
+
+      const answer = await withTimeout(
+        collectSideQuestionAnswer(oneShot),
+        SIDE_QUESTION_TIMEOUT_MS,
+      );
+
+      if (answer.result === "timeout") {
+        throw new RequestError(
+          -32603,
+          `Side question timed out after ${SIDE_QUESTION_TIMEOUT_MS}ms`,
+        );
+      }
+      if (!answer.value) {
+        throw new RequestError(-32603, "Side question produced no answer");
+      }
+      return { answer: answer.value };
+    } catch (error) {
+      if (error instanceof RequestError) throw error;
+      // A brand-new session has no transcript on disk yet, so `resume` has
+      // nothing to fork; surface that case clearly.
+      throw new RequestError(
+        -32603,
+        `Side question failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      abortController.abort();
+      if (this.sideQuestionAbort === abortController) {
+        this.sideQuestionAbort = null;
+      }
+    }
   }
 
   private async refreshSession(
