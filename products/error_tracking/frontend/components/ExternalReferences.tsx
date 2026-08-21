@@ -416,7 +416,7 @@ function ExistingIssueSelect({
     const requiresRepository = kind === 'github'
     const logic = externalIssueSearchLogic({ integrationId, requiresRepository })
     const { repository, results, resultsLoading } = useValues(logic)
-    const { setRepository, searchIssues } = useActions(logic)
+    const { setRepository, inputChanged, issueSelected } = useActions(logic)
 
     const optionKey = (result: ErrorTrackingExternalIssueResultApi): string => result.url || `${result.id}`
     const options = results.map((result) => ({
@@ -451,7 +451,7 @@ function ExistingIssueSelect({
                 options={options}
                 value={selectedResult ? [optionKey(selectedResult)] : []}
                 onInputChange={(query) => {
-                    searchIssues(query)
+                    inputChanged(query)
                     // Typing a new query invalidates the current pick - submitting while results
                     // refresh must not link the previously selected issue.
                     if (query.trim() && value) {
@@ -461,6 +461,9 @@ function ExistingIssueSelect({
                 onChange={(selection) => {
                     const key = selection[0] ?? null
                     const selected = results.find((result) => optionKey(result) === key)
+                    if (selected) {
+                        issueSelected()
+                    }
                     onChange?.(selected ? selected.external_context : null)
                 }}
             />
