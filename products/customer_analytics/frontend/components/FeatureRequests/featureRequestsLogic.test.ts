@@ -124,14 +124,12 @@ describe('featureRequestsLogic', () => {
         )
     })
 
-    it('creates initial evidence with the selected account', async () => {
+    it('creates initial evidence from a source and request date', async () => {
         const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
         logic.actions.openCreateRequest()
         logic.actions.setTitle(createdRequest.title)
         logic.actions.setAccountId(createdRequest.account.id)
         logic.actions.setProductAreaIds(['area-1'])
-        logic.actions.setEvidenceSummary('Acme needs a weekly export.')
-        logic.actions.setEvidenceQuote('We need this every Monday.')
         logic.actions.setEvidenceSource('meeting')
         logic.actions.setEvidenceRequestedOn('2026-01-01')
 
@@ -144,16 +142,16 @@ describe('featureRequestsLogic', () => {
             product_area_ids: ['area-1'],
             idempotency_key: expect.any(String),
             evidence: {
-                summary: 'Acme needs a weekly export.',
-                customer_quote: 'We need this every Monday.',
+                summary: '',
+                customer_quote: '',
                 evidence_source: 'meeting',
                 source_url: '',
                 requested_on: '2026-01-01',
                 image_ids: [],
             },
         })
-        expect(logic.values.evidenceSummary).toBe('')
-        expect(logic.values.evidenceQuote).toBe('')
+        expect(logic.values.evidenceSource).toBe('conversation')
+        expect(logic.values.evidenceRequestedOn).toBeNull()
     })
 
     it('keeps the selected account name and external key while search results reload', () => {

@@ -858,7 +858,14 @@ def _validate_evidence(
         if requested_image_ids is None
         else _validate_image_ids(team_id=team_id, image_ids=requested_image_ids)
     )
-    if not summary and not customer_quote and not source_url and not image_ids:
+    if (
+        not summary
+        and not customer_quote
+        and not source_url
+        and not image_ids
+        and input.requested_on is None
+        and input.evidence_source == "conversation"
+    ):
         raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, source URL, or image.")
     if source_url:
         parsed_url = urlparse(source_url)

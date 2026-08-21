@@ -34,6 +34,7 @@ import type {
     FeatureRequestAccountLinkApi,
     FeatureRequestApi,
     FeatureRequestEvidenceApi,
+    FeatureRequestEvidencePayloadApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestStatusEnumApi,
@@ -65,6 +66,17 @@ export function featureRequestAccountElementId(accountId: string): string {
 
 export function featureRequestEvidenceElementId(evidenceId: string): string {
     return `feature-request-evidence-${evidenceId}`
+}
+
+function hasFeatureRequestEvidence(evidence: FeatureRequestEvidencePayloadApi): boolean {
+    return Boolean(
+        evidence.summary?.trim() ||
+        evidence.customer_quote?.trim() ||
+        evidence.source_url?.trim() ||
+        evidence.image_ids?.length ||
+        evidence.requested_on ||
+        evidence.evidence_source !== 'conversation'
+    )
 }
 
 const FILTER_URL_KEYS = [
@@ -674,7 +686,9 @@ export interface featureRequestsLogicMeta {
             addAccountId: string | null,
             evidenceSummary: string,
             evidenceQuote: string,
+            evidenceSource: string,
             evidenceUrl: string,
+            evidenceRequestedOn: string | null,
             evidenceImageIds: string[],
             uploadingEvidenceImages: boolean,
             savingEvidence: boolean
@@ -1500,7 +1514,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 selectors.addAccountId,
                 selectors.evidenceSummary,
                 selectors.evidenceQuote,
+                selectors.evidenceSource,
                 selectors.evidenceUrl,
+                selectors.evidenceRequestedOn,
                 selectors.evidenceImageIds,
                 selectors.uploadingEvidenceImages,
                 selectors.savingEvidence,
@@ -1510,7 +1526,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 addAccountId: string | null,
                 summary: string,
                 quote: string,
+                source: string,
                 sourceUrl: string,
+                requestedOn: string | null,
                 imageIds: string[],
                 uploadingImages: boolean,
                 saving: boolean
@@ -1524,8 +1542,18 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 if (addingAccount && !addAccountId) {
                     return 'Select an account'
                 }
-                if (!addingAccount && !summary.trim() && !quote.trim() && !sourceUrl.trim() && imageIds.length === 0) {
-                    return 'Enter a summary, customer quote, source URL, or image'
+                if (
+                    !addingAccount &&
+                    !hasFeatureRequestEvidence({
+                        summary,
+                        customer_quote: quote,
+                        evidence_source: source,
+                        source_url: sourceUrl,
+                        requested_on: requestedOn,
+                        image_ids: imageIds,
+                    })
+                ) {
+                    return 'Enter a summary, customer quote, source URL, image, request date, or change the source'
                 }
                 return undefined
             },
@@ -1700,9 +1728,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     requested_on: values.evidenceRequestedOn,
                     image_ids: values.evidenceImageIds,
                 }
-                const hasEvidence = Boolean(
-                    evidence.summary || evidence.customer_quote || evidence.source_url || evidence.image_ids.length
-                )
+                const hasEvidence = hasFeatureRequestEvidence(evidence)
                 const created = await featureRequestsCreate(values.currentTeamId, {
                     title: values.title.trim(),
                     description: values.description.trim(),
@@ -1851,12 +1877,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     requested_on: values.evidenceRequestedOn,
                     image_ids: values.evidenceImageIds,
                 }
-                const hasEvidence = Boolean(
-                    evidenceFields.summary ||
-                    evidenceFields.customer_quote ||
-                    evidenceFields.source_url ||
-                    evidenceFields.image_ids.length
-                )
+                const hasEvidence = hasFeatureRequestEvidence(evidenceFields)
                 let updated: FeatureRequestApi
                 if (addingAccount && values.addAccountId) {
                     updated = await featureRequestsAddAccountCreate(values.currentTeamId, values.activeRequest.id, {
