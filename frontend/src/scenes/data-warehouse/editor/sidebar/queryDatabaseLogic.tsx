@@ -740,8 +740,7 @@ const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] 
     },
 ]
 
-const emptyFolderLabel = (isSearch: boolean): string =>
-    isSearch ? 'No matching items in this folder' : 'Empty folder'
+const emptyFolderLabel = (isSearch: boolean): string => (isSearch ? 'No matching items in this folder' : 'Empty folder')
 
 const createLazyTableEmptyNode = (lazyNodeId: string, isSearch = false): TreeDataItem => {
     return {
