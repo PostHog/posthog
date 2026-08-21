@@ -16,8 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
+    ScanPosition,
     WarehouseParentTableNotFoundError,
     iter_parent_pages_from_warehouse,
+    iter_parent_pages_with_positions,
     resolve_parent_table_ref,
 )
 
@@ -42,6 +44,25 @@ def _patched_reader(uri: str, version: int | None = None, **kwargs):
         return list(
             iter_parent_pages_from_warehouse(table=ref, parent_name="issues", schema_name="issue_tag_values", **kwargs)
         )
+
+
+def _patched_positioned_reader(uri: str, version: int | None = None, **kwargs):
+    ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version() if version is None else version)
+    with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
+        return list(
+            iter_parent_pages_with_positions(table=ref, parent_name="issues", schema_name="issue_tag_values", **kwargs)
+        )
+
+
+def _write_multi_fragment_table(tmp_path: Path, fragments: int = 3, rows_per_fragment: int = 4) -> str:
+    """One Delta table of `fragments` parquet files. Note the scan walks them in sorted-path
+    order, and Delta names files by uuid — so fragment 0 is not necessarily the first written."""
+    uri = str(tmp_path / "issues_fragmented")
+    for fragment in range(fragments):
+        ids = [f"f{fragment}r{row}" for row in range(rows_per_fragment)]
+        table = pa.table({"id": ids, "last_seen": ["2026-03-01"] * rows_per_fragment})
+        deltalake.write_deltalake(uri, table, mode="overwrite" if fragment == 0 else "append")
+    return uri
 
 
 def _patched_resolve(uri: str, snapshot_timestamp=None, row_filter=None):
@@ -407,3 +428,134 @@ def test_parent_row_filter_rejects_a_filter_with_no_floor() -> None:
     # Silently scanning everything is the failure this whole field exists to prevent.
     with pytest.raises(ValueError, match="not_older_than"):
         ParentRowFilter(field="lastSeen")
+
+
+def test_positioned_pages_never_span_fragments(tmp_path: Path) -> None:
+    # A page that spanned two files would make `position_after` name a row in the wrong one,
+    # so a resumed fan-out would re-fetch or skip parents.
+    uri = _write_multi_fragment_table(tmp_path, fragments=3, rows_per_fragment=4)
+
+    pages = _patched_positioned_reader(uri, columns=["id"], page_size=10)
+
+    assert [(page.fragment_index, page.row_offset, len(page.rows)) for page in pages] == [
+        (0, 0, 4),
+        (1, 0, 4),
+        (2, 0, 4),
+    ]
+
+
+def test_resume_from_a_position_yields_exactly_the_unconsumed_rows(tmp_path: Path) -> None:
+    uri = _write_multi_fragment_table(tmp_path, fragments=3, rows_per_fragment=4)
+    version = deltalake.DeltaTable(uri).version()
+    everything = [
+        row["id"] for page in _patched_positioned_reader(uri, columns=["id"], page_size=10) for row in page.rows
+    ]
+
+    # Stop mid-fragment: consumed fragment 0 entirely, then two rows of fragment 1.
+    resumed = _patched_positioned_reader(
+        uri,
+        columns=["id"],
+        page_size=10,
+        start_position=ScanPosition(fragment_index=1, row_offset=2, version=version),
+    )
+
+    assert [row["id"] for page in resumed for row in page.rows] == everything[6:]
+
+
+@pytest.mark.parametrize("page_size", [1, 2, 3, 5])
+def test_position_after_a_row_resumes_at_the_next_row(tmp_path: Path, page_size: int) -> None:
+    # The contract a resumable fan-out relies on: checkpoint after finishing a parent, restart,
+    # and the very next row is the one that never got processed — no gap, no repeat.
+    uri = _write_multi_fragment_table(tmp_path, fragments=2, rows_per_fragment=5)
+    version = deltalake.DeltaTable(uri).version()
+    pages = _patched_positioned_reader(uri, columns=["id"], page_size=page_size)
+    flat = [row["id"] for page in pages for row in page.rows]
+
+    for stop_after, expected_remaining in enumerate(range(len(flat) - 1, -1, -1)):
+        consumed = 0
+        position = None
+        for page in pages:
+            for index in range(len(page.rows)):
+                if consumed == stop_after:
+                    position = page.position_after(index, version=version)
+                    break
+                consumed += 1
+            if position is not None:
+                break
+        assert position is not None
+        resumed = _patched_positioned_reader(uri, columns=["id"], page_size=page_size, start_position=position)
+        assert [row["id"] for page in resumed for row in page.rows] == flat[stop_after + 1 :]
+        assert len([row for page in resumed for row in page.rows]) == expected_remaining
+
+
+def test_fragment_indexes_survive_a_filter_pruning_files(tmp_path: Path) -> None:
+    # Indexes come from the full file list, so a filter that eliminates a whole fragment must
+    # not renumber the ones after it — otherwise a stored position points at the wrong file
+    # the moment the filter's floor moves.
+    uri = str(tmp_path / "issues_pruned")
+    now = datetime.now(UTC)
+    deltalake.write_deltalake(
+        uri,
+        pa.table(
+            {"id": ["old1", "old2"], "last_seen": [(now - timedelta(days=300)).strftime("%Y-%m-%dT%H:%M:%S")] * 2}
+        ),
+    )
+    deltalake.write_deltalake(
+        uri,
+        pa.table({"id": ["new1", "new2"], "last_seen": [(now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")] * 2}),
+        mode="append",
+    )
+
+    unfiltered = _patched_positioned_reader(uri, columns=["id"], page_size=10)
+    index_of_new_rows = next(page.fragment_index for page in unfiltered if page.rows[0]["id"].startswith("new"))
+
+    pages = _patched_positioned_reader(uri, columns=["id"], page_size=10, row_filter=_LAST_SEEN_FLOOR)
+
+    assert [row["id"] for page in pages for row in page.rows] == ["new1", "new2"]
+    # The surviving fragment keeps the index it has in the unfiltered list, rather than being
+    # renumbered to 0 because the older file was pruned away.
+    assert [page.fragment_index for page in pages] == [index_of_new_rows]
+
+
+def test_a_pinned_version_keeps_its_positions_through_a_compaction(tmp_path: Path) -> None:
+    # Positions are only meaningful because a pinned version's file list is immutable. Delta
+    # compaction rewrites many files into one at a NEW version, so a scan that followed the
+    # latest version would find its coordinates renumbered underneath it mid-fan-out.
+    uri = _write_multi_fragment_table(tmp_path, fragments=4, rows_per_fragment=3)
+    pinned = deltalake.DeltaTable(uri).version()
+    before = [row["id"] for page in _patched_positioned_reader(uri, columns=["id"], page_size=10) for row in page.rows]
+
+    deltalake.DeltaTable(uri).optimize.compact()
+
+    assert deltalake.DeltaTable(uri).version() > pinned
+    resumed = _patched_positioned_reader(
+        uri,
+        version=pinned,
+        columns=["id"],
+        page_size=10,
+        start_position=ScanPosition(fragment_index=2, row_offset=0, version=pinned),
+    )
+    assert [row["id"] for page in resumed for row in page.rows] == before[6:]
+
+
+def test_scan_position_matches_only_its_own_version_and_filter() -> None:
+    # The guard a caller uses before trusting stored state: offsets count emitted rows, so a
+    # different version or a moved filter floor makes the same offset a different row.
+    table = ParentTableRef(uri="s3://bucket/table", version=7)
+    position = ScanPosition(fragment_index=0, row_offset=3, version=7, filter_fingerprint="last_seen>=2026-05-01")
+
+    assert position.matches(table, "last_seen>=2026-05-01")
+    assert not position.matches(table, "last_seen>=2026-06-01")
+    assert not position.matches(ParentTableRef(uri="s3://bucket/table", version=8), "last_seen>=2026-05-01")
+    assert not position.matches(table, None)
+
+
+def test_plain_reader_still_yields_bare_pages(tmp_path: Path) -> None:
+    # The pre-existing callers take `list[dict]`; the positioned generator is additive.
+    uri = _write_multi_fragment_table(tmp_path, fragments=2, rows_per_fragment=3)
+
+    pages = _patched_reader(uri, columns=["id"], page_size=10)
+    positioned = _patched_positioned_reader(uri, columns=["id"], page_size=10)
+
+    assert [[row["id"] for row in page] for page in pages] == [[row["id"] for row in page.rows] for page in positioned]
+    assert sorted(row["id"] for page in pages for row in page) == ["f0r0", "f0r1", "f0r2", "f1r0", "f1r1", "f1r2"]
