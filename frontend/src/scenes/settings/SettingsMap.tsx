@@ -41,6 +41,7 @@ import {
     DefaultRoleSelector,
     RolesAccessControls,
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
+import { TerraformAccessControl } from '~/layout/navigation-3000/sidepanel/panels/access_control/TerraformAccessControl'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -1421,6 +1422,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <TeamAccessControl />,
                 keywords: ['permission', 'role', 'access', 'rbac', 'team'],
+            },
+            {
+                id: 'environment-access-control-terraform',
+                title: 'Terraform-managed rules',
+                description: 'Choose whether access control rules that Terraform manages can be changed in PostHog.',
+                docsUrl: 'https://posthog.com/docs/settings/access-control',
+                component: <TerraformAccessControl />,
+                keywords: ['permission', 'access', 'rbac', 'terraform', 'iac'],
             },
         ],
     },

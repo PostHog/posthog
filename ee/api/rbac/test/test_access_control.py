@@ -297,6 +297,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_access_level": "manager",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
+            "managed_rules_locked": False,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
             # No rule anywhere above this notebook, so the resource's built-in default applies

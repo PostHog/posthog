@@ -7,7 +7,7 @@ from django.db.models import Prefetch, QuerySet
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from social_django.models import UserSocialAuth
 
 from posthog.api.organization_member import OrganizationMemberSerializer
@@ -18,6 +18,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.rbac.subject_access_control import restricted_visible_membership_ids
 
+from ee.api.rbac.access_control_management import role_has_locked_rules
 from ee.models.rbac.role import Role, RoleMembership
 
 if TYPE_CHECKING:
@@ -143,6 +144,16 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         context["visible_membership_ids"] = self.visible_membership_ids
         context["visible_user_ids"] = self.visible_user_ids
         return context
+
+    def perform_destroy(self, instance: Role) -> None:
+        # AccessControl.role cascades, so this delete would remove locked rules without ever
+        # reaching an access control endpoint - the one way around the lock that costs one click.
+        if role_has_locked_rules(str(instance.organization_id), str(instance.id)):
+            raise PermissionDenied(
+                "Terraform manages access control rules that use this role. Remove the role from your "
+                "Terraform configuration first, or turn off the Terraform lock in project settings."
+            )
+        super().perform_destroy(instance)
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):

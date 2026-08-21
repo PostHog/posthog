@@ -29,6 +29,9 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
+from products.access_control.backend.models import terraform_lock_enabled
+
+from ee.api.rbac.access_control_management import assert_rule_is_editable, stamp_manager
 from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
@@ -138,8 +141,10 @@ class AccessControlSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "managed_by",
+            "managed_at",
         ]
-        read_only_fields = ["id", "created_at", "created_by"]
+        read_only_fields = ["id", "created_at", "created_by", "managed_by", "managed_at"]
 
     def build_relational_field(self, field_name, relation_info):
         """Override to customize error messages for organization_member field"""
@@ -255,6 +260,7 @@ def upsert_access_control(
     team: Team,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+    request: Request | None = None,
 ) -> Response:
     """Apply one validated access control rule: a null level deletes the subject's rule, any other
     level creates or updates it. Shared by the per-resource PUT actions and the settings page's
@@ -271,6 +277,9 @@ def upsert_access_control(
         role=params.get("role"),
     ).first()
 
+    # Before the delete branch, so removing a managed rule is refused like editing one
+    assert_rule_is_editable(request=request, team=team, instance=instance)
+
     if params["access_level"] is None:
         if instance:
             instance.delete()
@@ -282,6 +291,7 @@ def upsert_access_control(
         serializer = build_serializer(instance)
         serializer.is_valid(raise_exception=True)
     serializer.validated_data["team"] = team
+    stamp_manager(request, serializer.validated_data)
     serializer.save()
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
@@ -400,6 +410,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
             "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            # Per rule, not per panel: one object can hold both managed and hand-made rules, and
+            # only the managed ones lock. Each rule carries its own `managed_by`.
+            "managed_rules_locked": terraform_lock_enabled(team.id),
         }
 
         if not is_resource_level:
@@ -508,6 +521,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             team=team,
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
+            request=request,
         )
 
     @extend_schema(exclude=True)

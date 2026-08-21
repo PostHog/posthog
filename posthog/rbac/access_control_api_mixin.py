@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ee.api.rbac.access_control import AccessControlViewSetMixin
+    from ee.api.rbac.access_control_management import AccessControlManagementViewSetMixin
     from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 else:
     try:
@@ -18,4 +19,12 @@ else:
     except ImportError:
 
         class AccessControlSettingsViewSetMixin:
+            pass
+
+    try:
+        from ee.api.rbac.access_control_management import AccessControlManagementViewSetMixin
+
+    except ImportError:
+
+        class AccessControlManagementViewSetMixin:
             pass
