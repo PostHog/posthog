@@ -518,7 +518,6 @@ class BillingManager:
                 workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
-                logs_and_traces_bytes_ingested=usage_summary.get("logs_and_traces_bytes_ingested", {}),
                 replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
                 period=[
                     data["billing_period"]["current_period_start"],

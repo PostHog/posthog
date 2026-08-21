@@ -65,7 +65,6 @@ class OrganizationUsageInfo(TypedDict):
     workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
-    logs_and_traces_bytes_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
 

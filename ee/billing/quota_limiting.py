@@ -46,7 +46,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
-    get_teams_with_traces_usage_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
@@ -98,10 +97,6 @@ class QuotaResource(Enum):
     WORKFLOW_PUSH = "workflow_push"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
-    # Logs and traces bill against one shared bucket. LOGS_MB_INGESTED stays until billing meters only
-    # the combined key — dropping it first would leave logs unlimited, since a resource billing doesn't
-    # know is silently never limited.
-    LOGS_AND_TRACES_BYTES_INGESTED = "logs_and_traces_bytes_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
 
 
@@ -128,7 +123,6 @@ OVERAGE_BUFFER = {
     QuotaResource.WORKFLOW_PUSH: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
-    QuotaResource.LOGS_AND_TRACES_BYTES_INGESTED: 0,
     QuotaResource.REPLAY_VISION_CREDITS: 0,
 }
 
@@ -164,7 +158,6 @@ class UsageCounters(TypedDict):
     workflow_push: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
-    logs_and_traces_bytes_ingested: int
     replay_vision_credits: int
 
 
@@ -1085,12 +1078,6 @@ def update_all_orgs_billing_quotas(
         "sandbox_compute", get_teams_with_billable_sandbox_compute_usage_in_period, period.start, period.end
     )
     compute_credits = convert_team_usage_rows_to_dict(sandbox_compute_usage.credits)
-    logs_bytes = convert_team_usage_rows_to_dict(
-        _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period.start, period.end)
-    )
-    traces_bytes = convert_team_usage_rows_to_dict(
-        _timed_query("traces_usage", get_teams_with_traces_usage_in_period, period.start, period.end)["bytes"]
-    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1173,11 +1160,10 @@ def update_all_orgs_billing_quotas(
             )
         ),
         "teams_with_logs_mb_in_period": {
-            team_id: int(bytes_val // 1_000_000) for team_id, bytes_val in logs_bytes.items()
-        },
-        "teams_with_logs_and_traces_bytes_in_period": {
-            team_id: logs_bytes.get(team_id, 0) + traces_bytes.get(team_id, 0)
-            for team_id in logs_bytes.keys() | traces_bytes.keys()
+            team_id: int(bytes_val // 1_000_000)
+            for team_id, bytes_val in convert_team_usage_rows_to_dict(
+                _timed_query("logs_bytes", get_teams_with_logs_bytes_in_period, period.start, period.end)
+            ).items()
         },
     }
 
@@ -1243,7 +1229,6 @@ def update_all_orgs_billing_quotas(
             workflow_push=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
-            logs_and_traces_bytes_ingested=all_data["teams_with_logs_and_traces_bytes_in_period"].get(team.id, 0),
             replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),
         )
 

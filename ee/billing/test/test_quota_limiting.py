@@ -18,7 +18,6 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-from posthog.test.fixtures import create_app_metric2
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -64,7 +63,6 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/llm_events")
         self.redis_client.delete(f"@posthog/quota-limits/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limits/ai_credits")
-        self.redis_client.delete(f"@posthog/quota-limits/logs_and_traces_bytes_ingested")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
@@ -1804,33 +1802,6 @@ class TestQuotaLimiting(BaseTest):
             events_captured = [call[1]["event"] for call in mock_capture.call_args_list if len(call) >= 2]
             assert "org_quota_limited_until" in events_captured  # Should have suspension and removal events
 
-    @patch("posthoganalytics.capture")
-    def test_logs_and_traces_count_against_one_shared_quota(self, patch_capture) -> None:
-        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
-            self.organization.usage = {
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-                "logs_and_traces_bytes_ingested": {"usage": 0, "limit": 1000, "todays_usage": 0},
-            }
-            self.organization.save()
-
-            # Neither signal crosses the limit on its own; together they do.
-            for app_source in ("logs", "traces"):
-                create_app_metric2(
-                    team_id=self.team.id,
-                    app_source=app_source,
-                    metric_name="bytes_ingested",
-                    count=600,
-                    timestamp=now(),
-                )
-
-            result = update_all_orgs_billing_quotas()
-
-            org_id = str(self.organization.id)
-            assert result.quota_limited_orgs["logs_and_traces_bytes_ingested"] == {org_id: 1612137599}
-            assert self.redis_client.zrange("@posthog/quota-limits/logs_and_traces_bytes_ingested", 0, -1) == [
-                self.team.api_token.encode("UTF-8")
-            ]
-
     def test_usage_keys_stay_in_sync(self):
         """
         Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys
@@ -2389,7 +2360,6 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         workflow_push=0,
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
-        logs_and_traces_bytes_ingested=0,
         replay_vision_credits=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]

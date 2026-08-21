@@ -899,9 +899,8 @@ describe('LogsIngestionConsumer', () => {
             const parsed = await consumer['_parseKafkaBatch'](messages)
             await consumer['filterQuotaLimitedMessages'](parsed)
 
-            // Once per unique token per checked resource, not once per message: 2 tokens × 2 resources
-            // (the consumer's own bucket plus the shared logs-and-traces bucket).
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledTimes(4)
+            // Should only call once per unique token, not once per message
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledTimes(2)
         })
 
         it('should handle mixed quota limited and non-limited teams', async () => {
@@ -2129,7 +2128,7 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.app_source).toBe('traces')
         })
 
-        it('quota-limits against traces_mb_ingested and the shared bucket, not logs_mb_ingested', async () => {
+        it('quota-limits against traces_mb_ingested, not logs_mb_ingested', async () => {
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
             const tracesConsumer = createTracesIngestionConsumer()
 
@@ -2142,33 +2141,6 @@ describe('LogsIngestionConsumer', () => {
             await tracesConsumer['filterQuotaLimitedMessages'](parsed)
 
             expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(
-                team.api_token,
-                'logs_and_traces_bytes_ingested'
-            )
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).not.toHaveBeenCalledWith(
-                team.api_token,
-                'logs_mb_ingested'
-            )
-        })
-
-        it('drops traces when only the shared logs and traces bucket is limited', async () => {
-            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockImplementation((_token, resource) =>
-                Promise.resolve(resource === 'logs_and_traces_bytes_ingested')
-            )
-            const tracesConsumer = createTracesIngestionConsumer()
-
-            const messages = await createKafkaMessages([createLogMessage()], {
-                token: team.api_token,
-                bytes_uncompressed: '1024',
-                record_count: '5',
-            })
-            const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
-            const { quotaAllowedMessages, quotaDroppedMessages } =
-                await tracesConsumer['filterQuotaLimitedMessages'](parsed)
-
-            expect(quotaAllowedMessages).toHaveLength(0)
-            expect(quotaDroppedMessages).toHaveLength(1)
         })
 
         it('rate-limits against its own Redis key namespace, not the logs one', () => {
