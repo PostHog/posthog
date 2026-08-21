@@ -150,7 +150,9 @@ function getUndefinedVariableError(value: string): string | undefined {
     }
 
     for (const [, rawExpression] of value.matchAll(/\{\{([^{}]+)\}\}/g)) {
-        const expression = rawExpression.split('|')[0].trim()
+        // Strip Liquid whitespace-control markers so `{{- first_name -}}` is checked like
+        // `{{ first_name }}`; a leading/trailing hyphen here can only come from `{{-`/`-}}`.
+        const expression = rawExpression.replace(/^-|-$/g, '').split('|')[0].trim()
         if (
             /^[A-Za-z_]\w*$/.test(expression) &&
             !KNOWN_BARE_LIQUID_REFERENCES.has(expression) &&

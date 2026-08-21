@@ -276,13 +276,13 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.errors.email).toBeUndefined()
     })
 
-    it('flags an undefined bare merge tag in the body once a save is attempted', async () => {
+    it.each([
+        ['a plain bare tag', '<p>Hi {{first_name}}</p>'],
+        ['a whitespace-control bare tag', '<p>Hi {{- first_name -}}</p>'],
+    ])('flags an undefined bare merge tag (%s) in the body once a save is attempted', async (_name, html) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(
-                    { integrationId: 42 },
-                    { html: '<p>Hi {{first_name}}</p>' }
-                ),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }, { html }),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
