@@ -229,9 +229,6 @@ function readSignature(fn) {
     return { kind: 'positional', names }
 }
 
-// Invoke with every sentinel arg count and keep each distinct clean path — a builder with an
-// optional trailing param yields both its base and detail routes (`replay()` -> `/replay/home`,
-// `replay(':id')` -> `/replay/:id`), and a count that errors on a sentinel is simply skipped.
 function probeBuilder(fn, signature) {
     const maxArgs = signature.kind === 'object' ? 0 : signature.names.length
     const paths = []
@@ -268,8 +265,7 @@ function replaceSentinels(pathOnly, paramNames) {
     for (const name of [...paramNames].sort((a, b) => b.length - a.length)) {
         const plain = sentinel(name)
         const encoded = encodeURIComponent(plain)
-        // Some builders pre-encode a path segment so it survives kea-router's decode (e.g.
-        // aiObservabilityTrace) — the sentinel then comes back double-encoded.
+        // builders that pre-encode a segment for kea-router's decode return the sentinel double-encoded
         const doubleEncoded = encodeURIComponent(encoded)
         const before = template
         for (const form of [doubleEncoded, encoded, plain]) {
