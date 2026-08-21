@@ -28,6 +28,7 @@ from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import safe_cache_add, safe_cache_delete
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +52,9 @@ INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
 ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY = "account_name_heal_attempted_at"
 GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS = 5 * 60
+# Held only while a heal is in flight, and released as soon as it finishes. The TTL is the backstop
+# for a process that dies mid-heal, so it just has to outlast the 10s request timeout.
+GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
@@ -594,7 +598,20 @@ class GitHubIntegrationBase:
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)
         if isinstance(last_attempt, int | float) and now - last_attempt < GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS:
             return False
+        # The attempt timestamp is only written once the request below returns, so a burst of
+        # concurrent list requests would all clear the cooldown check and each spend a GitHub call
+        # against the App-wide quota. Claim the row for the duration of the call so only the first
+        # of the burst goes out. A cache outage falls back to the cooldown alone rather than
+        # blocking the heal.
+        claim_key = f"github_account_name_heal:{type(self.integration).__name__}:{self.integration.pk}"
+        if not safe_cache_add(claim_key, True, GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS):
+            return False
+        try:
+            return self._fetch_and_store_account_name(installation_id, now)
+        finally:
+            safe_cache_delete(claim_key)
 
+    def _fetch_and_store_account_name(self, installation_id: str, now: int) -> bool:
         healed_account: dict[str, Any] | None = None
         try:
             response = self.client_request(f"installations/{installation_id}")
