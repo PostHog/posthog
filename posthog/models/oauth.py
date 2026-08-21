@@ -158,6 +158,21 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         ),
     )
 
+    # RFC 7591 `contacts`. Taken from the client's own registration document, so it is
+    # asserted by the client and never verified: usable for sending an operational notice,
+    # never as an identity, ownership, or authorization signal.
+    contacts: ArrayField = ArrayField(
+        models.EmailField(max_length=254),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Email addresses for whoever operates this client, taken from its self-published "
+            "registration document. Unverified."
+        ),
+    )
+
     @property
     def ceiling_scopes(self) -> list[str]:
         """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""

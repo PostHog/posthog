@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -132,6 +133,7 @@ CIMDMetadataDocument = TypedDict(
         "response_types": list[str],
         "token_endpoint_auth_method": str,
         "jwks_uri": str,
+        "contacts": list[str],
         # Legacy top-level token — still read for backwards compatibility.
         "posthog_verification_token": str,
         # Preferred namespace — takes precedence over the legacy top-level key.
@@ -595,6 +597,37 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
+MAX_CONTACTS = 5
+
+
+def _resolve_contacts(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve RFC 7591 `contacts` into storable addresses, or None when the field is absent
+    so callers leave the existing value untouched.
+
+    Entries that are not deliverable addresses are dropped rather than rejecting the document:
+    a bad address in an optional courtesy field must not block a registration that is otherwise
+    valid. The cap bounds what a partner can write into our row.
+    """
+    raw: object = metadata.get("contacts")
+    if not isinstance(raw, list):
+        return None
+
+    resolved: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str):
+            continue
+        candidate = entry.strip()
+        try:
+            validate_email(candidate)
+        except ValidationError:
+            continue
+        if candidate not in resolved:
+            resolved.append(candidate)
+        if len(resolved) == MAX_CONTACTS:
+            break
+    return resolved
+
+
 def _cimd_declares_provisioning(metadata: CIMDMetadataDocument) -> bool:
     """Whether the document opts its client into being an agentic provisioning partner.
 
@@ -668,6 +701,7 @@ def _create_cimd_application(
     verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    resolved_contacts = _resolve_contacts(metadata)
 
     client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
@@ -687,6 +721,7 @@ def _create_cimd_application(
         organization=verification.organization if verification else None,
         scopes=resolved_scopes if resolved_scopes is not None else [],
         optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
+        contacts=resolved_contacts if resolved_contacts is not None else [],
         user=None,
     )
     app.full_clean()
@@ -789,6 +824,10 @@ def _update_cimd_application(
     if resolved_optional_scopes is not None:
         app.optional_scopes = resolved_optional_scopes
         update_fields.append("optional_scopes")
+    resolved_contacts = _resolve_contacts(metadata)
+    if resolved_contacts is not None:
+        app.contacts = resolved_contacts
+        update_fields.append("contacts")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:
