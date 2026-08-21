@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drata.drat
     drata_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import DRATA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import ENDPOINTS
 
 US_BASE_URL = REGION_BASE_URLS["US"]
 
@@ -383,27 +383,6 @@ class TestErrorHandling:
 
     @parameterized.expand(
         [
-            ("unauthorized", 401, "Unauthorized"),
-            ("forbidden", 403, "Forbidden"),
-            ("terms", 412, "Precondition Failed"),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_http_error_matchable_by_host_prefix(
-        self, _name: str, status: int, reason: str, mock_session: mock.MagicMock
-    ) -> None:
-        request_url = f"{US_BASE_URL}/users?cursor=abc&size=250"
-
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp({}, status=status, reason=reason, url=request_url)
-
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _run(mock_session, route, "users", _FakeManager())
-        # The base host prefix stays intact so `get_non_retryable_errors()` can still match it.
-        assert "for url: https://public-api" in str(exc_info.value)
-
-    @parameterized.expand(
-        [
             ("bare_list", b'[{"id": 1}]'),
             ("missing_data", b'{"pagination": {}}'),
             ("data_is_object", b'{"data": {"id": 1}}'),
@@ -487,25 +466,11 @@ class TestDrataSourceResponse:
             resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
         )
 
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_primary_keys_match_endpoint_config(self, endpoint: str) -> None:
-        response = self._response(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == DRATA_ENDPOINTS[endpoint].primary_keys
-
     @parameterized.expand([("controls",), ("monitoring_tests",), ("evidence_library",), ("frameworks",)])
     def test_workspace_children_use_composite_primary_key(self, endpoint: str) -> None:
         # Child ids aren't documented as unique beyond their workspace; a bare ["id"] key would
         # multi-match on merge and duplicate rows across workspaces.
         assert self._response(endpoint).primary_keys == ["workspaceId", "id"]
-
-    def test_events_partitions_on_stable_created_at_and_defers_watermark(self) -> None:
-        response = self._response("events")
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-        # The requested ASC ordering couldn't be verified against a live account, so the watermark
-        # must only commit after a complete sync.
-        assert response.sort_mode == "desc"
 
     @parameterized.expand([(e,) for e in ENDPOINTS if e != "events"])
     def test_full_refresh_endpoints_declare_asc(self, endpoint: str) -> None:

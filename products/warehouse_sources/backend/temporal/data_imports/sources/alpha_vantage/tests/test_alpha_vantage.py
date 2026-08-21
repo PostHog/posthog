@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     _parse_reports,
     _parse_time_series,
     _request_params,
-    alpha_vantage_source,
     get_rows,
     parse_symbols,
     validate_credentials,
@@ -251,28 +250,6 @@ class TestAlphaVantage:
         with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
             with pytest.raises(AlphaVantageAPIError):
                 _collect_rows(get_rows("KEY", ["IBM"], "global_quote", MagicMock()))
-
-    @parameterized.expand(
-        [
-            ("time_series_daily", ["symbol", "date"], "date"),
-            ("global_quote", ["symbol"], None),
-            ("company_overview", ["symbol"], None),
-            ("income_statement", ["symbol", "fiscalDateEnding", "report_type"], "fiscalDateEnding"),
-            ("earnings", ["symbol", "fiscalDateEnding", "report_type"], "fiscalDateEnding"),
-        ]
-    )
-    def test_alpha_vantage_source_maps_primary_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str], partition_key: str | None
-    ) -> None:
-        response = alpha_vantage_source("KEY", ["IBM"], endpoint, MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        if partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
 
     @parameterized.expand(
         [

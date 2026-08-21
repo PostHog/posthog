@@ -1,22 +1,17 @@
-import dataclasses
 from typing import cast
 
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
     PlanetScaleMySQLSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
-    PlanetScaleMySQLImplementation,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
     PlanetScaleMySQLSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(host: str = "aws.connect.psdb.cloud") -> MySQLSourceConfig:
@@ -41,38 +36,6 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in PlanetScaleMySQLSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
-
-
-def test_source_type_and_implementation():
-    source = PlanetScaleMySQLSource()
-
-    assert source.source_type == ExternalDataSourceType.PLANETSCALEMYSQL
-    # The MySQL driver reads `config.using_ssl`, which this source's config has no field for.
-    assert isinstance(source.get_implementation, PlanetScaleMySQLImplementation)
-
-
-def test_source_is_visible_and_alpha():
-    config = PlanetScaleMySQLSource().get_source_config
-
-    assert not config.unreleasedSource
-    assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.ALPHA
-    assert config.category == DataWarehouseSourceCategory.DATABASES
-
-
-@pytest.mark.parametrize("name", ["ssh_tunnel", "using_ssl"])
-def test_mysql_only_fields_are_not_offered(name):
-    # PlanetScale mandates TLS and has no SSH tunnel story, so neither field applies.
-    assert all(field.name != name for field in PlanetScaleMySQLSource().get_source_config.fields)
-
-
-def test_generated_config_matches_the_offered_fields():
-    # The generated config is what the pipeline actually receives, so a field added to the form
-    # without regenerating would surface as a missing attribute mid-sync.
-    form_fields = {field.name for field in PlanetScaleMySQLSource().get_source_config.fields}
-    config_fields = {field.name for field in dataclasses.fields(PlanetScaleMySQLSourceConfig)}
-
-    assert form_fields == config_fields
 
 
 def test_schema_field_is_optional_for_multi_schema_discovery():

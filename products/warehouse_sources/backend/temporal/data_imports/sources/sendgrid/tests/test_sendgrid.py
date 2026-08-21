@@ -479,35 +479,6 @@ class TestActivityPagination:
         assert "403 Client Error: Forbidden for url: https://api.sendgrid.com/v3/messages" in str(excinfo.value)
 
 
-class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_suppression_endpoint_partitioning_and_keys(self, MockSession) -> None:
-        response = _source("bounces", _make_manager())
-        assert response.name == "bounces"
-        assert response.primary_keys == ["email"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created"]
-        assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_partitioning(self, MockSession) -> None:
-        response = _source("marketing_lists", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_message_activity_is_desc_keyed_on_msg_id_and_unpartitioned(self, MockSession) -> None:
-        response = _source("message_activity", _make_manager())
-        assert response.primary_keys == ["msg_id"]
-        # Newest-first walk: declaring "asc" would checkpoint the watermark at ≈now after the
-        # first batch and skip everything older on the next incremental sync.
-        assert response.sort_mode == "desc"
-        # last_event_time advances whenever a new event lands, so it can't be a partition key.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestGetStatusCode:
     @pytest.mark.parametrize("status", [200, 401, 403, 404])
     def test_returns_status(self, status: int) -> None:

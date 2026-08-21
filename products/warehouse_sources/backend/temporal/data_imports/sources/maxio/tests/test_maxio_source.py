@@ -3,21 +3,10 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import MaxioResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import (
-    ENDPOINTS,
-    TIMEZONE_SKEW_LOOKBACK_SECONDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> MaxioSourceConfig:
@@ -46,88 +35,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False, **over
 
 
 class TestMaxioSource:
-    def test_source_type(self) -> None:
-        assert MaxioSource().source_type == ExternalDataSourceType.MAXIO
-
-    def test_source_config_shape(self) -> None:
-        config = MaxioSource().get_source_config
-
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.label == "Maxio"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/maxio"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        fields_by_name = {f.name: f for f in config.fields}
-        assert set(fields_by_name.keys()) == {"subdomain", "api_key", "region"}
-
-        api_key_field = fields_by_name["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-
-        region_field = fields_by_name["region"]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "us"
-        assert {option.value for option in region_field.options} == {"us", "eu"}
-
-    def test_connection_host_fields_cover_host_determining_fields(self) -> None:
-        assert MaxioSource().connection_host_fields == ["subdomain", "region"]
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = MaxioSource().get_schemas(_config(), team_id=123)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS.keys())
-
-    @pytest.mark.parametrize(
-        ("schema_name", "supports_incremental", "incremental_field"),
-        [
-            ("customers", True, "created_at"),
-            ("subscriptions", True, "updated_at"),
-            ("invoices", True, "updated_at"),
-            ("events", True, "id"),
-            ("products", False, None),
-            ("product_families", False, None),
-            ("coupons", False, None),
-            ("components", False, None),
-            ("payment_profiles", False, None),
-            ("credit_notes", False, None),
-        ],
-    )
-    def test_get_schemas_incremental_support(
-        self, schema_name: str, supports_incremental: bool, incremental_field: str | None
-    ) -> None:
-        schemas = {schema.name: schema for schema in MaxioSource().get_schemas(_config(), team_id=123)}
-        schema = schemas[schema_name]
-
-        assert schema.supports_incremental is supports_incremental
-        assert schema.supports_append is supports_incremental
-        if incremental_field is None:
-            assert schema.incremental_fields == []
-        else:
-            assert [f["field"] for f in schema.incremental_fields] == [incremental_field]
-
-    @pytest.mark.parametrize(
-        ("schema_name", "expected_lookback"),
-        [
-            # Datetime windows are interpreted in the site's timezone, so those schemas
-            # re-read a trailing day; the integer `since_id` cursor is exact.
-            ("customers", TIMEZONE_SKEW_LOOKBACK_SECONDS),
-            ("subscriptions", TIMEZONE_SKEW_LOOKBACK_SECONDS),
-            ("invoices", TIMEZONE_SKEW_LOOKBACK_SECONDS),
-            ("events", None),
-        ],
-    )
-    def test_get_schemas_lookback_only_on_datetime_windows(
-        self, schema_name: str, expected_lookback: int | None
-    ) -> None:
-        schemas = {schema.name: schema for schema in MaxioSource().get_schemas(_config(), team_id=123)}
-
-        assert schemas[schema_name].default_incremental_lookback_seconds == expected_lookback
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MaxioSource().get_schemas(_config(), team_id=123, names=["customers", "invoices"])
-
-        assert {schema.name for schema in schemas} == {"customers", "invoices"}
-
     @pytest.mark.parametrize("subdomain", ["bad domain", "acme!", ""])
     def test_validate_credentials_rejects_invalid_subdomain_without_network(self, subdomain: str) -> None:
         with patch(
@@ -154,27 +61,6 @@ class TestMaxioSource:
         assert (valid, error) == result
         # A pasted URL must reach the probe as the normalized bare subdomain.
         mock_validate.assert_called_once_with("test-key", "acme", "us")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = MaxioSource().get_resumable_source_manager(_inputs("customers"))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MaxioResumeConfig
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = MaxioSource().get_non_retryable_errors()
-
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_canonical_descriptions_match_endpoint_names(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS.keys())
-        assert MaxioSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        tables = MaxioSource().get_documented_tables()
-
-        assert {table["name"] for table in tables} == set(ENDPOINTS.keys())
 
 
 class TestMaxioSourceForPipeline:

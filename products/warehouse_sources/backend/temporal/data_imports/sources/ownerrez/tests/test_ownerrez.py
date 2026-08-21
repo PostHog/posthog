@@ -289,34 +289,6 @@ class TestOwnerrezSourceTransport:
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_write_disposition_is_merge_when_incremental(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        response = ownerrez_source(
-            email="host@example.com",
-            api_key="pt_key",
-            endpoint="Bookings",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_utc"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_has_no_partitioning(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
-
-        response = _source("Guests", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
 
 class TestValidateCredentials:
     @mock.patch(OWNERREZ_SESSION_PATCH)

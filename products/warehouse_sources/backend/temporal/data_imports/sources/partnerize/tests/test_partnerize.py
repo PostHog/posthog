@@ -21,10 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize
     partnerize_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerize.settings import (
-    ENDPOINTS,
-    PARTNERIZE_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -407,23 +403,6 @@ class TestListRows:
         _rows(_run("countries", manager))
 
         assert urls[0] == resume_url
-
-
-class TestPartnerizeSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _run(endpoint, _make_manager())
-        config = PARTNERIZE_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.kind == "report":
-            # The reports document no ordering guarantee, so the watermark only commits on completion.
-            assert response.sort_mode == "desc"
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.sort_mode == "asc"
-            assert response.partition_mode is None
 
 
 class TestValidateCredentials:

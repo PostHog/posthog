@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.d
     resolve_account,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import DOCUSIGN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.tests.conftest import (
     PRIVATE_KEY_PEM,
     PUBLIC_KEY_PEM,
@@ -492,29 +491,6 @@ class TestDocusignTransport:
     def test_unknown_environment_is_rejected(self) -> None:
         with pytest.raises(ValueError):
             _ = jwt_credentials(environment="staging").auth_host
-
-    @pytest.mark.parametrize("endpoint_name", sorted(DOCUSIGN_ENDPOINTS))
-    def test_source_response_matches_the_endpoint_catalog(
-        self, endpoint_name: str, logger: FilteringBoundLogger
-    ) -> None:
-        endpoint = DOCUSIGN_ENDPOINTS[endpoint_name]
-
-        response = docusign_source(
-            credentials=jwt_credentials(),
-            endpoint_name=endpoint_name,
-            start_date=None,
-            resumable_source_manager=FakeResumeManager(),
-            logger=logger,
-        )
-
-        assert response.name == endpoint_name
-        assert response.primary_keys == endpoint.primary_key
-        assert response.sort_mode == "asc"
-        if endpoint.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [endpoint.partition_key]
-        else:
-            assert response.partition_keys is None
 
     def test_source_response_items_are_lazy(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(

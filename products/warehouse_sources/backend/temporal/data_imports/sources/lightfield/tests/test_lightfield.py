@@ -11,10 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield
     check_token,
     lightfield_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.settings import (
-    LIGHTFIELD_ENDPOINTS,
-    LIGHTFIELD_PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lightfield.settings import LIGHTFIELD_PAGE_SIZE
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -112,23 +109,6 @@ class TestLightfieldSourcePagination:
         _, _, headers = self._drive(responses)
 
         assert headers["Lightfield-Version"] == "2026-03-01"
-
-
-class TestLightfieldSourceResponse:
-    @parameterized.expand([(name,) for name in LIGHTFIELD_ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        source_response = lightfield_source(
-            api_key="sk_lf_test",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            api_version="2026-03-01",
-        )
-
-        assert source_response.name == endpoint
-        assert source_response.primary_keys == ["id"]
-        assert source_response.partition_keys == ["createdAt"]
-        assert source_response.partition_mode == "datetime"
 
 
 class TestCheckToken:

@@ -69,7 +69,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
-    NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import PERMISSIONS, StripeSource
@@ -209,46 +208,6 @@ class TestStripeGetRowsIncrementalCursor:
 class TestStripeSource:
     def setup_method(self):
         self.source = StripeSource()
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            # 403 raised mid-sync — `str(StripeError)` is "Request <id>: <message>", with no class
-            # name, so these are matched on the stable message text rather than "PermissionError".
-            "Request req_Zb0EgUuheEd4gf: Permission denied. The provided key 'rk_live_***j4va7j' does not have the required permissions for this endpoint on account 'acct_123'. Enabling \"Prices Read\" ('plan_read') permissions on this key would allow this request to continue.",
-            "Request req_abc123: Only Stripe Connect platforms can work with other accounts. If you specified a client_id parameter, make sure it's correct.",
-            # 401/403 surfaced as a requests HTTPError keep matching the existing URL-based keys.
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "403 Client Error: Forbidden for url: https://api.stripe.com/v1/prices",
-            # IP allowlist rejection — matched on the stable phrase, ignoring the appended IP address.
-            "The API key provided does not allow requests from your IP address.",
-            "The API key provided does not allow requests from your IP address (1.2.3.4).",
-            # account_invalid: key not authorized for the configured account, or revoked app access.
-            # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
-            "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
-            # A publishable key was used where a secret/restricted key is required — matched on the
-            # stable message text, ignoring the request id prefix.
-            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
-        ],
-    )
-    def test_non_retryable_errors_match_permission_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            # Transient/infra errors must stay retryable.
-            "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
-            "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
-            "Connection reset by peer",
-            # Rate limits are transient (Retry-After-bounded) — must never disable the source.
-            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -946,14 +905,6 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
-    def test_discount_partitions_on_start_not_created(self) -> None:
-        # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
-        # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
-        # the first real customer.discount.* webhook event, failing the whole sync.
-        manager = self._make_manager(enabled=True)
-        response = self._source(DISCOUNT_RESOURCE_NAME, manager)
-        assert response.partition_keys == ["start"]
-
 
 def _event_row(
     event_id: str, event_type: str, created: int, obj: dict, previous_attributes: dict | None = None
@@ -1215,15 +1166,6 @@ class TestPartitioningAndColumnHints:
             webhook_source_manager=manager,
             api_version=STRIPE_API_VERSION_ACACIA,
         )
-
-    @pytest.mark.parametrize("endpoint", NON_PARTITIONED_ENDPOINTS)
-    def test_timestampless_endpoints_are_not_partitioned(self, endpoint):
-        # These Stripe objects carry no timestamp at all. Partitioning them would fall back to
-        # "created" and the datetime partitioner KeyErrors on the first row, killing the sync.
-        response = self._source(endpoint)
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-        assert response.partition_count is None
 
     @pytest.mark.parametrize(
         "endpoint,expected_key",

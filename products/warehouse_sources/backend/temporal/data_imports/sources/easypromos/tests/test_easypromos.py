@@ -224,25 +224,6 @@ class TestFanOut:
 
 
 class TestSourceResponse:
-    @parameterized.expand(list(EASYPROMOS_ENDPOINTS.keys()))
-    def test_primary_keys_and_partitioning_match_settings(self, endpoint: str) -> None:
-        config = EASYPROMOS_ENDPOINTS[endpoint]
-        response = easypromos_source(
-            access_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_fan_out_children_carry_promotion_id_in_primary_key(self) -> None:
         for endpoint, config in EASYPROMOS_ENDPOINTS.items():
             if config.fan_out_over_promotions:

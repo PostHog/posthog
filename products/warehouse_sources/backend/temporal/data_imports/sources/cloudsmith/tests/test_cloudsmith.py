@@ -211,24 +211,6 @@ class TestCloudsmithTransport:
             get_resource(CLOUDSMITH_ENDPOINTS[endpoint], "acme")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
-    def test_top_level_source_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        response = cloudsmith_source(
-            api_key="key",
-            workspace="acme",
-            endpoint="repositories",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "repositories"
-        assert response.primary_keys == ["slug_perm"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudsmith.cloudsmith.rest_api_resource")
     def test_top_level_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager(CloudsmithResumeConfig(paginator_state={"page": 4}))

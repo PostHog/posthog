@@ -245,15 +245,6 @@ class TestCheckAccess:
 
 
 class TestSendowlSourceResponse:
-    @parameterized.expand([("products",), ("orders",), ("subscriptions",), ("discount_codes",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_uses_id_primary_key(self, endpoint: str, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SENDOWL_ENDPOINTS.values())
         assert set(SENDOWL_ENDPOINTS) == set(ENDPOINTS)

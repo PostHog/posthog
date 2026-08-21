@@ -11,10 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.ba
     baseten_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.settings import (
-    BASETEN_ENDPOINTS,
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -282,21 +278,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponseShape:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partition_and_primary_keys_match_config(self, MockSession, endpoint: str) -> None:
-        config = BASETEN_ENDPOINTS[endpoint]
-        response = baseten_source("k", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_items_is_lazy(self, MockSession) -> None:
         # Building the SourceResponse must not perform any I/O; requests only fire on iteration.

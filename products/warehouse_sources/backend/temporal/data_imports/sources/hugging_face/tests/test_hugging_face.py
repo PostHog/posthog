@@ -208,19 +208,3 @@ class TestValidateCredentials:
     def test_network_error_is_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("hf_token") is False
-
-
-class TestHuggingFaceSourceResponse:
-    @parameterized.expand([("models",), ("datasets",), ("spaces",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], next_url=None)])
-
-        response = hugging_face_source(
-            "hf_token", endpoint, "acme", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]

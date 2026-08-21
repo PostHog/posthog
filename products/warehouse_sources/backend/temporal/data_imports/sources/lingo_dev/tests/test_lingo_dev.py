@@ -217,24 +217,6 @@ class TestLingoDevSourceResumeBehavior:
 
         manager.save_state.assert_not_called()
 
-    def test_source_response_shape(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        source_response = lingo_dev_source(
-            api_key="test-key",
-            endpoint="jobs",
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-        )
-
-        assert source_response.name == "jobs"
-        assert source_response.primary_keys == ["id"]
-        assert source_response.partition_keys == ["createdAt"]
-        assert source_response.partition_mode == "datetime"
-        assert source_response.sort_mode == "desc"
-
     def test_resume_config_serialization_round_trip(self) -> None:
         cfg = LingoDevResumeConfig(cursor="cur_42")
 

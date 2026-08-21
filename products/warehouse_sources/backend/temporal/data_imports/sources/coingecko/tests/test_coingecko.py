@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     coingecko_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import COINGECKO_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -291,27 +290,3 @@ class TestValidateCredentials:
         assert get.call_args.args[0] == f"{PRO_BASE_URL}/ping"
         assert get.call_args.kwargs["headers"]["x-cg-pro-api-key"] == "secret"
         assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("coins_list", ["id"]),
-            ("coins_markets", ["id"]),
-            ("coins_categories", ["id"]),
-            ("coins_categories_list", ["category_id"]),
-            ("exchanges", ["id"]),
-            ("exchanges_list", ["id"]),
-            ("asset_platforms", ["id"]),
-        ]
-    )
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = _source(PLAN_DEMO, "key", endpoint, _manager())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in COINGECKO_ENDPOINTS:
-            response = _source(PLAN_DEMO, "key", endpoint, _manager())
-            assert response.name == endpoint
-            assert response.primary_keys == COINGECKO_ENDPOINTS[endpoint].primary_keys

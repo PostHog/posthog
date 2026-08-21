@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.ca
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     CAL_COM_ENDPOINTS,
     CAL_COM_HOSTS,
-    ENDPOINTS,
 )
 
 US_BASE_URL = CAL_COM_HOSTS["us"]
@@ -383,30 +382,3 @@ class TestValidateCredentials:
             assert validate_credentials("cal_live_key", region) == (True, None)
 
         assert session.get.call_args.args[0] == expected_url
-
-
-class TestCalComSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bookings_partitions_on_stable_created_at(self, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = _source("bookings")
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-        # Bookings arrive newest-first, so the watermark must only commit after a complete sync.
-        assert response.sort_mode == "desc"
-
-    @parameterized.expand([(e,) for e in ENDPOINTS if e != "bookings"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoints_do_not_partition(self, endpoint: str, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(endpoint)
-        assert response.partition_mode is None
-        assert response.sort_mode == "asc"

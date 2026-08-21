@@ -16,10 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce
     is_environment_valid,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import (
-    BABELFORCE_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import BABELFORCE_ENDPOINTS
 
 # babelforce builds its own hardened session and hands it to the REST client, so the tracked
 # session is created (and patched) in the babelforce module itself.
@@ -299,25 +296,6 @@ class TestPagination:
 
 
 class TestBabelforceSourceResponse:
-    @mock.patch(SESSION_PATCH)
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
-        config = BABELFORCE_ENDPOINTS[endpoint]
-        response = babelforce_source(
-            "services", "id", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        # Reporting order is undocumented, so the watermark must only finalize on completion.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", [c for c in BABELFORCE_ENDPOINTS.values() if c.partition_key])
     def test_partition_keys_are_stable_creation_fields(self, config):
         assert config.partition_key == "dateCreated"

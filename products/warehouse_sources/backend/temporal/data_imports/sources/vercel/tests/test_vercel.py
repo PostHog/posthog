@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.ver
     get_billing_rows,
     get_rows,
     validate_credentials,
-    vercel_source,
 )
 
 
@@ -411,47 +410,6 @@ class TestGetFanoutRows:
         assert [r["id"] for r in rows] == ["r1", "r2"]
         # Page two of the parent is requested with the first page's cursor.
         assert "until=300" in calls[2]
-
-
-class TestVercelSource:
-    @parameterized.expand(
-        [
-            ("deployments", "uid"),
-            ("events", "id"),
-            ("projects", "id"),
-            ("teams", "id"),
-            ("domains", "id"),
-            ("aliases", "uid"),
-            ("check_runs", "id"),
-        ]
-    )
-    def test_source_response_primary_key_and_sort(self, endpoint: str, expected_pk: str) -> None:
-        response = vercel_source(
-            access_token="t",
-            endpoint=endpoint,
-            team_id=None,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
-        assert response.sort_mode == "desc"
-
-    def test_billing_source_response_is_incremental_merge(self) -> None:
-        # billing_charges merges on the synthesized `id`, yields ascending, and partitions by the
-        # charge period — unlike the descending, unpartitioned cursor endpoints above.
-        response = vercel_source(
-            access_token="t",
-            endpoint="billing_charges",
-            team_id=None,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == "billing_charges"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["charge_period_start"]
-        assert response.partition_mode == "datetime"
 
 
 class _FakeStreamResponse:

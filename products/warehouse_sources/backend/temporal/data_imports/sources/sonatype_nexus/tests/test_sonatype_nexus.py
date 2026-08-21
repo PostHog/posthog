@@ -6,10 +6,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.settings import (
-    ENDPOINTS,
-    SONATYPE_NEXUS_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.sonatype_nexus import (
     SonatypeNexusPaginationError,
     SonatypeNexusResponseTimeoutError,
@@ -22,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     get_rows,
     hostname_of,
     normalize_host,
-    sonatype_nexus_source,
     validate_credentials,
 )
 
@@ -440,18 +435,6 @@ class TestGetRowsRepositoryFanout:
 
 
 class TestSonatypeNexusSource:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_primary_keys_and_no_partitioning(self, endpoint):
-        config = SONATYPE_NEXUS_ENDPOINTS[endpoint]
-        response = sonatype_nexus_source("https://n.example.com", "u", "p", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # No Nexus endpoint has a universally-populated stable timestamp, so
-        # nothing is datetime-partitioned.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_build_url_encodes_params(self):
         url = _build_url("https://x/service/rest/v1/components", {"repository": "a b", "continuationToken": "t/1"})
         assert url == "https://x/service/rest/v1/components?repository=a+b&continuationToken=t%2F1"

@@ -75,16 +75,6 @@ class TestSmartEngageTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint=endpoint)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.smartengage.smartengage.rest_api_resource")
-    def test_avatars_source_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = smartengage_source(api_key="se_key", endpoint="avatars", team_id=1, job_id="job-1")
-
-        assert response.name == "avatars"
-        assert response.primary_keys == ["avatar_id"]
-        # No SmartEngage table has a stable timestamp, so nothing is partitioned.
-        assert response.partition_mode is None
-
     @parameterized.expand(
         [
             ("tags", "tag_id"),

@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gust
     list_companies,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import ENDPOINTS, GUSTO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import GUSTO_ENDPOINTS
 
 
 class _FakeResponse:
@@ -514,22 +514,6 @@ class TestGetRowsWindowed:
 
 
 class TestGustoSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_primary_keys_match_the_endpoint_catalog(self, endpoint: str) -> None:
-        response = gusto_source(
-            environment="production",
-            client_id="cid",
-            client_secret="secret",
-            refresh_token="refresh",
-            endpoint=endpoint,
-            api_version=GUSTO_API_VERSION_2026_06_15,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == GUSTO_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     @parameterized.expand([("jobs",), ("contractor_payments",), ("pay_periods",)])
     def test_fan_out_and_keyless_tables_include_their_parent_in_the_key(self, endpoint: str) -> None:
         # Child rows from every parent land in one table, so a per-parent identifier alone would

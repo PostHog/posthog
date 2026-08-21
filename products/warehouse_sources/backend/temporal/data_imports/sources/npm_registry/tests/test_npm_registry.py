@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.npm_regist
     _first_license,
     _to_date,
     get_rows,
-    npm_registry_source,
     parse_packages,
     validate_packages,
 )
@@ -348,25 +347,3 @@ class TestValidatePackages:
             ok, message = validate_packages("react")
         assert ok is False
         assert message is not None and "Could not reach" in message
-
-
-class TestNpmRegistrySourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint,primary_keys,partition_key",
-        [
-            ("Downloads", ["package", "day"], "day"),
-            ("Versions", ["package", "version"], "published_at"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = npm_registry_source(
-            endpoint=endpoint,
-            package_names="react",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-        assert response.sort_mode == "asc"

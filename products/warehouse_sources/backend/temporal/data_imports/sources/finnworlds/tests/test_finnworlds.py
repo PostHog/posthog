@@ -14,14 +14,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     _extract_rows,
     _normalize_row,
     _payload_error,
-    finnworlds_source,
     get_rows,
     parse_tickers,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
     FINNWORLDS_ENDPOINTS,
-    FinnworldsEndpointConfig,
     ResponseMode,
 )
 
@@ -298,20 +296,6 @@ class TestValidateCredentials:
 
 
 class TestFinnworldsSource:
-    @parameterized.expand([(name,) for name in FINNWORLDS_ENDPOINTS])
-    def test_source_response_primary_keys_and_partitioning(self, endpoint: str) -> None:
-        config: FinnworldsEndpointConfig = FINNWORLDS_ENDPOINTS[endpoint]
-        response = finnworlds_source("key", endpoint, ["AAPL"], _logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_partition_keys_are_stable_date_fields(self) -> None:
         # Guard against picking an update-style field that rewrites partitions every sync.
         for config in FINNWORLDS_ENDPOINTS.values():

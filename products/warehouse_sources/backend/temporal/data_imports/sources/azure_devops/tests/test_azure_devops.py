@@ -20,14 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     _flatten_revision,
     _format_datetime,
     _validate_organization,
-    azure_devops_source,
     get_rows,
     validate_credentials,
     wire_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
     AZURE_DEVOPS_ENDPOINTS,
-    ENDPOINTS,
 )
 
 
@@ -355,29 +353,6 @@ class TestGetRows:
 
 
 class TestAzureDevOpsSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = AZURE_DEVOPS_ENDPOINTS[endpoint]
-        response = azure_devops_source(
-            "myorg", "pat", endpoint, mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    def test_pull_requests_are_desc_sorted(self):
-        response = azure_devops_source(
-            "myorg", "pat", "pull_requests", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
-        )
-        assert response.sort_mode == "desc"
-
     @pytest.mark.parametrize("config", list(AZURE_DEVOPS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         if config.partition_key:

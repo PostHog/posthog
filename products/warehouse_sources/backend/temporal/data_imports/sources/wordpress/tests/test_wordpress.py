@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.
     get_rows,
     normalize_host,
     validate_credentials,
-    wordpress_source,
 )
 
 
@@ -365,40 +364,6 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
-
-
-class TestWordpressSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, partition_key",
-        [
-            ("posts", "date"),
-            ("pages", "date"),
-            ("comments", "date"),
-            ("media", "date"),
-            ("categories", None),
-            ("tags", None),
-            ("users", None),
-        ],
-    )
-    def test_response_shape(self, endpoint, partition_key):
-        response = wordpress_source(
-            site_url="https://example.com",
-            username=None,
-            application_password=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
 
 
 class TestGetRows:

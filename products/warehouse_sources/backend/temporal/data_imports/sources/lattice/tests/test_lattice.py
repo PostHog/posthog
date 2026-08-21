@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.la
     lattice_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lattice.settings import (
-    ENDPOINTS,
-    LATTICE_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -200,17 +196,3 @@ class TestPagination:
         assert rows == []
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-
-class TestLatticeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = LATTICE_ENDPOINTS[endpoint]
-        response = _source("us", endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None

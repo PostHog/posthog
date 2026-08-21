@@ -227,21 +227,6 @@ class TestIterPageMetricsForProject:
 
 
 class TestDebugbearSourceRouting:
-    def test_projects_source_response(self) -> None:
-        response = debugbear_source(api_key="key", endpoint="Projects")
-
-        assert response.name == "projects"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-
-    def test_page_metrics_source_response(self) -> None:
-        response = debugbear_source(api_key="key", endpoint="PageMetrics")
-
-        assert response.name == "page_metrics"
-        assert response.primary_keys == ["project_id", "page_id", "analysis_date"]
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["analysis_date"]
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown DebugBear endpoint"):
             debugbear_source(api_key="key", endpoint="Nope")

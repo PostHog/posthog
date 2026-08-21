@@ -339,16 +339,6 @@ class TestGetRows:
 
 
 class TestOpenWeatherSource:
-    @pytest.mark.parametrize("api_version, endpoint", _ALL_VERSIONED_ENDPOINTS)
-    def test_source_response_shape(self, api_version, endpoint):
-        response = openweather_source("test-key", endpoint, "51.5,-0.12,London", structlog.get_logger(), api_version)
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["lat", "lon", "dt"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["dt_iso"]
-        assert response.sort_mode == "asc"
-
     def test_invalid_locations_raise(self):
         with pytest.raises(ValueError):
             openweather_source("test-key", "current_weather", "garbage", structlog.get_logger(), API_VERSION_2_5)

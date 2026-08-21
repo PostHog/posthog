@@ -283,23 +283,3 @@ class TestValidateCredentials:
         ok, error = validate_credentials("key")
         assert ok is False
         assert error is not None
-
-
-class TestMailosaurSourceResponse:
-    @parameterized.expand(
-        [
-            ("messages", ["server", "id"], "desc", ["received"]),
-            ("servers", ["id"], "asc", None),
-            ("usage_transactions", ["timestamp"], "asc", None),
-        ]
-    )
-    def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_keys: list[str] | None
-    ) -> None:
-        response = mailosaur_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        # sort_mode must match the real arrival order — messages come newest-first (desc), and a
-        # wrong value corrupts the incremental watermark checkpoint.
-        assert response.sort_mode == sort_mode
-        assert response.partition_keys == partition_keys

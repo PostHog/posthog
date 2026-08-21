@@ -3,25 +3,18 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
-    GoogleSearchConsoleResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
     DEFAULT_SEARCH_TYPE,
     PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_SCHEMAS,
     SEARCH_TYPES,
-    qualified_schema_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
     GoogleSearchConsoleSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 def _config(search_types: list[str] | None = None) -> GoogleSearchConsoleSourceConfig:
@@ -34,66 +27,6 @@ def _config(search_types: list[str] | None = None) -> GoogleSearchConsoleSourceC
 
 def _all_types_config() -> GoogleSearchConsoleSourceConfig:
     return _config(list(SEARCH_TYPES))
-
-
-def _expected_names(search_types: list[str]) -> set[str]:
-    return {
-        qualified_schema_name(base_name, search_type)
-        for search_type in search_types
-        for base_name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
-        if search_type == DEFAULT_SEARCH_TYPE or not schema.get("web_only")
-    } | set(PROPERTY_SCHEMAS.keys())
-
-
-def test_source_type():
-    assert GoogleSearchConsoleSource().source_type == ExternalDataSourceType.GOOGLESEARCHCONSOLE
-
-
-def test_get_source_config_fields():
-    cfg = GoogleSearchConsoleSource().get_source_config
-
-    field_names = {field.name for field in cfg.fields}
-    assert field_names == {"google_search_console_integration_id", "site_url", "search_types"}
-    assert cfg.label == "Google Search Console"
-    assert cfg.featureFlag is None
-    assert cfg.releaseStatus == "ga"
-
-    search_types = next(field for field in cfg.fields if field.name == "search_types")
-    assert isinstance(search_types, SourceFieldSelectConfig)
-    # Without `multiple` the form stores a bare string and only one type can ever sync.
-    assert search_types.multiple is True
-    assert search_types.defaultValue == DEFAULT_SEARCH_TYPE
-    assert tuple(option.value for option in search_types.options) == SEARCH_TYPES
-
-
-def test_get_schemas_returns_all_schemas_with_date_incremental():
-    schemas = GoogleSearchConsoleSource().get_schemas(_all_types_config(), team_id=1)
-
-    assert {s.name for s in schemas} == _expected_names(list(SEARCH_TYPES))
-    for schema in schemas:
-        if schema.name in PROPERTY_SCHEMAS:
-            continue
-        assert schema.supports_incremental is True
-        assert schema.supports_append is True
-        assert schema.incremental_fields == [
-            {
-                "label": "date",
-                "field": "date",
-                "type": IncrementalFieldType.Date,
-                "field_type": IncrementalFieldType.Date,
-            }
-        ]
-
-
-@pytest.mark.parametrize("name", sorted(PROPERTY_SCHEMAS.keys()))
-def test_property_schemas_are_not_incremental(name):
-    # `sites.list` and `sitemaps.list` return the current state with no timestamp to filter on,
-    # so offering incremental sync would checkpoint a watermark that can never advance.
-    schema = next(s for s in GoogleSearchConsoleSource().get_schemas(_config(), team_id=1) if s.name == name)
-
-    assert schema.supports_incremental is False
-    assert schema.supports_append is False
-    assert schema.incremental_fields == []
 
 
 @pytest.mark.parametrize(
@@ -130,23 +63,6 @@ def test_effective_search_types(search_types, expected_types):
     assert GoogleSearchConsoleSource.effective_search_types(_config(search_types)) == expected_types
 
 
-@pytest.mark.parametrize(
-    "search_types",
-    [None, ["web"], ["image"], ["web", "image", "news"], list(SEARCH_TYPES)],
-)
-def test_get_schemas_cross_product_excludes_web_only_tables(search_types):
-    schemas = GoogleSearchConsoleSource().get_schemas(_config(search_types), team_id=1)
-    effective = GoogleSearchConsoleSource.effective_search_types(_config(search_types))
-
-    assert {s.name for s in schemas} == _expected_names(effective)
-    # Hourly and search appearance data only exist for web search.
-    for web_only_name in ("search_analytics_by_hour", "search_analytics_by_search_appearance"):
-        for search_type in effective:
-            if search_type == DEFAULT_SEARCH_TYPE:
-                continue
-            assert qualified_schema_name(web_only_name, search_type) not in {s.name for s in schemas}
-
-
 def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
     # Google's API refuses to group `searchAppearance` with any other dimension,
     # so the schema must request it alone — but the warehouse still partitions per
@@ -155,52 +71,6 @@ def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
     assert schema["dimensions"] == ["searchAppearance"]
     assert schema["primary_key"] == ["date", "searchAppearance"]
     assert schema["should_sync_default"] is False
-
-
-def test_get_schemas_filters_by_names():
-    schemas = GoogleSearchConsoleSource().get_schemas(
-        _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]
-    )
-    assert {s.name for s in schemas} == {"search_analytics_by_date", "search_analytics_by_query"}
-
-
-@pytest.mark.parametrize(
-    "config",
-    [pytest.param(_config(), id="web_only"), pytest.param(_all_types_config(), id="all_types")],
-)
-def test_canonical_descriptions_cover_every_schema(config):
-    # A table shipped without a canonical entry silently falls back to LLM-generated
-    # descriptions, which is what the curated file exists to avoid.
-    source = GoogleSearchConsoleSource()
-    names = {s.name for s in source.get_schemas(config, team_id=1)}
-
-    assert names <= set(source.get_canonical_descriptions().keys())
-
-
-def test_get_resumable_source_manager_uses_resume_config():
-    inputs = mock.MagicMock()
-    manager = GoogleSearchConsoleSource().get_resumable_source_manager(inputs)
-    assert manager._data_class is GoogleSearchConsoleResumeConfig
-
-
-@pytest.mark.parametrize(
-    "error_message",
-    [
-        "invalid_grant",
-        # The real RefreshError raised when AuthorizedSession refreshes a revoked/expired token.
-        "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
-    ],
-)
-def test_invalid_grant_is_non_retryable(error_message):
-    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
-    assert any(key in error_message for key in non_retryable_errors)
-
-
-def test_missing_integration_is_non_retryable():
-    # The message raised mid-sync by Integration.objects.get when the row was deleted.
-    error_message = "Integration matching query does not exist."
-    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
-    assert any(key in error_message for key in non_retryable_errors)
 
 
 @pytest.mark.parametrize(

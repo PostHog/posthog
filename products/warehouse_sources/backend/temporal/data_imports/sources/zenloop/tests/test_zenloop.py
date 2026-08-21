@@ -234,22 +234,6 @@ class TestCheckAccess:
 
 
 class TestZenloopSourceResponse:
-    @parameterized.expand([("surveys",), ("survey_groups",), ("properties",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_shape_matches_endpoint_config(self, endpoint: str, MockSession) -> None:
-        response = zenloop_source(
-            api_token="zenloop-token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No endpoint exposes a creation-timestamp partition key, so partitioning stays off.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in ZENLOOP_ENDPOINTS.values())
         assert set(ZENLOOP_ENDPOINTS) == set(ENDPOINTS)

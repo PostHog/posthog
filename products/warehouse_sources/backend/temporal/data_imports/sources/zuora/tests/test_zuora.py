@@ -293,15 +293,6 @@ class TestGetRows:
 
 
 class TestZuoraSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Pages are requested sorted ascending by updateddate.
-        assert response.sort_mode == "asc"
-
     def test_all_endpoints_have_paths(self):
         assert set(ENDPOINTS) == set(ZUORA_ENDPOINTS.keys())
 

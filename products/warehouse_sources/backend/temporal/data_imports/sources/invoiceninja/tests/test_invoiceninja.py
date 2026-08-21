@@ -18,9 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.invoicenin
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.settings import (
-    INVOICENINJA_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -238,18 +235,6 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == invoiceninja_module.HTTP_NOT_ALLOWED_ERROR
             patched.return_value.get.assert_not_called()
-
-
-class TestInvoiceNinjaSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(INVOICENINJA_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        # Integer unix timestamps aren't datetime-partitionable, so no partitioning is applied.
-        assert response.partition_keys is None
-        assert response.partition_mode is None
 
 
 class TestPagination:

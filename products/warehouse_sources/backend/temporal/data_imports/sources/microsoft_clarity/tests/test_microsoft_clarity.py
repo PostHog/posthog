@@ -17,10 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_
     microsoft_clarity_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import (
-    ENDPOINT_NAME,
-    NO_DIMENSION,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.settings import NO_DIMENSION
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity.make_tracked_session"
 
@@ -164,21 +161,6 @@ class TestMicrosoftClaritySource:
         rows = list(cast("Iterable[Any]", response.items()))
 
         assert all(row["num_of_days"] == 3 for row in rows)
-
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _make_response(200, json_body=SAMPLE_PAYLOAD)
-
-        response = microsoft_clarity_source(
-            token="token", num_of_days="1", dimension1=NO_DIMENSION, dimension2=NO_DIMENSION, dimension3=NO_DIMENSION
-        )
-
-        assert response.name == ENDPOINT_NAME
-        assert response.primary_keys == ["metric_name", "synced_at", "row_index"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["synced_at"]
 
     @mock.patch(SESSION_PATCH)
     def test_dimension_params_are_sent_to_the_api(self, MockSession: Any) -> None:

@@ -262,18 +262,6 @@ class TestPagination:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(LEMON_SQUEEZY_ENDPOINTS.keys()))
-    @mock.patch(LEMON_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Lists arrive newest-first, so the watermark must only finalize after a full sync.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
     @pytest.mark.parametrize(
         "endpoint, should_use_incremental_field, expected_disposition",
         [

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.ima
     imagga_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import IMAGGA_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -210,29 +209,12 @@ class TestValidateCredentials:
 
 
 class TestImaggaSourceResponse:
-    @parameterized.expand([("usage", ["billing_period_start"]), ("daily_usage", ["date"])])
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = imagga_source("key", "secret", endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
-
     def test_daily_usage_partitions_on_stable_date(self) -> None:
         response = imagga_source("key", "secret", "daily_usage", team_id=1, job_id="j")
         assert response.partition_keys == ["date"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
 
-    def test_usage_snapshot_is_not_partitioned(self) -> None:
-        response = imagga_source("key", "secret", "usage", team_id=1, job_id="j")
-        assert response.partition_keys is None
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError):
             imagga_source("key", "secret", "nope", team_id=1, job_id="j")
-
-    def test_every_settings_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in IMAGGA_ENDPOINTS:
-            response = imagga_source("key", "secret", endpoint, team_id=1, job_id="j")
-            assert response.name == endpoint
-            assert response.primary_keys == IMAGGA_ENDPOINTS[endpoint].primary_keys

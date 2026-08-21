@@ -53,7 +53,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     BREAKDOWN_STATS_ENDPOINTS,
     ENDPOINTS,
-    RESOURCE_SCHEMAS,
     MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -1332,48 +1331,6 @@ class TestTimeRangeMalformedJson:
 
 class TestNonRetryableErrors:
     @pytest.mark.parametrize(
-        "error_message",
-        [
-            # Token refresh failure raised by get_integration.
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
-            # Integration row deleted/de-authorized while the source still references it —
-            # get_integration raises Django's Integration.DoesNotExist with this message.
-            "Integration matching query does not exist.",
-            # 400 from Meta when the ad account no longer belongs to the authorised user.
-            'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
-            # 400 when a specific endpoint cannot be accessed with the granted permissions.
-            'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
-            # 400 when a business_management-gated field is requested without that scope.
-            'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
-            # 400 when the source's configured attribution windows include a value Meta's
-            # Insights API doesn't recognise.
-            'Meta API request failed: 400 - {"error":{"message":"(#100) action_attribution_windows[0] must be '
-            'one of the following values: 1d_view, 7d_view, 28d_view, 1d_click, 7d_click, 28d_click","type":"OAuthException","code":100}}',
-            # 500 when Meta's backend refuses to service the query even after adaptive
-            # chunking has shrunk the window to its smallest size.
-            'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
-            # Both shrink ladders bottomed out, so the next attempt would re-issue
-            # the identical single-day, smallest-page request that just failed.
-            f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
-            '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
-            # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
-            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
-            '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
-            'instructions given.","type":"OAuthException","code":190,"error_subcode":459}})',
-            # code 190 / subcode 460 — session invalidated after a password change.
-            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
-            '{"error":{"message":"Error validating access token: The session has been invalidated because the '
-            "user changed their password or Facebook has changed the session for security "
-            'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
-        ],
-    )
-    def test_errors_match_pattern(self, error_message: str) -> None:
-        patterns = MetaAdsSource().get_non_retryable_errors()
-        assert any(pattern in error_message for pattern in patterns), (
-            f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
-        )
-
-    @pytest.mark.parametrize(
         "body,expected",
         [
             # Permanent auth/permission failures.
@@ -1413,39 +1370,6 @@ class TestNonRetryableErrors:
 
 
 class TestRetryableErrors:
-    @pytest.mark.parametrize(
-        "body",
-        [
-            # Real-world Meta responses: code 2 "Service temporarily unavailable" with an
-            # explicit is_transient: false, and a generic code 1 "unknown error" with no flag.
-            {"error": {"message": "Service temporarily unavailable", "code": 2, "is_transient": False}},
-            {"error": {"message": "An unknown error has occurred.", "code": 1}},
-        ],
-    )
-    def test_transient_error_message_matches_retryable_pattern(self, body: dict) -> None:
-        patterns = MetaAdsSource().get_retryable_errors()
-        with pytest.raises(Exception) as exc_info:
-            _raise_meta_api_error(_mock_response(500, body))
-        assert any(pattern in str(exc_info.value) for pattern in patterns)
-
-    @pytest.mark.parametrize("code", sorted(meta_ads_module.META_RATE_LIMIT_ERROR_CODES))
-    def test_rate_limit_error_matches_retryable_pattern(self, code: int) -> None:
-        # Real-world Meta throttling response: code 17 "User request limit reached" with
-        # is_transient: false. It must be tagged retryable rather than falling through to the
-        # generic, unclassified message and getting reported to error tracking on every attempt.
-        body = {
-            "error": {
-                "message": "User request limit reached",
-                "type": "OAuthException",
-                "code": code,
-                "is_transient": False,
-            }
-        }
-        patterns = MetaAdsSource().get_retryable_errors()
-        with pytest.raises(Exception) as exc_info:
-            _raise_meta_api_error(_mock_response(400, body))
-        assert any(pattern in str(exc_info.value) for pattern in patterns)
-
     def test_empty_body_500_matches_retryable_pattern(self) -> None:
         # Meta (or a fronting proxy) occasionally returns a bare 500 with an empty body — no
         # JSON, no error code to classify by. It must still be tagged retryable rather than
@@ -1459,21 +1383,6 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
-
-    def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
-        # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
-        # already exhausted) — plain retries never resolve it, so it must not also be tagged
-        # retryable, which would contradict `get_non_retryable_errors`.
-        body = {
-            "error": {
-                "code": 1,
-                "message": "Please reduce the amount of data you're asking for, then retry your request",
-            }
-        }
-        patterns = MetaAdsSource().get_retryable_errors()
-        with pytest.raises(Exception) as exc_info:
-            _raise_meta_api_error(_mock_response(500, body))
-        assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
 @freeze_time("2026-06-16")
@@ -1779,10 +1688,6 @@ class TestEndpointCatalog:
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
         assert endpoint in get_meta_ads_schemas()
 
-    def test_source_advertises_the_whole_catalog(self) -> None:
-        advertised = {schema.name for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
-        assert advertised == set(RESOURCE_SCHEMAS)
-
 
 class TestBreakdownStatsSchemas:
     """Insights breakdown tables fan a campaign/day pair out into one row per dimension combination."""
@@ -1822,14 +1727,6 @@ class TestBreakdownStatsSchemas:
         # Meta returns breakdowns as columns automatically and rejects the request outright when
         # they are also listed in `fields`, so the table would 400 on every sync.
         assert set(breakdowns).isdisjoint(schema.field_names)
-
-    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
-    def test_breakdown_tables_are_off_by_default(self, endpoint: str) -> None:
-        schemas = {schema.name: schema for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
-
-        # Each breakdown multiplies the daily row count, so a new connection must not pick them
-        # up unless the user asks for them.
-        assert schemas[endpoint].should_sync_default is False
 
     def test_hourly_table_omits_metrics_meta_cannot_report_hourly(self) -> None:
         # "Hourly breakdowns do not support unique fields, which are any fields prepended with

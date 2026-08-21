@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardia
     GitGuardianResumeConfig,
     check_endpoint_access,
     get_rows,
-    gitguardian_source,
     resolve_base_url,
     validate_base_url,
     validate_credentials,
@@ -357,37 +356,3 @@ class TestFetchPageRetries:
         with pytest.raises(requests.HTTPError):
             gitguardian._fetch_page(session, f"{BASE_URL}/v1/incidents/secrets", {}, MagicMock())
         assert session.get.call_count == 1
-
-
-class TestSourceResponseShape:
-    @parameterized.expand(
-        [
-            ("secret_incidents", ["date"]),
-            ("secret_occurrences", ["date"]),
-        ]
-    )
-    def test_incremental_endpoints_partition_on_stable_detection_date(
-        self, endpoint: str, expected_partition: list[str]
-    ) -> None:
-        response = gitguardian_source(
-            api_key="gg_sat_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_keys == expected_partition
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-
-    @parameterized.expand([("sources",), ("honeytokens",), ("members",), ("teams",)])
-    def test_full_refresh_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = gitguardian_source(
-            api_key="gg_sat_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode is None
-        assert response.partition_keys is None

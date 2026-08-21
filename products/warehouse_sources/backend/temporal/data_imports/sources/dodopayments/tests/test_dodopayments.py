@@ -266,25 +266,6 @@ class TestRequestParams:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(DODOPAYMENTS_ENDPOINTS))
-    @mock.patch(SESSION_PATCH)
-    def test_metadata_matches_the_endpoint_catalog(self, MockSession, endpoint):
-        config = DODOPAYMENTS_ENDPOINTS[endpoint]
-
-        response = _source(endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Dodo documents no ordering guarantee, so the watermark must only finalize at the end
-        # of a successful sync.
-        assert response.sort_mode == "desc"
-        if config.partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-
     @pytest.mark.parametrize(
         "endpoint, should_use_incremental_field, expected_disposition",
         [

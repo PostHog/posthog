@@ -10,11 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codacy imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.codacy import (
     CodacyRetryableError,
     _fetch_page,
-    codacy_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import CODACY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import CODACY_ENDPOINTS
 
 BASE = "https://api.codacy.com/api/v3"
 REPOS_URL = f"{BASE}/organizations/gh/acme/repositories?limit=100"
@@ -290,24 +289,9 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_primary_keys_match_endpoint_settings(self, endpoint: str) -> None:
-        response = codacy_source(
-            api_token="token", provider="gh", organization="acme", endpoint=endpoint, logger=MagicMock()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == CODACY_ENDPOINTS[endpoint].primary_keys
-
     def test_fan_out_children_include_repository_in_primary_key(self) -> None:
         # A fan-out child keyed without the repository would multi-match on merge once two
         # repositories share an id (e.g. the same file path), degrading every subsequent sync.
         for endpoint, config in CODACY_ENDPOINTS.items():
             if config.fan_out_per_repository:
                 assert config.primary_keys[0] == "repository", endpoint
-
-    def test_commits_partition_on_stable_commit_timestamp(self) -> None:
-        response = codacy_source(
-            api_token="token", provider="gh", organization="acme", endpoint="commits", logger=MagicMock()
-        )
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["commitTimestamp"]

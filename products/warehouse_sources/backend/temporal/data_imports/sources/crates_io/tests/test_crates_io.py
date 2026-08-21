@@ -21,15 +21,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.
     parse_crates,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.settings import CRATES_IO_ENDPOINTS
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io"
 
 
 @pytest.fixture(autouse=True)
 def _no_throttle(monkeypatch):
     # The crawler-policy throttle would add a real 1s sleep between mocked requests.
     monkeypatch.setattr(f"{MODULE}.THROTTLE_SECONDS", 0.0)
+
+
+MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io"
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -301,14 +301,6 @@ class TestGetRows:
 
 
 class TestCratesIOSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(CRATES_IO_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = crates_io_source(endpoint, "serde", structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == CRATES_IO_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     def test_only_streams_with_stable_dates_are_partitioned(self):
         # `versions` has a stable publish timestamp and `downloads` a stable day; `crates` and
         # `owners` have no stable datetime column.

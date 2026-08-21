@@ -9,7 +9,6 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic import writesonic
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import WRITESONIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.writesonic import (
     WritesonicResumeConfig,
     WritesonicRetryableError,
@@ -17,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic
     _to_date,
     get_rows,
     validate_credentials,
-    writesonic_source,
 )
 
 
@@ -339,25 +337,3 @@ class TestValidateCredentials:
             ok, message = validate_credentials(api_key="key", site_url="https://example.com")
             assert ok is False
             assert message is not None and "reach" in message
-
-
-class TestSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in WRITESONIC_ENDPOINTS])
-    def test_source_response_matches_endpoint_config(self, endpoint):
-        config = WRITESONIC_ENDPOINTS[endpoint]
-        response = writesonic_source(
-            api_key="key",
-            site_url="https://example.com",
-            project_id=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            manager=mock.MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None

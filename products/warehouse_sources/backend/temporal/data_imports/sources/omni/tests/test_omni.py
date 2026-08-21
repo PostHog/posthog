@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni 
     omni_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omni.settings import PARTITION_KEYS, PRIMARY_KEYS
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 OMNI_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.omni.omni.make_tracked_session"
@@ -444,35 +443,6 @@ class TestOmniSourceEndToEnd:
 
         assert rows == [{"id": "u1"}, {"id": "u2"}]
         manager.save_state.assert_called_once_with(OmniResumeConfig(start_index=2))
-
-    @pytest.mark.parametrize("endpoint", list(PRIMARY_KEYS.keys()))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        manager = _make_manager()
-        selector = {
-            "Documents": "records",
-            "Folders": "records",
-            "Connections": "connections",
-            "Schedules": "records",
-            "Users": "Resources",
-            "UserGroups": "Resources",
-        }[endpoint]
-        responses = [
-            _make_response({"pageInfo": {"hasNextPage": False, "nextCursor": None}, selector: []})
-            if selector != "connections"
-            else _make_response({selector: []})
-        ]
-
-        response, _rows, _sent_params = self._drive(endpoint, manager, responses)
-
-        assert response.primary_keys == PRIMARY_KEYS[endpoint]
-        assert response.sort_mode == ("desc" if endpoint == "Documents" else "asc")
-        partition_key = PARTITION_KEYS[endpoint]
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
 
 class TestOmniSourceSsrfGuards:

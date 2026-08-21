@@ -131,22 +131,6 @@ class TestCastAiValidateCredentials:
 
 class TestCastAiSourceTopLevel:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
-    def test_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = cast_ai_source(
-            api_key="key",
-            endpoint="clusters",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "clusters"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai.rest_api_resource")
     def test_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager(CastAiResumeConfig(paginator_state={"offset": 5}))

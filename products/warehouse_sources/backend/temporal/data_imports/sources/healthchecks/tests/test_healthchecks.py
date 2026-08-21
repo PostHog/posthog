@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.healthchec
     _fetch,
     _to_unix_seconds,
     get_rows,
-    healthchecks_source,
     hostname_of,
     normalize_base_url,
     validate_credentials,
@@ -338,26 +337,3 @@ class TestGetRowsFanOut:
         list(get_rows(None, "key", "flips", mock.MagicMock(), manager))
         saved = [c.args[0].check_key for c in manager.save_state.call_args_list]
         assert saved == ["u-2"]
-
-
-class TestHealthchecksSource:
-    @pytest.mark.parametrize(
-        "endpoint, expected_keys, expected_sort, has_partition",
-        [
-            ("checks", ["id"], "asc", False),
-            ("channels", ["id"], "asc", False),
-            ("flips", ["check_id", "timestamp"], "desc", True),
-            ("pings", ["check_id", "n"], "asc", True),
-        ],
-    )
-    def test_source_response_shape(self, endpoint, expected_keys, expected_sort, has_partition):
-        response = healthchecks_source(None, "key", endpoint, mock.MagicMock(), _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == expected_sort
-        if has_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys is not None
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None

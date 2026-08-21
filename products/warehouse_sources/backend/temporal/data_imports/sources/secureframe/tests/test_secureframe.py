@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.securefram
     secureframe_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import (
-    ENDPOINTS,
-    SECUREFRAME_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import SECUREFRAME_ENDPOINTS
 
 # The rest_source client builds/uses its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -338,28 +335,6 @@ class TestSessionHardening:
 
 
 class TestSecureframeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = SECUREFRAME_ENDPOINTS[endpoint]
-        response = secureframe_source(
-            api_key="key",
-            api_secret="secret",
-            region="us",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(SECUREFRAME_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

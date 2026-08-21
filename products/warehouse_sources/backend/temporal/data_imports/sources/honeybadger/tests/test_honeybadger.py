@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadge
     _fetch_page,
     _to_unix_timestamp,
     get_rows,
-    honeybadger_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import HONEYBADGER_ENDPOINTS
@@ -465,29 +464,3 @@ class TestHoneybadger:
             next(rows)
             manager.save_state.assert_called_once_with(HoneybadgerResumeConfig(next_url=next_url, project_id=1))
             list(rows)
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_primary_keys", "expected_partition_keys"),
-        [
-            ("projects", ["id"], None),
-            ("faults", ["project_id", "id"], ["created_at"]),
-            ("notices", ["id"], ["created_at"]),
-            ("deploys", ["project_id", "id"], ["created_at"]),
-            ("sites", ["project_id", "id"], None),
-        ],
-    )
-    def test_source_response_shape(
-        self, endpoint: str, expected_primary_keys: list[str], expected_partition_keys: list[str] | None
-    ) -> None:
-        response = honeybadger_source(
-            api_key="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == expected_partition_keys
-        assert response.partition_mode == ("datetime" if expected_partition_keys else None)

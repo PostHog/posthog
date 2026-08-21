@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell
     HyperspellResumeConfig,
     get_base_url,
     get_rows,
-    hyperspell_source,
     parse_user_ids,
     validate_credentials,
 )
@@ -304,55 +303,3 @@ class TestGetRows:
         _, mock_get = _run(manager, pages, endpoint=endpoint)
 
         assert page_size_param in mock_get.call_args[0][0]
-
-
-class TestHyperspellSource:
-    @pytest.mark.parametrize(
-        "endpoint, expected_primary_keys",
-        [
-            ("memories", ["user_id", "source", "resource_id"]),
-            ("connections", ["user_id", "id"]),
-            ("integrations", ["id"]),
-            ("queries", ["query_id"]),
-        ],
-    )
-    def test_primary_keys_per_endpoint(self, endpoint, expected_primary_keys) -> None:
-        response = hyperspell_source(
-            api_key="hs_test",
-            region="us",
-            user_ids=None,
-            endpoint=endpoint,
-            logger=structlog.get_logger(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
-        # Row ordering is undefined (opaque cursor, no sort param) so "asc" must never be declared.
-        assert response.sort_mode == "desc"
-
-    def test_entities_response_has_datetime_partition(self) -> None:
-        response = hyperspell_source(
-            api_key="hs_test",
-            region="us",
-            user_ids=None,
-            endpoint="entities",
-            logger=structlog.get_logger(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_memories_response_has_no_partition(self) -> None:
-        response = hyperspell_source(
-            api_key="hs_test",
-            region="us",
-            user_ids=None,
-            endpoint="memories",
-            logger=structlog.get_logger(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None

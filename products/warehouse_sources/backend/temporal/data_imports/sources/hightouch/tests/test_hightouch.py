@@ -159,23 +159,6 @@ class TestHightouchTransport:
         assert "data_map" not in resource
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.hightouch.rest_api_resource")
-    def test_hightouch_source_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = hightouch_source(
-            api_key="key",
-            endpoint="models",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "models"
-        assert response.primary_keys == ["id"]
-        # Config tables are tiny and full refresh, so they are not partitioned.
-        assert response.partition_mode is None
-        assert response.sort_mode == "asc"
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.hightouch.hightouch.rest_api_resource")
     def test_hightouch_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager(HightouchResumeConfig(paginator_state={"offset": 200}))

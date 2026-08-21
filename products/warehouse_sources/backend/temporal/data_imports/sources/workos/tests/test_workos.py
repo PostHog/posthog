@@ -148,24 +148,6 @@ class TestWorkOSEndpoints:
         assert params["order"] == "desc"
         assert params["limit"] == WORKOS_ENDPOINTS[endpoint].page_size
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        response = workos_source(
-            api_key="sk_test_123",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="job_1",
-            resumable_source_manager=manager,
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-
 
 class TestWorkOSSourceResumeBehavior:
     """End-to-end resume behaviour through the shared ``rest_api_resource`` path."""

@@ -232,29 +232,8 @@ class TestValidateCredentials:
 
 class TestGreenhouseSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == GREENHOUSE_ENDPOINTS[endpoint].primary_keys
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_partitioning_only_when_partition_key_present(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        partition_key = GREENHOUSE_ENDPOINTS[endpoint].partition_key
-
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_partition_key_is_never_updated_at(self, endpoint: str) -> None:
         assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
-
-    def test_sort_mode_is_ascending(self) -> None:
-        response = _source("candidates")
-        assert response.sort_mode == "asc"
 
 
 class TestRequestUrlPerVersion:

@@ -268,21 +268,3 @@ class TestValidateCredentials:
         validate_credentials("secret-token")
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
         assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-
-class TestZendeskSellSource:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoint_response(self, MockSession) -> None:
-        response = _source("contacts", _make_manager())
-        assert response.name == "contacts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpartitioned_lookup_endpoint_response(self, MockSession) -> None:
-        response = _source("stages", _make_manager())
-        assert response.name == "stages"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

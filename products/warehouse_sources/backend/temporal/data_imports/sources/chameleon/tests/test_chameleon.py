@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.
     chameleon_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.settings import CHAMELEON_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -359,21 +358,3 @@ class TestResumeStateCompatibility:
         assert ChameleonResumeConfig(**cast("dict[str, Any]", {"before": "S2", "survey_id": "SV1"})) == (
             ChameleonResumeConfig(before="S2", survey_id="SV1")
         )
-
-
-class TestChameleonSourceResponse:
-    @parameterized.expand(list(CHAMELEON_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = chameleon_source(
-            account_secret="secret",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Chameleon returns newest-first; the watermark/ordering contract must reflect that.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]

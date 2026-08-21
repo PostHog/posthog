@@ -26,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.
     parse_packages,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.packagist.settings import PACKAGIST_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.packagist.packagist"
 
@@ -427,14 +426,6 @@ class TestGetRows:
 
 
 class TestPackagistSource:
-    @pytest.mark.parametrize("endpoint", list(PACKAGIST_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = packagist_source(endpoint, "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]
-
-        assert response.name == endpoint
-        assert response.primary_keys == PACKAGIST_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-
     def test_only_downloads_is_partitioned(self):
         downloads = packagist_source("downloads", "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]
         packages = packagist_source("packages", "monolog/monolog", structlog.get_logger(), _FakeResumableManager())  # type: ignore[arg-type]

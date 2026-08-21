@@ -478,24 +478,6 @@ class TestPaymentsPartitionStability:
 
 
 class TestCheckoutComPaymentsSourceResponse:
-    @pytest.mark.parametrize(
-        "schema_name, primary_keys, partition_keys",
-        [
-            ("payments", ["id"], ["id"]),
-            ("payment_actions", ["payment_id", "id"], ["payment_requested_on"]),
-            ("customers", ["id"], None),
-            ("instruments", ["id"], None),
-        ],
-    )
-    def test_response_metadata(self, schema_name, primary_keys, partition_keys):
-        response = _source(schema_name)
-
-        assert response.name == schema_name
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == partition_keys
-        # Windows walk oldest-first, so ascending watermark commits are safe.
-        assert response.sort_mode == "asc"
-
     def test_unknown_schema_raises(self):
         with pytest.raises(ValueError):
             _source("nope")

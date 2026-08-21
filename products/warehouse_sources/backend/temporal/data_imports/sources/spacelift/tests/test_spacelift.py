@@ -360,25 +360,6 @@ class TestSpacelift:
         with pytest.raises(ValueError, match="Unknown Spacelift endpoint"):
             spacelift_source("my-company", "key-id", "key-secret", "nope", mock.MagicMock(), _make_manager())
 
-    @pytest.mark.parametrize(
-        "endpoint, expected_sort_mode, expected_primary_keys",
-        [
-            ("stacks", "asc", ["id"]),
-            ("runs", "desc", ["id"]),
-            ("managed_entities", "asc", ["stackId", "id"]),
-        ],
-    )
-    def test_source_response_metadata(self, endpoint, expected_sort_mode, expected_primary_keys):
-        response = spacelift_source("my-company", "key-id", "key-secret", endpoint, mock.MagicMock(), _make_manager())
-        assert response.name == endpoint
-        assert response.sort_mode == expected_sort_mode
-        assert response.primary_keys == expected_primary_keys
-
-    def test_runs_partitions_on_created_at(self):
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_credentials_success(self, mock_make_session):
         _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD)])

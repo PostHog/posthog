@@ -270,40 +270,6 @@ class TestRedaction:
         assert "api.giphy.com/v1/gifs/search" in str(exc_info.value)
 
 
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("gifs_trending", ["id"]),
-            ("stickers_trending", ["id"]),
-            ("gifs_search", ["id"]),
-            ("stickers_search", ["id"]),
-            ("categories", ["name_encoded"]),
-            ("trending_search_terms", ["search_term"]),
-        ]
-    )
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = giphy_source(
-            api_key="KEY",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-            search_query="cats",
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-
-    def test_full_refresh_sort_mode_default_ascending(self) -> None:
-        response = giphy_source(
-            api_key="KEY",
-            endpoint="gifs_trending",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.sort_mode == "asc"
-
-
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     @mock.patch(GIPHY_SESSION_PATCH)

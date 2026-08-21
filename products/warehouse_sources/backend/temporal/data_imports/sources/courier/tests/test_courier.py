@@ -231,28 +231,6 @@ class TestCourierSourceTransport:
 
         assert rows[0]["created_at"] == datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
 
-    @parameterized.expand(
-        [
-            ("Messages", ["enqueued"], "desc"),
-            ("AuditEvents", ["timestamp"], "asc"),
-            ("Audiences", ["created_at"], "asc"),
-            ("Brands", None, "asc"),
-            ("Tenants", None, "asc"),
-        ]
-    )
-    def test_source_response_partitioning_and_sort_mode(
-        self, endpoint: str, partition_keys: list[str] | None, sort_mode: str
-    ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        source_response, _, _ = self._drive(endpoint, manager, [_page(endpoint, [], cursor=None)])
-
-        assert source_response.primary_keys == list(ENDPOINTS_CONFIG[endpoint].primary_keys)
-        assert source_response.sort_mode == sort_mode
-        assert source_response.partition_keys == partition_keys
-        assert source_response.partition_mode == ("datetime" if partition_keys else None)
-
 
 class TestValidateCredentials:
     @parameterized.expand(

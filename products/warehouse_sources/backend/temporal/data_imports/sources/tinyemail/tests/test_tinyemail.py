@@ -63,15 +63,6 @@ class TestTinyemailTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource("contact_members")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.rest_api_resource")
-    def test_tinyemail_source_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        response = tinyemail_source(api_key="key", endpoint="campaigns", team_id=1, job_id="job-1")
-
-        assert response.name == "campaigns"
-        assert response.primary_keys == ["id"]
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

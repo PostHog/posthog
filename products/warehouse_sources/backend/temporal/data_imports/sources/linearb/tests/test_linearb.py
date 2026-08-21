@@ -10,14 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.li
     _iter_list_rows,
     _iter_measurements_rows,
     _sanitize_metric_key,
-    linearb_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import (
-    ENDPOINTS,
-    LINEARB_ENDPOINTS,
-    LinearbEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.linearb.settings import LinearbEndpointConfig
 
 
 def _response(status_code: int = 200, payload: Any = None, content: bytes = b"x") -> mock.MagicMock:
@@ -179,24 +174,3 @@ class TestMeasurements:
         session = _session_returning([_response(status_code=204, content=b"")])
 
         assert list(_iter_measurements_rows(session, {}, mock.MagicMock())) == []
-
-
-class TestLinearbSource:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
-        response = linearb_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
-        config = LINEARB_ENDPOINTS[endpoint]
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None

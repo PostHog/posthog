@@ -9,7 +9,6 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.settings import (
-    ENDPOINTS,
     SHUTTERSTOCK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shutterstock.shutterstock import (
@@ -18,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shuttersto
     _format_start_date,
     check_endpoint_access,
     get_rows,
-    shutterstock_source,
     validate_credentials,
 )
 
@@ -277,23 +275,6 @@ class TestGetRows:
 
 
 class TestShutterstockSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
-        config = SHUTTERSTOCK_ENDPOINTS[endpoint]
-        response = shutterstock_source(
-            BASIC_AUTH, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(SHUTTERSTOCK_ENDPOINTS.values()))
     def test_incremental_endpoints_sort_ascending_on_their_cursor(self, config: Any) -> None:
         # An incremental endpoint must sort ascending on its cursor so the watermark advances.

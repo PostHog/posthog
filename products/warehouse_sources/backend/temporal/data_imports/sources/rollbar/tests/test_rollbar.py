@@ -10,13 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.ro
     _extract_items,
     _to_int,
     get_rows,
-    rollbar_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import (
-    ENDPOINTS,
-    ROLLBAR_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.settings import ROLLBAR_ENDPOINTS
 
 
 def _make_manager(resume_state: RollbarResumeConfig | None = None) -> mock.MagicMock:
@@ -213,24 +209,6 @@ class TestGetRowsKeyset:
 
 
 class TestRollbarSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = ROLLBAR_ENDPOINTS[endpoint]
-        response = rollbar_source("token", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        if config.pagination == "keyset":
-            assert response.sort_mode == "desc"
-        else:
-            assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(ROLLBAR_ENDPOINTS.values()))
     def test_partition_keys_are_stable_event_fields(self, config):
         if config.partition_key:

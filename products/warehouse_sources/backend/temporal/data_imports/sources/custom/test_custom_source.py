@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientNonRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -57,7 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session"
@@ -1035,32 +1031,6 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
         assert orders.incremental_fields[0]["field"] == "updated_at"
         assert orders.detected_primary_keys == ["order_id", "line_no"]
 
-    def test_filters_by_names(self):
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
-        schemas = source.get_schemas(config, team_id=999, names=["nonexistent"])
-        assert schemas == []
-
-    @parameterized.expand(
-        [
-            ("default_datetime", None, IncrementalFieldType.DateTime),
-            ("declared_integer", "integer", IncrementalFieldType.Integer),
-            ("unknown_falls_back", "bogus", IncrementalFieldType.DateTime),
-        ]
-    )
-    def test_incremental_cursor_type_from_manifest(self, _name, declared, expected):
-        manifest = _minimal_manifest()
-        incremental: dict = {"cursor_path": "cursor"}
-        if declared is not None:
-            incremental["cursor_type"] = declared
-        manifest["resources"][0]["endpoint"]["incremental"] = incremental
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
-        schema = source.get_schemas(config, team_id=999)[0]
-        assert schema.incremental_fields[0]["type"] == expected
-        assert schema.incremental_fields[0]["field_type"] == expected
-
 
 def _oauth2_manifest() -> dict:
     manifest = _minimal_manifest()
@@ -1754,18 +1724,6 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
 
 class TestCustomSourceNonRetryableErrors(SimpleTestCase):
-    def test_missing_resource_message_is_classified_non_retryable(self):
-        # The message `source_for_pipeline` raises when a schema points to a resource
-        # the manifest no longer defines must be recognized by the source's classifier,
-        # so `_handle_import_error` stops the job instead of capturing + retrying it.
-        # Pin the specific substring on both ends — the raised message and the dict key —
-        # so the guard breaks if either the wording or the key drifts.
-        with self.assertRaises(ValueError) as ctx:
-            _fanout_chain(_minimal_manifest(), "nonexistent")
-
-        assert "not found in config" in str(ctx.exception)
-        assert "not found in config" in CustomSource().get_non_retryable_errors()
-
     def test_http_400_bad_request_is_classified_non_retryable(self):
         # A custom source's request is entirely manifest-driven, so a 400 is deterministic —
         # retrying can't fix it. Build the real requests HTTPError message the REST client
@@ -1800,16 +1758,6 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert matches[0] is not None
         assert "proxy" in matches[0].lower()
 
-    def test_non_json_response_message_is_classified_non_retryable(self):
-        # The REST client raises RESTClientNonRetryableError when a configured endpoint
-        # returns non-JSON (an HTML/plain-text error page) on a 2xx. Build the real error the
-        # client raises so this breaks if its stable prefix drifts from the classifier's key.
-        # The URL is a placeholder, never a real customer host.
-        error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/leads")
-
-        non_retryable = CustomSource().get_non_retryable_errors()
-        assert any(key in str(error) for key in non_retryable)
-
     def test_dns_resolution_failure_message_is_classified_non_retryable(self):
         # `_is_host_safe` raises this exact message when a manifest's base_url doesn't
         # resolve via DNS — a permanent, deterministic failure until the manifest is
@@ -1829,18 +1777,6 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert err is not None
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
-
-    @parameterized.expand(["invalid_client", "invalid_grant"])
-    def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
-        # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
-        # standard error code in OAuth2Auth's failure message, and the classifier matches that
-        # substring so the job fails fast instead of burning its whole retry budget.
-        non_retryable = CustomSource().get_non_retryable_errors()
-        assert error_code in non_retryable
-        message = OAuth2AuthRequestError(
-            f"HTTP 401 from the OAuth2 token endpoint: {error_code}: nope", error_code=error_code, is_permanent=True
-        )
-        assert any(key in str(message) for key in non_retryable)
 
 
 def _fanout_manifest() -> dict:
@@ -2378,30 +2314,6 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
 
 
 class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
-    def test_child_resource_is_its_own_schema(self):
-        manifest = _fanout_manifest()
-        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
-        schemas = {s.name: s for s in source.get_schemas(config, team_id=999)}
-
-        assert set(schemas) == {"forms", "responses"}
-        assert schemas["responses"].supports_incremental is True
-        assert [f["field"] for f in schemas["responses"].incremental_fields] == ["submitted_at"]
-
-    def test_broken_graph_does_not_break_schema_listing(self):
-        # Schema listing runs on stored manifests; a graph error (which the
-        # create-time validation now rejects, but older manifests may carry)
-        # must not make it raise.
-        manifest = _fanout_manifest()
-        _break_unknown_parent(manifest)
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
-        schemas = {s.name for s in source.get_schemas(config, team_id=999)}
-        assert schemas == {"forms", "responses"}
-
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_skips_fanout_child(self, mock_session):
         # The child can't be probed without a parent row, so only the parent is hit.

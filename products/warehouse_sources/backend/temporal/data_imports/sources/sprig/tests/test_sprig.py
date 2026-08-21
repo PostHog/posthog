@@ -139,47 +139,6 @@ class TestSprigSource:
         return manager
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Surveys"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Surveys",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Surveys"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
-    def test_responses_primary_key_plumbed_through(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Responses"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = sprig_source(
-            api_key="key",
-            endpoint="Responses",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-        )
-
-        assert response.primary_keys == ["responseGroupUid", "questionId"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig.rest_api_resource")
     def test_seeds_initial_paginator_state_from_saved_cursor(self, mock_rest: MagicMock) -> None:
         mock_rest.return_value = MagicMock(name="Surveys", column_hints=None)
         manager = self._manager(can_resume=True, state=SprigResumeConfig(next_cursor="saved-cursor"))

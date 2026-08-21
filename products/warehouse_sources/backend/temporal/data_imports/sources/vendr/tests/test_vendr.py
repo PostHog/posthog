@@ -94,21 +94,6 @@ class TestVendrTransport:
         assert call.kwargs["allow_redirects"] is False
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
-    def test_top_level_source_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-
-        response = vendr_source(
-            api_key="key",
-            endpoint="Companies",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == "Companies"
-        assert response.primary_keys == ["id"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vendr.vendr.rest_api_resource")
     def test_top_level_source_resumes_from_saved_state(self, mock_rest_api_resource) -> None:
         mock_rest_api_resource.return_value = Mock()
         manager = _make_manager(VendrResumeConfig(paginator_state={"offset": 200}))

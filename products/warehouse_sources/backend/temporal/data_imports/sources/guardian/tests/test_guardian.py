@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import HTTPError, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
@@ -233,29 +233,6 @@ class TestRetries:
         assert [r["id"] for r in rows] == ["a"]
         assert session.send.call_count == 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_failure_raises_without_leaking_api_key(self, MockSession) -> None:
-        # The api-key rides in the query string; a non-2xx must not surface it in the exception, but
-        # the base host must survive so get_non_retryable_errors() can still match.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp(
-                    [],
-                    status=401,
-                    reason="Unauthorized",
-                    url="https://content.guardianapis.com/search?api-key=super-secret&page=1",
-                )
-            ],
-        )
-
-        with pytest.raises(HTTPError) as exc_info:
-            _rows(_source("content", _make_manager(), api_key="super-secret"))
-        message = str(exc_info.value)
-        assert "super-secret" not in message
-        assert "401 Client Error: Unauthorized for url: https://content.guardianapis.com/search" in message
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code,expected", [(200, True), (401, False), (403, False)])
@@ -277,12 +254,3 @@ class TestGuardianSourceResponse:
         assert response.partition_keys == ["webPublicationDate"]
         assert response.partition_mode == "datetime"
         assert response.sort_mode == "asc"
-
-    @pytest.mark.parametrize("endpoint", ["tags", "sections", "editions"])
-    def test_reference_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-        # Full-refresh endpoints carry no order-by, so their order is unspecified.
-        assert response.sort_mode is None

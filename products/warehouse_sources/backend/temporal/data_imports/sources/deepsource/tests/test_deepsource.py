@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     _repositories_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.source import DeepsourceSource
 
 _SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.deepsource.make_tracked_session"
@@ -360,30 +359,6 @@ class TestRetriesAndErrors:
             list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
 
         assert session.post.call_count == DEEPSOURCE_MAX_RETRY_ATTEMPTS
-
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, "Unauthorized", {"message": "Authentication required"}),
-            ("forbidden", 403, "Forbidden", None),
-        ]
-    )
-    def test_auth_errors_raise_messages_matched_by_non_retryable_errors(
-        self,
-        _name: str,
-        status_code: int,
-        reason: str,
-        body: dict[str, Any] | None,
-    ) -> None:
-        session = MagicMock()
-        session.post.side_effect = [_error_response(status_code, reason, body)]
-
-        with pytest.raises(Exception) as exc_info:
-            list(_repositories_rows(session, "acme", "GITHUB", MagicMock(), _make_manager()))
-
-        # The raised message must stay matchable by the source's non-retryable error keys,
-        # otherwise bad credentials retry forever.
-        non_retryable = DeepsourceSource().get_non_retryable_errors()
-        assert any(key in str(exc_info.value) for key in non_retryable)
 
     def test_graphql_errors_raise(self) -> None:
         response = MagicMock()

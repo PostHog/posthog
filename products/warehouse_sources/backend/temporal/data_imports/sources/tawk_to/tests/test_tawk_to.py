@@ -3,16 +3,12 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import (
-    ENDPOINTS,
-    TAWK_TO_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import TAWK_TO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
     PAGE_SIZE,
     TawkToApiError,
     TawkToResumeConfig,
     get_rows,
-    tawk_to_source,
     validate_credentials,
 )
 
@@ -207,21 +203,6 @@ class TestGetRows:
 
 
 class TestTawkToSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = TAWK_TO_ENDPOINTS[endpoint]
-        response = tawk_to_source("key", None, endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(TAWK_TO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

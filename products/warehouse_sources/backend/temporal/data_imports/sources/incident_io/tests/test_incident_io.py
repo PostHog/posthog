@@ -17,10 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
     incident_io_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import (
-    ENDPOINTS,
-    INCIDENT_IO_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import INCIDENT_IO_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -372,22 +369,6 @@ class TestGetRows:
 
 
 class TestIncidentIoSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = INCIDENT_IO_ENDPOINTS[endpoint]
-        response = incident_io_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

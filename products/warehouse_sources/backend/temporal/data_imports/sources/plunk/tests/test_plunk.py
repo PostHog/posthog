@@ -27,7 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.plun
     plunk_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.plunk.settings import PLUNK_ENDPOINTS
 
 # The sync path runs through a bounded session built by `_make_bounded_session`; patch that so the
 # pagination tests can drive `session.send` directly (RESTClient uses the session it's handed).
@@ -251,22 +250,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://plunk.example.com", "sk_test")
             assert valid is False
             assert "too big" in (msg or "")
-
-
-class TestSourceResponseShape:
-    @pytest.mark.parametrize("endpoint", list(PLUNK_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        config = PLUNK_ENDPOINTS[endpoint]
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
 
 
 class TestCursorPagination:

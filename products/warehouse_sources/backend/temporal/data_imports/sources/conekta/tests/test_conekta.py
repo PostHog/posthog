@@ -16,11 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.co
     to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import (
-    API_VERSION,
-    CONEKTA_ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.settings import API_VERSION, PAGE_SIZE
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta.make_tracked_session"
 
@@ -294,24 +290,6 @@ class TestRequests:
 
         assert [row["id"] for row in rows] == ["ord_5"]
         assert requests_seen[0]["params"] == {"limit": PAGE_SIZE, "next": "ord_4"}
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", sorted(CONEKTA_ENDPOINTS))
-    @mock.patch(SESSION_PATCH)
-    def test_response_shape_per_endpoint(self, MockSession, endpoint):
-        _wire(MockSession.return_value, [_page([], None)])
-
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Conekta documents no list ordering and offers no sort param, so the watermark may only be
-        # committed after a fully successful sync.
-        assert response.sort_mode == "desc"
-        expected_key = CONEKTA_ENDPOINTS[endpoint].partition_key
-        assert response.partition_keys == ([expected_key] if expected_key else None)
-        assert response.partition_mode == ("datetime" if expected_key else None)
 
 
 class TestHeaders:

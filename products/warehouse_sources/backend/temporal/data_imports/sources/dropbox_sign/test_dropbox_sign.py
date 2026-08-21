@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
     dropbox_sign_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import (
-    DROPBOX_SIGN_ENDPOINTS,
-    ENDPOINTS,
-)
 
 
 class TestGetHeaders:
@@ -228,17 +224,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand(list(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = dropbox_sign_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == DROPBOX_SIGN_ENDPOINTS[endpoint].primary_keys
-
     @parameterized.expand(
         [
             ("signature_requests", True),

@@ -161,11 +161,6 @@ class TestSourceResponsePartitioning:
         assert response.partition_keys is None
         assert response.partition_count is None
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_are_id(self, endpoint: str) -> None:
-        response = self._build(endpoint)
-        assert response.primary_keys == ["id"]
-
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
     resp = Response()

@@ -360,30 +360,6 @@ class TestSessionHardening:
         assert kwargs["allow_redirects"] is False
 
 
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("sessions", ["id"], "createdAt"),
-            ("browser_sessions", ["id"], "startedAt"),
-            ("profiles", ["id"], "createdAt"),
-            ("workspaces", ["id"], "createdAt"),
-            ("session_messages", ["sessionId", "id"], "createdAt"),
-        ]
-    )
-    @mock.patch(SESSION_PATCH)
-    def test_primary_keys_and_partition(
-        self, endpoint: str, primary_keys: list[str], partition_key: str, MockSession
-    ) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
-
 V4_BASE_URL = "https://api.browser-use.com/api/v4"
 
 
@@ -470,25 +446,3 @@ class TestV4KeysetPagination:
 
         assert [r["id"] for r in rows] == ["x"]
         assert params[0]["params"]["cursor"] == "c9"
-
-
-class TestV4SourceResponse:
-    @parameterized.expand(
-        [
-            ("sessions", ["sessionId"], "createdAt"),
-            ("runs", ["id"], "createdAt"),
-            ("browser_sessions", ["id"], "startedAt"),
-            ("profiles", ["id"], "createdAt"),
-        ]
-    )
-    @mock.patch(SESSION_PATCH)
-    def test_primary_keys_and_partition(
-        self, endpoint: str, primary_keys: list[str], partition_key: str, MockSession
-    ) -> None:
-        # v4 sessions key on `sessionId` (not `id`) — merge would collapse rows if this regressed.
-        MockSession.return_value.headers = {}
-        response = _source(endpoint, api_version=BROWSER_USE_API_VERSION_V4)
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == [partition_key]

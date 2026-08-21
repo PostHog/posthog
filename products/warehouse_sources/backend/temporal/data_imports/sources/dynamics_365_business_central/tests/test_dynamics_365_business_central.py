@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_3
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynamics_365_business_central.settings import (
     BUSINESS_CENTRAL_ENDPOINTS,
-    ENDPOINTS,
     BusinessCentralEndpoint,
 )
 
@@ -548,30 +547,6 @@ class TestGetRows:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(SESSION_PATCH)
-    def test_metadata_per_endpoint(
-        self, mock_session: mock.MagicMock, mock_auth_session: mock.MagicMock, endpoint: str
-    ) -> None:
-        _wire_token(mock_auth_session)
-        _wire(mock_session.return_value, [])
-        endpoint_config = BUSINESS_CENTRAL_ENDPOINTS[endpoint]
-
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == list(endpoint_config.primary_keys)
-        # Business Central doesn't document its page ordering, so an incremental endpoint must only
-        # persist its watermark at successful job end — which "desc" guarantees.
-        assert response.sort_mode == ("desc" if endpoint_config.cursor_field else "asc")
-        if endpoint_config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [endpoint_config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("endpoint_config", list(BUSINESS_CENTRAL_ENDPOINTS.values()))
     def test_company_scoped_primary_keys_carry_the_company(self, endpoint_config: BusinessCentralEndpoint) -> None:
         # Business Central ids are only unique within a company, so a fan-out child whose key omits

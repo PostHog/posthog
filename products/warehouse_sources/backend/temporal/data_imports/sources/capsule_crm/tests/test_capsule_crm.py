@@ -397,28 +397,3 @@ class TestValidateCredentials:
     def test_swallows_exceptions(self, MockSession) -> None:
         MockSession.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("tok") is False
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("parties", "createdAt"),
-            ("opportunities", "createdAt"),
-            ("kases", "createdAt"),
-            ("tasks", "createdAt"),
-        ]
-    )
-    def test_incremental_and_taskish_endpoints_partition_on_created_at(self, endpoint: str, partition_key: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-        assert response.sort_mode == "asc"
-
-    @parameterized.expand([("users",), ("milestones",), ("pipelines",), ("categories",), ("lost_reasons",)])
-    def test_metadata_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

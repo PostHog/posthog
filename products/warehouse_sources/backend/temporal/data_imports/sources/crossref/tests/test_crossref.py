@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crossref.c
     _build_scope_filter,
     _format_filter_value,
     _normalize_work,
-    crossref_source,
     get_rows,
     validate_credentials,
 )
@@ -329,37 +328,6 @@ class TestGetRowsTypesEndpoint:
         assert [r["id"] for r in rows] == ["journal-article"]
         assert session.get.call_count == 1
         assert "cursor" not in _query(session.get.call_args.args[0])
-
-
-class TestCrossrefSourceResponse:
-    def test_works_response_shape(self) -> None:
-        response = crossref_source(
-            endpoint="Works",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_make_manager(),
-            mailto=None,
-            member_id="301",
-            funder_id=None,
-            issn=None,
-        )
-        assert response.primary_keys == ["DOI"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_date"]
-
-    def test_members_response_has_no_partitioning(self) -> None:
-        response = crossref_source(
-            endpoint="Members",
-            logger=mock.MagicMock(),
-            resumable_source_manager=_make_manager(),
-            mailto=None,
-            member_id=None,
-            funder_id=None,
-            issn=None,
-        )
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
 
 class TestValidateCredentials:

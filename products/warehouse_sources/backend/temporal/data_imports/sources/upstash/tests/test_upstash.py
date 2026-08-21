@@ -10,7 +10,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
     UPSTASH_API_BASE_URL,
-    UPSTASH_ENDPOINTS,
     UPSTASH_ROOT_BASE_URL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import (
@@ -244,28 +243,3 @@ class TestValidateCredentials:
             ok, error = validate_credentials("e", "k")
         assert ok is True
         assert error is None
-
-
-class TestUpstashSource:
-    @parameterized.expand(
-        [
-            ("redis_databases", ["database_id"]),
-            ("redis_stats", ["database_id"]),
-            ("teams", ["team_id"]),
-            ("vector_indexes", ["id"]),
-            ("audit_logs", ["log_id"]),
-        ]
-    )
-    def test_source_response_primary_keys_and_sort(self, endpoint: str, expected_pk: list[str]) -> None:
-        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
-            response = upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pk
-        # Full refresh, replaced wholesale each sync; asc is the pipeline default.
-        assert response.sort_mode == "asc"
-
-    def test_every_declared_endpoint_has_a_response(self) -> None:
-        with mock.patch(SESSION_PATCH, lambda *a, **k: mock.MagicMock(headers={})):
-            for endpoint in UPSTASH_ENDPOINTS:
-                response = upstash_source(email="e", api_key="k", endpoint=endpoint, team_id=1, job_id="j")
-                assert response.primary_keys == UPSTASH_ENDPOINTS[endpoint].primary_keys

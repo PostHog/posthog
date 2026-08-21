@@ -294,24 +294,6 @@ class TestErrorHandling:
             _rows(hubplanner_source("k", "projects", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
 
-class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoint_sets_datetime_partitioning(self, MockSession) -> None:
-        response = hubplanner_source("k", "bookings", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.name == "bookings"
-        assert response.primary_keys == ["_id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdDate"]
-        assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_without_partition_key_has_no_partitioning(self, MockSession) -> None:
-        # Vacations carry no creation timestamp, so they aren't partitioned.
-        response = hubplanner_source("k", "vacations", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("unauthorized", 401, False)])
     @mock.patch(HUBPLANNER_SESSION_PATCH)

@@ -108,40 +108,6 @@ def _run(
     return rows, params
 
 
-class TestSourceResponseShape:
-    @parameterized.expand(
-        [
-            ("targets", ["id"], None, None),
-            ("scans", ["id"], "datetime", "created_at"),
-            ("scan_schedules", ["id"], None, None),
-            ("issues", ["id"], None, None),
-            ("occurrences", ["issue_id", "id"], "datetime", "first_seen_at"),
-            ("fixed_occurrences", ["id"], "datetime", "first_seen_at"),
-            ("tags", ["name"], None, None),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys_and_partitioning(
-        self,
-        endpoint: str,
-        expected_pks: list[str],
-        expected_partition_mode: str | None,
-        expected_partition_key: str | None,
-        _MockSession: Any,
-    ) -> None:
-        response = intruder_source(
-            access_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pks
-        assert response.partition_mode == expected_partition_mode
-        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
-
-
 class TestEndpointConfig:
     def test_occurrences_is_fan_out_with_composite_key(self) -> None:
         config = INTRUDER_ENDPOINTS["occurrences"]

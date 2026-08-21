@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     BingWebmasterToolsError,
     _request,
     _stats_row,
-    bing_webmaster_tools_source,
     get_rows,
     parse_site_urls,
     parse_wcf_date,
@@ -20,11 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     suggest_verified_site,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
-    BASE_URL,
-    ENDPOINT_CONFIGS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import BASE_URL
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools"
 
@@ -338,26 +333,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert message is not None and "Could not reach" in message
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_primary_keys_match_endpoint_catalog(self, endpoint):
-        response = bing_webmaster_tools_source("key", endpoint, None, structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ENDPOINT_CONFIGS[endpoint].primary_keys
-        # Bing documents no response ordering and the multi-site fan-out interleaves date ranges,
-        # so no sort mode may be claimed: "asc" would checkpoint a corrupt incremental watermark.
-        assert response.sort_mode is None
-
-    def test_stats_tables_partition_on_date(self):
-        response = bing_webmaster_tools_source("key", "query_stats", None, structlog.get_logger())
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-
-    def test_sites_table_has_no_partitioning(self):
-        response = bing_webmaster_tools_source("key", "sites", None, structlog.get_logger())
-
-        assert response.partition_mode is None

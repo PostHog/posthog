@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
     browserbase_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientRetryableError,
@@ -203,16 +202,3 @@ class TestValidateCredentials:
         MockSession.return_value = session
 
         assert validate_credentials("bb_key") is False
-
-
-class TestBrowserbaseSource:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        response = browserbase_source("bb_key", endpoint, team_id=1, job_id="j")
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Partition on the stable creation timestamp, never updatedAt.
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"

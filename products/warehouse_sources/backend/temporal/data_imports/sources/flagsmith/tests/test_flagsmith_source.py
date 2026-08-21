@@ -1,16 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.flagsmith import FlagsmithResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
     FlagsmithSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.validate_flagsmith_credentials"
@@ -22,46 +16,6 @@ class TestFlagsmithSource:
         self.source = FlagsmithSource()
         self.team_id = 123
         self.config = FlagsmithSourceConfig(api_key="org-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.FLAGSMITH
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Flagsmith"
-        assert config.label == "Flagsmith"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/flagsmith.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/flagsmith"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key", "base_url"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_base_url_is_a_connection_host_field(self):
-        # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).
-        assert self.source.connection_host_fields == ["base_url"]
-
-    def test_get_schemas_lists_all_endpoints_full_refresh(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Flagsmith has no server-side timestamp filter, so nothing is incremental.
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "features"
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -121,11 +75,6 @@ class TestFlagsmithSource:
         assert is_valid is False
         assert error == "Flagsmith API URL must use https"
         mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FlagsmithResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source.flagsmith_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_flagsmith_source):

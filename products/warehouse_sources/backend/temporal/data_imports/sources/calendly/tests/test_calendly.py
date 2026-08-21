@@ -22,10 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.c
     get_external_webhook_info,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import (
-    CALENDLY_WEBHOOK_EVENTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import CALENDLY_WEBHOOK_EVENTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -316,18 +313,6 @@ class TestRequestParams:
         )
 
         assert "min_start_time" not in snapshots[0]["params"]
-
-
-class TestCalendlySource:
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["uri"]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
 
 
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"

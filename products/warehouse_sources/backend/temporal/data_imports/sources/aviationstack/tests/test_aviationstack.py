@@ -232,20 +232,6 @@ class TestHttpErrors:
 
 
 class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("airlines", ["id"]),
-            ("airports", ["id"]),
-            ("countries", ["id"]),
-            ("flights", None),
-            ("routes", None),
-        ]
-    )
-    def test_primary_keys(self, endpoint: str, expected_keys: list[str] | None) -> None:
-        response = _source(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-
     def test_every_endpoint_builds_a_source_response(self) -> None:
         for endpoint in AVIATIONSTACK_ENDPOINTS:
             response = _source(endpoint)

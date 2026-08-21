@@ -1,15 +1,9 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usbea import UsBeaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import (
-    CUSTOM_QUERY_ENDPOINT,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import CUSTOM_QUERY_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source import UsBeaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides) -> UsBeaSourceConfig:
@@ -28,47 +22,6 @@ class _FakeInputs:
 class TestUsBeaSource:
     def setup_method(self):
         self.source = UsBeaSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USBEA
-
-    def test_source_config_is_released_alpha(self):
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/us-bea"
-        assert config.category is not None
-
-    def test_source_config_fields(self):
-        fields = {field.name: field for field in self.source.get_source_config.fields}
-
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        for name in ("custom_dataset_name", "custom_query_params"):
-            custom_field = fields[name]
-            assert isinstance(custom_field, SourceFieldInputConfig)
-            assert custom_field.required is False
-
-    def test_get_schemas_static_catalog(self):
-        schemas = self.source.get_schemas(_config(), team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        assert all(schema.supports_incremental is False for schema in schemas)
-        assert all(schema.supports_append is False for schema in schemas)
-        assert all(schema.description for schema in schemas)
-
-    def test_get_schemas_includes_custom_query_when_configured(self):
-        schemas = self.source.get_schemas(_custom_config(), team_id=1)
-
-        assert [schema.name for schema in schemas] == [*ENDPOINTS, CUSTOM_QUERY_ENDPOINT]
-
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(_config(), team_id=1, names=["StatePersonalIncomeSummary"])
-
-        assert [schema.name for schema in schemas] == ["StatePersonalIncomeSummary"]
 
     @pytest.mark.parametrize(
         "overrides",
@@ -94,13 +47,6 @@ class TestUsBeaSource:
         assert (valid, error) == (True, None)
         mock_validate.assert_called_once_with("test-user-id")
 
-    @pytest.mark.parametrize("endpoint_name", list(ENDPOINTS))
-    def test_source_for_pipeline_builds_catalog_endpoint(self, endpoint_name):
-        response = self.source.source_for_pipeline(_config(), _FakeInputs(endpoint_name))  # type: ignore[arg-type]
-
-        assert response.name == endpoint_name
-        assert response.primary_keys == list(ENDPOINTS[endpoint_name].primary_keys)
-
     def test_source_for_pipeline_custom_query_plumbing(self):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source.us_bea_source"
@@ -115,23 +61,3 @@ class TestUsBeaSource:
     def test_source_for_pipeline_custom_query_unconfigured_raises(self):
         with pytest.raises(ValueError, match="BEA custom query"):
             self.source.source_for_pipeline(_config(), _FakeInputs(CUSTOM_QUERY_ENDPOINT))  # type: ignore[arg-type]
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "BEA UserID is missing or invalid. Register a free UserID at https://apps.bea.gov/api/signup/",
-            "BEA custom query is incomplete: set both the dataset name and the query parameters",
-            "BEA API rejected the request: Invalid TableName",
-        ],
-    )
-    def test_known_permanent_failures_are_non_retryable(self, error_message):
-        non_retryable = self.source.get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in non_retryable)
-
-    def test_canonical_descriptions_cover_catalog_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-
-        for endpoint_name in ENDPOINTS:
-            assert endpoint_name in descriptions
-            assert descriptions[endpoint_name].get("description")

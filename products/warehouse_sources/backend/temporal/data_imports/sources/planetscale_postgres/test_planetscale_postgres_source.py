@@ -1,9 +1,7 @@
-import dataclasses
-
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalepostgres import (
     PlanetScalePostgresSourceConfig,
@@ -16,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.planetscal
     _is_psbouncer_port,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _DIRECT_HOST = "xxxxxxxxxx-useast1-1.horizon.psdb.cloud"
 
@@ -38,30 +35,6 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in PlanetScalePostgresSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
-
-
-def test_source_type_and_release_status():
-    source = PlanetScalePostgresSource()
-    config = source.get_source_config
-
-    assert source.source_type == ExternalDataSourceType.PLANETSCALEPOSTGRES
-    assert not config.unreleasedSource
-    assert config.releaseStatus == ReleaseStatus.ALPHA
-    assert config.category == DataWarehouseSourceCategory.DATABASES
-
-
-def test_ssh_tunnel_is_not_offered():
-    # PlanetScale exposes no SSH tunnel, so inheriting the Postgres form must not surface one.
-    assert all(field.name != "ssh_tunnel" for field in PlanetScalePostgresSource().get_source_config.fields)
-
-
-def test_generated_config_matches_the_offered_fields():
-    # The generated config is what the pipeline receives, so a field added to the form without
-    # regenerating would surface as a missing attribute mid-sync.
-    form_fields = {field.name for field in PlanetScalePostgresSource().get_source_config.fields}
-    config_fields = {field.name for field in dataclasses.fields(PlanetScalePostgresSourceConfig)}
-
-    assert form_fields == config_fields
 
 
 @pytest.mark.parametrize(

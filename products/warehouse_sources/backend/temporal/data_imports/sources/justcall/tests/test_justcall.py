@@ -13,10 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.j
     justcall_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import (
-    ENDPOINTS,
-    JUSTCALL_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import JUSTCALL_ENDPOINTS
 
 # validate_credentials builds its own tracked session in the justcall module.
 JUSTCALL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall"
@@ -207,23 +204,6 @@ class TestValidateCredentials:
 
 
 class TestJustCallSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = JUSTCALL_ENDPOINTS[endpoint]
-        response = justcall_source(
-            "key", "secret", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.incremental_cursor:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.incremental_cursor]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(JUSTCALL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_user_date_fields(self, config):
         if config.incremental_cursor:

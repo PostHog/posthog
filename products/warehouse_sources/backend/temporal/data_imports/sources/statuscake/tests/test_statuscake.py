@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake
     _get_headers,
     _to_unix_timestamp,
     get_rows,
-    statuscake_source,
     validate_credentials,
 )
 
@@ -382,23 +381,6 @@ class TestIncremental:
 
 
 class TestStatuscakeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(STATUSCAKE_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint):
-        config = STATUSCAKE_ENDPOINTS[endpoint]
-        response = statuscake_source("token", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
-        if config.fan_out_over is not None:
-            # History rows arrive newest-first and the fan-out means a partial run's max timestamp
-            # says nothing about tests it never reached — asc here would corrupt the watermark.
-            assert response.sort_mode == "desc"
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.timestamp_field]
-        else:
-            assert response.sort_mode == "asc"
-            assert response.partition_mode is None
-
     @pytest.mark.parametrize(
         "endpoint, expected_keys",
         [

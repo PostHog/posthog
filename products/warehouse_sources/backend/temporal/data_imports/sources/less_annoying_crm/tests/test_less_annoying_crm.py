@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoy
     less_annoying_crm_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.settings import (
-    ENDPOINTS,
-    LESS_ANNOYING_CRM_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -247,21 +243,3 @@ class TestValidateCredentials:
         mock_session.return_value.post.return_value = _response({"UserId": "1"})
         validate_credentials("secret-key")
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == LESS_ANNOYING_CRM_ENDPOINTS[endpoint].primary_keys
-
-    def test_partitioned_endpoint_uses_datetime_mode(self) -> None:
-        response = _source("contacts", _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["DateCreated"]
-
-    def test_reference_table_is_not_partitioned(self) -> None:
-        response = _source("users", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None

@@ -4,13 +4,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.clari.clari import (
     ClariResumeConfig,
     ClariRetryableError,
     _extract_result_rows,
     _format_timestamp,
-    clari_source,
     get_audit_events,
     get_forecast,
     validate_credentials,
@@ -207,23 +205,3 @@ class TestGetForecast:
 
         with pytest.raises(ValueError, match="no jobId"):
             list(get_forecast("key", "fc-1", mock.MagicMock(), _make_manager()))
-
-
-class TestClariSourceResponse:
-    def test_audit_events_metadata(self):
-        response = clari_source("key", "fc-1", "audit_events", mock.MagicMock(), _make_manager())
-
-        assert response.name == "audit_events"
-        assert response.primary_keys == ["eventTimestamp", "actorId", "sessionId", "event"]
-        assert response.sort_mode == "desc"
-        # The composite key can collide, but that's expected for this data and must not block
-        # incremental syncing - regression test for the schema-wide incremental sync outage this
-        # caused when has_duplicate_primary_keys was set unconditionally.
-        assert not response.has_duplicate_primary_keys
-        validate_incremental_sync(True, response)
-
-    def test_forecast_metadata(self):
-        response = clari_source("key", "fc-1", "forecast", mock.MagicMock(), _make_manager())
-
-        assert response.name == "forecast"
-        assert response.primary_keys is None

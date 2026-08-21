@@ -13,7 +13,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots import ubidots
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
     DEFAULT_UBIDOTS_API_BASE_URL,
-    ENDPOINTS,
     VALUES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
@@ -460,26 +459,6 @@ class TestCheckAccess:
 
 
 class TestUbidotsSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = ubidots_source(
-            api_token="BBUS-token",
-            api_base_url=None,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-            api_version=UBIDOTS_API_VERSION_LEGACY,
-        )
-        assert response.name == endpoint
-        if endpoint == VALUES_ENDPOINT:
-            # The parent id is half the composite key — timestamps repeat across variables.
-            assert response.primary_keys == ["variable", "timestamp"]
-            # Values return newest first, so the watermark must only commit at sync end.
-            assert response.sort_mode == "desc"
-        else:
-            assert response.primary_keys == ["id"]
-            assert response.sort_mode == "asc"
-
     @pytest.mark.parametrize(
         "api_version,expected_fn",
         [

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.l
     _is_same_host,
     base_url,
     get_rows,
-    lacework_source,
     normalize_account,
     validate_credentials,
 )
@@ -497,33 +496,3 @@ class TestAuth:
             )
 
         assert any("row cap" in str(call) for call in logger.warning.call_args_list)
-
-
-class TestLaceworkSourceResponse:
-    @parameterized.expand(
-        [
-            ("alerts", ["alertId"], ["startTime"]),
-            ("vulnerabilities_hosts", None, ["startTime"]),
-            ("compliance_evaluations_gcp", None, ["reportTime"]),
-            ("audit_logs", None, ["createdTime"]),
-            ("agent_info", None, None),
-        ]
-    )
-    def test_source_response_shape(
-        self, endpoint: str, expected_primary_keys: list[str] | None, expected_partition_keys: list[str] | None
-    ) -> None:
-        response = lacework_source(
-            account_name="mycompany",
-            key_id="KEY_ID",
-            secret_key="secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
-        assert response.partition_keys == expected_partition_keys
-        # Windowed results arrive in no documented order, so the watermark must only persist at
-        # successful job end.
-        assert response.sort_mode == "desc"

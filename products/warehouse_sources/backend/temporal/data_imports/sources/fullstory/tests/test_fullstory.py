@@ -143,19 +143,6 @@ class TestPagination:
         assert MockSession.call_args.kwargs["redact_values"] == ("Basic key",)
 
 
-class TestSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata(self, MockSession) -> None:
-        _wire(MockSession.return_value, [_response([{"id": "u1"}])])
-        response = _source(_make_manager())
-
-        assert response.name == "users"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",

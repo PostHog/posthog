@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 
     env0_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, ENV0_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENV0_ENDPOINTS
 
 # RESTClient uses the session env0_source passes it, which env0 builds via make_tracked_session; both
 # the client session and the validate_credentials probe resolve to this one patched factory.
@@ -353,25 +353,6 @@ class TestGetRows:
 
 
 class TestEnv0SourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, mock_session, endpoint):
-        _wire(mock_session.return_value, [])
-        config = ENV0_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Unverified API ordering: incremental endpoints must persist their watermark only at
-        # successful job end, which "desc" guarantees.
-        assert response.sort_mode == ("desc" if config.incremental_fields else "asc")
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_fan_out_child_primary_keys_include_parent_id(self):
         # Cost rows have no globally-unique id of their own; without the environment id in the
         # key, rows from different environments on the same date would merge into one.

@@ -324,25 +324,6 @@ class TestLinodeSource:
     def test_sort_mode_is_ascending(self) -> None:
         assert _source(endpoint="events").sort_mode == "asc"
 
-    @parameterized.expand(
-        [
-            ("invoices", "date", True),
-            ("events", "created", True),
-            ("domains", None, False),
-            ("users", None, False),
-        ]
-    )
-    def test_partitioning_matches_stable_field(
-        self, endpoint: str, partition_key: str | None, partitioned: bool
-    ) -> None:
-        response = _source(endpoint=endpoint)
-        if partitioned:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-
     def test_primary_keys_come_from_endpoint_config(self) -> None:
         assert _source(endpoint="users").primary_keys == ["username"]
         assert LINODE_ENDPOINTS["events"].primary_keys == ["id"]

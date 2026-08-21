@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bi
     bitrise_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.settings import (
-    BITRISE_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.settings import BITRISE_ENDPOINTS
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module (bitrise
 # supplies framework auth, not a pre-built session).
@@ -397,21 +394,6 @@ class TestUnknownEndpoint:
 
 
 class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = BITRISE_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Fan-out + newest-first ordering: the watermark must only persist at job end.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-
     def test_fan_out_endpoints_have_parent_in_primary_key(self):
         assert BITRISE_ENDPOINTS["builds"].primary_keys == ["app_slug", "slug"]
         assert BITRISE_ENDPOINTS["workflows"].primary_keys == ["app_slug", "workflow"]

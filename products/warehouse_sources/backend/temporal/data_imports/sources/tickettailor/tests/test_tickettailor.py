@@ -12,7 +12,6 @@ from requests import Response, Session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tickettailor.tickettailor import (
     PAGE_SIZE,
     TicketTailorResumeConfig,
@@ -201,21 +200,3 @@ class TestValidateCredentials:
         # validate_via_probe swallows transport errors; the probe reports "not validated".
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("tt-key") == (False, "Could not validate Ticket Tailor API key")
-
-
-class TestSourceResponseShape:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = tickettailor_source(
-            api_key="tt-key",
-            endpoint=endpoint,
-            resumable_source_manager=_make_manager(),
-            team_id=1,
-            job_id="j",
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Lists come back newest-first; declaring asc would corrupt a future incremental watermark.
-        assert response.sort_mode == "desc"
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None

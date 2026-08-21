@@ -413,27 +413,6 @@ class TestNewRelicSourceResponse:
         assert response.partition_format == "week"
         assert response.partition_keys == ["timestamp"]
 
-    @parameterized.expand(
-        [
-            ("entities", ["guid"]),
-            ("alert_policies", ["id"]),
-            ("alert_conditions", ["id"]),
-        ]
-    )
-    def test_entity_endpoints_have_primary_keys_and_no_partitions(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = new_relic_source(
-            api_key="NRAK-x",
-            account_id=ACCOUNT_ID,
-            region="US",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-
-        assert response.primary_keys == primary_keys
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_entity_endpoint_rows_flow_through_get_rows(self) -> None:
         def execute(query: str, variables: dict[str, Any]) -> dict[str, Any]:
             return {"actor": {"entitySearch": {"results": {"entities": [{"guid": "g1"}], "nextCursor": None}}}}

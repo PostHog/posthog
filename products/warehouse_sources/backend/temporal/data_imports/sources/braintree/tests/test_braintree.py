@@ -15,14 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     _base_url,
     _build_query,
     _format_created_at,
-    braintree_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
-    BRAINTREE_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import BRAINTREE_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree"
 _VERSION = BRAINTREE_VERSION_2026_07_14
@@ -215,17 +211,3 @@ class TestGetRows:
         assert mock_session.return_value.auth == ("pub", "priv")
         headers = mock_session.call_args.kwargs["headers"]
         assert headers["Braintree-Version"] == api_version
-
-
-class TestBraintreeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = BRAINTREE_ENDPOINTS[endpoint]
-        response = braintree_source("production", "pub", "priv", endpoint, _VERSION, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        # Search ordering is undocumented — watermark commits only at run end.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]

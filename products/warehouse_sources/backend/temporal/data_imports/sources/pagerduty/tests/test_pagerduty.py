@@ -403,12 +403,6 @@ class TestPagerDutySourceResponse:
         assert response.partition_format == "week"
         assert response.sort_mode == "asc"
 
-    def test_unpartitioned_endpoint_has_no_partition_settings(self) -> None:
-        response = pagerduty_source("tok", "users", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
     @pytest.mark.parametrize("endpoint", list(PAGERDUTY_ENDPOINTS.keys()))
     def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
         response = pagerduty_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())

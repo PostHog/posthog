@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely
     optimizely_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import (
-    ENDPOINTS,
-    OPTIMIZELY_ENDPOINTS,
-)
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -179,16 +175,3 @@ class TestProjectScopedFanOut:
 
         with pytest.raises(requests.HTTPError):
             _rows("experiments")
-
-
-class TestOptimizelySourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = OPTIMIZELY_ENDPOINTS[endpoint]
-        response = optimizely_source("token", endpoint, team_id=1, job_id="j")
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None

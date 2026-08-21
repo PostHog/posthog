@@ -1,9 +1,5 @@
-from typing import Optional
-
 import pytest
 from unittest import mock
-
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -11,18 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     WooCommerceSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
-    PARTITION_FIELDS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_SCHEMA_NAMES,
     WEBHOOK_TOPICS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source import WooCommerceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce import (
-    WooCommerceResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -58,54 +48,6 @@ class TestWooCommerceSource:
             consumer_secret="cs_test",
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WOOCOMMERCE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "WooCommerce"
-        assert config.label == "WooCommerce"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/woocommerce.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["store_url", "consumer_key", "consumer_secret"]
-
-        consumer_secret = config.fields[2]
-        assert isinstance(consumer_secret, SourceFieldInputConfig)
-        assert consumer_secret.type == SourceFieldInputConfigType.PASSWORD
-        assert consumer_secret.secret is True
-        assert consumer_secret.required is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_get_schemas_incremental_only_for_supported_endpoints(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        expected = endpoint in INCREMENTAL_ENDPOINTS
-
-        assert schema.supports_incremental is expected
-        assert schema.supports_append is expected
-        if expected:
-            assert schema.incremental_fields[0]["field"] == "date_modified_gmt"
-        else:
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert [s.name for s in schemas] == ["orders"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
         [
@@ -135,11 +77,6 @@ class TestWooCommerceSource:
 
         assert is_valid is False
         assert message == "Missing WooCommerce credentials"
-
-    def test_get_resumable_source_manager(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs("orders"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WooCommerceResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
@@ -193,24 +130,6 @@ class TestWooCommerceSource:
         assert kwargs["db_incremental_field_last_value"] is None
         assert response.sort_mode == "asc"
 
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_source_for_pipeline_partitioning(self, endpoint):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(endpoint)
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            mock_source.return_value = mock.MagicMock(name=endpoint, column_hints=None)
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        expected_key: Optional[str] = PARTITION_FIELDS.get(endpoint)
-        if expected_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [expected_key]
-        else:
-            assert response.partition_keys is None
-
     def test_get_schemas_marks_only_webhook_capable_tables(self):
         # WooCommerce only ships core webhook topics for four resources. Marking any other table
         # would let setup switch it to webhook sync, which stops polling it for rows that can
@@ -232,17 +151,6 @@ class TestWooCommerceSource:
         assert template.type == "warehouse_source_webhook"
         assert "x-wc-webhook-signature" in template.code
         assert {field["key"] for field in template.inputs_schema} >= {"signing_secret", "schema_mapping", "source_id"}
-
-    def test_webhook_signing_secret_field_is_offered_for_manual_setup(self):
-        config = self.source.get_source_config
-
-        assert config.webhookSetupCaption
-        assert config.webhookFields is not None
-        signing_secret = config.webhookFields[0]
-        assert isinstance(signing_secret, SourceFieldInputConfig)
-        assert signing_secret.name == "signing_secret"
-        assert signing_secret.type == SourceFieldInputConfigType.PASSWORD
-        assert signing_secret.secret is True
 
     @pytest.mark.parametrize(
         "method_name, transport_name",

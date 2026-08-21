@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     ENDPOINTS,
     PAGE_SIZE,
     WHOP_ENDPOINTS,
-    sort_mode_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import (
     WhopCursorPaginator,
@@ -244,24 +243,6 @@ class TestPagination:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(WHOP_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == sort_mode_for(endpoint)
-
-        partition_key = WHOP_ENDPOINTS[endpoint].partition_key
-        if partition_key is None:
-            # Partitioning on a column the resource does not return would key every row to null.
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-
     @pytest.mark.parametrize(
         "should_use_incremental_field, expected_disposition",
         [

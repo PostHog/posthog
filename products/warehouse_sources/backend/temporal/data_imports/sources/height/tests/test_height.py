@@ -137,15 +137,6 @@ class TestValidateCredentials:
 
 
 class TestHeightSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
-        response = height_source(api_key="secret_key", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in HEIGHT_ENDPOINTS.values())
         assert set(HEIGHT_ENDPOINTS) == set(ENDPOINTS)

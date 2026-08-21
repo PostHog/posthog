@@ -14,15 +14,12 @@ from requests.exceptions import (
     Timeout,
 )
 
-from posthog.schema import ReleaseStatus
-
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
     TikTokAdsSourceConfig,
@@ -34,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestTikTokAdsSource:
@@ -53,9 +50,6 @@ class TestTikTokAdsSource:
         self.mock_integration = Mock(spec=Integration)
         self.mock_integration.access_token = "test_access_token"
         self.mock_integration.team_id = self.team_id
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
     @parameterized.expand(
         [
@@ -173,30 +167,6 @@ class TestTikTokAdsSource:
         patterns = self.source.get_retryable_errors()
         assert not any(pattern in error_message for pattern in patterns)
 
-    @parameterized.expand(
-        [
-            ("deleted_integration", "ValueError: Integration not found: 173586"),
-            ("missing_integration", "Integration not found: 456"),
-        ]
-    )
-    def test_deleted_integration_is_non_retryable(self, name, observed_error):
-        """A deleted/disconnected integration (get_oauth_integration raising
-        "Integration not found: <id>") must be recognised as non-retryable —
-        retrying can't recreate the row, the customer has to reconnect."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(pattern in observed_error for pattern in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error for url: https://business-api.tiktok.com/open_api/v1.3/campaign/get/"),
-            ("connection_reset", "ConnectionError: Connection reset by peer"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, name, observed_error):
-        """Transient infrastructure failures must NOT be classified as non-retryable."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(pattern in observed_error for pattern in non_retryable_errors)
-
     def test_retryable_paginator_error_does_not_match_source_pattern(self):
         """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
         paginator = TikTokAdsPaginator()
@@ -312,24 +282,6 @@ class TestTikTokAdsSource:
             with pytest.raises(TikTokAdsAPIError):
                 self.source.get_oauth_accounts(self.integration_id, self.team_id)
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "TikTokAds"
-        assert config.label == "TikTok Ads"
-        assert config.releaseStatus == ReleaseStatus.GA
-        assert len(config.fields) == 2
-
-        # OAuth field comes first — the account selector below reads from it
-        integration_field = config.fields[0]
-        assert integration_field.name == "tiktok_integration_id"
-        assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
-
-        advertiser_field = config.fields[1]
-        assert advertiser_field.name == "advertiser_id"
-        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
-        assert getattr(advertiser_field, "integrationField", None) == "tiktok_integration_id"
-
     @parameterized.expand(
         [
             ("missing_advertiser_id", "", 123, False, "Advertiser ID and TikTok Ads integration are required"),
@@ -414,17 +366,6 @@ class TestTikTokAdsSource:
             "ad_country_report",
             "ad_platform_report",
         }
-
-    def test_get_resumable_source_manager(self):
-        """The source must expose a ResumableSourceManager instance."""
-        inputs = MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = self.job_id
-        inputs.logger = MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):

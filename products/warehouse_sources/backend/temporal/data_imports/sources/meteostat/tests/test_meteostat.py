@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     _get_rows,
     _parse_station_ids,
     _parse_timestamp,
-    meteostat_source,
     start_date_error,
     validate_station,
 )
@@ -26,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     MAX_STATIONS,
     METEOSTAT_ENDPOINTS,
     MINIMUM_START_DATE,
-    MONTHLY_ENDPOINT,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.meteostat"
@@ -275,27 +273,6 @@ class TestGetRows:
 
         params = _requested_params(session)
         assert params[0]["start"] == MINIMUM_START_DATE.isoformat()
-
-
-class TestMeteostatSourceResponse:
-    @parameterized.expand([(name,) for name in (HOURLY_ENDPOINT, DAILY_ENDPOINT, MONTHLY_ENDPOINT)])
-    def test_primary_keys_and_partitioning_per_endpoint(self, endpoint_name):
-        endpoint = METEOSTAT_ENDPOINTS[endpoint_name]
-        response = meteostat_source(
-            api_key="key-123",
-            station_ids="10637",
-            units="metric",
-            start_date=None,
-            endpoint_name=endpoint_name,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
-
-        assert response.name == endpoint_name
-        assert response.primary_keys == endpoint.primary_keys
-        assert "station_id" in (response.primary_keys or [])
-        assert response.partition_keys == [endpoint.date_field]
-        assert response.sort_mode == "asc"
 
 
 class TestValidateStation:

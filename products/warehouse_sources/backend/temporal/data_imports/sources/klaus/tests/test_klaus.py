@@ -312,27 +312,6 @@ class TestRetry:
         assert _retry_wait(retry_state) == MAX_RETRY_WAIT_SECONDS
 
 
-class TestSourceResponse:
-    def test_reviews_response_shape(self) -> None:
-        response = klaus_source("acme", "token", "reviews", MagicMock(), _manager())
-
-        assert response.name == "reviews"
-        # Conversation externalId is the helpdesk ticket id, only unique per workspace.
-        assert response.primary_keys == ["workspaceId", "externalId"]
-        # Response ordering is undocumented, so the watermark must only persist at
-        # successful job end.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAtISO"]
-
-    def test_unpartitioned_endpoint_has_no_partition_settings(self) -> None:
-        response = klaus_source("acme", "token", "users", MagicMock(), _manager())
-
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),

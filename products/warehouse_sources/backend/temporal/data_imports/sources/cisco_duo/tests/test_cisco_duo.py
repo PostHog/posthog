@@ -19,14 +19,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.
     _normalize_next_offset,
     _to_epoch_ms,
     _to_epoch_seconds,
-    cisco_duo_source,
     get_rows,
     is_allowed_hostname,
     normalize_hostname,
     sign_request,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.settings import CISCO_DUO_ENDPOINTS
+
+
+@pytest.fixture(autouse=True)
+def _safe_host():
+    with mock.patch(f"{MODULE}._is_host_safe", return_value=(True, None)):
+        yield
+
 
 HOST = "api-xxxxxxxx.duosecurity.com"
 IKEY = "DIWJ8X6AEYOR5OMC6TQ1"
@@ -70,12 +75,6 @@ def _manager(resume: CiscoDuoResumeConfig | None = None) -> mock.MagicMock:
 
 def _query(url: str) -> dict[str, str]:
     return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
-
-
-@pytest.fixture(autouse=True)
-def _safe_host():
-    with mock.patch(f"{MODULE}._is_host_safe", return_value=(True, None)):
-        yield
 
 
 def _run(endpoint: str, session: _FakeSession, manager: mock.MagicMock, **kwargs: Any) -> list[list[dict]]:
@@ -444,27 +443,3 @@ class TestValidateCredentials:
         ok, message = validate_credentials("api.evil.com", IKEY, SKEY, team_id=1)
         assert ok is False
         assert "hostname" in (message or "")
-
-
-class TestCiscoDuoSource:
-    @pytest.mark.parametrize("endpoint", list(CISCO_DUO_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint):
-        config = CISCO_DUO_ENDPOINTS[endpoint]
-        response = cisco_duo_source(
-            api_hostname=HOST,
-            integration_key=IKEY,
-            secret_key=SKEY,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None

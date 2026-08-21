@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.d
     devin_ai_source,
     get_status_code,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.devin_ai.settings import DEVIN_AI_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -211,28 +210,6 @@ class TestGetStatusCode:
         _, kwargs = session.get.call_args
         assert kwargs["params"] == {"first": 1}
         assert kwargs["headers"]["Authorization"] == "Bearer cog_test"
-
-
-class TestDevinAISource:
-    @parameterized.expand(["sessions", "playbooks", "knowledge_notes", "secrets"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
-        response = _source(endpoint, _make_manager())
-        cfg = DEVIN_AI_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == cfg.primary_keys
-        # created_at is a stable field — never updated_at — so partitions don't rewrite each sync.
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_members_source_response_dedupes_on_user_id_and_has_no_partition(self, MockSession) -> None:
-        response = _source("members", _make_manager())
-        assert response.name == "members"
-        assert response.primary_keys == ["user_id"]
-        # Member records carry no created_at, so the table must not declare a datetime partition.
-        assert response.partition_keys is None
-        assert response.partition_mode is None
 
 
 class TestMembersJoin:

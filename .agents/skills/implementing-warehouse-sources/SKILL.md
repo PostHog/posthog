@@ -755,31 +755,42 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Testing expectations
 
-Add at least two test modules:
+**Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
+the labels and icon path in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a
+one-line `source_for_pipeline` forwards, passes because the two halves of the diff were typed
+together. It cannot fail for any reason except someone editing both — so it catches nothing, and 700
+sources' worth of it is a suite nobody reads. That pattern was swept out of the source tests once
+already; don't reintroduce it.
 
-- `tests/test_<source>_source.py` (source-class level):
-  - `source_type`
-  - `get_source_config` fields and labels
-  - `get_schemas` outputs
-  - `validate_credentials` success/failure
-  - `source_for_pipeline` argument plumbing
-  - for resumable sources: `get_resumable_source_manager` returns a manager bound to the right data class
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior, `webhook_resource_map` correctness, `webhook_template` presence
-- `tests/test_<source>.py` (transport level):
-  - paginator behavior from response headers/body
-  - resource generation for incremental vs non-incremental
-  - endpoint-specific primary key mapping
-  - credential validation status mapping
-  - mapper/filter helpers if present
-  - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
-  - expected return schema checks for each declared endpoint in `settings.py`
-  - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
-  - for incremental cursor pagination: the paginator stops once a page predates the watermark, and keeps walking when no watermark is set (first sync)
+Before each test, answer: _what could break at runtime that this catches?_ If the answer restates
+the source file, delete the test. See `/writing-tests` for the general gate.
 
-Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
+Two test modules, covering behavior only:
 
-Use parameterized tests for status codes and edge cases. Lean toward over-covering.
+- `tests/test_<source>_source.py` (source-class level) — the source class's own decisions:
+  - `validate_credentials` when the class **maps** a probe result to a message (per-schema scope
+    checks, unknown-schema rejection, an error the class rewrites). Skip it when the method just
+    forwards to the transport helper — the transport test already covers that.
+  - `get_schemas` when discovery does real work (paginated listing, per-version endpoint sets,
+    permission-driven filtering). Skip it when it is one `build_endpoint_schemas(...)` call —
+    the helper's own filter and sync-mode behavior is covered in `common/test_source_schema.py`.
+  - `source_for_pipeline` only where it decides something (raising on an unknown schema, picking
+    between two transports). Not the argument forwarding.
+  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior
+    and `webhook_resource_map` correctness.
+- `tests/test_<source>.py` (transport level) — where the real bugs live:
+  - paginator behavior from response headers/body, including the terminal page
+  - incremental vs full-refresh request shaping (which filter/sort params go out, and that a
+    full refresh omits the watermark)
+  - credential validation status mapping (each status the API returns to the message users read)
+  - retry/backoff classification: which statuses are retryable, which are terminal
+  - mapper/normalization helpers, fan-out row shaping, and parent-field injection
+  - for resumable sources: resuming from saved state, and state saved after each batch
+  - for incremental cursor pagination: stopping once a page predates the watermark, and walking
+    on when no watermark is set (first sync)
+
+Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
+break; do not pad the count.
 
 ## Implementation checklist
 
@@ -827,7 +838,7 @@ Release status (a finished source has NO unreleasedSource flag — it hides the 
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
-- [ ] Source tests (test_<source>_source.py)
+- [ ] Source tests (test_<source>_source.py) — behavior only, no declaration restatements
 - [ ] Transport tests (test_<source>.py)
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`

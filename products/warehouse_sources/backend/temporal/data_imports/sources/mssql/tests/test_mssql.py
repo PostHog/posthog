@@ -595,37 +595,6 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "Cannot build decimal array from values",
-            "ValueError: Cannot build decimal array from values",
-            "Source column type changed",
-            "SchemaColumnTypeChangedException: Source column type changed: 'id' no longer fits",
-        ],
-    )
-    def test_data_shape_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql DB-Lib error 20009 for an unreachable host.
-            "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
-            "unavailable or does not exist (cplapps.example.us-east-2.rds.amazonaws.com)",
-            "Login failed for user 'reporting'.",
-            # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
-            # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
-            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
-            # `connect` translates paramiko's bare handshake EOFError into this message.
-            _SSH_HANDSHAKE_EOF_ERROR,
-        ],
-    )
-    def test_connection_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
             # Azure SQL error 40615 — the server firewall rejected the client IP. Redacted shape;
             # the server name / client IP are volatile, the matched phrase is not.
             "Cannot open server 'example' requested by the login. Client with IP address "
@@ -639,80 +608,6 @@ class TestMSSQLSourceNonRetryableErrors:
         # The actionable firewall guidance must win over the generic catch-all, so the first match
         # can't be the message-less entry.
         assert matches[0] is not None
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql MSSQLDatabaseException for SQL Server error 229 on a table.
-            "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
-            "b\"The SELECT permission was denied on the object 'ExistenciasProductoMagiQ', "
-            "database 'VirtualMedios', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
-            'General SQL Server error: Check messages from the SQL Server\n"',
-            # Different object/database names must still match the stable substring.
-            "The SELECT permission was denied on the object 'zzz_segtieint', database 'VirtualMedios', schema 'dbo'.",
-        ],
-    )
-    def test_permission_denied_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql MSSQLDatabaseException for SQL Server error 208 raised mid-sync when the
-            # view being selected references an object the login can't resolve.
-            "SQL Server message 208, severity 16, state 1, procedure b'VentasAsesorMes', line 8: "
-            "b\"Invalid object name 'Imagiq.dbo.inv_cuedoc'.DB-Lib error message 20018, severity 16:\\n"
-            'General SQL Server error: Check messages from the SQL Server\\n"',
-            # The table being synced was dropped/renamed after schema discovery.
-            "Invalid object name 'dbo.orders'.",
-        ],
-    )
-    def test_invalid_object_name_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # SQL Server error 207 — a referenced column no longer exists (dropped/renamed at the
-            # source, or a view body that selects a column that's gone). Real pymssql message.
-            "SQL Server message 207, severity 16, state 1, procedure b'\\xb0z\\x16,\\xff\\xff', line 39:\n"
-            "Invalid column name 'usr_modelo'.DB-Lib error message 20018, severity 16:\n"
-            "General SQL Server error: Check messages from the SQL Server",
-            # Different column name must still match the stable substring.
-            "Invalid column name 'created_at'.",
-        ],
-    )
-    def test_invalid_column_name_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql MSSQLDatabaseException for SQL Server error 245 raised mid-fetch when a
-            # view body implicitly converts a varchar value to int.
-            "SQL Server message 245, severity 16, state 1, procedure b'@\\x88[\\xd4\\xfe\\xff', line 1:\n"
-            "b\"Conversion failed when converting the varchar value 'SFDR' to data type int."
-            'DB-Lib error message 20018, severity 16:\\nGeneral SQL Server error: Check messages from the SQL Server\\n"',
-            # Different value / target type must still match the stable substring.
-            "Conversion failed when converting the nvarchar value 'N/A' to data type bigint.",
-        ],
-    )
-    def test_conversion_failed_is_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    def test_table_not_found_is_non_retryable(self, impl, cursor):
-        # Drive the real raise site so the message and the rule can't drift apart: a table dropped
-        # after schema discovery yields no columns from INFORMATION_SCHEMA and must stop retrying.
-        cursor.__iter__.return_value = iter([])
-        with pytest.raises(ValueError) as exc_info:
-            impl.get_table_metadata(cursor, "dbo", "dropped_table")
-
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
 class TestMSSQLSourceValidateCredentials:

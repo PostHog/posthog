@@ -359,32 +359,6 @@ class TestRetryBehavior:
         assert [r["id"] for r in rows] == ["1"]
         assert session.send.call_count == 2
 
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, "Unauthorized"),
-            ("forbidden", 403, "Forbidden"),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_retryable_status_raises_http_error(self, _name: str, status: int, reason: str, MockSession) -> None:
-        session = MockSession.return_value
-        url = "https://acme.workable.com/spi/v3/candidates"
-        _wire(session, [_response({}, status=status, url=url, reason=reason)])
-
-        with pytest.raises(requests.HTTPError) as exc:
-            _rows(
-                workable_source(
-                    subdomain="acme",
-                    api_token="tok",
-                    endpoint="candidates",
-                    team_id=1,
-                    job_id="j",
-                    resumable_source_manager=_make_manager(),
-                )
-            )
-        # The message shape feeds source.get_non_retryable_errors matching.
-        assert f"{status} Client Error: {reason} for url: https://" in str(exc.value)
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_bearer_token_is_redacted_from_errors(self, MockSession) -> None:
         session = MockSession.return_value
@@ -407,27 +381,6 @@ class TestRetryBehavior:
 
 
 class TestWorkableSourceResponse:
-    @parameterized.expand(list(WORKABLE_ENDPOINTS.keys()))
-    def test_source_response_primary_keys_and_partitioning(self, endpoint: str) -> None:
-        config = WORKABLE_ENDPOINTS[endpoint]
-        with mock.patch(CLIENT_SESSION_PATCH):
-            response = workable_source(
-                subdomain="acme",
-                api_token="tok",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # Never partition on a mutable field like updated_at.
         for config in WORKABLE_ENDPOINTS.values():

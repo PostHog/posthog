@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
     CAMPFIRE_BASE_URL,
     CAMPFIRE_ENDPOINTS,
-    ENDPOINTS,
 )
 
 # campfire_source builds its (capture-off) tracked session in the campfire module and hands it
@@ -240,39 +239,6 @@ class TestRetries:
     def test_client_error_raises_without_retry(self, _mock_sleep: MagicMock) -> None:
         with pytest.raises(requests.HTTPError):
             _run("vendors", [_response({}, status=401)])
-
-
-class TestCampfireSourceResponse:
-    def test_every_endpoint_builds_a_source_response(self) -> None:
-        for endpoint in ENDPOINTS:
-            response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            assert response.name == endpoint
-            assert response.primary_keys == ["id"]
-
-    def test_payment_sync_endpoints_are_ascending(self) -> None:
-        # Campfire documents (last_modified_at, id) ascending order on the payment sync endpoints,
-        # which lets the pipeline checkpoint the watermark per batch.
-        for endpoint in ("bill_payments", "invoice_payments"):
-            response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            assert response.sort_mode == "asc"
-
-    def test_undocumented_order_endpoints_are_descending(self) -> None:
-        # Everything else has no documented response order, so the watermark must only be persisted
-        # once the sync completes.
-        for endpoint in ("chart_transactions", "vendors", "contracts"):
-            response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            assert response.sort_mode == "desc"
-
-    @parameterized.expand(
-        [
-            ("partitioned", "journal_entries", ["created_at"]),
-            ("unpartitioned", "chart_of_accounts", None),
-        ]
-    )
-    def test_partitioning(self, _name: str, endpoint: str, expected_keys: list[str] | None) -> None:
-        response = campfire_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.partition_keys == expected_keys
-        assert response.partition_mode == ("datetime" if expected_keys else None)
 
 
 class TestValidateCredentials:

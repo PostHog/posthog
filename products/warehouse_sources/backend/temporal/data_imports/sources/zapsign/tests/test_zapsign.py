@@ -195,15 +195,6 @@ class TestDocumentsSource:
 
         assert cast("str", prepared[0].url).startswith(f"{ZAPSIGN_SANDBOX_BASE_URL}/api/v1/docs/")
 
-    def test_source_response_metadata(self) -> None:
-        source_response, _, _ = _run(DOCUMENTS_RESOURCE, [_page([])], _manager())
-
-        assert source_response.name == DOCUMENTS_RESOURCE
-        assert source_response.primary_keys == ["token"]
-        assert source_response.sort_mode == "asc"
-        assert source_response.partition_keys == ["created_at"]
-        assert source_response.partition_mode == "datetime"
-
     def test_saves_resume_state_after_page_and_not_on_terminal_page(self) -> None:
         page2_url = f"{ZAPSIGN_BASE_URL}/api/v1/docs/?page=2"
         manager = _manager()

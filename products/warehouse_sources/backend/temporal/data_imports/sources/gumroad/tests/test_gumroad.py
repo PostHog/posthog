@@ -119,38 +119,6 @@ class TestGumroadTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource("offer_codes", should_use_incremental_field=False)
 
-    @parameterized.expand(
-        [
-            ("sales", ["id"], "created_at"),
-            ("products", ["id"], None),
-            ("payouts", ["id"], "created_at"),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.rest_api_resource")
-    def test_top_level_source_response_shape(self, endpoint, primary_keys, partition_key, _mock) -> None:
-        response = gumroad_source(access_token="tok", endpoint=endpoint, team_id=1, job_id="job-1")
-        assert response.primary_keys == primary_keys
-        # Every Gumroad list endpoint orders created_at DESC with no way to reverse it.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ([partition_key] if partition_key else None)
-
-    @parameterized.expand(
-        [
-            ("offer_codes", ["product_id", "id"]),
-            ("variant_categories", ["product_id", "id"]),
-            ("custom_fields", ["product_id", "id"]),
-            ("product_reviews", ["product_id", "id"]),
-            ("subscribers", ["id"]),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.gumroad.gumroad.build_dependent_resource")
-    def test_fanout_primary_keys_are_unique_table_wide(self, endpoint, primary_keys, mock_build) -> None:
-        # Universal offer codes and global custom fields are repeated under every product they
-        # apply to, so the parent product id has to be part of the key.
-        mock_build.return_value = iter([])
-        response = gumroad_source(access_token="tok", endpoint=endpoint, team_id=1, job_id="job-1")
-        assert response.primary_keys == primary_keys
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

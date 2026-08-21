@@ -25,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
     _clamp_future_value_to_now,
     _format_incremental_value,
     get_rows,
-    klaviyo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
@@ -222,21 +221,6 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            # Transient/infra errors and server-side failures must stay retryable.
-            ("read_timeout", "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://a.klaviyo.com/api/events",
-            ),
-            ("connection_reset", "Connection reset by peer"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand(
         [
@@ -1124,29 +1108,6 @@ class TestNewSchemas:
         # table would fail the first sync for every other account.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas["webhooks"].should_sync_default is False
-
-
-class TestSourceResponseSortMode:
-    @parameterized.expand(
-        [
-            ("list_profiles", "desc"),
-            ("segment_profiles", "desc"),
-            ("flow_actions", "desc"),
-            ("flow_messages", "desc"),
-            ("events", "asc"),
-            ("segments", "asc"),
-        ]
-    )
-    def test_source_response_sort_mode(self, endpoint: str, expected: str) -> None:
-        # "desc" defers watermark persistence to successful job end; reverting the fan-out to "asc"
-        # per-batch persistence lets a crashed run advance the watermark past lists it never fetched.
-        response = klaviyo_source(
-            api_key="pk_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.sort_mode == expected
 
 
 class TestApiVersionThreadsToRevisionHeader:

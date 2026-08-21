@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.fi
     _request_params,
     _to_date,
     _window,
-    finnhub_source,
     get_rows,
     validate_credentials,
 )
@@ -214,36 +213,6 @@ class TestGetRows:
             get_rows(api_key="k", endpoint="earnings_calendar", symbols=None, exchange="US", logger=MagicMock())
         )
         assert batches == [[{"symbol": "AAPL", "date": "2024-01-01"}]]
-
-
-class TestFinnhubSource:
-    @parameterized.expand(
-        [
-            ("stock_symbols", ["symbol"], None, None),
-            ("market_news", ["id"], None, None),
-            ("ipo_calendar", ["symbol", "date"], "date", None),
-            ("earnings_calendar", ["symbol", "date"], "date", None),
-            ("country", ["code2"], None, None),
-            ("company_profile", ["symbol"], None, None),
-            ("quote", ["symbol"], None, None),
-            # Only the incremental endpoint advertises a sorted data contract.
-            ("company_news", ["id", "symbol"], None, "asc"),
-            ("recommendation_trends", ["symbol", "period"], "period", None),
-            ("earnings_surprises", ["symbol", "period"], "period", None),
-        ]
-    )
-    def test_source_response_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str], partition_key: str | None, sort_mode: str | None
-    ) -> None:
-        response = finnhub_source(api_key="k", endpoint=endpoint, symbols="AAPL", exchange="US", logger=MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == sort_mode
-        if partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-        else:
-            assert response.partition_keys is None
 
 
 class TestFetch:

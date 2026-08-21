@@ -328,15 +328,6 @@ class TestCheckAccess:
 
 
 class TestSmartreachSourceResponse:
-    @parameterized.expand([("prospects",), ("campaigns",)])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Full refresh only: no datetime partitioning is configured.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SMARTREACH_ENDPOINTS.values())
         assert set(SMARTREACH_ENDPOINTS) == set(ENDPOINTS)

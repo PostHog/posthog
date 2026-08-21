@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     _select_incremental_field,
     build_default_schemas,
+    build_endpoint_schemas,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -180,3 +181,43 @@ class TestBuildDefaultSchemas:
         schemas = build_default_schemas(source_schemas)
         assert [s["name"] for s in schemas] == ["a", "b", "c"]
         assert all(s["should_sync"] for s in schemas)
+
+
+class TestBuildEndpointSchemas:
+    ENDPOINTS = ["campaigns", "contacts", "events"]
+    INCREMENTAL = {"contacts": [_field("updated_at")]}
+
+    def _build(self, **kwargs) -> list[SourceSchema]:
+        return build_endpoint_schemas(self.ENDPOINTS, self.INCREMENTAL, **kwargs)
+
+    def test_endpoint_with_tracking_fields_syncs_incrementally(self) -> None:
+        schemas = {s.name: s for s in self._build()}
+
+        assert [s.name for s in self._build()] == self.ENDPOINTS
+        assert (schemas["contacts"].supports_incremental, schemas["contacts"].supports_append) == (True, True)
+        assert schemas["contacts"].incremental_fields == self.INCREMENTAL["contacts"]
+        assert (schemas["campaigns"].supports_incremental, schemas["campaigns"].supports_append) == (False, False)
+        assert schemas["campaigns"].incremental_fields == []
+
+    @parameterized.expand(
+        [
+            ("append_only", {"append_only": ["contacts"]}, False, True),
+            ("merge_only", {"merge_only": ["contacts"]}, True, False),
+        ]
+    )
+    def test_sync_mode_overrides(self, _name: str, kwargs: dict, incremental: bool, append: bool) -> None:
+        contacts = {s.name: s for s in self._build(**kwargs)}["contacts"]
+
+        assert (contacts.supports_incremental, contacts.supports_append) == (incremental, append)
+
+    @parameterized.expand(
+        [
+            ("subset", ["contacts"], ["contacts"]),
+            ("preserves_catalog_order", ["events", "campaigns"], ["campaigns", "events"]),
+            ("unknown_name", ["nope"], []),
+            ("empty_list", [], []),
+            ("none_means_everything", None, ENDPOINTS),
+        ]
+    )
+    def test_names_filter(self, _name: str, names: list[str] | None, expected: list[str]) -> None:
+        assert [s.name for s in self._build(names=names)] == expected

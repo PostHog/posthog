@@ -221,28 +221,5 @@ class TestCheckAccess:
 
 
 class TestRocketlaneSourceResponse:
-    @parameterized.expand(
-        [
-            ("projects", ["projectId"]),
-            ("tasks", ["taskId"]),
-            ("time_entries", ["timeEntryId"]),
-            ("users", ["userId"]),
-            ("fields", ["fieldId"]),
-        ]
-    )
-    def test_response_uses_endpoint_primary_key(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = rocketlane_source(
-            api_key="rl-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        # Every endpoint exposes a stable `createdAt`, so all partition by datetime.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
     def test_endpoint_keys_match_endpoints_tuple(self) -> None:
         assert set(ROCKETLANE_ENDPOINTS) == set(ENDPOINTS)

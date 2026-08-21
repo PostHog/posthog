@@ -99,40 +99,6 @@ def _run(endpoint: str, responses_by_url: dict[str, list[Response]], manager: mo
     return rows, params
 
 
-class TestSourceResponseShape:
-    @parameterized.expand(
-        [
-            ("tasks", ["id"], "datetime", "added_at"),
-            ("projects", ["id"], "datetime", "created_at"),
-            ("sections", ["id"], None, None),
-            ("labels", ["id"], None, None),
-            ("collaborators", ["project_id", "id"], None, None),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(
-        self,
-        endpoint: str,
-        expected_keys: list[str],
-        expected_partition_mode: str | None,
-        expected_partition_key: str | None,
-        MockSession: Any,
-    ) -> None:
-        response = todoist_source(
-            api_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.partition_mode == expected_partition_mode
-        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
-        # Ascending order is the safe default; we never declare desc here.
-        assert response.sort_mode == "asc"
-
-
 class TestEndpointConfig:
     def test_collaborators_is_fan_out_with_composite_key(self) -> None:
         config = TODOIST_ENDPOINTS["collaborators"]

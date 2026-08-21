@@ -20,15 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     AppdynamicsClient,
     AppdynamicsError,
     AppdynamicsResumeConfig,
-    appdynamics_source,
     get_rows,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
-    APPDYNAMICS_ENDPOINTS,
-    MAX_METRIC_PATHS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import MAX_METRIC_PATHS
 
 BASE_URL = "https://acme.saas.appdynamics.com"
 MILLIS_PER_DAY = 24 * 60 * 60 * 1000
@@ -582,21 +578,3 @@ class TestGetRows:
         assert rows[0]["application_id"] == 7
         assert rows[0]["metricId"] == 42
         assert rows[0]["value"] == 12
-
-
-class TestAppdynamicsSourceResponse:
-    @parameterized.expand(list(APPDYNAMICS_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = appdynamics_source(
-            host=BASE_URL,
-            auth=BASIC_AUTH,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),  # type: ignore[arg-type]
-            team_id=1,
-            metric_paths=["Overall Application Performance|*"],
-        )
-        config = APPDYNAMICS_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == ("desc" if config.time_windowed else "asc")

@@ -161,49 +161,6 @@ class TestOrbSource:
         return manager
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Customers"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = orb_source(
-            api_key="key",
-            endpoint="Customers",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Customers"
-        assert response.primary_keys == ["id"]
-        # Orb always returns newest-first.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
-    def test_coupons_has_no_partitioning(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "Coupons"
-        mock_resource.column_hints = None
-        mock_rest.return_value = mock_resource
-
-        response = orb_source(
-            api_key="key",
-            endpoint="Coupons",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=self._manager(can_resume=False),
-            db_incremental_field_last_value=None,
-        )
-        # Coupons exposes no stable created_at field, so it can't be partitioned.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb.rest_api_resource")
     def test_seeds_initial_paginator_state_from_saved_cursor(self, mock_rest: MagicMock) -> None:
         mock_rest.return_value = MagicMock(name="Customers", column_hints=None)
         manager = self._manager(can_resume=True, state=OrbResumeConfig(next_cursor="saved-cursor"))

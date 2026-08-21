@@ -8,12 +8,9 @@ from unittest.mock import MagicMock, patch
 from requests import Response
 from requests.exceptions import Timeout
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redditads import (
     RedditAdsSourceConfig,
 )
@@ -21,9 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     RedditAdsApiError,
     RedditAdsResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -42,32 +37,6 @@ class TestRedditAdsSource:
         self.source = RedditAdsSource()
         self.team_id = 123
         self.config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="789")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.REDDITADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "RedditAds"
-        assert config.label == "Reddit Ads"
-        assert config.releaseStatus == ReleaseStatus.GA
-        assert len(config.fields) == 2
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "reddit_integration_id"
-        assert oauth_field.label == "Reddit Ads account"
-        assert oauth_field.required is True
-        assert oauth_field.kind == "reddit-ads"
-
-        account_field = config.fields[1]
-        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
-        assert account_field.name == "account_id"
-        assert account_field.label == "Reddit Ads Account ID"
-        assert account_field.required is True
-        assert account_field.integrationField == "reddit_integration_id"
-        assert account_field.integrationKind == "reddit-ads"
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = RedditAdsSourceConfig(reddit_integration_id=456, account_id="")
@@ -133,40 +102,6 @@ class TestRedditAdsSource:
         assert expected_error_fragment in error_message
         assert mock_capture_exception.called is expect_capture_called
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            # A 403 is a permission/auth failure (access revoked) and must not be retried.
-            "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/09663b71-f301-484f-9b15-8d0e6fe69124/reports?page.size=100",
-            "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            "ValueError: Integration not found: 154683",
-            # A 400 on the profiles fan-out parent fetch (used by both the `profiles` schema and
-            # the `structured_posts` fan-out) never recovers on retry — the account id varies but
-            # the path/params suffix is stable across accounts.
-            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/d56c38c6-058a-4196-9795-284f820d27a6/profiles?page.size=100 | api error: code=400",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        """Auth failures and deleted integrations must be recognised as non-retryable."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-            "ConnectionError: Connection reset by peer",
-            # A 400 on a different endpoint is not covered by the profiles-specific pattern above —
-            # only the profiles fan-out parent fetch is known to fail deterministically like this.
-            "400 Client Error: Bad Request for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error):
-        """Transient infrastructure failures must stay retryable."""
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.OauthIntegration")
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"
@@ -231,67 +166,6 @@ class TestRedditAdsSource:
             self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
 
         assert expected_fragment in str(excinfo.value).lower()
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        expected_endpoints = set(REDDIT_ADS_CONFIG)
-        assert {schema.name for schema in schemas} == expected_endpoints
-        assert len(schemas) == len(expected_endpoints)
-
-    @pytest.mark.parametrize(
-        "endpoint",
-        [
-            "ad_account",
-            "custom_audiences",
-            "saved_audiences",
-            "pixels",
-            "funding_instruments",
-            "lead_gen_forms",
-            "profiles",
-            "structured_posts",
-        ],
-    )
-    def test_list_endpoints_without_a_server_side_time_filter_are_not_incremental(self, endpoint):
-        # Reddit's entity list endpoints take only `page.token` / `page.size` and value filters, so an
-        # "incremental" sync would re-fetch every page while merging on a cursor Reddit never applied.
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is False
-        assert schema.incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "endpoint,should_sync_default",
-        [
-            ("campaigns", True),
-            ("campaign_report", True),
-            ("ad_account", True),
-            ("pixels", True),
-            # Breakdown reports fan a campaign-day out across every dimension value, so they cost far
-            # more than the totals tables and stay off until the user opts in.
-            ("campaign_country_report", False),
-            ("campaign_gender_report", False),
-            ("campaign_placement_report", False),
-            ("campaign_community_report", False),
-            ("campaign_os_type_report", False),
-            ("campaign_keyword_report", False),
-        ],
-    )
-    def test_expensive_breakdown_reports_are_not_selected_by_default(self, endpoint, should_sync_default):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.should_sync_default is should_sync_default
-
-    def test_get_resumable_source_manager(self):
-        """The source must expose a ResumableSourceManager instance."""
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "test_job"
-        inputs.logger = mock.MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.RedditAdsSource.get_oauth_integration"

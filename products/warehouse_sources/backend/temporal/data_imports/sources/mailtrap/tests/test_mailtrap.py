@@ -17,10 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.m
     mailtrap_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.settings import (
-    ENDPOINTS,
-    MAILTRAP_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.settings import MAILTRAP_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -271,23 +268,6 @@ class TestRetryClassification:
 
 
 class TestSourceResponseShape:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        response = _source(endpoint, _make_manager())
-        config = MAILTRAP_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.incremental_param:
-            # The watermark must only commit once a sync completes: email_logs is documented
-            # newest-first and suppressions ordering is undocumented.
-            assert response.sort_mode == "desc"
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.sort_mode == "asc"
-            assert response.partition_mode is None
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_email_logs_primary_key_is_message_id(self, MockSession) -> None:
         assert MAILTRAP_ENDPOINTS["email_logs"].primary_keys == ["message_id"]

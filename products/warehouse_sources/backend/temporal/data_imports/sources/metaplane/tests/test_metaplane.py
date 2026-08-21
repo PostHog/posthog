@@ -16,10 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.
     _format_datetime,
     _make_session,
     get_rows,
-    metaplane_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.settings import METAPLANE_ENDPOINTS
 
 METAPLANE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.metaplane"
 
@@ -339,24 +337,3 @@ class TestEvaluationHistory:
         )
         batches = _drive(api, "monitor_evaluations")
         assert [row["monitorId"] for batch in batches for row in batch] == ["m2"]
-
-
-class TestMetaplaneSourceResponse:
-    @parameterized.expand([(name,) for name in sorted(METAPLANE_ENDPOINTS)])
-    def test_source_response_matches_endpoint_settings(self, endpoint: str) -> None:
-        response = metaplane_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_make_manager(),
-        )
-        config = METAPLANE_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Only the monitor fan-out defers the watermark to job end.
-        assert response.sort_mode == ("desc" if endpoint == "monitor_evaluations" else "asc")
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None

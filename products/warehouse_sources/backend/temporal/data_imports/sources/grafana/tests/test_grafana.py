@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     _resolve_auth_headers,
     get_endpoint_permissions,
     get_rows,
-    grafana_source,
     normalize_host,
     validate_credentials,
 )
@@ -554,35 +553,6 @@ class TestAnnotationRows:
             batches, session, _ = self._run(slow_get)
         assert session.get.call_count == 2
         assert batches == []
-
-
-class TestGrafanaSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, sort_mode",
-        [
-            ("dashboards", ["uid"], "asc"),
-            ("folders", ["uid"], "asc"),
-            ("teams", ["id"], "asc"),
-            ("users", ["userId"], "asc"),
-            ("datasources", ["uid"], "asc"),
-            ("service_accounts", ["id"], "asc"),
-            ("alert_rules", ["uid"], "asc"),
-            ("annotations", ["id"], "desc"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, sort_mode):
-        response = grafana_source(
-            host="https://x.grafana.net",
-            auth=_token_auth(),
-            org_id=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            team_id=1,
-            resumable_source_manager=FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
 
 
 class TestSessionRetriesDisabled:

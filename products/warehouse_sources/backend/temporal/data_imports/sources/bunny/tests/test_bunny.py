@@ -246,27 +246,6 @@ class TestCheckAccess:
 
 
 class TestBunnySourceResponse:
-    @parameterized.expand(
-        [
-            ("pull_zones", None),
-            ("storage_zones", None),
-            ("dns_zones", "DateCreated"),
-            ("video_libraries", "DateCreated"),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioning_matches_endpoint_config(self, endpoint: str, partition_key: str | None, MockSession) -> None:
-        MockSession.return_value.headers = {}
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["Id"]
-        if partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         # bunny.net IDs are globally unique, so a single `Id` key is sufficient table-wide.
         assert all(config.primary_keys == ["Id"] for config in BUNNY_ENDPOINTS.values())

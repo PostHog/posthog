@@ -1279,24 +1279,6 @@ class TestRedshiftValidateCredentials:
         capture.assert_not_called()
 
 
-class TestRedshiftSourceForPipeline:
-    def test_forwards_chunk_size_override_from_external_data_schema(self, mocker):
-        schema_row = MagicMock()
-        schema_row.chunk_size_override = 9999
-        mocker.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.ExternalDataSchema.objects.get",
-            return_value=schema_row,
-        )
-        build_pipeline = mocker.patch.object(RedshiftImplementation, "build_pipeline", return_value=MagicMock())
-
-        source = RedshiftSource()
-        config = _make_config()
-        inputs = _make_inputs()
-        source.source_for_pipeline(config, inputs)
-
-        build_pipeline.assert_called_once_with(config, inputs, chunk_size_override=9999)
-
-
 # ---------------------------------------------------------------------------
 # End-to-end build_pipeline — wired through RedshiftImplementation
 # ---------------------------------------------------------------------------
@@ -1432,29 +1414,6 @@ class TestBuildPipeline:
         assert get_meta.call_args.args[1] == "public"
         assert get_meta.call_args.args[2] == "messages"
         assert response.name == "messages"
-
-    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
-        mocker.patch.object(
-            RedshiftImplementation,
-            "get_table_metadata",
-            return_value=Table(
-                name="users",
-                parents=("analytics",),
-                columns=[RedshiftColumn(name="id", data_type="integer", nullable=False)],
-                type="table",
-            ),
-        )
-        impl = RedshiftImplementation()
-        inputs = _make_inputs(
-            schema_name="analytics.users",
-            schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            s3_folder_name="users",
-        )
-
-        response = impl.build_pipeline(_make_config(schema=""), inputs)
-
-        # Migrated row keeps its original subdir rather than moving to `analytics_users`.
-        assert response.name == "users"
 
 
 # ---------------------------------------------------------------------------

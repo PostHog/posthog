@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.on
     get_credentials_status,
     onfleet_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.settings import (
-    ENDPOINTS,
-    ONFLEET_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -217,17 +213,3 @@ class TestGetCredentialsStatus:
     def test_returns_none_on_transport_error(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert get_credentials_status("key") is None
-
-
-class TestOnfleetSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = ONFLEET_ENDPOINTS[endpoint]
-        response = onfleet_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        # Onfleet epoch-ms timestamps would misbucket under the datetime partitioner, so partitioning is off.
-        assert response.partition_mode is None
-        assert response.partition_keys is None

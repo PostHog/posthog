@@ -182,16 +182,6 @@ class TestCheckAccess:
 
 
 class TestMyHoursSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value = mock.MagicMock()
-        response = my_hours_source(api_key="mh-key", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # The list endpoints carry no stable timestamp, so we don't partition.
-        assert response.partition_mode is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in MY_HOURS_ENDPOINTS.values())
         assert set(MY_HOURS_ENDPOINTS) == set(ENDPOINTS)

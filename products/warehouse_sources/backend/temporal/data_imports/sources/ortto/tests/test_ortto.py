@@ -8,12 +8,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.ortt
     _base_url,
     _flatten_custom_field,
     get_rows,
-    ortto_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ortto.settings import (
     ACCOUNT_BUILTIN_FIELDS,
-    ENDPOINTS,
     ORTTO_ENDPOINTS,
     PERSON_BUILTIN_FIELDS,
 )
@@ -216,14 +214,3 @@ class TestGetRowsSingleRequest:
         batches = list(get_rows("global", "key", "account_custom_fields", mock.MagicMock(), _make_manager()))
 
         assert batches == [[{"id": "str:oc:industry", "name": "Industry"}]]
-
-
-class TestOrttoSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = ortto_source("global", "key", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

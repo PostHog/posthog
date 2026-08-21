@@ -10,11 +10,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa 
     EXPORT_WINDOW_MS,
     DixaResumeConfig,
     _to_ms,
-    dixa_source,
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import DIXA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dixa.settings import DIXA_ENDPOINTS
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep():
+    with mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.time.sleep"):
+        yield
 
 
 def _make_manager(resume_state: DixaResumeConfig | None = None) -> mock.MagicMock:
@@ -30,12 +35,6 @@ def _json_response(body: Any) -> mock.MagicMock:
     resp.status_code = 200
     resp.ok = True
     return resp
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep():
-    with mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dixa.dixa.time.sleep"):
-        yield
 
 
 class TestToMs:
@@ -280,21 +279,6 @@ class TestGetRowsMain:
 
 
 class TestDixaSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = DIXA_ENDPOINTS[endpoint]
-        response = dixa_source("token", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(DIXA_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import NeonSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -22,29 +22,12 @@ def test_neon_supports_cdc():
     assert source_type_supports_cdc(ExternalDataSourceType.NEON)
 
 
-def test_neon_source_type_and_name():
-    source = NeonSource()
-
-    assert source.source_type == ExternalDataSourceType.NEON
-    # source_name feeds the connection error messages ("Could not connect to Neon...").
-    assert source.source_name == "Neon"
-
-
 def test_neon_schema_field_is_optional():
     # Multi-schema is supported (same as Postgres), so the schema field must not be required.
     schema_field = _field("schema")
 
     assert schema_field.required is False
     assert schema_field.label == "Schema"
-
-
-def test_neon_is_visible_and_beta():
-    config = NeonSource().get_source_config
-
-    # A finished source must not be hidden behind unreleasedSource or a gating flag.
-    assert not config.unreleasedSource
-    assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.BETA
 
 
 def test_neon_host_field_guides_to_the_direct_host():

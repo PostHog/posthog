@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm
     onepagecrm_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
-    ENDPOINTS,
-    ONEPAGECRM_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import ONEPAGECRM_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -286,21 +283,6 @@ class TestValidateCredentials:
 
 
 class TestOnepagecrmSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = ONEPAGECRM_ENDPOINTS[endpoint]
-        response = _source(mock.MagicMock(), endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @parameterized.expand([(name,) for name, c in ONEPAGECRM_ENDPOINTS.items() if c.partition_key])
     def test_partition_keys_are_stable_creation_fields(self, endpoint):
         assert ONEPAGECRM_ENDPOINTS[endpoint].partition_key == "created_at"

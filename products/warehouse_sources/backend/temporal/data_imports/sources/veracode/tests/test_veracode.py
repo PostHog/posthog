@@ -7,10 +7,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
-from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import (
-    PAGE_SIZE,
-    VERACODE_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.settings import PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.veracode import (
     VeracodeHMACAuth,
     VeracodeResumeConfig,
@@ -23,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.v
     get_rows,
     resolve_host,
     validate_credentials,
-    veracode_source,
 )
 
 
@@ -290,22 +286,6 @@ class TestGetRowsFanOut:
         # Fan-out child requests must carry the configured page size too, not fall back to the API
         # default — the top-level path and application enumeration both set it.
         assert f"size={PAGE_SIZE}" in findings_url
-
-
-class TestVeracodeSourceResponse:
-    @parameterized.expand(list(VERACODE_ENDPOINTS.keys()))
-    def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
-        config = VERACODE_ENDPOINTS[endpoint]
-        response = veracode_source("id", "secret", "com", endpoint, MagicMock(), MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
 
 
 class TestValidateCredentials:

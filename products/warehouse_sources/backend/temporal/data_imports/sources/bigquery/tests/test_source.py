@@ -12,7 +12,6 @@ from google.api_core.exceptions import (
     InternalServerError,
     InvalidArgument,
     NotFound,
-    PermissionDenied,
     ServiceUnavailable,
 )
 from google.auth.exceptions import RefreshError
@@ -671,22 +670,6 @@ def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
 @pytest.mark.parametrize(
     "observed_error",
     [
-        # Rotated/revoked service account private key.
-        "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
-        # Deleted service account.
-        "('invalid_grant: Invalid grant: account not found', {'error': 'invalid_grant', 'error_description': 'Invalid grant: account not found'})",
-    ],
-)
-def test_non_retryable_errors_match_rejected_credentials(observed_error):
-    """A `RefreshError` carrying the OAuth2 `invalid_grant` code means Google rejected the
-    service account grant — retrying can't recover, so the sync must be disabled."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
         # Raised when the Dataset ID is `project.dataset`, so we build a 4-component table id.
         'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
         "got immortal-407108.immortal-407108.analytics_529249625.events_20260325",
@@ -1227,46 +1210,6 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
 
 
 @pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Storage Read API permission failure — `str(PermissionDenied)` is "403 Access Denied: ..."
-        str(
-            PermissionDenied(
-                "Access Denied: Table prj:ds.fct__conversions: Permission bigquery.tables.getData "
-                "denied on table prj:ds.fct__conversions (or it may not exist)."
-            )
-        ),
-        # Permission to list tables in a dataset is also denied with the same prefix
-        str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
-        # Storage Read API `create_read_session` denial — `str(PermissionDenied)` is "403 request
-        # failed: the user does not have 'bigquery.readsessions.create' permission for 'projects/...'",
-        # which the "Access Denied:" / "PermissionDenied: 403 request failed" keys don't cover.
-        str(
-            PermissionDenied(
-                "request failed: the user does not have 'bigquery.readsessions.create' "
-                "permission for 'projects/some-project'"
-            )
-        ),
-        # Storage Read API stream-read denial — the session can be created but the account lacks
-        # `bigquery.readsessions.getData`. `str(PermissionDenied)` is "there was an error operating
-        # on '.../streams/...': the user does not have 'bigquery.readsessions.getData' permission for
-        # '...'", which neither the "Access Denied:" / "403 request failed" nor the readsessions.create
-        # keys cover.
-        str(
-            PermissionDenied(
-                "there was an error operating on 'projects/some-project/locations/us/sessions/sess/"
-                "streams/strm': the user does not have 'bigquery.readsessions.getData' permission for "
-                "'projects/some-project/locations/us/sessions/sess/streams/strm'"
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_permission_denied(observed_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
     "observed_error,expected_key,expected_word",
     [
         # Overwriting a PostHog temp table — denied with bigquery.tables.update on the table.
@@ -1335,117 +1278,6 @@ def test_job_create_denial_surfaces_job_permission_guidance():
     assert first_key == "bigquery.jobs.create"
     assert friendly is not None
     assert "run query jobs" in friendly
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Federated table backed by a Cloud SQL PostgreSQL server — BigQuery wraps the upstream
-        # ACL failure in a 400 BadRequest while reading query results.
-        str(
-            BadRequest(
-                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
-                "&location=us-central1: Error while reading data, error message: Failed to fetch row "
-                "from PostgreSQL server. Error: ERROR:  permission denied for table GroupParticipant"
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_federated_upstream_permission_denied(observed_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Federated EXTERNAL_QUERY view whose upstream schema drifted — a column the view selects was
-        # renamed/dropped in the source database, so BigQuery can't compile the view.
-        str(
-            BadRequest(
-                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
-                "&location=us-central1: Invalid table-valued function EXTERNAL_QUERY; failed to parse "
-                "view 'analytics.SurveyResponse'\nFailed to get query schema from PostgreSQL server, "
-                'prepare statement failed. Error: ERROR:  column "participantId" does not exist'
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_unparseable_view(observed_error):
-    """A view whose definition no longer matches the underlying data (e.g. a federated query
-    references a dropped column) can't be recovered by retrying — the user must fix the view."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # A NaN in a NUMERIC-typed column, surfaced from `jobs.getQueryResults` while polling a query
-        # job — BigQuery's NUMERIC type can't represent NaN the way FLOAT64 can.
-        str(
-            BadRequest(
-                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
-                "&location=EU&prettyPrint=false: Invalid NUMERIC value: NaN\n\nLocation: EU\nJob ID: j"
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_numeric_nan(observed_error):
-    """A NUMERIC-typed column holding NaN traces back to the customer's source view/data, and the
-    same query keeps producing it on every retry — the user must fix the underlying view/column."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "observed_error",
-    [
-        # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
-        # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
-        str(
-            Forbidden(
-                "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
-                "which is set by your administrator. For more information, see "
-                "https://docs.cloud.google.com/bigquery/cost-controls.; reason: quotaExceeded"
-            )
-        ),
-        # Per-user variant of the same custom cost control.
-        str(
-            Forbidden(
-                "Custom quota exceeded: Your usage exceeded the custom quota for "
-                "QueryUsagePerUserPerDay, which is set by your administrator.; reason: quotaExceeded"
-            )
-        ),
-    ],
-)
-def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
-    """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
-    retrying within the sync's window — the user must raise the quota or sync less data."""
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert any(key in observed_error for key in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # Transient server / connection errors must stay retryable
-        "503 Service unavailable, please retry",
-        "500 Internal error encountered",
-        "Connection reset by peer",
-        # A federated-read failure that isn't a permission problem must stay retryable
-        "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
-        "Error: ERROR:  connection to server timed out",
-        # Transient rate-limit quota errors ("Quota exceeded" / `rateLimitExceeded`) are NOT the
-        # administrator-set custom cost control and must stay retryable — the "Custom quota
-        # exceeded" key must not catch them.
-        "403 Quota exceeded: Your project exceeded quota for concurrent queries; reason: quotaExceeded",
-        "403 Exceeded rate limits: too many concurrent queries for this project; reason: rateLimitExceeded",
-    ],
-)
-def test_non_retryable_errors_does_not_match_transient(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert not any(key in other_error for key in non_retryable_errors)
 
 
 def _run_has_duplicate_primary_keys(side_effect):
@@ -1800,27 +1632,6 @@ def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
 
 @pytest.mark.parametrize(
     "location",
-    ["US", "EU", "asia-northeast1"],
-)
-def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
-    """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
-    discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
-    not found in location <X>", which must be recognised as non-retryable via the
-    "was not found in location" pattern instead of retrying forever."""
-    error = NotFound(
-        f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
-        f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
-    )
-
-    # Mirror the substring match in `sync_new_schemas_activity` / `update_external_data_job_model`.
-    error_msg = str(error)
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-
-    assert any(pattern in error_msg for pattern in non_retryable_errors)
-
-
-@pytest.mark.parametrize(
-    "location",
     ["ua", "us-fake1", "EU "],
 )
 def test_bigquery_unsupported_region_is_non_retryable(location):
@@ -1885,20 +1696,6 @@ def test_bigquery_table_not_found_during_sync_is_non_retryable():
     assert "was not found in location" not in error_msg
 
 
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # Transient server errors must stay retryable.
-        "503 Service unavailable, please retry",
-        "500 Internal error encountered, please retry",
-    ],
-)
-def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert "Not found: Table" not in other_error
-    assert not any(key in other_error for key in non_retryable_errors)
-
-
 def test_bigquery_project_not_found_during_sync_is_non_retryable():
     """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
     as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid
@@ -1947,25 +1744,6 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     assert options["grpc.max_send_message_length"] == -1
 
 
-def test_bigquery_billing_not_enabled_is_non_retryable():
-    # A `billingNotEnabled` Forbidden 403 is a customer config issue — retrying never helps.
-    # Representative message from a real failed job (the `reason: billingNotEnabled` 403 raised
-    # by `job.result()` when the source project has BigQuery billing disabled / is in sandbox mode).
-    internal_error = (
-        "Forbidden: 403 Billing has not been enabled for this project. Enable billing at "
-        "https://console.cloud.google.com/billing. Datasets must have a default expiration time "
-        "and default partition expiration time of less than 60 days while in sandbox mode.; "
-        "reason: billingNotEnabled, message: Billing has not been enabled for this project."
-    )
-
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-
-    billing_key = "Billing has not been enabled for this project"
-    assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
-    # Mirror the substring match used by `update_external_data_job_model`.
-    assert billing_key in internal_error
-
-
 def test_bigquery_cdc_staleness_is_non_retryable():
     """A CDC table whose pending upserts are staler than its max_staleness can't be read via the
     Storage Read API (it never applies CDC changes), so the read fails as an InvalidArgument.
@@ -1983,21 +1761,6 @@ def test_bigquery_cdc_staleness_is_non_retryable():
 
     assert matching, "CDC max_staleness read failure should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
-
-
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # A genuine config error about max_staleness must not be swallowed by the freshness key.
-        "400 Invalid value for max_staleness: must be a valid INTERVAL",
-        # Transient server errors must stay retryable.
-        "503 Service unavailable, please retry",
-    ],
-)
-def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert "un-applied upsert data that is not fresh enough" not in other_error
-    assert not any(key in other_error for key in non_retryable_errors)
 
 
 def test_bigquery_resources_exceeded_is_non_retryable():

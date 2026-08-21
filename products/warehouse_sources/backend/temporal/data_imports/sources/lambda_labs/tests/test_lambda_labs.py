@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_lab
     lambda_labs_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lambda_labs.settings import LAMBDA_LABS_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -249,26 +248,6 @@ class TestPaginationAndResume:
         )
 
         assert params[0] == {}
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(LAMBDA_LABS_ENDPOINTS.keys()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        config = LAMBDA_LABS_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Ascending is required for the audit-events incremental watermark to advance correctly.
-        assert response.sort_mode == "asc"
-
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
 
 class TestValidateCredentials:

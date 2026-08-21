@@ -16,10 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.pay
     check_schema_access,
     get_company_id,
     get_rows,
-    payfit_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import ENDPOINTS, PAYFIT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import PAYFIT_ENDPOINTS
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = payfit._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -373,19 +372,6 @@ class TestCheckSchemaAccess(_ResponseSessionMixin):
 
 
 class TestPayFitSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = payfit_source(
-            api_key="payfit-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == PAYFIT_ENDPOINTS[endpoint].primary_keys
-        # No stable creation timestamp exists across the endpoints, so we don't partition.
-        assert response.partition_mode is None
-
     def test_payslips_primary_key_includes_parent_id(self) -> None:
         # Payslip rows are aggregated across every collaborator, so the key must carry the parent id.
         assert PAYFIT_ENDPOINTS["payslips"].primary_keys == ["collaboratorId", "payslipId"]

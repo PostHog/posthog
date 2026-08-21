@@ -5,82 +5,13 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", "M"] = "E") -> CimisSourceConfig:
     return CimisSourceConfig(app_key=app_key, targets=targets, unit_of_measure=unit)
-
-
-class TestCimisSourceConfig:
-    def test_source_type(self) -> None:
-        assert CimisSource().source_type == ExternalDataSourceType.CIMIS
-
-    def test_source_config_metadata(self) -> None:
-        config = CimisSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cimis"
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: f for f in CimisSource().get_source_config.fields}
-        assert set(fields) == {"app_key", "targets", "unit_of_measure"}
-        app_key = fields["app_key"]
-        targets = fields["targets"]
-        assert isinstance(app_key, SourceFieldInputConfig)
-        assert isinstance(targets, SourceFieldInputConfig)
-        # The credential must be flagged secret so the serializer treats it as sensitive.
-        assert app_key.required is True
-        assert app_key.secret is True
-        # Targets is optional so the metadata tables can sync without it.
-        assert targets.required is False
-
-
-class TestCimisGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = CimisSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {
-            "stations",
-            "station_zipcodes",
-            "spatial_zipcodes",
-            "daily_data",
-            "hourly_data",
-        }
-
-    def test_filters_by_names(self) -> None:
-        schemas = CimisSource().get_schemas(_config(), team_id=1, names=["stations"])
-        assert [s.name for s in schemas] == ["stations"]
-
-    @parameterized.expand(
-        [
-            ("daily_data", True),
-            ("hourly_data", True),
-            ("stations", False),
-            ("station_zipcodes", False),
-            ("spatial_zipcodes", False),
-        ]
-    )
-    def test_incremental_support(self, endpoint: str, supports_incremental: bool) -> None:
-        schema = next(s for s in CimisSource().get_schemas(_config(), team_id=1) if s.name == endpoint)
-        assert schema.supports_incremental is supports_incremental
-        if supports_incremental:
-            assert [f["field"] for f in schema.incremental_fields] == ["Date"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the docs table catalog should render.
-        tables = CimisSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {
-            "stations",
-            "station_zipcodes",
-            "spatial_zipcodes",
-            "daily_data",
-            "hourly_data",
-        }
 
 
 class TestCimisValidateCredentials:
@@ -93,13 +24,6 @@ class TestCimisValidateCredentials:
         with mock.patch.object(cimis, "make_tracked_session", return_value=session):
             ok, _msg = CimisSource().validate_credentials(_config(), team_id=1)
         assert ok is expected
-
-
-class TestCimisNonRetryableErrors:
-    def test_marks_auth_errors_non_retryable(self) -> None:
-        errors = CimisSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
 
 
 class TestCimisSourceForPipeline:

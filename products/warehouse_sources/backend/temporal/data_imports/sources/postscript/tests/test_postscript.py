@@ -192,29 +192,3 @@ class TestPostscriptTransport:
         resume_hook(None)
         resume_hook({})
         manager.save_state.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("subscribers", "subscribers", ["id"], ["created_at"]),
-            ("keywords", "keywords", ["id"], ["created_at"]),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript.rest_api_resource")
-    def test_source_response_shape(
-        self, _name, endpoint, expected_keys, expected_partition_keys, mock_rest_api_resource
-    ) -> None:
-        response = postscript_source(
-            api_key="sk_postscript",
-            endpoint=endpoint,
-            api_version="v2",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        # Every paginated request pins `<field>__asc`, so rows really do arrive oldest-first.
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == expected_partition_keys

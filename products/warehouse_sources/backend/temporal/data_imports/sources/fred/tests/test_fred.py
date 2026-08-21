@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fred.fred 
     FredRequestError,
     FredResumeConfig,
     _build_url,
-    fred_source,
     get_rows,
     parse_series_ids,
     validate_credentials,
@@ -326,12 +325,3 @@ class TestFredTransport:
         )
 
         assert validate_credentials("key", "NOPE") == expected
-
-    @pytest.mark.parametrize("endpoint", list(FRED_ENDPOINTS))
-    def test_fred_source_response_shape(self, endpoint):
-        response = fred_source("key", ["UNRATE"], endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == FRED_ENDPOINTS[endpoint].primary_keys
-        # Rows restart at each series' earliest date, so no global ordering may be claimed.
-        assert response.sort_mode is None

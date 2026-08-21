@@ -16,13 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.
     JumpcloudRetryableError,
     _parse_search_after,
     get_rows,
-    jumpcloud_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import (
-    ENDPOINTS,
-    JUMPCLOUD_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.jumpcloud.settings import JUMPCLOUD_ENDPOINTS
 
 
 class _FakeResumableManager:
@@ -408,26 +404,6 @@ class TestValidateCredentials:
 
 
 class TestJumpcloudSourceResponse:
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_source_response_shape(self, name: str) -> None:
-        response = jumpcloud_source(
-            api_key="key",
-            endpoint=name,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        config = JUMPCLOUD_ENDPOINTS[name]
-        assert response.name == name
-        assert response.primary_keys == [config.primary_key]
-        # Directory Insights response ordering is undocumented, so the events stream defers
-        # its watermark to job end (desc); everything else is plain ascending full refresh.
-        assert response.sort_mode == ("desc" if config.api == "insights" else "asc")
-        if config.partition_key:
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-
     def test_partition_keys_are_stable_fields(self) -> None:
         # Guards against accidentally partitioning on a churning field like lastContact.
         assert all(cfg.partition_key in (None, "created", "timestamp") for cfg in JUMPCLOUD_ENDPOINTS.values())

@@ -16,10 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.ai
     aircall_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import (
-    AIRCALL_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.settings import AIRCALL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -348,22 +345,6 @@ class TestPagination:
 
 
 class TestAircallSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint):
-        config = AIRCALL_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(AIRCALL_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

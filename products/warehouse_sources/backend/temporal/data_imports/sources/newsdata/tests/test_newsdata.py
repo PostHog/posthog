@@ -291,31 +291,6 @@ class TestRetries:
         assert session.send.call_count == 1
 
 
-class TestSourceResponseMetadata:
-    @parameterized.expand(
-        [
-            ("latest", ["article_id"], "pubDate", "asc"),
-            ("archive", ["article_id"], "pubDate", "desc"),
-            ("crypto", ["article_id"], "pubDate", "desc"),
-        ]
-    )
-    def test_partitioned_endpoints(
-        self, endpoint: str, primary_keys: list[str], partition_key: str, sort_mode: str
-    ) -> None:
-        response = _source(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-
-    def test_sources_endpoint_is_unpartitioned(self) -> None:
-        response = _source("sources")
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:

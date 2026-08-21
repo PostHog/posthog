@@ -1,21 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
     ALL_WEBHOOK_EVENTS,
-    ENDPOINTS,
-    INCREMENTAL_ENDPOINTS,
-    MERGE_ONLY_ENDPOINTS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.source import WhopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import WhopResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.whop.source.api_client"
 
@@ -27,73 +19,6 @@ class TestWhopSource:
         self.source = WhopSource()
         self.team_id = 123
         self.config = WhopSourceConfig(api_key="test-api-key", company_id="biz_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WHOP
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Whop"
-        assert config.label == "Whop"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # The source must ship visible: unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/whop"
-
-    @pytest.mark.parametrize(
-        "field_name, expected_type, expected_secret",
-        [
-            ("api_key", SourceFieldInputConfigType.PASSWORD, True),
-            ("company_id", SourceFieldInputConfigType.TEXT, False),
-        ],
-    )
-    def test_credential_fields(self, field_name, expected_type, expected_secret):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
-
-        assert field.type == expected_type
-        assert field.secret is expected_secret
-        assert field.required is True
-
-    def test_webhook_fields_include_a_secret_signing_secret(self):
-        config = self.source.get_source_config
-        assert config.webhookFields is not None
-        field = next(
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        )
-        assert field.secret is True
-
-    def test_get_schemas_lists_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_filters_by_name(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["payments"])
-        assert [schema.name for schema in schemas] == ["payments"]
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_incremental_support_matches_the_endpoint_catalog(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-
-        assert schema.supports_incremental is (endpoint in INCREMENTAL_ENDPOINTS)
-        if schema.supports_incremental:
-            assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
-        else:
-            assert schema.incremental_fields == []
-        # Endpoints paged newest-first re-yield watermark boundary rows, which append would
-        # duplicate; only a merge on `id` dedupes them.
-        assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_webhook_support_matches_the_event_catalog(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_webhooks is (endpoint in WEBHOOK_SCHEMA_NAMES)
-
-    def test_canonical_descriptions_only_describe_real_schemas(self):
-        # A key that doesn't match a schema name is silently ignored, so the descriptions would
-        # never reach the table they were written for.
-        assert set(self.source.get_canonical_descriptions()) <= set(ENDPOINTS)
 
     def test_webhook_resource_map_routes_by_distinct_event_prefix(self):
         mapping = self.source.webhook_resource_map
@@ -162,13 +87,6 @@ class TestWhopSource:
 
         api_client.validate_credentials.assert_not_called()
 
-    def test_resumable_manager_is_bound_to_the_cursor_dataclass(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WhopResumeConfig
-
     @pytest.mark.parametrize(
         "method_name, client_method",
         [
@@ -194,41 +112,3 @@ class TestWhopSource:
             WEBHOOK_URL,
             sorted(SCHEMA_TO_WEBHOOK_EVENTS["refunds"]),
         )
-
-    def test_source_for_pipeline_plumbs_the_sync_inputs(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "payments"
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = api_client.whop_source.call_args.kwargs
-        assert kwargs["api_key"] == "test-api-key"
-        assert kwargs["company_id"] == "biz_test"
-        assert kwargs["endpoint"] == "payments"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-05-01T00:00:00Z"
-
-    def test_source_for_pipeline_withholds_the_watermark_on_a_full_refresh(self):
-        # Passing a stale watermark through on a full refresh would filter out every row that
-        # predates it, quietly shrinking the table the user asked to rebuild.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "payments"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-05-01T00:00:00Z"
-
-        with mock.patch(API_CLIENT_PATCH) as api_client:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert api_client.whop_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize("status", ["401", "403"])
-    def test_auth_failures_are_non_retryable(self, status):
-        errors = self.source.get_non_retryable_errors()
-        assert any(key.startswith(status) for key in errors)

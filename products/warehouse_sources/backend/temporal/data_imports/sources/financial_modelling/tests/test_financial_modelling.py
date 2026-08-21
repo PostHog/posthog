@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     _fetch_page,
     _to_date,
     _window_params,
-    financial_modelling_source,
     get_rows,
     parse_symbols,
 )
@@ -235,61 +234,3 @@ class TestGetRowsMarketWide:
         assert rows == [{"symbol": "AAPL", "date": "2024-01-01"}]
         # Market-wide endpoints fan out over nothing, so no resume bookmark is saved.
         assert manager.saved == []
-
-
-class TestFinancialModellingSourceResponse:
-    @parameterized.expand(
-        [
-            ("incremental_uses_desc", "historical_prices", "desc"),
-            ("full_refresh_uses_asc", "company_profiles", "asc"),
-        ]
-    )
-    def test_sort_mode(self, _name: str, endpoint: str, expected: str) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint=endpoint,
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.sort_mode == expected
-
-    @parameterized.expand(
-        [
-            ("stock_list", ["symbol"]),
-            ("income_statements", ["symbol", "date", "period"]),
-            ("historical_prices", ["symbol", "date"]),
-            ("earnings_calendar", ["symbol", "date"]),
-        ]
-    )
-    def test_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint=endpoint,
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.primary_keys == expected_keys
-
-    def test_partitioned_endpoint_has_datetime_partitioning(self) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint="historical_prices",
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["date"]
-
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
-        response = financial_modelling_source(
-            api_key="k",
-            endpoint="company_profiles",
-            symbols=["AAPL"],
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode is None
-        assert response.partition_keys is None

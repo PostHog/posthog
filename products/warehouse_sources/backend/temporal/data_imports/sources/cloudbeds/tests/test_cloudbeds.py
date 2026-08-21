@@ -332,14 +332,6 @@ class TestValidateCredentials:
 
 
 class TestCloudbedsSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, manager=_make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == CLOUDBEDS_ENDPOINTS[endpoint].primary_keys
-        # No creation timestamp is verified stable across every object, so we don't partition.
-        assert response.partition_mode is None
-
     def test_endpoint_catalog_is_consistent(self) -> None:
         assert set(CLOUDBEDS_ENDPOINTS) == set(ENDPOINTS)
         assert all(config.primary_keys for config in CLOUDBEDS_ENDPOINTS.values())

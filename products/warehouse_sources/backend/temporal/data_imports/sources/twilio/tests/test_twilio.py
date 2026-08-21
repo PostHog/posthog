@@ -428,32 +428,3 @@ class TestPagination:
         )
 
         assert snapshots[0]["params"]["DateSent>"] == "2026-03-04"
-
-
-class TestTwilioSource:
-    @pytest.mark.parametrize(
-        "endpoint, expected_sort, expects_partition, expected_primary_key",
-        [
-            ("messages", "desc", True, "sid"),
-            ("calls", "desc", True, "sid"),
-            ("recordings", "desc", True, "sid"),
-            ("conferences", "desc", True, "sid"),
-            ("addresses", "asc", False, "sid"),
-            ("transcriptions", "asc", True, "sid"),
-            # Usage records have no `sid`; each category appears once, so it's the primary key.
-            ("usage_records", "asc", False, "category"),
-            ("verification_services", "asc", True, "sid"),
-            ("verification_attempts", "desc", True, "sid"),
-        ],
-    )
-    def test_source_response_shape(self, endpoint, expected_sort, expects_partition, expected_primary_key):
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_primary_key]
-        assert response.sort_mode == expected_sort
-        if expects_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["date_created"]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None

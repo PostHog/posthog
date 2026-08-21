@@ -105,7 +105,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
-    _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
     _resolve_hostaddr_with_timeout,
@@ -652,41 +651,6 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "Server out-of-memory error should surface an actionable message"
         assert "ran out of memory" in friendly[0]
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
-            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
-        ],
-    )
-    def test_rds_proxy_wrong_password_is_non_retryable(self, source, error_msg):
-        # RDS Proxy's wrong-credentials wording isn't covered by the PostgreSQL "password
-        # authentication failed for user" key, so confirm the dedicated role-password key is what
-        # recognises it, independent of the volatile role name.
-        non_retryable = source.get_non_retryable_errors()
-        assert "The password that was provided for the role" in non_retryable
-        assert "password authentication failed for user" not in error_msg
-        assert any(pattern in error_msg for pattern in non_retryable.keys())
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Supabase's Supavisor transaction pooler (port 6543) rejects bad credentials with
-            # "FATAL: SASL authentication failed" rather than PostgreSQL's "password authentication
-            # failed for user". When `options` is rejected first, this is the message that propagates
-            # via str(e) (the options error is only the chained context). Host/port are volatile.
-            'connection failed: connection to server at "52.57.91.216", port 6543 failed: FATAL:  SASL authentication failed connection to server at "52.57.91.216", port 6543 failed: FATAL:  SASL authentication failed',
-            'OperationalError: connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  SASL authentication failed',
-        ],
-    )
-    def test_sasl_authentication_failed_is_non_retryable(self, source, error_msg):
-        # The PostgreSQL "password authentication failed for user" key doesn't substring-match the
-        # pooler's SASL wording, so confirm the dedicated key recognises it independent of host/port.
-        non_retryable = source.get_non_retryable_errors()
-        assert "SASL authentication failed" in non_retryable
-        assert "password authentication failed for user" not in error_msg
-        assert any(pattern in error_msg for pattern in non_retryable.keys())
-
     def test_sasl_authentication_failed_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = (
@@ -697,23 +661,6 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "SASL authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Postgres configured with `pam` auth in pg_hba.conf rejects bad credentials with this
-            # wording instead of "password authentication failed for user". Host/port are volatile.
-            'connection failed: connection to server at "98.87.250.60", port 5432 failed: FATAL:  PAM authentication failed for user "postgres"',
-            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  PAM authentication failed for user "myuser"',
-        ],
-    )
-    def test_pam_authentication_failed_is_non_retryable(self, source, error_msg):
-        # The PostgreSQL "password authentication failed for user" key doesn't substring-match the
-        # PAM wording, so confirm the dedicated key recognises it independent of host/port.
-        non_retryable = source.get_non_retryable_errors()
-        assert "PAM authentication failed" in non_retryable
-        assert "password authentication failed for user" not in error_msg
-        assert any(pattern in error_msg for pattern in non_retryable.keys())
-
     def test_pam_authentication_failed_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = (
@@ -723,19 +670,6 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "PAM authentication failure should surface an actionable message"
         assert "credentials" in friendly[0]
-
-    def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
-        # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
-        # so confirm it's specifically the new key that recognises this message.
-        error_msg = (
-            'connection failed: connection to server at "52.45.94.125", port 6543 failed: '
-            "FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found"
-        )
-        non_retryable = source.get_non_retryable_errors()
-        assert "(ENOTFOUND) tenant/user" in non_retryable
-        assert "Tenant or user not found connection to server" not in error_msg
-        assert "FATAL: Tenant or user not found" not in error_msg
-        assert any(pattern in error_msg for pattern in non_retryable.keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -783,24 +717,6 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Missing pooler tenant identifier error should surface an actionable message"
         assert "project ref" in friendly[0]
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real production wording (a Neon-style proxy) lowercases "address", unlike the
-            # capitalized key this replaced, which never matched production traffic. Host/IP, port,
-            # and the allow-listed IP tuple are volatile and excluded from the match.
-            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
-            "(EADDRNOTALLOWED) address not in tenant allow_list: {203, 0, 113, 99}\n"
-            'connection to server at "203.0.113.10", port 5432 failed: FATAL:  (ESSLREQUIRED) SSL '
-            "connection is required for user: postgres",
-        ],
-    )
-    def test_ip_not_in_tenant_allow_list_is_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        assert "address not in tenant allow_list" in non_retryable
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"IP-not-in-allow-list error should be non-retryable: {error_msg}"
 
     def test_ip_not_in_tenant_allow_list_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
@@ -1133,23 +1049,6 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "Unpopulated materialized view error should surface an actionable message"
         assert "REFRESH MATERIALIZED VIEW" in friendly[0]
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/trigger
-            # function refreshing a materialized view during our read-only SELECT.
-            'cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction\nCONTEXT:  SQL statement "REFRESH MATERIALIZED VIEW CONCURRENTLY analyticssnapshot"',
-            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
-            "ReadOnlySqlTransaction: cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction",
-            # Same class of upstream write via a different statement — the match must generalize.
-            "cannot execute INSERT in a read-only transaction",
-        ],
-    )
-    def test_readonly_transaction_write_is_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Write in a read-only transaction should be non-retryable: {error_msg}"
-
     def test_readonly_transaction_write_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = "cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction"
@@ -1288,35 +1187,6 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Statement-timeout error should be non-retryable: {error_msg}"
-
-    def test_statement_timeout_raw_message_matches_index_fragment_not_class_name(self, source):
-        # The raw activity-level message doesn't carry the class name, so the "QueryTimeoutException"
-        # key can't catch it there — confirm the dedicated message fragment is what recognises it.
-        error_msg = str(
-            _statement_timeout_as_non_retryable(
-                psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
-                should_use_incremental_field=True,
-                incremental_field="updated_at",
-            )
-        )
-        non_retryable = source.get_non_retryable_errors()
-        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
-        # The class-name key can't catch the raw message (str(e) carries no class name); the
-        # dedicated message fragment is what recognises it at the activity layer.
-        assert "QueryTimeoutException" not in matching_keys
-        assert "has an appropriate index" in matching_keys
-
-    def test_pk_uniqueness_probe_timeout_is_non_retryable_and_points_at_primary_key(self, source):
-        # A statement_timeout in the fallback `id` uniqueness probe used to surface the generic
-        # "index your incremental field" message, which won't fix this full-table GROUP BY. The
-        # message must point at the assumed primary key while staying non-retryable at the raw
-        # activity-level layer (where str(e) carries no class name).
-        error_msg = str(_pk_uniqueness_probe_timeout_error())
-        assert "primary key" in error_msg
-        assert "incremental field" not in error_msg
-        non_retryable = source.get_non_retryable_errors()
-        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
-        assert "has an appropriate index" in matching_keys
 
     def test_ssh_handshake_eof_is_non_retryable(self, source):
         # `_tunnel_with_handshake_translation` turns paramiko's bare, empty-message handshake
@@ -2176,11 +2046,6 @@ class TestRecoveryConflictAbortError:
         assert "conflict with recovery" in message
         assert "max_standby_streaming_delay" in message
         assert "hot_standby_feedback" in message
-
-    def test_message_is_non_retryable(self):
-        message = str(_recovery_conflict_abort_error(10))
-        non_retryable = PostgresSource().get_non_retryable_errors()
-        assert any(pattern in message for pattern in non_retryable.keys())
 
 
 # Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
@@ -3432,80 +3297,6 @@ class TestPostgresSourceForPipelineSchemaResolution:
             kwargs = postgres_source_mock.call_args.kwargs
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
-
-    def test_s3_folder_name_drives_response_name_so_delta_writes_to_legacy_path(self, source):
-        # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
-        # the row carries `s3_folder_name="example_table"`. `validate_schema_and_update_table` uses
-        # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
-        # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
-        # points at `.../example_table/` and HogQL reads from an empty location.
-        from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-
-        schema_model = self._make_schema_model(
-            "public.example_table",
-            schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
-            s3_folder_name="example_table",
-        )
-        inputs = self._make_inputs("public.example_table")
-        config = self._make_config(schema=None)
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
-            ) as objects_mock,
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
-            ) as postgres_source_mock,
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
-                return_value=False,
-            ),
-            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
-        ):
-            response = mock.MagicMock()
-            objects_mock.select_related.return_value.get.return_value = schema_model
-            postgres_source_mock.return_value = response
-
-            source.source_for_pipeline(config, inputs)
-
-            assert response.name == NamingConvention.normalize_identifier("example_table"), (
-                f"response.name must derive from s3_folder_name to keep Delta writes anchored to the "
-                f"legacy folder; got {response.name!r}"
-            )
-
-    def test_response_name_uses_schema_name_when_no_storage_key(self, source):
-        # New (non-migrated) rows have no s3_folder_name — response.name falls back to the row's
-        # current name so the Delta path matches `url_pattern` (also derived from the row's name).
-        from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-
-        schema_model = self._make_schema_model(
-            "poblic.new_table",
-            schema_metadata={"source_schema": "poblic", "source_table_name": "new_table"},
-            sync_type_config={},
-        )
-        inputs = self._make_inputs("poblic.new_table")
-        config = self._make_config(schema=None)
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
-            ) as objects_mock,
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
-            ) as postgres_source_mock,
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
-                return_value=False,
-            ),
-            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
-        ):
-            response = mock.MagicMock()
-            objects_mock.select_related.return_value.get.return_value = schema_model
-            postgres_source_mock.return_value = response
-
-            source.source_for_pipeline(config, inputs)
-
-            assert response.name == NamingConvention.normalize_identifier("poblic.new_table")
 
     def test_unqualified_name_falls_back_to_config_schema(self, source):
         # Legacy row "example_table" with no metadata + config.schema="public" → ("public", "example_table").

@@ -318,21 +318,6 @@ class TestPagination:
 
 
 class TestXmattersSourceResponse:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_events_partitioned_on_created(self, MockSession) -> None:
-        response = _source("events", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created"]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reference_endpoint_has_no_partition_settings(self, MockSession) -> None:
-        response = _source("people", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
     @pytest.mark.parametrize("endpoint", list(XMATTERS_ENDPOINTS.keys()))
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_every_endpoint_builds_a_response(self, MockSession, endpoint: str) -> None:

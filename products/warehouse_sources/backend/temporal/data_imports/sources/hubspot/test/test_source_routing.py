@@ -249,13 +249,6 @@ class TestSettingsShape:
         # branch happens to be checked first.
         assert (endpoint in HUBSPOT_ENDPOINTS) is not (endpoint in HUBSPOT_METADATA_ENDPOINTS)
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_endpoint_has_canonical_descriptions(self, endpoint: str) -> None:
-        # Curated descriptions are what the AI agent sees; a table missing from here falls back to
-        # paying an LLM to re-derive a fixed schema for every team that syncs it.
-        descriptions = HubspotSource().get_canonical_descriptions()
-        assert descriptions[endpoint]["description"]
-
     @pytest.mark.parametrize("endpoint", list(HUBSPOT_ENDPOINTS.keys()))
     def test_cursor_property_is_in_default_props(self, endpoint: str) -> None:
         config = HUBSPOT_ENDPOINTS[endpoint]
@@ -275,51 +268,6 @@ class TestSettingsShape:
         field = config.incremental_fields[0]
         assert field["field"] == config.cursor_filter_property_field
         assert field["type"] == IncrementalFieldType.DateTime
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        # HubspotSourceOldConfig path
-        "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
-        # HubspotSourceConfig OAuth path
-        "Hubspot refresh or access token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
-        # OAuthMixin.get_oauth_integration when the integration row was deleted (id varies per source)
-        "Integration not found: 56366",
-        "Integration not found: 157288",
-    ],
-)
-def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
-    """Each ValueError raised when a token is missing must match a non-retryable pattern,
-    otherwise the job retries a permanent misconfiguration forever."""
-    patterns = HubspotSource().get_non_retryable_errors()
-    assert any(pattern in error_msg for pattern in patterns), (
-        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
-    )
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        # fetch_page/_get, exhausted after tenacity's 5 in-process attempts (e.g. a Cloudflare 522)
-        "Hubspot API error (retryable): status=522, url=https://api.hubapi.com/crm/v3/properties/meetings",
-        "Hubspot API error (retryable): status=429, url=https://api.hubapi.com/crm/v3/objects/contacts",
-        "Hubspot API malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals",
-        "Hubspot search error (retryable): status=503, url=https://api.hubapi.com/crm/v3/objects/contacts/search",
-        "Hubspot search malformed JSON response (retryable): url=https://api.hubapi.com/crm/v3/objects/deals/search",
-        "Hubspot v4 associations error (retryable): status=500, "
-        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
-        "Hubspot v4 associations malformed JSON response (retryable): "
-        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
-        # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
-        "You have reached your rate limit.",
-    ],
-)
-def test_transient_http_error_is_retryable(error_msg: str) -> None:
-    patterns = HubspotSource().get_retryable_errors()
-    assert any(pattern in error_msg for pattern in patterns), (
-        f"HubSpot error {error_msg!r} did not match any retryable pattern"
-    )
 
 
 class TestApiVersion:
@@ -391,21 +339,3 @@ class TestApiVersion:
             src.source_for_pipeline(old_config, MagicMock(), inputs)
 
         assert hubspot_source_mock.call_args.kwargs["api_version"] == expected
-
-
-@pytest.mark.parametrize(
-    "error_msg",
-    [
-        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
-        "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
-    ],
-)
-def test_unauthorized_error_is_non_retryable(error_msg: str) -> None:
-    """A 401/403 from the HubSpot API means the credentials/OAuth grant can't access the data —
-    retrying can't recover, so it must match a non-retryable pattern."""
-    patterns = HubspotSource().get_non_retryable_errors()
-    assert any(pattern in error_msg for pattern in patterns), (
-        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
-    )

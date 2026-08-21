@@ -189,22 +189,6 @@ class TestEndpointRequests:
         assert "limit" not in params[0]
         assert "status" not in params[0]
 
-    @parameterized.expand(
-        [
-            ("reviews", ["reviewId"], ["dateCreated"]),
-            ("loyalty_earning_rules", ["type"], None),
-            ("loyalty_redemption_rules", ["redemptionRuleId"], None),
-        ]
-    )
-    def test_primary_and_partition_keys(
-        self, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
-    ) -> None:
-        # Okendo rows carry no `id`, so a key copied from another source would be null for every
-        # row and every merge would multi-match.
-        response = _source(endpoint, _make_manager())
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == partition_keys
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_version_header_is_sent(self, MockSession) -> None:
         session = MockSession.return_value

@@ -247,32 +247,3 @@ class TestValidateCredentials:
     def test_exception_returns_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("key") is False
-
-
-class TestChartmogulSource:
-    @pytest.mark.parametrize(
-        "endpoint,primary_keys,partition_key",
-        [
-            ("customers", ["uuid"], None),
-            ("plans", ["uuid"], None),
-            ("plan_groups", ["uuid"], None),
-            ("invoices", ["uuid"], "date"),
-            ("activities", ["uuid"], "date"),
-            ("data_sources", ["uuid"], "created_at"),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(
-        self, MockSession, endpoint: str, primary_keys: list[str], partition_key: str | None
-    ) -> None:
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None

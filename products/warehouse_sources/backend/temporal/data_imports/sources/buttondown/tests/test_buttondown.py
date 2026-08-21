@@ -199,16 +199,6 @@ class TestButtondownTransport:
         # forces ascending order. Anything else must stay on the end-of-job commit path.
         assert config.sort_mode == "desc" or config.ordering == "creation_date"
 
-    @pytest.mark.parametrize("endpoint", sorted(BUTTONDOWN_ENDPOINTS))
-    def test_source_response_shape_per_endpoint(self, endpoint: str) -> None:
-        config = BUTTONDOWN_ENDPOINTS[endpoint]
-        _, _, response, _ = _run(endpoint, [_response([{"id": "a"}])])
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == config.sort_mode
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
-
     def test_missing_results_key_fails_loudly(self) -> None:
         with pytest.raises(ValueError, match="matched nothing"):
             _run("subscribers", [_response(None, drop_results=True)])

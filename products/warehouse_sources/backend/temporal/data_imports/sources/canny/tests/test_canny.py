@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.canny.cann
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import (
     CANNY_API_VERSION_V1,
     CANNY_API_VERSION_V2,
-    ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
@@ -324,17 +323,6 @@ class TestValidateCredentials:
             validate_credentials("secret")
 
         MockSession.assert_called_once_with(redact_values=("secret",))
-
-
-class TestCannySource:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Every Canny object carries a stable `created` timestamp we partition on.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created"]
 
 
 class TestV2CursorPagination:

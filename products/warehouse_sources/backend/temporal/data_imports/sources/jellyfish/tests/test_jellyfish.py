@@ -225,11 +225,6 @@ class TestJellyfishSourceResponse:
         assert response.partition_format == "month"
         assert response.partition_keys == ["window_start_date"]
 
-    def test_reference_endpoint_has_primary_key_and_no_partitioning(self) -> None:
-        response = jellyfish_source("t", "engineers", MagicMock(), MagicMock())
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-
     def test_every_declared_endpoint_builds_a_response(self) -> None:
         for endpoint in JELLYFISH_ENDPOINTS:
             assert jellyfish_source("t", endpoint, MagicMock(), MagicMock()).name == endpoint

@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sa
     check_access,
     get_rows,
     normalize_subdomain,
-    sage_hr_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.settings import (
@@ -344,20 +343,6 @@ class TestCheckAccess:
 
 
 class TestSageHRSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = sage_hr_source(
-            subdomain="acme",
-            api_key="sage-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SAGE_HR_ENDPOINTS.values())
         assert set(SAGE_HR_ENDPOINTS) == set(ENDPOINTS)

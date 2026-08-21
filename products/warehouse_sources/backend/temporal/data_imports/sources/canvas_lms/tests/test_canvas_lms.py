@@ -189,37 +189,6 @@ class TestValidateCredentials:
             patched.return_value.get.assert_not_called()
 
 
-class TestCanvasLmsSourceResponse:
-    @parameterized.expand(
-        [
-            ("courses", ["id"], "created_at"),
-            ("users", ["id"], None),
-            ("enrollments", ["id", "course_id"], "created_at"),
-            ("assignments", ["id", "course_id"], "created_at"),
-            ("submissions", ["assignment_id", "user_id"], None),
-        ]
-    )
-    def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = canvas_lms_source(
-            domain="yourschool.instructure.com",
-            account_id="1",
-            api_key="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-
-
 class TestCanvasLmsTopLevelPagination:
     def _source(self, endpoint="courses", manager=None, **kwargs):
         return canvas_lms_source(

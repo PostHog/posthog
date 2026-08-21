@@ -214,20 +214,3 @@ class TestValidateCredentials:
         MockSession.return_value = session
 
         assert validate_credentials("gf_key") is False
-
-
-class TestGlassfrogSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in GLASSFROG_ENDPOINTS])
-    @mock.patch(SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        response = glassfrog_source("gf_key", endpoint, team_id=1, job_id="j")
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        if endpoint == "projects":
-            # Partition on the stable creation timestamp — the only GlassFrog resource with one.
-            assert response.partition_keys == ["created_at"]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None

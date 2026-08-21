@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.sim
     _parse_weighted_shares,
     get_rows,
     parse_tickers,
-    simfin_source,
     validate_credentials,
     validate_tickers,
 )
@@ -274,27 +273,6 @@ class TestSimFin:
         kwargs = make_session.call_args.kwargs
         assert kwargs["headers"]["Authorization"] == "api-key SECRETKEY"
         assert kwargs["redact_values"] == ("SECRETKEY",)
-
-    @parameterized.expand(
-        [
-            ("companies", ["id"], None),
-            ("income_statements", ["id", "fiscal_year", "fiscal_period"], "report_date"),
-            ("share_prices", ["id", "date"], "date"),
-            ("weighted_shares_outstanding", ["id", "date", "fiscal_year", "period"], None),
-        ]
-    )
-    def test_simfin_source_maps_primary_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str], partition_key: str | None
-    ) -> None:
-        response = simfin_source("KEY", ["AAPL"], endpoint, "v3", MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        if partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
 
     @parameterized.expand(
         [

@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.har
     check_endpoint_access,
     get_base_url,
     get_rows,
-    harvey_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import (
@@ -660,32 +659,6 @@ class TestVaultProjectRows:
 
 
 class TestHarveySourceResponse:
-    @parameterized.expand(
-        [
-            ("audit_logs", "audit_logs", ["id"], ["timestamp"]),
-            ("usage_history", "usage_history", ["unique_usage_id"], ["utc_time"]),
-            ("query_history", "query_history", ["unique_usage_id"], ["utc_time"]),
-            ("client_matters", "client_matters", ["id"], None),
-            ("vault_projects", "vault_projects", ["id"], None),
-        ]
-    )
-    def test_source_response_shape(
-        self, _name: str, endpoint: str, primary_keys: list[str], partition_keys: list[str] | None
-    ) -> None:
-        response = harvey_source(
-            api_key="token",
-            region="us",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == partition_keys
-        assert response.partition_mode == ("datetime" if partition_keys else None)
-        assert response.sort_mode == "asc"
-
     def test_unknown_endpoint_raises(self) -> None:
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=mock.MagicMock()):
             with pytest.raises(ValueError):

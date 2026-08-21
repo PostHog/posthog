@@ -643,29 +643,6 @@ class TestReportBatches:
 
 
 class TestAdyenSourceResponse:
-    @parameterized.expand([(name,) for name in ADYEN_ENDPOINTS])
-    def test_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
-        config = ADYEN_ENDPOINTS[endpoint]
-
-        response = adyen_source(
-            environment="test",
-            api_key="key",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == list(config.primary_key)
-        # Every endpoint is walked oldest-first, so the watermark only moves forward.
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_items_are_lazy(self) -> None:
         # Building the response must not touch the network — the pipeline calls `items()`.
         response = adyen_source(

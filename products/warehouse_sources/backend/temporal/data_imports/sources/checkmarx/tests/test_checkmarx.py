@@ -15,14 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
     CheckmarxRetryableError,
     _build_incremental_value,
     _result_id,
-    checkmarx_source,
     get_region_hosts,
     get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
-    ENDPOINTS,
     RegionHosts,
 )
 
@@ -542,21 +540,3 @@ class TestCheckmarx:
         assert "region" in error.lower()
 
     # ---- SourceResponse assembly ----
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_checkmarx_source_response_shape(self, endpoint: str) -> None:
-        config = CHECKMARX_ENDPOINTS[endpoint]
-        response = checkmarx_source(
-            tenant_name="my-tenant",
-            region="us",
-            api_key="key",
-            endpoint=endpoint,
-            logger=_make_logger(),
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == ("desc" if config.incremental_fields else "asc")
-        assert response.partition_keys == [config.partition_key]
-        assert response.partition_mode == "datetime"

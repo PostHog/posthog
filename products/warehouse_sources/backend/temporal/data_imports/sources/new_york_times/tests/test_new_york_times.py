@@ -274,23 +274,6 @@ class TestFetchPageRetry:
 
 
 class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("article_search", ["_id"], "pub_date"),
-            ("most_popular_viewed", ["uri"], "published_date"),
-            ("most_popular_emailed", ["uri"], "published_date"),
-            ("most_popular_shared", ["uri"], "published_date"),
-            ("top_stories", ["uri"], "created_date"),
-        ]
-    )
-    def test_response_metadata(self, endpoint: str, primary_keys: list[str], partition_key: str) -> None:
-        response = new_york_times_source("KEY", endpoint, MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"
-        assert response.sort_mode == "asc"
-
     def test_items_callable_is_lazy(self) -> None:
         # Building the SourceResponse must not make any HTTP calls — only iterating `items` does.
         with patch.object(new_york_times, "make_tracked_session") as mocked:

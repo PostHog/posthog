@@ -193,23 +193,6 @@ class TestFilloutTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="submissions")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.rest_api_resource")
-    def test_fillout_source_forms_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = fillout_source(
-            api_key="key",
-            api_base_url="https://api.fillout.com/v1/api",
-            endpoint="forms",
-            team_id=1,
-            job_id="job-1",
-        )
-
-        assert response.name == "forms"
-        assert response.primary_keys == ["formId"]
-        # `/forms` has no stable timestamp, so it is not partitioned.
-        assert response.partition_mode is None
-        assert response.sort_mode == "asc"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

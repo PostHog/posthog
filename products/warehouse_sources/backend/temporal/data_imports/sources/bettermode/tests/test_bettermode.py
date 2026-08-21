@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
     _build_query,
     _execute,
     _format_datetime,
-    bettermode_source,
     get_rows,
     validate_credentials,
 )
@@ -274,24 +273,6 @@ class TestRepliesFanOut:
         variables = reply_calls[0].kwargs["json"]["variables"]
         assert variables["postId"] == "p3"
         assert variables["after"] == "cur-mid"
-
-
-class TestBettermodeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = BETTERMODE_ENDPOINTS[endpoint]
-        response = bettermode_source("us", "client", "secret", "net", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Connection ordering is undocumented — watermark commits only at run end.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
 
 class TestQueryDocuments:

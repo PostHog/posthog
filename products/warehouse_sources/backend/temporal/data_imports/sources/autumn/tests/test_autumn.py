@@ -14,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.aut
     autumn_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import (
-    AUTUMN_ENDPOINTS,
-    PARTITION_BUCKET_MILLISECONDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import AUTUMN_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 WATERMARK_MS = 1704067200000
@@ -221,54 +218,6 @@ class TestAutumnSourceBehavior:
         mock_session, _, _ = self._drive("Customers", manager, responses)
 
         assert mock_session.headers.get("x-api-version") == "2.3.0"
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_primary_keys", "expected_sort_mode"),
-        [
-            ("Customers", ["id"], "asc"),
-            ("Events", ["id"], "desc"),
-            # Entity ids are only unique within their parent customer.
-            ("Entities", ["customer_id", "id"], "asc"),
-        ],
-    )
-    def test_source_response_keys_and_sort_mode(
-        self, endpoint: str, expected_primary_keys: list[str], expected_sort_mode: str
-    ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.rest_api_resource"):
-            source_response = autumn_source(
-                api_key="am_sk_test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                api_version="2.3.0",
-                resumable_source_manager=manager,
-            )
-
-        assert source_response.primary_keys == expected_primary_keys
-        assert source_response.sort_mode == expected_sort_mode
-
-    def test_events_partitioning_uses_numerical_buckets_for_epoch_ms(self) -> None:
-        # "datetime" partition mode interprets integer values as epoch seconds; Autumn returns
-        # epoch milliseconds, which would crash the partitioner.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.rest_api_resource"):
-            source_response = autumn_source(
-                api_key="am_sk_test",
-                endpoint="Events",
-                team_id=123,
-                job_id="test_job",
-                api_version="2.3.0",
-                resumable_source_manager=manager,
-            )
-
-        assert source_response.partition_mode == "numerical"
-        assert source_response.partition_keys == ["timestamp"]
-        assert source_response.partition_size == PARTITION_BUCKET_MILLISECONDS
 
 
 class TestValidateCredentials:

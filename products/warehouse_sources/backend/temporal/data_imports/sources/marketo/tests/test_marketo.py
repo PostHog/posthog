@@ -34,10 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.ma
     resolve_bulk_start,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
-    MARKETO_ENDPOINTS,
-    MarketoEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo.make_tracked_session"
 
@@ -634,22 +631,6 @@ class TestMarketo:
     )
     def test_normalize_row(self, row: dict[Any, Any], int_columns: tuple[str, ...], expected: dict[str, Any]) -> None:
         assert _normalize_row(row, int_columns) == expected
-
-    @pytest.mark.parametrize("endpoint", sorted(MARKETO_ENDPOINTS))
-    def test_source_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
-        config: MarketoEndpointConfig = MARKETO_ENDPOINTS[endpoint]
-
-        response = marketo_source(MUNCHKIN, "cid", "secret", endpoint, FakeResumeManager(), mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
 
     def test_source_response_items_are_lazy(self) -> None:
         # Building the SourceResponse must not touch the network — the pipeline calls items().

@@ -39,10 +39,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
-    ENDPOINTS,
     LIST_ENDPOINTS,
     METRIC_SETS,
-    PRIMARY_KEYS,
 )
 
 MODULE = google_play_console.__name__
@@ -744,29 +742,6 @@ def test_validate_credentials_reports_a_rejected_key() -> None:
 def test_validate_credentials_succeeds_when_the_apps_call_works() -> None:
     with mock.patch.object(GooglePlayConsoleClient, "list_apps", return_value=[{"packageName": "com.a"}]):
         assert validate_credentials(_key(), "v1beta1") == (True, None)
-
-
-@pytest.mark.parametrize("resource_name", ENDPOINTS)
-def test_source_response_shape_per_endpoint(resource_name: str) -> None:
-    response = google_play_console_source(
-        key=_key(),
-        package_names=("com.example.app",),
-        resource_name=resource_name,
-        api_version="v1beta1",
-        resumable_source_manager=_manager(),
-        logger=structlog.get_logger(),
-    )
-
-    assert response.name == resource_name
-    assert response.primary_keys == PRIMARY_KEYS[resource_name]
-    assert response.sort_mode == "asc"
-    if resource_name in METRIC_SETS:
-        assert response.partition_keys == ["date"]
-        assert response.partition_mode == "datetime"
-    elif resource_name == "error_reports":
-        assert response.partition_keys == ["eventTime"]
-    else:
-        assert response.partition_mode is None
 
 
 def test_source_response_rejects_an_unknown_endpoint() -> None:

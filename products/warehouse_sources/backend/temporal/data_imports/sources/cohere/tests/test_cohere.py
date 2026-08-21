@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.coh
     cohere_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import COHERE_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -179,26 +178,6 @@ class TestRetry:
 
 
 class TestSourceResponseShape:
-    @pytest.mark.parametrize("endpoint", list(COHERE_ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        config = COHERE_ENDPOINTS[endpoint]
-        response = cohere_source(api_key="key", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-            assert response.partition_count == 1
-            assert response.partition_size == 1
-        else:
-            # The model catalog has no creation timestamp, so it must stay fully unpartitioned.
-            # partition_count/size are left None too: a stray count makes the writer fall back to
-            # primary_keys and md5-partition by name.
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-            assert response.partition_count is None
-            assert response.partition_size is None
-
     def test_models_primary_key_is_name_not_id(self) -> None:
         # Model catalog rows are keyed by name; there is no id field to dedupe on.
         assert cohere_source(api_key="key", endpoint="models", team_id=1, job_id="j").primary_keys == ["name"]

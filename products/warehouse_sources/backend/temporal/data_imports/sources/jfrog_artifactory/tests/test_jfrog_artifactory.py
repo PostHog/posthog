@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
     _strip_domain_prefix,
     build_aql_query,
     get_rows,
-    jfrog_artifactory_source,
     normalize_base_url,
     probe_endpoint,
 )
@@ -306,35 +305,6 @@ class TestGetRowsRest:
         )
 
         assert _collect(_FakeResumableManager(), endpoint="storage_summary") == []
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("repositories", ["key"], None),
-            ("artifacts", ["repo", "path", "name"], "created"),
-            ("builds", ["name", "number"], "created"),
-            ("storage_summary", ["repoKey"], None),
-        ]
-    )
-    def test_primary_keys_and_partitioning(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None
-    ) -> None:
-        response = jfrog_artifactory_source(
-            base_url="https://acme.jfrog.io",
-            access_token="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
-        if partition_key is None:
-            assert response.partition_mode is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
 
 
 class _FakeSession:

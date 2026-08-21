@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana im
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import (
     InstanaResumeConfig,
     _to_epoch_ms,
-    instana_source,
     normalize_base_url,
     validate_credentials,
 )
@@ -366,29 +365,3 @@ class TestGetRowsHostCheck:
                         resumable_source_manager=mock.MagicMock(),
                     )
                 )
-
-
-class TestInstanaSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_pk"),
-        [
-            ("events", "eventId"),
-            ("applications", "id"),
-            ("infrastructure_snapshots", "snapshotId"),
-        ],
-    )
-    def test_source_response_shape(self, endpoint: str, expected_pk: str) -> None:
-        response = instana_source(
-            base_url=BASE_URL,
-            api_token="token",
-            endpoint=endpoint,
-            team_id=1,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
-        assert response.sort_mode == "asc"
-        # Instana timestamps are epoch-ms integers, so tables are unpartitioned.
-        assert response.partition_mode is None

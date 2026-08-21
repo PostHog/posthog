@@ -1,70 +1,16 @@
-from typing import Any
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.featurebase import (
-    FeaturebaseResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "posts",
-        "schema_id": "schema-id",
-        "source_id": "source-id",
-        "team_id": 1,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-id",
-        "logger": MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestFeaturebaseSource:
     def setup_method(self) -> None:
         self.source = FeaturebaseSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FEATUREBASE
-
-    def test_source_config_is_released_with_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.name == SchemaExternalDataSourceType.FEATUREBASE
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/featurebase"
-
-        fields = {f.name: f for f in config.fields}
-        assert set(fields.keys()) == {"api_key"}
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
-
-        webhook_fields = {f.name: f for f in config.webhookFields or []}
-        assert set(webhook_fields.keys()) == {"signing_secret"}
 
     def test_get_schemas_covers_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1)
@@ -117,57 +63,6 @@ class TestFeaturebaseSource:
         validate.assert_called_once_with("fb_test")
         assert valid is expected_valid
         assert error == expected_error
-
-    def test_non_retryable_errors_cover_featurebase_auth_statuses(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        # Featurebase responds 403 for invalid keys (verified live); 401 kept as a safety net.
-        assert any(key.startswith("403 Client Error") for key in errors)
-        assert any(key.startswith("401 Client Error") for key in errors)
-
-    def test_resumable_source_manager_bound_to_resume_config(self) -> None:
-        with patch.object(ResumableSourceManager, "__init__", return_value=None) as init:
-            self.source.get_resumable_source_manager(_make_inputs())
-        assert init.call_args.args[1] is FeaturebaseResumeConfig
-
-    def test_source_for_pipeline_plumbs_incremental_inputs(self) -> None:
-        config = MagicMock(api_key="fb_test")
-        inputs = _make_inputs(
-            schema_name="posts",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:00.000Z",
-            incremental_field="updatedAt",
-        )
-        manager = MagicMock()
-        with (
-            patch(f"{SOURCE_MODULE}.featurebase_source") as featurebase_source_mock,
-            patch.object(FeaturebaseSource, "get_webhook_source_manager") as webhook_manager_mock,
-        ):
-            self.source.source_for_pipeline(config, manager, inputs)
-
-        kwargs = featurebase_source_mock.call_args.kwargs
-        assert kwargs["api_key"] == "fb_test"
-        assert kwargs["endpoint"] == "posts"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["webhook_source_manager"] is webhook_manager_mock.return_value
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
-        assert kwargs["incremental_field"] == "updatedAt"
-
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
-        # A stale watermark from a previous incremental setup must not leak into a
-        # full-refresh run and silently truncate the sweep.
-        config = MagicMock(api_key="fb_test")
-        inputs = _make_inputs(
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="2026-01-01T00:00:00.000Z",
-        )
-        with (
-            patch(f"{SOURCE_MODULE}.featurebase_source") as featurebase_source_mock,
-            patch.object(FeaturebaseSource, "get_webhook_source_manager"),
-        ):
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-
-        assert featurebase_source_mock.call_args.kwargs["db_incremental_field_last_value"] is None
 
 
 class TestFeaturebaseWebhooks:

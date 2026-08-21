@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -27,14 +27,6 @@ def test_supabase_schema_field_is_optional():
 
     assert schema_field.required is False
     assert schema_field.label == "Schema"
-
-
-def test_supabase_is_generally_available():
-    config = SupabaseSource().get_source_config
-
-    assert config.releaseStatus == ReleaseStatus.GA
-    # GA means generally available — no gating flag should hide the source from users.
-    assert config.featureFlag is None
 
 
 def test_supabase_host_field_points_at_the_pooler():

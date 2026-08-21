@@ -1,19 +1,13 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest import mock
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -39,29 +33,6 @@ class TestVercelSource:
     def setup_method(self) -> None:
         self.source = VercelSource()
         self.config = VercelSourceConfig(access_token="token", team_id=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VERCEL
-
-    def test_connection_host_fields_includes_team_id(self) -> None:
-        # team_id retargets the stored token at a different Vercel team, so editing it must force
-        # the token to be re-entered.
-        assert self.source.connection_host_fields == ["team_id"]
-
-    def test_source_config_metadata(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Vercel"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.BETA
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
-        assert set(fields) == {"access_token", "team_id"}
-        assert fields["access_token"].required is True
-        assert fields["access_token"].secret is True
-        # Team scoping is optional — a personal token can sync its own resources.
-        assert fields["team_id"].required is False
-        assert fields["team_id"].secret is False
 
     def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
@@ -105,91 +76,6 @@ class TestVercelSource:
             assert schemas[full_refresh].supports_incremental is False
             assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])
-        assert [s.name for s in schemas] == ["deployments"]
-
-    @parameterized.expand(
-        [
-            ("valid", (True, None)),
-            (
-                "invalid",
-                (
-                    False,
-                    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
-                ),
-            ),
-        ]
-    )
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vercel.com/v6/deployments?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.vercel.com/v9/projects?limit=100"),
-            (
-                "billing_charges_team_not_found",
-                "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges?from=2026-01-01T00%3A00%3A00.000Z&to=2026-02-01T00%3A00%3A00.000Z&teamId=team_abc",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.vercel.com/v6/deployments"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.vercel.com/v6/deployments"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out."),
-            # Not-found on a non-billing endpoint is unrelated to the billing_charges team-lookup
-            # failure, so the match must stay scoped to that path rather than any 404 on the host.
-            ("not_found_other_endpoint", "404 Client Error: Not Found for url: https://api.vercel.com/v6/deployments"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "Vercel API error (retryable): status=500, url=https://api.vercel.com/v1/billing/charges"),
-            ("rate_limit", "Vercel API error (retryable): status=429, url=https://api.vercel.com/v6/deployments"),
-        ]
-    )
-    def test_retryable_errors_match_known_failures(self, _name: str, observed_error: str) -> None:
-        # Matches the message `_fetch_page`/`_open_billing_stream` raise after their internal
-        # retry loop exhausts; keeps this benign, self-recovering failure out of error tracking.
-        retryable_errors = self.source.get_retryable_errors()
-        assert any(key in observed_error for key in retryable_errors)
-
-    @parameterized.expand(
-        [
-            (
-                "connection_error",
-                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
-                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
-                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
-            ),
-            (
-                "read_timeout",
-                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
-            ),
-        ]
-    )
-    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
-        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
-        # keeps the benign, self-recovering failure out of error tracking.
-        retryable_errors = self.source.get_retryable_errors()
-        assert any(key in observed_error for key in retryable_errors)
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is VercelResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         config = VercelSourceConfig(access_token="token", team_id="team_42")

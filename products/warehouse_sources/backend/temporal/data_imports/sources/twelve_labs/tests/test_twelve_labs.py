@@ -340,16 +340,6 @@ class TestFanOut:
         assert state.fanout_state is None
 
 
-class TestTwelveLabsSourceResponse:
-    @parameterized.expand([("indexes", ["_id"]), ("tasks", ["_id"]), ("videos", ["index_id", "_id"])])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys(self, endpoint: str, expected_keys: list[str], MockSession) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["created_at"]
-
-
 class TestNonRetryableCredentialErrors:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_unauthorized_raises_matchable_httperror(self, MockSession) -> None:

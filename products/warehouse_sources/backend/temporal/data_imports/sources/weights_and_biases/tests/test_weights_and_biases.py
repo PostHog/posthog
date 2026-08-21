@@ -6,10 +6,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.settings import (
-    ENDPOINTS,
-    WANDB_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases import (
     PAGE_SIZE,
     WeightsAndBiasesConfigError,
@@ -20,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
     get_rows,
     validate_credentials,
     validate_host,
-    weights_and_biases_source,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases"
@@ -439,17 +434,3 @@ class TestErrors:
 
         with pytest.raises(WeightsAndBiasesGraphQLError, match="unreasonably large project list"):
             list(get_rows("key", None, "acme", "runs", mock.MagicMock(), _make_manager()))
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = weights_and_biases_source("key", None, "acme", endpoint, mock.MagicMock(), _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == WANDB_ENDPOINTS[endpoint].primary_keys
-        # Fan-out over projects means rows only ascend within one project — the watermark
-        # commits at run end.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]

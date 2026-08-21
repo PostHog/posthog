@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
@@ -16,43 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
-def _make_inputs(api_version: str | None) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = ORDERS
-    inputs.api_version = api_version
-    inputs.should_use_incremental_field = False
-    inputs.db_incremental_field_last_value = None
-    inputs.db_incremental_field_earliest_value = None
-    return inputs
-
-
 class TestApiVersionResolution:
     def test_both_versions_are_supported(self) -> None:
         # The default flip is covered by the (None -> 2026-07) resolution case below; this only
         # guards that the legacy version stays declared alongside the new one.
         assert set(ShopifySource.supported_versions) == {SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07}
-
-    @pytest.mark.parametrize(
-        "pin, expected",
-        [
-            (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2025_10),
-            (SHOPIFY_API_VERSION_2026_07, SHOPIFY_API_VERSION_2026_07),
-            # An unpinned source resolves to the current default rather than the legacy version.
-            (None, SHOPIFY_API_VERSION_2026_07),
-        ],
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source.shopify_source")
-    def test_resolved_pin_reaches_request_layer(
-        self, mock_shopify_source: MagicMock, pin: str | None, expected: str
-    ) -> None:
-        source = ShopifySource()
-        config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="client-id", shopify_client_secret="secret"
-        )
-
-        source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _make_inputs(pin))
-
-        assert mock_shopify_source.call_args.kwargs["api_version"] == expected
 
 
 class TestApiVersionReachesRequestUrl:

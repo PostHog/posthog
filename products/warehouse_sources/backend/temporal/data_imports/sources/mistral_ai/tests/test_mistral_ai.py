@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai
     _extract_rows,
     _format_created_after,
     get_rows,
-    mistral_ai_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.settings import MISTRAL_AI_ENDPOINTS
 
@@ -228,30 +227,3 @@ class TestFetchPageRetries:
             with pytest.raises(requests.ConnectionError):
                 mistral_ai._fetch_page(session, "https://api.mistral.ai/v1/files", {}, MagicMock())
         assert session.get.call_count == 5
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            # batch jobs force ascending order (order_by=created), so the watermark can advance per
-            # page; fine-tuning has no sort param, so it must persist the watermark only at run end.
-            ("models", "created", ["id"], "asc"),
-            ("files", "created_at", ["id"], "asc"),
-            ("batch_jobs", "created_at", ["id"], "asc"),
-            ("fine_tuning_jobs", "created_at", ["id"], "desc"),
-        ]
-    )
-    def test_partitioning_and_keys(
-        self, endpoint: str, partition_key: str, primary_keys: list[str], sort_mode: str
-    ) -> None:
-        response = mistral_ai_source(
-            api_key="sk-x",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-        assert response.sort_mode == sort_mode

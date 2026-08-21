@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     _extract_entities,
     _headers,
     check_endpoint_permissions,
-    datahub_source,
     get_rows,
     normalize_instance_url,
     validate_credentials,
@@ -333,19 +332,6 @@ class TestDatahub:
             )
 
     # --- SourceResponse assembly ---
-
-    @parameterized.expand([("datasets",), ("users",), ("tags",)])
-    def test_datahub_source_uses_urn_primary_key(self, endpoint: str) -> None:
-        response = datahub_source(
-            instance_url=BASE_URL,
-            api_token=TOKEN,
-            endpoint=endpoint,
-            team_id=1,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["urn"]
 
     # --- credential validation ---
 

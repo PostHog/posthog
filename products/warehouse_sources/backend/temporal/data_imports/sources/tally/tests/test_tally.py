@@ -105,43 +105,6 @@ def _run(
     return rows, params, session
 
 
-class TestSourceResponseShape:
-    @parameterized.expand(
-        [
-            ("workspaces", ["id"], "createdAt", "asc"),
-            ("forms", ["id"], "createdAt", "asc"),
-            ("questions", ["formId", "id"], "createdAt", "asc"),
-            ("submissions", ["formId", "id"], "submittedAt", "desc"),
-            ("webhooks", ["id"], "createdAt", "asc"),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_shape(
-        self,
-        endpoint: str,
-        expected_keys: list[str],
-        expected_partition_key: str,
-        expected_sort_mode: str,
-        _MockSession: Any,
-    ) -> None:
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        # Child tables aggregate rows from every form, so their key must carry the parent form id.
-        assert response.primary_keys == expected_keys
-        assert response.partition_keys == [expected_partition_key]
-        assert response.partition_mode == "datetime"
-        # Submissions interleave one form's history after another's, so the stream is not globally
-        # ascending and the watermark must only advance once the whole sync finishes.
-        assert response.sort_mode == expected_sort_mode
-
-
 class TestPagination:
     def test_follows_has_more_across_pages(self) -> None:
         responses = {

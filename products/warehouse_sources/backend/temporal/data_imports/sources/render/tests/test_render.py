@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.render.ren
     _format_incremental_value,
     _unwrap_item,
     get_rows,
-    render_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
     RENDER_ENDPOINTS,
@@ -442,27 +441,3 @@ class TestFetchPage:
             _fetch_page(cast(requests.Session, session), "https://api.render.com/v1/owners", {}, MagicMock())
 
         assert len(session.urls) == 1
-
-
-class TestRenderSourceResponse:
-    @parameterized.expand(
-        [
-            ("services", ["id"], ["createdAt"]),
-            # Fan-out children key on (parent, id): a non-unique key multi-matches on every
-            # delta merge and degrades each sync until the pod OOMs.
-            ("deploys", ["serviceId", "id"], ["createdAt"]),
-            ("events", ["serviceId", "id"], ["timestamp"]),
-            ("owners", ["id"], None),
-        ]
-    )
-    def test_source_response_keys_and_partitioning(
-        self, endpoint: str, expected_primary_keys: list[str], expected_partition_keys: list[str] | None
-    ) -> None:
-        response = render_source(
-            api_key="rnd_test", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
-
-        assert response.primary_keys == expected_primary_keys
-        assert response.partition_keys == expected_partition_keys
-        # Render documents no list ordering, so the watermark must only persist at job end.
-        assert response.sort_mode == "desc"

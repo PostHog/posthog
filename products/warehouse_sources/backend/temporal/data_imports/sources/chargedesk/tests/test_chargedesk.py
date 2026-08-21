@@ -378,17 +378,6 @@ class TestValidateCredentials:
 
 
 class TestChargedeskSource:
-    @parameterized.expand(list(CHARGEDESK_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        cfg = CHARGEDESK_ENDPOINTS[endpoint]
-        response = _source(endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == cfg.primary_keys
-        # ChargeDesk returns rows newest-first.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [cfg.timestamp_field]
-
     def test_primary_keys_are_resource_specific(self) -> None:
         assert _source(endpoint="charges").primary_keys == ["charge_id"]
         assert _source(endpoint="customers").primary_keys == ["customer_id"]

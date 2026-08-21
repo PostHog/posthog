@@ -15,10 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.
     _extract_rows,
     _to_date_str,
     _to_datetime_str,
-    appfollow_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.settings import APPFOLLOW_ENDPOINTS
 
 
 class _FakeManager:
@@ -341,23 +339,3 @@ class TestFetchRetryClassification:
     def test_ok_returns_json(self):
         session = self._session_returning(200, {"apps": []})
         assert appfollow._fetch(session, f"{APPFOLLOW_BASE_URL}/account/apps", {}, mock.MagicMock()) == {"apps": []}
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(APPFOLLOW_ENDPOINTS))
-    def test_source_response_matches_endpoint_config(self, endpoint):
-        config = APPFOLLOW_ENDPOINTS[endpoint]
-        response = appfollow_source(
-            api_key="tok",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None

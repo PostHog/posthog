@@ -278,24 +278,6 @@ class TestTypeformTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="responses", should_use_incremental_field=False)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.rest_api_resource")
-    def test_typeform_source_forms_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
-        response = typeform_source(
-            auth_token="token",
-            api_base_url="https://api.typeform.com",
-            endpoint="forms",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
-            incremental_field="last_updated_at",
-        )
-
-        assert response.name == "forms"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )

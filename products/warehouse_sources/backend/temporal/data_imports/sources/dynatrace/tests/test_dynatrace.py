@@ -282,26 +282,6 @@ class TestPagination:
         MockSession.assert_not_called()
 
 
-class TestDynatraceSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_pk", "expected_sort_mode"),
-        [
-            ("problems", "problemId", "desc"),
-            ("events", "eventId", "desc"),
-            ("audit_logs", "logId", "desc"),
-            ("security_problems", "securityProblemId", "asc"),
-            ("hosts", "entityId", "asc"),
-            ("metrics", "metricId", "asc"),
-            ("slos", "id", "asc"),
-        ],
-    )
-    def test_source_response_shape(self, endpoint: str, expected_pk: str, expected_sort_mode: str) -> None:
-        response = _source(endpoint, mock.MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
-        assert response.sort_mode == expected_sort_mode
-
-
 class TestValidateCredentials:
     def _validate(self, status_code: int, schema_name: str | None = None) -> tuple[bool, str | None]:
         response = mock.MagicMock()

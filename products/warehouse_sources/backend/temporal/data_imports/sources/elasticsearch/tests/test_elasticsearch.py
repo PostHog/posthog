@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsea
     PAGE_SIZE,
     ElasticsearchAuth,
     coerce_float_fields,
-    elasticsearch_source,
     get_float_field_paths,
     get_rows,
     hostname_of,
@@ -287,16 +286,3 @@ class TestCoerceFloatFields:
     def test_coercion(self, doc, float_paths, expected):
         coerce_float_fields(doc, float_paths)
         assert doc == expected
-
-
-class TestElasticsearchSourceResponse:
-    def test_response_metadata(self):
-        response = elasticsearch_source(
-            "https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()
-        )
-
-        assert response.name == "orders"
-        assert response.primary_keys == ["_id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None

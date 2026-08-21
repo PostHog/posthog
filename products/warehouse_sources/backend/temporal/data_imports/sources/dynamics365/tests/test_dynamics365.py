@@ -440,18 +440,6 @@ class TestDynamics365Source:
         with pytest.raises(Dynamics365ConfigurationError):
             _source("Accounts", _make_manager(), organization_url="https://evil.test")
 
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_source_response_shape_per_endpoint(self, endpoint: str) -> None:
-        config = DYNAMICS365_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        # Partitioned on the creation timestamp, which never changes for a record.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdon"]
-
 
 class TestProbeCredentials:
     @pytest.mark.parametrize(

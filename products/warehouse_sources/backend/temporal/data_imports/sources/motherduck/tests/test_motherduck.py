@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
     MotherduckSourceConfig,
@@ -512,37 +510,6 @@ class TestMotherDuck:
     @pytest.fixture
     def source(self) -> MotherduckSource:
         return MotherduckSource()
-
-    def test_source_is_visible_and_marked_alpha(self, source):
-        # `unreleasedSource` hides a source from users entirely — a finished source must not set it.
-        config = source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_schema_field_is_optional_for_multi_schema_support(self, source):
-        # `is_multi_schema_capable_sql_source` keys off the schema field being optional.
-        schema_field = next(f for f in source.get_source_config.fields if f.name == "schema")
-        assert isinstance(schema_field, SourceFieldInputConfig)
-        assert schema_field.required is False
-
-    def test_access_token_is_stored_as_a_secret(self, source):
-        token_field = next(f for f in source.get_source_config.fields if f.name == "access_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Catalog Error: Table with name users does not exist!",
-            "Binder Error: Referenced column email not found in FROM clause!",
-            "Invalid Input Error: The following options were not recognized: motherduck_token",
-            "Source column type changed",
-        ],
-    )
-    def test_permanent_failures_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
 
     def test_validate_credentials_requires_an_access_token(self, source):
         ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)

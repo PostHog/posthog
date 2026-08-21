@@ -271,17 +271,6 @@ class TestMightyNetworksSourceNonFanout:
 
         assert rows == [{"id": 1, "email": "a@example.com"}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioning_uses_created_at(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total_pages=1)])
-
-        response = _source("Members", _make_manager())
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-        assert response.primary_keys == ["id"]
-
 
 class TestValidateCredentials:
     @mock.patch(MIGHTY_NETWORKS_SESSION_PATCH)

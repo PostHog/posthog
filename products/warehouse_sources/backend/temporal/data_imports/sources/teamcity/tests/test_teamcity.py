@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.t
     _resolve_next_href,
     get_rows,
     normalize_host,
-    teamcity_source,
     validate_credentials,
 )
 
@@ -460,32 +459,6 @@ class TestGetRowsFanOut:
 
         assert [r["id"] for r in rows] == ["build:(id:10),id:1", "build:(id:10),id:2"]
         logger.warning.assert_called_once()
-
-
-class TestTeamcitySourceResponse:
-    @parameterized.expand(
-        [
-            ("builds", ["id"], "desc", ["finishDate"]),
-            ("projects", ["id"], "desc", None),
-            ("changes", ["id"], "desc", ["date"]),
-            ("test_occurrences", ["id"], "desc", ["build_finish_date"]),
-        ]
-    )
-    def test_source_response_merge_and_partition_settings(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_keys: list[str] | None
-    ) -> None:
-        response = teamcity_source(
-            host="https://teamcity.example.com",
-            access_token="token",
-            endpoint=endpoint,
-            team_id=TEAM_ID,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_keys == partition_keys
 
 
 class TestValidateCredentials:

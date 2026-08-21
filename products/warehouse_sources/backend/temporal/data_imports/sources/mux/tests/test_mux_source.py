@@ -4,46 +4,17 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.mux.mux import MuxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.settings import ENDPOINTS, MUX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> MuxSourceConfig:
     return MuxSourceConfig(access_token_id="my-token-id", secret_key="my-secret")
 
 
-class TestMuxSourceConfig:
-    def test_source_type(self) -> None:
-        assert MuxSource().source_type == ExternalDataSourceType.MUX
-
-    def test_source_config_fields(self) -> None:
-        config = MuxSource().get_source_config
-        assert config.name.value == "Mux"
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"access_token_id", "secret_key"}
-
-    def test_secret_key_is_marked_secret(self) -> None:
-        fields = {f.name: f for f in MuxSource().get_source_config.fields}
-        secret_field, token_field = fields["secret_key"], fields["access_token_id"]
-        # Narrow the FieldType union so `.secret` is statically visible.
-        assert isinstance(secret_field, SourceFieldInputConfig)
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert secret_field.secret is True
-        assert token_field.secret is False
-
-
 class TestMuxSchemas:
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = MuxSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     def test_get_schemas_incremental_matches_endpoint_config(self) -> None:
         # Only video views expose a server-side timestamp filter, so it's the one incremental table;
         # append is never offered because the incremental overlap needs merge-dedupe. This guards the
@@ -56,10 +27,6 @@ class TestMuxSchemas:
         assert [f["field"] for f in schemas["video_views"].incremental_fields] == ["view_end"]
         assert schemas["assets"].supports_incremental is False
         assert schemas["assets"].incremental_fields == []
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MuxSource().get_schemas(_config(), team_id=1, names=["assets"])
-        assert [s.name for s in schemas] == ["assets"]
 
 
 class TestMuxValidateCredentials:
@@ -96,36 +63,7 @@ class TestMuxValidateCredentials:
         assert captured["path"] == "/system/v1/signing-keys"
 
 
-class TestMuxNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.mux.com/video/v1/assets?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.mux.com/system/v1/signing-keys?limit=100"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = MuxSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.mux.com/video/v1/assets"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.mux.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = MuxSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestMuxResumableWiring:
-    def test_get_resumable_source_manager_binds_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MuxSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MuxResumeConfig
-
     def test_source_for_pipeline_plumbs_config_and_schema(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
         sentinel = MagicMock()

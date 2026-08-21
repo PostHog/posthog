@@ -378,27 +378,6 @@ class TestMetrics:
 
 
 class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("monitors", ["key"], "asc"),
-            ("invocations", ["monitor_key", "series", "started_at"], "asc"),
-            # Metrics rows aren't globally stamp-ascending (batched per monitor group per window),
-            # so desc defers the watermark to job end.
-            ("metrics", ["monitor_key", "dimension", "stamp"], "desc"),
-        ]
-    )
-    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
-        response = cronitor_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(KeyError):
             cronitor_source(api_key="key", endpoint="nope", logger=MagicMock(), resumable_source_manager=MagicMock())

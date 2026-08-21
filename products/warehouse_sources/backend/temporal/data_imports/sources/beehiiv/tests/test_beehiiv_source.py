@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import BeehiivResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -15,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
     BeehiivSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source.validate_beehiiv_credentials"
@@ -46,47 +43,6 @@ def _source_inputs(schema_name: str = "Subscriptions") -> SourceInputs:
 class TestBeehiivSource:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BEEHIIV
-
-    def test_source_ships_visible_as_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_api_key_field_is_secret(self) -> None:
-        fields = self.source.get_source_config.fields or []
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-
-        assert by_name["api_key"].secret is True
-        assert by_name["publication_id"].secret is False
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=7)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_no_table_advertises_incremental_sync(self) -> None:
-        # beehiiv has no updated-since or created-after filter, so an incremental sync would
-        # re-walk every page while pretending to be cheap.
-        schemas = self.source.get_schemas(_config(), team_id=7)
-
-        assert not any(schema.supports_incremental or schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
-
-    def test_get_schemas_filters_by_requested_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=7, names=["Posts", "Subscriptions"])
-
-        assert [schema.name for schema in schemas] == ["Posts", "Subscriptions"]
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_canonical_descriptions_cover_every_table(self, endpoint: str) -> None:
-        assert endpoint in CANONICAL_DESCRIPTIONS
-
-    def test_canonical_descriptions_have_no_orphan_tables(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) <= set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "endpoint", sorted(name for name, config in ENDPOINTS.items() if config.partition_key is not None)
@@ -167,21 +123,3 @@ class TestBeehiivPipelineDispatch:
         assert subscriptions._data_class is BeehiivResumeConfig
         assert subscriptions._key != posts._key
         assert subscriptions._key.endswith(":Subscriptions")
-
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_source_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
-        endpoint_config = ENDPOINTS[endpoint]
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        response = self.source.source_for_pipeline(_config(), manager, _source_inputs(endpoint))
-
-        assert response.name == endpoint
-        assert response.primary_keys == [endpoint_config.primary_key]
-        assert response.sort_mode == endpoint_config.sort_mode
-        if endpoint_config.partition_key is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [endpoint_config.partition_key]
-            assert response.partition_mode == "datetime"

@@ -293,27 +293,6 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
 
-class TestSourceResponse:
-    def test_activities_response_is_incremental_desc_and_partitioned(self) -> None:
-        response = _source("activities")
-        assert response.name == "activities"
-        assert response.primary_keys == ["_id"]
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-
-    def test_campaigns_response_is_full_refresh_asc(self) -> None:
-        response = _source("campaigns")
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["createdAt"]
-
-    def test_team_senders_response_has_no_partitioning(self) -> None:
-        response = _source("team_senders")
-        assert response.primary_keys == ["userId"]
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
-
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch(TENACITY_SLEEP_PATCH)

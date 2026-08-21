@@ -14,9 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_m
     campaign_monitor_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
-    CAMPAIGN_MONITOR_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -431,36 +428,3 @@ class TestResumeConfigCompatibility:
         assert state.campaign_id is None
         assert state.page == 3
         assert state.fanout_state is None
-
-
-class TestCampaignMonitorSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(CAMPAIGN_MONITOR_ENDPOINTS.keys()))
-    def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = _source(endpoint)
-
-        config = CAMPAIGN_MONITOR_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-
-    @pytest.mark.parametrize(
-        "endpoint, expected_partition_key",
-        [
-            ("campaigns", "SentDate"),
-            ("suppression_list", "Date"),
-            ("active_subscribers", "Date"),
-            ("campaign_opens", "Date"),
-            ("campaign_summary", None),
-            ("clients", None),
-            ("lists", None),
-        ],
-    )
-    def test_source_response_partition_keys(self, endpoint: str, expected_partition_key: str | None) -> None:
-        response = _source(endpoint)
-
-        if expected_partition_key is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [expected_partition_key]
-            assert response.partition_mode == "datetime"

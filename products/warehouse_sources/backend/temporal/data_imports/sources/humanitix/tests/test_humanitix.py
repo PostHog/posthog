@@ -266,16 +266,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand([("events",), ("tags",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_uses_id_primary_key(self, endpoint, MockSession) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["_id"]
-        # Every endpoint is full refresh only, so there is no datetime partitioning.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         # Humanitix Mongo `_id`s are globally unique, so a single `_id` key is sufficient table-wide.
         assert all(config.primary_keys == ["_id"] for config in HUMANITIX_ENDPOINTS.values())

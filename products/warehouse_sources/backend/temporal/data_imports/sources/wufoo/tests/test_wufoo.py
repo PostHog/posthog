@@ -205,13 +205,6 @@ class TestValidateCredentials:
 
 
 class TestWufooSourceResponse:
-    @parameterized.expand([("forms",), ("reports",), ("users",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_hash_primary_key(self, endpoint: str, MockSession) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["Hash"]
-
     def test_every_endpoint_uses_hash_primary_key(self) -> None:
         assert all(config.primary_keys == ["Hash"] for config in WUFOO_ENDPOINTS.values())
         assert set(WUFOO_ENDPOINTS) == set(ENDPOINTS)

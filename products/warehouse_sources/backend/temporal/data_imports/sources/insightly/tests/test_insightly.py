@@ -256,30 +256,3 @@ class TestValidateCredentials:
     def test_propagates_invalid_pod(self) -> None:
         with pytest.raises(ValueError):
             validate_credentials("evil.com", "key")
-
-
-class TestInsightlySourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, expected_pk, expected_partition_keys, expected_mode",
-        [
-            ("Contacts", "CONTACT_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Opportunities", "OPPORTUNITY_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Users", "USER_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Pipelines", "PIPELINE_ID", None, None),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(
-        self,
-        MockSession,
-        endpoint: str,
-        expected_pk: str,
-        expected_partition_keys: list[str] | None,
-        expected_mode: str | None,
-    ) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
-        assert response.partition_keys == expected_partition_keys
-        assert response.partition_mode == expected_mode
-        assert response.sort_mode == "asc"

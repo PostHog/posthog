@@ -239,15 +239,6 @@ class TestValidateCredentials:
 
 
 class TestOncehubSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession: mock.MagicMock) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Lists paginate newest-first with no stable ascending order, so we don't partition.
-        assert response.partition_mode is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in ONCEHUB_ENDPOINTS.values())
         assert set(ONCEHUB_ENDPOINTS) == set(ENDPOINTS)

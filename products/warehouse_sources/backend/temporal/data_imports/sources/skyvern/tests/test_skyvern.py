@@ -316,33 +316,6 @@ class TestValidateCredentials:
         assert called_url.startswith("http://localhost:8000/v1/agents")
 
 
-class TestSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint,expected_primary_keys,expected_partition",
-        [
-            ("workflows", ["workflow_permanent_id"], "created_at"),
-            ("runs", ["workflow_run_id"], "created_at"),
-            ("schedules", ["workflow_schedule_id"], "created_at"),
-            ("browser_profiles", ["browser_profile_id"], "created_at"),
-            ("credentials", ["credential_id"], None),
-        ],
-    )
-    def test_response_shape(self, endpoint, expected_primary_keys, expected_partition) -> None:
-        response = skyvern_source(
-            "key", None, endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
-        # Skyvern lists return newest-first, so the pipeline must checkpoint in desc mode.
-        assert response.sort_mode == "desc"
-        if expected_partition is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [expected_partition]
-            assert response.partition_mode == "datetime"
-
-
 def test_skyvern_module_exposes_page_constants() -> None:
     # The per-workflow page cap only guards incremental runs; a full refresh must page unbounded.
     assert skyvern.PAGE_SIZE == 100

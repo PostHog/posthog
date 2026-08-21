@@ -16,10 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_web
     google_webfonts_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.settings import (
-    ENDPOINTS,
-    GOOGLE_WEBFONTS_ENDPOINTS,
-)
 
 # RESTClient builds its own tracked session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -185,18 +181,3 @@ class TestValidateCredentials:
         url = get.call_args.args[0]
         assert "AIza-secret" not in url
         assert mock_session.call_args.kwargs["redact_values"] == ("AIza-secret",)
-
-
-class TestGoogleWebfontsSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
-        config = GOOGLE_WEBFONTS_ENDPOINTS[endpoint]
-        response = google_webfonts_source("AIza-key", endpoint, team_id=1, job_id="j")
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_count == 1
-        assert response.partition_size == 1
-        assert response.partition_mode is None
-        assert response.partition_keys is None

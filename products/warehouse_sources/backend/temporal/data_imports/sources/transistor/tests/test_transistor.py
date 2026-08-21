@@ -9,10 +9,7 @@ import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import (
-    TRANSISTOR_BASE_URL,
-    TRANSISTOR_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.settings import TRANSISTOR_BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor import (
     RequestThrottle,
     TransistorResumeConfig,
@@ -24,9 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.transistor
     paginate,
     parse_download_date,
     show_analytics_rows,
-    transistor_source,
     validate_credentials,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_throttle(monkeypatch):
+    monkeypatch.setattr(f"{MODULE}.MIN_REQUEST_INTERVAL_SECONDS", 0)
+
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.transistor.transistor"
 
@@ -102,11 +104,6 @@ def _run(responder, endpoint: str, manager: _FakeResumableManager, **kwargs) -> 
             )
         )
     return batches, session
-
-
-@pytest.fixture(autouse=True)
-def _no_throttle(monkeypatch):
-    monkeypatch.setattr(f"{MODULE}.MIN_REQUEST_INTERVAL_SECONDS", 0)
 
 
 class TestTransistorTransport:
@@ -398,23 +395,6 @@ class TestTransistorTransport:
                 "downloads": 9,
             }
         ]
-
-    @pytest.mark.parametrize("endpoint", list(TRANSISTOR_ENDPOINTS))
-    def test_source_response_shape_per_endpoint(self, endpoint):
-        config = TRANSISTOR_ENDPOINTS[endpoint]
-
-        response = transistor_source(
-            endpoint=endpoint,
-            api_key="key",
-            logger=LOGGER,
-            resumable_source_manager=_FakeResumableManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        # Fan-out restarts dates at every show, so the watermark must only commit at completion.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
 
     @pytest.mark.parametrize(
         "status, expected_ok, expected_message_fragment",

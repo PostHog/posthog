@@ -371,16 +371,6 @@ class TestGetRows:
 
 
 class TestSource:
-    @pytest.mark.parametrize("endpoint", list(PAGESPEED_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = google_pagespeed_insights_source("test-key", endpoint, "https://posthog.com", structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["requested_url", "analysis_timestamp"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["analysis_timestamp"]
-        assert response.sort_mode == "asc"
-
     def test_invalid_urls_raise(self):
         with pytest.raises(ValueError):
             google_pagespeed_insights_source("test-key", "pagespeed_desktop", "garbage", structlog.get_logger())

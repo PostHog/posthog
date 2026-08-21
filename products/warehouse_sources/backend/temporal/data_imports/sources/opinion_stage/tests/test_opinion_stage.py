@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_st
     opinion_stage_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -260,17 +259,6 @@ class TestOpinionStage:
         assert f"{status} Client Error" in str(exc_info.value)
         assert "https://api.opinionstage.com" in str(exc_info.value)
         assert session.send.call_count == 1
-
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        # No network: SourceResponse metadata is built eagerly, rows only on iteration.
-        response = opinion_stage_source(
-            "os-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # JSON:API items carry no guaranteed stable creation timestamp column, so we don't partition.
-        assert response.partition_mode is None
 
 
 class TestValidateCredentials:

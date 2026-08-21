@@ -4,12 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.openfda import OpenFDAResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openfda.source import OpenFDASource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str | None = "key") -> Any:
@@ -19,24 +14,6 @@ def _config(api_key: str | None = "key") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenFDASource().source_type == ExternalDataSourceType.OPENFDA
-
-    def test_config_metadata(self) -> None:
-        config = OpenFDASource().get_source_config
-        assert config.label == "openFDA"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # docsUrl slug must match the published doc filename so the website doesn't 404.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/openfda"
-
-    def test_api_key_field_is_optional_secret(self) -> None:
-        fields: dict[str, Any] = {f.name: f for f in OpenFDASource().get_source_config.fields}
-        assert set(fields) == {"api_key"}
-        # openFDA works unauthenticated (lower quota), so the key must not be required.
-        assert fields["api_key"].required is False
-        assert fields["api_key"].secret is True
-
     @parameterized.expand([("api_key", "abc"), ("no_key", None)])
     def test_parse_config_accepts_optional_key(self, _name: str, api_key: str | None) -> None:
         # Guards the generated config: api_key is optional, so a source created without one must parse.
@@ -45,20 +22,6 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_lists_all_endpoints(self) -> None:
-        names = {s.name for s in OpenFDASource().get_schemas(_config(), team_id=1)}
-        assert names == {
-            "drug_events",
-            "drug_labels",
-            "drug_ndc",
-            "drug_enforcement",
-            "device_events",
-            "device_510k",
-            "device_enforcement",
-            "food_enforcement",
-            "food_events",
-        }
-
     @parameterized.expand(
         [
             ("drug_events", True, ["safetyreportid"]),
@@ -79,10 +42,6 @@ class TestGetSchemas:
         assert schema.detected_primary_keys == primary_keys
         assert bool(schema.incremental_fields) is expect_incremental
 
-    def test_names_filter(self) -> None:
-        names = {s.name for s in OpenFDASource().get_schemas(_config(), team_id=1, names=["drug_ndc"])}
-        assert names == {"drug_ndc"}
-
 
 class TestValidateCredentials:
     def test_success(self, monkeypatch: Any) -> None:
@@ -102,21 +61,7 @@ class TestValidateCredentials:
         assert message
 
 
-class TestNonRetryableErrors:
-    def test_auth_errors_are_non_retryable(self) -> None:
-        errors = OpenFDASource().get_non_retryable_errors()
-        # 401/403 (bad or over-quota key) can never be fixed by retrying — they must stop the sync.
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-
 class TestResumableWiring:
-    def test_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = OpenFDASource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OpenFDAResumeConfig
-
     def test_source_for_pipeline_plumbs_incremental_inputs(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 

@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
     bamboohr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import BAMBOOHR_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -314,15 +313,3 @@ class TestValidateCredentials:
         assert valid is False
         assert message == INVALID_SUBDOMAIN_MESSAGE
         session.get.assert_not_called()
-
-
-class TestBambooHRSource:
-    @parameterized.expand([(endpoint,) for endpoint in BAMBOOHR_ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        _wire(MockSession.return_value, [])
-        response = bamboohr_source(
-            "acme", "key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == BAMBOOHR_ENDPOINTS[endpoint].primary_keys

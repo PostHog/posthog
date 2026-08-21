@@ -343,27 +343,6 @@ class TestAlertsWindowing:
 
 
 class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("alerts", ["uuid"], "desc"),
-            ("monitors", ["uuid"], "asc"),
-            ("tables", ["id"], "asc"),
-            ("users", ["id"], "asc"),
-            ("warehouses", ["uuid"], "asc"),
-        ]
-    )
-    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
-        response = monte_carlo_source(
-            api_key_id="key-id",
-            api_key_secret="key-secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-
     def test_only_alerts_is_partitioned_on_stable_created_time(self) -> None:
         alerts = monte_carlo_source(
             api_key_id="key-id",

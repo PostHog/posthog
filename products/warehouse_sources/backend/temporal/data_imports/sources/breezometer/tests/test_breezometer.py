@@ -425,16 +425,6 @@ class TestGetRows:
 
 
 class TestBreezometerSource:
-    @pytest.mark.parametrize("endpoint", list(BREEZOMETER_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = breezometer_source("test-key", endpoint, "51.5,-0.12,London", structlog.get_logger())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["latitude", "longitude", "dt_iso"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["dt_iso"]
-        assert response.sort_mode == "asc"
-
     def test_invalid_locations_raise(self):
         with pytest.raises(ValueError):
             breezometer_source("test-key", "air_quality_current", "garbage", structlog.get_logger())

@@ -13,10 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.in
     InngestResumeConfig,
     _event_window,
     get_rows,
-    inngest_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import INNGEST_ENDPOINTS
 
 
 class _FakeResumableManager:
@@ -394,32 +392,3 @@ class TestFetchRetries:
         with pytest.raises(requests.HTTPError):
             inngest._fetch(session, "https://api.inngest.com/v1/events", {}, MagicMock())
         assert session.get.call_count == 1
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            # The event-walk endpoints must report "desc" so the watermark is persisted only at
-            # successful job end — the walk's arrival order within the window is unverified.
-            ("events", "desc", "received_at"),
-            ("function_runs", "desc", "run_started_at"),
-            ("cancellations", "asc", None),
-            ("environments", "asc", None),
-            ("webhooks", "asc", None),
-            ("event_keys", "asc", None),
-            ("signing_keys", "asc", None),
-        ]
-    )
-    def test_sort_mode_partition_and_primary_keys(
-        self, endpoint: str, expected_sort: str, partition_key: str | None
-    ) -> None:
-        response = inngest_source(
-            signing_key="signkey-prod-test",
-            environment=None,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.sort_mode == expected_sort
-        assert response.partition_keys == ([partition_key] if partition_key else None)
-        assert response.primary_keys == INNGEST_ENDPOINTS[endpoint].primary_keys

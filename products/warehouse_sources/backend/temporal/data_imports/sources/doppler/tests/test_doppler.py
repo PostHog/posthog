@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.doppler im
 from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.doppler import (
     DopplerResumeConfig,
     _coerce_watermark,
-    doppler_source,
     get_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.doppler.settings import DEFAULT_PER_PAGE
@@ -252,32 +251,3 @@ class TestGetRowsFanOut:
         assert [r["id"] for r in rows] == ["dev", "prd", "dev"]
         assert fetched == list(pages)
         assert manager.saved == [DopplerResumeConfig(next_page=1, project="proj-b")]
-
-
-class TestDopplerSourceResponse:
-    @parameterized.expand(
-        [
-            ("projects", ["id"], "asc", None),
-            ("environments", ["project", "id"], "asc", None),
-            ("configs", ["project", "name"], "asc", None),
-            ("activity_logs", ["id"], "desc", ["created_at"]),
-            ("workplace_users", ["id"], "asc", None),
-            ("groups", ["slug"], "asc", None),
-            ("service_accounts", ["slug"], "asc", None),
-            ("invites", ["slug"], "asc", None),
-        ]
-    )
-    def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_keys: list[str] | None
-    ) -> None:
-        response = doppler_source(
-            api_token="token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_keys == partition_keys

@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
     _build_initial_params,
     _increment_page_url,
     _page_predates_cutoff,
-    bitbucket_source,
     get_rows,
     validate_credentials,
 )
@@ -350,31 +349,6 @@ def test_validate_credentials_status_mapping(status, expected_valid, expected_me
         assert message is None
     else:
         assert expected_message_fragment in (message or "")
-
-
-@pytest.mark.parametrize(
-    "endpoint,expected_primary_keys,expected_sort_mode,expected_partition_key",
-    [
-        ("repositories", ["uuid"], "asc", "created_on"),
-        # PR ids and commit hashes are only unique within a repo; a non-composite key
-        # would seed duplicate rows and degrade every later merge
-        ("pull_requests", ["repository_uuid", "id"], "desc", "created_on"),
-        ("commits", ["repository_uuid", "hash"], "desc", "date"),
-        ("pipelines", ["uuid"], "desc", "created_on"),
-        ("deployments", ["uuid"], "desc", None),
-        ("workspace_members", ["user_uuid"], "asc", None),
-    ],
-)
-def test_source_response_shape(endpoint, expected_primary_keys, expected_sort_mode, expected_partition_key):
-    response = bitbucket_source(BitbucketAuth(), "ws", endpoint, mock.Mock(), mock.Mock())
-    assert response.name == endpoint
-    assert response.primary_keys == expected_primary_keys
-    assert response.sort_mode == expected_sort_mode
-    if expected_partition_key is None:
-        assert response.partition_keys is None
-    else:
-        assert response.partition_keys == [expected_partition_key]
-        assert response.partition_mode == "datetime"
 
 
 def test_session_uses_basic_auth_for_api_token_and_bearer_for_access_token():

@@ -104,22 +104,6 @@ class TestAppstackSource:
         return appstack_source(**defaults)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "events"
-        mock_resource.column_hints = {"event_time": "timestamp"}
-        mock_rest.return_value = mock_resource
-
-        response = self._call(self._manager(can_resume=False))
-
-        assert response.name == "events"
-        assert response.primary_keys == ["event_id"]
-        # Documented: exports are ordered by event_time ascending.
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["event_time"]
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
     def test_paginator_never_trusts_total_count(self, mock_rest: MagicMock) -> None:
         # Appstack's `total_count` counts the current page, not the whole window; a paginator
         # reading it as a grand total would stop after the first page and silently truncate.

@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.settings import (
     PAGE_LIMIT,
     RESPONSE_TIMES_INITIAL_LOOKBACK_DAYS,
-    UPTIMEROBOT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobot.uptimerobot import (
     AUTH_ERROR_PREFIX,
@@ -23,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uptimerobo
     _scrub_alert_contact,
     _to_unix_timestamp,
     get_rows,
-    uptimerobot_source,
 )
 
 _DAY = 86400
@@ -468,43 +466,3 @@ class TestResponseTimeRows:
         )
 
         assert rows == [{"datetime": watermark + 5, "value": 2, "monitor_id": 7}]
-
-
-class TestSourceResponseWiring:
-    @parameterized.expand(
-        [
-            ("monitors", ["id"], "asc"),
-            ("monitor_logs", ["monitor_id", "datetime", "type"], "desc"),
-            ("response_times", ["monitor_id", "datetime"], "desc"),
-            ("alert_contacts", ["id"], "asc"),
-            ("maintenance_windows", ["id"], "asc"),
-            ("status_pages", ["id"], "asc"),
-        ]
-    )
-    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
-        response = uptimerobot_source(
-            api_key="key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        # Fan-out endpoints must defer the incremental watermark to job end ("desc"): batches
-        # aggregate across monitor pages and time windows, so per-batch maxima aren't safe.
-        assert response.sort_mode == sort_mode
-
-    def test_every_declared_endpoint_builds_a_response(self) -> None:
-        for endpoint in UPTIMEROBOT_ENDPOINTS:
-            response = uptimerobot_source(
-                api_key="key",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=MagicMock(),
-            )
-            config = UPTIMEROBOT_ENDPOINTS[endpoint]
-            if config.partition_key:
-                assert response.partition_mode == "datetime"
-                assert response.partition_keys == [config.partition_key]
-            else:
-                assert response.partition_mode is None

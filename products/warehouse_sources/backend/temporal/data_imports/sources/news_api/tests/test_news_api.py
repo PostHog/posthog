@@ -318,34 +318,3 @@ class TestValidateCredentials:
     def test_network_failure_is_invalid(self, mock_session: Any) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("k") is False
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            # Only the incremental endpoint declares desc — the full-refresh tables have no watermark
-            # to protect, so their arrival order stays on the default.
-            ("everything", ["url"], "desc"),
-            ("top_headlines", ["url"], "asc"),
-            ("sources", ["id"], "asc"),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys_and_sort_mode_per_endpoint(
-        self, endpoint: str, expected_keys: list[str], expected_sort: str, MockSession: Any
-    ) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.sort_mode == expected_sort
-
-    @parameterized.expand([("everything", "publishedAt"), ("top_headlines", "publishedAt"), ("sources", None)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partition_key_per_endpoint(self, endpoint: str, expected_partition: str | None, MockSession: Any) -> None:
-        response = _source(endpoint, _make_manager())
-        if expected_partition is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [expected_partition]
-            assert response.partition_mode == "datetime"

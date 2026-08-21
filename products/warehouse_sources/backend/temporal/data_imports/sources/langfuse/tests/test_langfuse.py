@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     _parse_retry_after,
     _retry_wait,
     get_rows,
-    langfuse_source,
     normalize_host,
     validate_credentials,
 )
@@ -198,41 +197,6 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
-
-
-class TestLangfuseSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, partition_key, sort_mode",
-        [
-            ("traces", ["id"], "timestamp", "asc"),
-            ("observations", ["id"], "startTime", "desc"),
-            ("scores", ["id"], "timestamp", "desc"),
-            ("sessions", ["id"], "createdAt", "desc"),
-            ("prompts", ["name"], None, "desc"),
-            ("datasets", ["id"], None, "desc"),
-            ("dataset_items", ["id"], "createdAt", "desc"),
-            ("models", ["id"], None, "desc"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
-        response = langfuse_source(
-            host="https://cloud.langfuse.com",
-            public_key="pk-lf-x",
-            secret_key="sk-lf-x",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
 
 
 class TestGetRows:

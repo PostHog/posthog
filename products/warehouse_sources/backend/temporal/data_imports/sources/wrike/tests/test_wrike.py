@@ -224,20 +224,3 @@ class TestPagination:
             with pytest.raises(ValueError, match="non-Wrike host"):
                 _source("tasks", host="evil.com")
         MockSession.assert_not_called()
-
-
-class TestWrikeSource:
-    def test_tasks_partition_on_created_date(self) -> None:
-        response = _source("tasks")
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdDate"]
-
-    @pytest.mark.parametrize("endpoint", ["folders", "contacts", "workflows", "custom_fields", "spaces"])
-    def test_unpartitioned_endpoints(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

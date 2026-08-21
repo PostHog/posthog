@@ -456,23 +456,6 @@ class TestEtsyValidateCredentials:
 
 
 class TestEtsySourceResponse:
-    @parameterized.expand([(name,) for name in ETSY_ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = etsy_source(
-            api_key=_API_KEY,
-            refresh_token=_REFRESH_TOKEN,
-            shop_id="1",
-            endpoint=endpoint,
-            logger=_LOGGER,
-            resumable_source_manager=_FakeManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ETSY_ENDPOINTS[endpoint].primary_keys
-        # Etsy documents no ordering within a page, so the watermark must only be written once the
-        # run completes — which is what "desc" buys us.
-        assert response.sort_mode == "desc"
-
     @freeze_time("2005-01-15")
     def test_items_is_lazy_and_streams_rows(self) -> None:
         session = _FakeSession([_page(_rows(3), 3)])

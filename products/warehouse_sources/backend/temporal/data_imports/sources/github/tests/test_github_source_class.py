@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
     GRANT_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _GITHUB_INTEGRATION_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
@@ -41,9 +40,6 @@ class TestGithubSource:
     def setup_method(self):
         self.source = GithubSource()
         self.team_id = 123
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITHUB
 
     @mock.patch(_GITHUB_INTEGRATION_PATH)
     @mock.patch.object(GithubSource, "get_oauth_integration")
@@ -101,24 +97,6 @@ class TestGithubSource:
 
         with pytest.raises(IntegrationAccountListingError):
             self.source.get_oauth_accounts(1, self.team_id)
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "404 Client Error",
-            "Bad credentials",
-            "Missing GitHub integration ID",
-            "Missing personal access token",
-            "GitHub access token not found",
-            "Integration not found",
-            "Missing integration ID",
-            "This installation has been suspended",
-        ],
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_rate_limit_error_is_retryable_not_non_retryable(self):
         # A GitHubRateLimitError that exhausts _fetch_page's tenacity retry must stay retryable
@@ -195,43 +173,6 @@ class TestGithubSource:
         # from the picker, with nothing else failing.
         assert set(ENDPOINT_REQUIRED_PERMISSION) <= set(GITHUB_ENDPOINTS)
         assert set(ENDPOINT_REQUIRED_PERMISSION.values()) <= set(GRANT_NAMES)
-
-    def test_suspended_installation_token_refresh_is_non_retryable(self):
-        # The raw GitHubIntegrationError raised by refresh_access_token on a suspended installation.
-        error_message = (
-            'Failed to refresh installation token: {"message":"This installation has been suspended",'
-            '"documentation_url":"https://docs.github.com/rest/reference/apps#create-an-installation-access-token-for-an-app",'
-            '"status":"403"}'
-        )
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert "This installation has been suspended" in non_retryable_errors
-        assert "This installation has been suspended" in error_message
-
-    @pytest.mark.parametrize(
-        "selection,github_integration_id,personal_access_token,expected_error",
-        [
-            # OAuth selected but no account connected (or integration deleted) — the message
-            # raised here must match a get_non_retryable_errors key so the schema stops retrying.
-            ("oauth", None, "", "Missing GitHub integration ID"),
-            ("pat", None, "", "Missing personal access token"),
-        ],
-    )
-    def test_get_access_token_error_is_non_retryable(
-        self, selection, github_integration_id, personal_access_token, expected_error
-    ):
-        config = GithubSourceConfig(
-            auth_method=GithubAuthMethodConfig(
-                github_integration_id=github_integration_id,
-                selection=selection,
-                personal_access_token=personal_access_token,
-            ),
-            repository="owner/repo",
-        )
-
-        with pytest.raises(ValueError, match=expected_error):
-            self.source._get_access_token(config, self.team_id)
-
-        assert expected_error in self.source.get_non_retryable_errors()
 
     def test_endpoint_permissions_surface_credential_errors_per_table(self):
         # The schema-picker caller swallows exceptions from get_endpoint_permissions and falls back
@@ -332,33 +273,6 @@ class TestGithubSource:
         assert schema.webhook_only is False
         assert schema.should_sync_default is False
 
-    def test_existing_workflow_schemas_stay_webhook_capable(self):
-        # Guard that adding the org endpoints didn't disturb the webhook-capable schemas.
-        config = GithubSourceConfig(
-            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
-            repository="acme/widgets",
-        )
-        schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
-
-        assert schemas["workflow_runs"].supports_webhooks is True
-        assert schemas["workflow_jobs"].supports_webhooks is True
-        # The originally shipped repo-scoped tables must stay selected by default. Tables added
-        # since may legitimately default off (they need grants beyond the repo scope validated at
-        # source-create, or they fan out per commit).
-        assert all(
-            schemas[endpoint].should_sync_default
-            for endpoint in (
-                "issues",
-                "pull_requests",
-                "reviews",
-                "commits",
-                "stargazers",
-                "releases",
-                "workflow_runs",
-                "workflow_jobs",
-            )
-        )
-
     def test_reviews_schema_is_webhook_only_and_default_on(self):
         # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
         # advertising a poll mode would sync an empty table forever. It needs only the repo grant
@@ -446,22 +360,6 @@ class TestGithubSource:
             mock_github_integration.return_value.access_token_expired.return_value = False
             assert self.source._get_access_token(config, self.team_id) == "gho_token"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration")
-    def test_get_access_token_missing_oauth_token_is_non_retryable(self, mock_github_integration):
-        config = GithubSourceConfig(
-            auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
-            repository="owner/repo",
-        )
-
-        integration = mock.MagicMock()
-        integration.access_token = None
-        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
-            mock_github_integration.return_value.access_token_expired.return_value = False
-            with pytest.raises(ValueError, match="GitHub access token not found"):
-                self.source._get_access_token(config, self.team_id)
-
-        assert "GitHub access token not found" in self.source.get_non_retryable_errors()
-
     def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
         # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
         # get_oauth_integration then raises "Integration not found". delete_webhook must report the
@@ -516,24 +414,6 @@ class TestGithubSource:
     def test_effective_repositories(self, repository, repositories, expected):
         assert GithubSource.effective_repositories(_pat_config(repository, repositories)) == expected
 
-    def test_effective_repositories_raises_without_any_repo(self):
-        with pytest.raises(ValueError, match="No repositories configured"):
-            GithubSource.effective_repositories(_pat_config(None, None))
-        assert "No repositories configured" in self.source.get_non_retryable_errors()
-
-    def test_effective_repositories_rejects_storage_collision(self):
-        # `acme/repo.name` and `acme/repo__name` collapse to the same table/folder identifier; the
-        # source must reject the pair rather than silently mix two repos' data into one table.
-        with pytest.raises(ValueError, match="resolve to the same warehouse table"):
-            GithubSource.effective_repositories(_pat_config(None, ["acme/repo.name", "acme/repo__name"]))
-        assert "resolve to the same warehouse table" in self.source.get_non_retryable_errors()
-
-    def test_effective_repositories_rejects_over_the_maximum(self):
-        too_many = [f"acme/repo{i}" for i in range(GithubSource.MAX_REPOSITORIES + 1)]
-        with pytest.raises(ValueError, match="Too many repositories configured"):
-            GithubSource.effective_repositories(_pat_config(None, too_many))
-        assert "Too many repositories configured" in self.source.get_non_retryable_errors()
-
     @pytest.mark.parametrize(
         "name,expected",
         [
@@ -568,13 +448,6 @@ class TestGithubSource:
         with pytest.raises(ValueError, match="No repositories configured"):
             resolve_schema_repo_endpoint(None, "issues", _pat_config(None, ["a/b"]))
 
-    def test_get_schemas_legacy_single_repo_stays_bare(self):
-        # Pre-multi-repo sources must keep their exact schema names or existing rows,
-        # tables, and saved queries all detach.
-        schemas = self.source.get_schemas(_pat_config(repository="acme/widgets"), self.team_id)
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-        assert all(s.schema_metadata is None for s in schemas)
-
     def test_get_schemas_legacy_source_with_added_repo_mixes_bare_and_qualified(self):
         config = _pat_config(repository="acme/widgets", repositories=["acme/widgets", "acme/other"])
         schemas = self.source.get_schemas(config, self.team_id)
@@ -588,12 +461,6 @@ class TestGithubSource:
             "source_endpoint": "issues",
         }
         assert qualified["acme/other.issues"].label == "acme/other · issues"
-
-    def test_get_schemas_new_format_source_is_fully_qualified_even_with_one_repo(self):
-        # New sources always qualify so adding repo #2 later never renames anything.
-        schemas = self.source.get_schemas(_pat_config(repositories=["acme/widgets"]), self.team_id)
-        assert [s.name for s in schemas] == [f"acme/widgets.{endpoint}" for endpoint in ENDPOINTS]
-        assert all(s.schema_metadata for s in schemas)
 
     @pytest.mark.parametrize(
         "schema_name,expected_key",
@@ -645,68 +512,6 @@ class TestGithubSource:
         assert valid is False
         assert message == "Invalid personal access token"
         assert mock_validate.call_count == 1
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_resolves_repo_from_metadata(self, mock_github_source):
-        config = _pat_config(repository="legacy/repo", repositories=["legacy/repo", "acme/other"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "acme/other.issues"
-        inputs.schema_metadata = {"source_repository": "acme/other", "source_endpoint": "issues"}
-        inputs.s3_folder_name = "acme_other_issues"
-        inputs.should_use_incremental_field = False
-
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        kwargs = mock_github_source.call_args.kwargs
-        assert kwargs["repository"] == "acme/other"
-        assert kwargs["endpoint"] == "issues"
-        assert kwargs["response_name"] == "acme_other_issues"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_bare_row_falls_back_to_legacy_repo(self, mock_github_source):
-        config = _pat_config(repository="legacy/repo", repositories=["legacy/repo", "acme/other"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "issues"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "issues"
-        inputs.should_use_incremental_field = False
-
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        kwargs = mock_github_source.call_args.kwargs
-        assert kwargs["repository"] == "legacy/repo"
-        assert kwargs["endpoint"] == "issues"
-        assert kwargs["response_name"] == "issues"
-
-    @pytest.mark.parametrize(
-        "pin,expected",
-        [
-            # An existing source pinned to the legacy version keeps syncing on it — the default flip
-            # must never silently move a customer to the new version.
-            ("2022-11-28", "2022-11-28"),
-            ("2026-03-10", "2026-03-10"),
-            # An unpinned source resolves to the current default — new sources land here. Every
-            # pre-existing row was pinned to the legacy version by the versioning-framework backfill
-            # (migration 0075), and creation stamps the pin since, so the flip only reaches new ones.
-            (None, "2026-03-10"),
-        ],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
-        config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "issues"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "issues"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
-
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_github_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):

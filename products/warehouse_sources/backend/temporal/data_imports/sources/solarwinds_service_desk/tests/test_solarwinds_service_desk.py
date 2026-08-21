@@ -314,28 +314,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
-        config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
-        response = solarwinds_service_desk_source(
-            region="us",
-            api_token="swsd-token",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Ordering is undocumented, so the watermark must only commit after a completed sync.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # updated_at-style partition keys rewrite partitions on every sync.
         assert all(

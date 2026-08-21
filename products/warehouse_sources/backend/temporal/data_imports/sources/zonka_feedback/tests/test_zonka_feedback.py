@@ -240,15 +240,6 @@ class TestCheckAccess:
 
 
 class TestZonkaFeedbackSourceResponse:
-    @parameterized.expand([("responses",), ("surveys",), ("contacts",)])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No endpoint exposes a stable creation timestamp we can safely partition on.
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in ZONKA_FEEDBACK_ENDPOINTS.values())
         assert set(ZONKA_FEEDBACK_ENDPOINTS) == set(ENDPOINTS)

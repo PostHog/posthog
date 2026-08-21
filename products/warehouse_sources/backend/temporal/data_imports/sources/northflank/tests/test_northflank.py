@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northflank
     _next_cursor,
     _rate_limit_sleep_seconds,
     get_rows,
-    northflank_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
@@ -300,20 +299,6 @@ class TestRetryBehavior:
 
 
 class TestNorthflankSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = NORTHFLANK_ENDPOINTS[endpoint]
-        response = northflank_source("token", endpoint, mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_fan_out_children_key_includes_project(self, endpoint):
         config = NORTHFLANK_ENDPOINTS[endpoint]

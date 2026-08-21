@@ -258,24 +258,3 @@ class TestTeachableTransport:
         resume_hook(None)
         resume_hook({})
         manager.save_state.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("incremental_desc", True, "desc"),
-            ("full_refresh_asc", False, "asc"),
-        ]
-    )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable.rest_api_resource")
-    def test_transactions_sort_mode(
-        self, _name, should_use_incremental_field, expected, mock_rest_api_resource
-    ) -> None:
-        response = teachable_source(
-            api_key="key",
-            endpoint="transactions",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=should_use_incremental_field,
-        )
-        assert response.sort_mode == expected
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]

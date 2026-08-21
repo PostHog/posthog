@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     _format_datetime,
     _resolve_window,
     get_rows,
-    kong_konnect_source,
     validate_credentials,
 )
 
@@ -176,17 +175,6 @@ class TestValidateCredentials:
     def test_network_error_is_false(self, mock_session: MagicMock) -> None:
         mock_session.return_value.post.side_effect = requests.ConnectionError()
         assert validate_credentials("tok", "us") is False
-
-
-class TestKongKonnectSourceResponse:
-    def test_source_response_shape(self) -> None:
-        response = kong_konnect_source("tok", "eu", "api_requests", MagicMock(), _manager())
-        assert response.name == "api_requests"
-        assert response.primary_keys == ["request_id"]
-        # asc must match the ascending request order for the watermark to advance correctly.
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["request_start"]
 
 
 if __name__ == "__main__":

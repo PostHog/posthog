@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.a
     AirbrakeResumeConfig,
     _build_groups_params,
     _format_start_time,
-    airbrake_source,
     get_rows,
     validate_credentials,
 )
@@ -380,30 +379,6 @@ class TestNoticesFanOut:
         assert rows == [{"id": "n-g1"}, {"id": "n-g2"}]
         fetched_notice_paths = [path for path, _params in pages.requests if "/notices" in path]
         assert "/api/v4/projects/1/groups/g3/notices" not in fetched_notice_paths
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("projects", ["id"], None),
-            ("groups", ["id"], ["createdAt"]),
-            ("deploys", None, None),
-            ("notices", ["groupId", "id"], ["createdAt"]),
-        ]
-    )
-    def test_primary_and_partition_keys(
-        self, endpoint: str, expected_pks: list[str] | None, expected_partition_keys: list[str] | None
-    ) -> None:
-        # Dropping groupId from the notices key multi-matches merges if notice ids repeat across
-        # groups; partitioning on a mutable field rewrites partitions every sync.
-        response = airbrake_source(
-            api_key="user-key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-        )
-        assert response.primary_keys == expected_pks
-        assert response.partition_keys == expected_partition_keys
-        # Watermark persistence must stay deferred to job end: fan-out batches arrive per project,
-        # so per-batch asc checkpointing could advance the cursor past projects a crashed run never reached.
-        assert response.sort_mode == "desc"
 
 
 class TestValidateCredentials:

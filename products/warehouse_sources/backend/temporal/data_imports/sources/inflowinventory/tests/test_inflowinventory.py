@@ -336,14 +336,6 @@ class TestCheckAccess:
 
 
 class TestInflowInventorySourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == INFLOWINVENTORY_ENDPOINTS[endpoint].primary_keys
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
     def test_every_endpoint_primary_key_matches_id_field(self) -> None:
         assert all(config.primary_keys == [config.id_field] for config in INFLOWINVENTORY_ENDPOINTS.values())
         assert set(INFLOWINVENTORY_ENDPOINTS) == set(ENDPOINTS)

@@ -1,15 +1,10 @@
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailjet import (
     MailjetSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.mailjet import MailjetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.settings import (
-    ENDPOINTS,
     MAILJET_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_SCHEMA_NAMES,
@@ -17,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source import MailJetSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.webhook_template import template
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _STATISTICS_ENDPOINTS = {"openinformation", "clickstatistics"}
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"
@@ -30,42 +24,6 @@ class TestMailJetSource:
         self.team_id = 123
         self.config = MailjetSourceConfig(api_key="key", secret_key="secret")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MAILJET
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Mailjet"
-        assert config.label == "Mailjet"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/mailjet.png"
-
-        assert {f.name for f in config.fields} == {"api_key", "secret_key"}
-        for field in config.fields:
-            assert isinstance(field, SourceFieldInputConfig)
-            assert field.type == SourceFieldInputConfigType.PASSWORD
-            assert field.secret is True
-            assert field.required is True
-
-    def test_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            expected_incremental = schema.name in _STATISTICS_ENDPOINTS
-            assert schema.supports_incremental is expected_incremental
-            assert schema.supports_append is expected_incremental
-            if expected_incremental:
-                assert len(schema.incremental_fields) == 1
-            else:
-                assert schema.incremental_fields == []
-
     def test_webhook_capable_schemas(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
@@ -74,16 +32,6 @@ class TestMailJetSource:
         # and the UI must offer webhook sync only.
         assert schemas[WEBHOOK_TABLE_NAME].webhook_only is True
         assert all(not schema.webhook_only for name, schema in schemas.items() if name != WEBHOOK_TABLE_NAME)
-
-    def test_polled_schemas_never_gain_webhooks(self):
-        # Mailjet's event payloads name their fields differently to /openinformation and
-        # /clickstatistics (mj_contact_id vs ContactID, time vs OpenedAt, no ID at all), so routing
-        # them into those tables would break the merge and disable their poll.
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        polled_with_webhooks = {
-            schema.name for schema in schemas if schema.supports_webhooks and schema.name != WEBHOOK_TABLE_NAME
-        }
-        assert polled_with_webhooks == set()
 
     def test_webhook_resource_map_covers_the_webhook_schema(self):
         assert self.source.webhook_resource_map == SCHEMA_TO_WEBHOOK_RESOURCE
@@ -122,17 +70,6 @@ class TestMailJetSource:
         self.source.sync_webhook_events(self.config, WEBHOOK_URL, self.team_id, [WEBHOOK_TABLE_NAME])
         mock_sync.assert_called_once_with("key", "secret", WEBHOOK_URL, list(MAILJET_WEBHOOK_EVENTS))
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contact"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "contact"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["nonexistent"])
-
-        assert schemas == []
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source.validate_mailjet_credentials"
     )
@@ -155,35 +92,3 @@ class TestMailJetSource:
 
         assert is_valid is False
         assert error_message == "Invalid Mailjet API key or secret key"
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MailjetResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mailjet.source.mailjet_source")
-    def test_source_for_pipeline(self, mock_mailjet_source):
-        mock_mailjet_source.return_value = mock.MagicMock()
-
-        inputs = mock.MagicMock()
-        inputs.schema_name = "contact"
-        inputs.team_id = 123
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = False
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_mailjet_source.call_args.kwargs
-        assert kwargs["api_key"] == self.config.api_key
-        assert kwargs["secret_key"] == self.config.secret_key
-        assert kwargs["endpoint"] == "contact"
-        assert kwargs["team_id"] == 123
-        assert kwargs["job_id"] == "job-1"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
-        # One sync covers both paths: the poll for the REST tables, the webhook manager for the
-        # pushed message events.
-        assert isinstance(kwargs["webhook_source_manager"], WebhookSourceManager)

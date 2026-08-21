@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout
     buzzsprout_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -156,23 +155,6 @@ class TestBuzzsproutSourceResponse:
         assert response.partition_format == "month"
         assert response.partition_keys == ["published_at"]
         assert response.sort_mode == "asc"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_podcasts_is_unpartitioned(self, MockSession) -> None:
-        # Podcasts carry no stable datetime field, so no datetime partitioning is applied.
-        response = buzzsprout_source("test-token", "123456", "podcasts", team_id=1, job_id="j")
-
-        assert response.name == "podcasts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_names_match_endpoints(self, MockSession, endpoint) -> None:
-        response = buzzsprout_source("test-token", "123456", endpoint, team_id=1, job_id="j")
-
-        assert response.name == endpoint
 
 
 class TestValidateCredentials:

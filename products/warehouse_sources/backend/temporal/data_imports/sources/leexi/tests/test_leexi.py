@@ -15,11 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.leex
     leexi_source,
     probe_endpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import (
-    ENDPOINTS,
-    LEEXI_ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import LEEXI_ENDPOINTS, PAGE_SIZE
 
 # The source builds its own capture-disabled session and hands it to RESTClient via the client config.
 CLIENT_SESSION_PATCH = (
@@ -236,20 +232,6 @@ class TestCallNotesFanOut:
 
 
 class TestSourceResponseMetadata:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        if endpoint == "call_notes":
-            assert response.primary_keys == ["call_uuid", "uuid"]
-        else:
-            assert response.primary_keys == ["uuid"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [LEEXI_ENDPOINTS[endpoint].partition_key]
-        assert response.sort_mode == "asc"
-
     @pytest.mark.parametrize("config", list(LEEXI_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config) -> None:
         assert config.partition_key == "created_at"

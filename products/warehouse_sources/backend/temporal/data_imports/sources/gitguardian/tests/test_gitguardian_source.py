@@ -2,39 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.gitguardian import (
-    GitGuardianResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.source import GitguardianSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = {"secret_incidents", "secret_occurrences", "sources", "honeytokens", "members", "teams"}
-
-
-class TestGitguardianSourceConfig:
-    def test_source_type(self) -> None:
-        assert GitguardianSource().source_type == ExternalDataSourceType.GITGUARDIAN
-
-    def test_fields_require_secret_token_and_optional_base_url(self) -> None:
-        fields = {f.name: f for f in GitguardianSource().get_source_config.fields}
-        api_key, base_url = fields["api_key"], fields["base_url"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(base_url, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-        assert base_url.required is False
-        assert base_url.secret is False
-
-    def test_base_url_is_a_connection_host_field(self) -> None:
-        # Retargeting base_url must re-require the secret, else the preserved token leaks to a new host.
-        assert GitguardianSource().connection_host_fields == ["base_url"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog with no I/O, so public docs can render the table list.
-        assert GitguardianSource.lists_tables_without_credentials is True
 
 
 class TestGitguardianSchemas:
@@ -50,32 +21,6 @@ class TestGitguardianSchemas:
     def test_names_filter(self) -> None:
         schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
         assert [s.name for s in schemas] == ["teams"]
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.gitguardian.com/v1/incidents/secrets",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://gitguardian.acme.dev/v1/sources"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.gitguardian.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error"),
-            ("rate_limited", "429 Client Error: Too Many Requests"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
 
 
 class TestValidateCredentials:
@@ -181,12 +126,6 @@ class TestSourceForPipeline:
         ):
             GitguardianSource().source_for_pipeline(config, MagicMock(), inputs)
         assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestResumableSourceManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = GitguardianSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is GitGuardianResumeConfig
 
 
 class TestGetDocumentedTables:

@@ -3,20 +3,16 @@ from typing import Optional, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.mercury import MercuryResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import (
     ENDPOINTS,
     TRANSACTIONS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -45,37 +41,6 @@ class TestMercurySource:
         self.source = MercurySource()
         self.config = MercurySourceConfig(api_key="test-token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MERCURY
-
-    def test_source_config_is_released_with_alpha_status(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mercury"
-
-    def test_source_config_requires_secret_api_key(self) -> None:
-        fields = self.source.get_source_config.fields
-
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        assert field.secret is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["Accounts", "Transactions"])
-
-        assert {schema.name for schema in schemas} == {"Accounts", "Transactions"}
-
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_only_transactions_supports_incremental(self, endpoint: str) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=[endpoint])
@@ -89,15 +54,6 @@ class TestMercurySource:
             assert schema.supports_incremental is False
             assert schema.incremental_fields == []
             assert schema.default_incremental_lookback_seconds is None
-
-    def test_documented_tables_available_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-        tables = self.source.get_documented_tables()
-
-        assert {table["name"] for table in tables} == set(ENDPOINTS)
-        transactions = next(table for table in tables if table["name"] == "Transactions")
-        assert transactions["description"]
 
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_valid"),
@@ -135,25 +91,6 @@ class TestMercurySource:
 
         assert valid is False
         assert "connection refused" in str(error)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs("Transactions"))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MercuryResumeConfig
-
-    @pytest.mark.parametrize(
-        ("error_message", "should_match"),
-        [
-            ("401 Client Error: Unauthorized for url: https://api.mercury.com/api/v1/transactions", True),
-            ("403 Client Error: Forbidden for url: https://api.mercury.com/api/v1/accounts", True),
-            ("500 Server Error: Internal Server Error for url: https://api.mercury.com/api/v1/accounts", False),
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, error_message: str, should_match: bool) -> None:
-        patterns = self.source.get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in patterns) is should_match
 
 
 class TestMercurySourceForPipeline:
@@ -194,42 +131,3 @@ class TestMercurySourceForPipeline:
         mock_source, _ = self._run(inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_primary_key"),
-        [
-            ("Accounts", "id"),
-            ("Transactions", "id"),
-            ("Users", "userId"),
-        ],
-    )
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_primary_key: str) -> None:
-        _, response = self._run(_make_inputs(endpoint))
-
-        assert response.primary_keys == [expected_primary_key]
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_partition_key"),
-        [
-            ("Transactions", "createdAt"),
-            ("Events", "occurredAt"),
-            ("Recipients", None),
-            ("Users", None),
-        ],
-    )
-    def test_partitioning_uses_stable_datetime_fields(
-        self, endpoint: str, expected_partition_key: Optional[str]
-    ) -> None:
-        _, response = self._run(_make_inputs(endpoint))
-
-        if expected_partition_key is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [expected_partition_key]
-            assert response.partition_mode == "datetime"
-
-    def test_sort_mode_is_ascending(self) -> None:
-        _, response = self._run(_make_inputs("Transactions"))
-
-        assert response.sort_mode == "asc"

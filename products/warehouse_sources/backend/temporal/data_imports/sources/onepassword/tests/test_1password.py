@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onepasswor
     introspect,
     onepassword_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.settings import ONEPASSWORD_ENDPOINTS
 
 # onepassword_source builds its (capture-disabled) session via make_tracked_session in the
 # onepassword module and hands it to the RESTClient, so patch it there.
@@ -280,25 +279,3 @@ class TestIntrospect:
         session.get.side_effect = Exception("boom")
         with mock.patch.object(onepassword, "make_tracked_session", return_value=session):
             assert introspect("us", "token") is None
-
-
-class TestSourceResponse:
-    @parameterized.expand([(endpoint,) for endpoint in ONEPASSWORD_ENDPOINTS])
-    def test_response_shape(self, endpoint: str) -> None:
-        # Ordering of the cursor stream is not documented, so "desc" is required: it defers the
-        # watermark to successful job end, which is safe for any arrival order. Flipping to "asc"
-        # per-batch checkpointing could advance the watermark past unseen older events.
-        with mock.patch(SESSION_PATCH):
-            response = onepassword_source(
-                region="us",
-                api_token="token",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-            )
-        assert response.name == endpoint
-        assert response.sort_mode == "desc"
-        assert response.primary_keys == ["uuid"]
-        assert response.partition_keys == ["timestamp"]
-        assert response.partition_mode == "datetime"

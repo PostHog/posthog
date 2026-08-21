@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.retently.r
     retently_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.retently.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -284,43 +283,3 @@ class TestValidateCredentials:
             ok, message = validate_credentials("key")
         assert ok is False
         assert message is not None and "Could not connect to Retently" in message
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("customers", ["id"], "createdDate", "asc"),
-            ("companies", ["id"], "createdDate", "asc"),
-            # feedback is the only incremental endpoint: "desc" defers the watermark to the end of
-            # a successful sync because the API's sort behavior could not be live-verified.
-            ("feedback", ["id"], "createdDate", "desc"),
-            ("outbox", None, None, "asc"),
-            ("campaigns", ["id"], None, "asc"),
-            ("templates", ["id"], None, "asc"),
-            ("reports", ["campaignId"], None, "asc"),
-        ]
-    )
-    def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str] | None, partition_key: str | None, sort_mode: str
-    ) -> None:
-        with patch(CLIENT_SESSION_PATCH, return_value=MagicMock(headers={})):
-            response = retently_source(
-                api_key="key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        if partition_key is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
-        else:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-
-    @parameterized.expand(ENDPOINTS)
-    def test_every_declared_endpoint_builds_a_response(self, endpoint: str) -> None:
-        with patch(CLIENT_SESSION_PATCH, return_value=MagicMock(headers={})):
-            response = retently_source(
-                api_key="key", endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        assert response.name == endpoint

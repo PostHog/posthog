@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi 
     VapiResumeConfig,
     _format_datetime_param,
     get_rows,
-    vapi_source,
 )
 
 
@@ -326,36 +325,3 @@ class TestPhoneNumbersVersionDispatch:
 
         assert [r["id"] for r in rows] == ["1", "2"]
         assert fetched == list(pages)
-
-
-class TestVapiSourceResponse:
-    @parameterized.expand(
-        [
-            ("calls_descending", "calls", VAPI_VERSION_V1, "desc", ["createdAt"]),
-            ("chats_ascending", "chats", VAPI_VERSION_V1, "asc", ["createdAt"]),
-            ("files_unpartitioned", "files", VAPI_VERSION_V1, "asc", None),
-            # phone_numbers flips from a descending cursor (v1) to ascending pages (v2), so the
-            # pipeline's watermark direction must follow the pinned version.
-            ("phone_numbers_v1_descending", "phone_numbers", VAPI_VERSION_V1, "desc", ["createdAt"]),
-            ("phone_numbers_v2_ascending", "phone_numbers", VAPI_VERSION_V2, "asc", ["createdAt"]),
-        ]
-    )
-    def test_sort_mode_and_partitioning(
-        self,
-        _name: str,
-        endpoint: str,
-        api_version: str,
-        expected_sort_mode: str,
-        expected_partition_keys: list[str] | None,
-    ) -> None:
-        response = vapi_source(
-            api_key="key",
-            endpoint=endpoint,
-            api_version=api_version,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == expected_sort_mode
-        assert response.partition_keys == expected_partition_keys

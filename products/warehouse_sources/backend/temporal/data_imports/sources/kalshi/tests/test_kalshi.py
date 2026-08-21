@@ -228,25 +228,6 @@ class TestKalshiTransport:
 
         assert _source(endpoint, _make_manager()).primary_keys == expected
 
-    @parameterized.expand(
-        [
-            ("trades", ["created_time"]),
-            ("markets", ["created_time"]),
-            ("series", None),
-        ]
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioning_only_where_a_stable_key_exists(
-        self, endpoint: str, expected: list[str] | None, MockSession
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(KALSHI_ENDPOINTS[endpoint].data_key, [])])
-
-        response = _source(endpoint, _make_manager())
-
-        assert response.partition_keys == expected
-        assert response.partition_mode == ("datetime" if expected else None)
-
     @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
     @mock.patch(KALSHI_SESSION_PATCH)
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool, MockSession) -> None:

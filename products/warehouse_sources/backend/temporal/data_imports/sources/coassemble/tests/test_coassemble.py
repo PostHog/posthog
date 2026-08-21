@@ -17,10 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble
     coassemble_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
-    COASSEMBLE_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import COASSEMBLE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -341,21 +338,6 @@ class TestResumeStateCompatibility:
 
 
 class TestCoassembleSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = coassemble_source(
-            workspace_id="ws-1",
-            api_key="sk-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == COASSEMBLE_ENDPOINTS[endpoint].primary_keys
-        # Trackings/courses only guarantee mutable progress timestamps, so we don't partition.
-        assert response.partition_mode is None
-
     def test_trackings_key_includes_injected_course_id(self) -> None:
         # Tracking rows are aggregated across every course; without the parent id in the key,
         # per-course id collisions would seed duplicate rows that every later merge multi-matches.

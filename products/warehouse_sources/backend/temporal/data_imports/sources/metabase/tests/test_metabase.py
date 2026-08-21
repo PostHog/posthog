@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     _redact_values_for_data_requests,
     _resolve_auth_headers,
     get_rows,
-    metabase_source,
     normalize_host,
     validate_credentials,
 )
@@ -264,36 +263,6 @@ class TestValidateCredentials:
             assert msg is not None
             assert "SENTINEL_UPSTREAM_BODY" not in msg
             assert "404" in msg
-
-
-class TestMetabaseSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, partition_key",
-        [
-            ("cards", ["id"], "created_at"),
-            ("dashboards", ["id"], "created_at"),
-            ("databases", ["id"], "created_at"),
-            ("native_query_snippets", ["id"], "created_at"),
-            ("users", ["id"], "date_joined"),
-            ("collections", ["id"], None),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = metabase_source(
-            host="https://x.metabaseapp.com",
-            auth=_api_key_auth(),
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            team_id=1,
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
 
 
 class TestGetRows:

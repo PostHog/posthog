@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_
     get_status_code,
     normalize_account_id,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
-    FIREWORKS_AI_ENDPOINTS,
-    PAGE_SIZE,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import PAGE_SIZE
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -194,23 +191,3 @@ class TestGetStatusCode:
 
         args, _kwargs = session.get.call_args
         assert args[0] == f"{FIREWORKS_AI_BASE_URL}/accounts/my-account/evaluationJobs"
-
-
-class TestFireworksAISourceResponse:
-    @parameterized.expand(list(FIREWORKS_AI_ENDPOINTS.keys()))
-    def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str) -> None:
-        response = fireworks_ai_source(
-            api_key="fw_test",
-            account_id="my-account",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=_make_manager(),
-        )
-        cfg = FIREWORKS_AI_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == cfg.primary_keys
-        # Partition on the stable creation timestamp — never updateTime — so partitions
-        # don't rewrite on every sync.
-        assert response.partition_keys == [cfg.partition_key]
-        assert response.partition_mode == "datetime"

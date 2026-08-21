@@ -164,16 +164,6 @@ class TestCheckAccess:
 
 
 class TestConfigCatSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession: MagicMock) -> None:
-        _wire(MockSession.return_value, [_response([])])
-        response = configcat_source(username="user", password="pass", endpoint=endpoint, team_id=1, job_id="j")
-        assert response.name == endpoint
-        assert response.primary_keys == CONFIGCAT_ENDPOINTS[endpoint].primary_keys
-        # The list endpoints expose no stable timestamp, so we don't partition.
-        assert response.partition_mode is None
-
     def test_primary_keys_are_per_endpoint(self) -> None:
         assert CONFIGCAT_ENDPOINTS["products"].primary_keys == ["productId"]
         assert CONFIGCAT_ENDPOINTS["organizations"].primary_keys == ["organizationId"]

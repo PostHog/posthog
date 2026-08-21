@@ -295,23 +295,3 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("tok")
         assert mock_session.return_value.get.call_args.args[0] == f"{VANTAGE_BASE_URL}/ping"
-
-
-class TestSourceResponse:
-    @parameterized.expand([("cost_reports", "created_at"), ("workspaces", "created_at")])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_datetime_partitioning_on_created_at(self, endpoint: str, partition_key: str, _MockSession) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.primary_keys == ["token"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-
-    @parameterized.expand([("teams",), ("users",), ("report_notifications",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_partitioning_when_no_stable_created_at(self, endpoint: str, _MockSession) -> None:
-        # These objects carry no creation timestamp; partitioning on a missing field would break sync.
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-        assert response.primary_keys == ["token"]

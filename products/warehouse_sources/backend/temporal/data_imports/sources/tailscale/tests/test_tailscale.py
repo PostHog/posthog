@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tailscale.
     _parse_retry_after,
     get_rows,
     normalize_tailnet,
-    tailscale_source,
     validate_credentials,
 )
 
@@ -110,37 +109,6 @@ class TestTailscaleAuth:
     def test_missing_credentials_raises_auth_error(self):
         with pytest.raises(TailscaleAuthError):
             TailscaleAuth().get_headers()
-
-
-class TestTailscaleSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, partition_key",
-        [
-            ("devices", ["id"], None),
-            ("users", ["id"], None),
-            ("keys", ["id"], None),
-            ("configuration_audit_logs", None, "eventTime"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, partition_key):
-        response = tailscale_source(
-            api_key="tskey-api-x",
-            client_id=None,
-            client_secret=None,
-            tailnet=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
-        if partition_key:
-            assert response.partition_keys == [partition_key]
-            assert response.partition_mode == "datetime"
-        else:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
 
 
 class TestGetRows:

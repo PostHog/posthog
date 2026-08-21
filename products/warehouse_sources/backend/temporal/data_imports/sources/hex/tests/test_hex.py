@@ -175,35 +175,6 @@ class TestValidateCredentials:
             patched.return_value.get.assert_not_called()
 
 
-class TestHexSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, sort_mode",
-        [
-            ("projects", ["id"], "asc"),
-            ("project_runs", ["projectId", "runId"], "desc"),
-            ("users", ["id"], "asc"),
-            ("groups", ["id"], "asc"),
-            ("collections", ["id"], "asc"),
-        ],
-    )
-    def test_response_shape(self, endpoint, primary_keys, sort_mode):
-        response = _source(endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-
-    def test_projects_partitioned_on_created_at(self):
-        response = _source(endpoint="projects")
-        assert response.partition_keys == ["createdAt"]
-        assert response.partition_mode == "datetime"
-
-    def test_project_runs_not_partitioned(self):
-        # startTime is null for pending runs, so runs can't be datetime-partitioned.
-        response = _source(endpoint="project_runs")
-        assert response.partition_keys is None
-        assert response.partition_mode is None
-
-
 class TestHexCursorPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_after_cursor_across_pages(self, MockSession):

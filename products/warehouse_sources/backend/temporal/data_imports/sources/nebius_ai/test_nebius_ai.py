@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.
     NebiusAIResumeConfig,
     _build_url,
     get_rows,
-    nebius_ai_source,
     validate_credentials,
 )
 
@@ -251,27 +250,3 @@ class TestFetchPage:
             result = nebius_ai._fetch_page(session, f"{NEBIUS_AI_BASE_URL}/models", {}, MagicMock())
         assert result == {"data": []}
         assert session.get.call_count == 2
-
-
-class TestSourceResponse:
-    @parameterized.expand(
-        [
-            ("models", "created", False),
-            ("files", "created_at", True),
-            ("batches", "created_at", True),
-            ("fine_tuning_jobs", "created_at", True),
-        ]
-    )
-    def test_partition_and_pk_per_endpoint(self, endpoint: str, partition_key: str, _paginated: bool) -> None:
-        response = nebius_ai_source(
-            api_key="nbk_test",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
-        # These OpenAI-style list endpoints return newest-first.
-        assert response.sort_mode == "desc"

@@ -230,12 +230,6 @@ class TestSourceResponse:
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
 
-    def test_unpartitioned_endpoint_has_no_partitioning(self) -> None:
-        response = _source("labels", _make_manager())
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("bad_subdomain", ["", "has space", "bad/slash", "a.b", "http://x"])

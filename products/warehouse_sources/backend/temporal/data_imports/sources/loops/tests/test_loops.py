@@ -160,29 +160,6 @@ class TestLoopsSource:
         assert sent_params == [expected_params]
         manager.save_state.assert_not_called()
 
-    @pytest.mark.parametrize("endpoint", list(LOOPS_ENDPOINTS.keys()))
-    def test_source_response_primary_and_partition_keys(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        source_response = loops_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="test_job",
-            resumable_source_manager=manager,
-        )
-
-        endpoint_config = LOOPS_ENDPOINTS[endpoint]
-        assert source_response.name == endpoint
-        assert source_response.primary_keys == [endpoint_config.primary_key]
-        if endpoint_config.partition_key:
-            assert source_response.partition_keys == [endpoint_config.partition_key]
-            assert source_response.partition_mode == "datetime"
-        else:
-            assert source_response.partition_keys is None
-            assert source_response.partition_mode is None
-
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(

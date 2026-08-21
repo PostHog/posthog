@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
     _should_stop_desc,
     get_rows,
     resolve_base_url,
-    trigger_dev_source,
     validate_base_url,
     validate_credentials,
 )
@@ -298,28 +297,3 @@ class TestFetchPageRetries:
         with pytest.raises(requests.HTTPError):
             trigger_dev._fetch_page(session, f"{BASE_URL}/api/v1/runs", {}, MagicMock())
         assert session.get.call_count == 1
-
-
-class TestSourceResponseSortMode:
-    @parameterized.expand([("runs", "desc"), ("schedules", "asc"), ("queues", "asc")])
-    def test_sort_mode_matches_arrival_order(self, endpoint: str, expected: str) -> None:
-        # Runs arrive newest-first; declaring asc there would corrupt the incremental watermark.
-        response = trigger_dev_source(
-            api_key="tr_prod_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.sort_mode == expected
-
-    def test_runs_partitioned_on_created_at(self, _name: str = "") -> None:
-        response = trigger_dev_source(
-            api_key="tr_prod_x",
-            base_url=BASE_URL,
-            endpoint="runs",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_keys == ["createdAt"]
-        assert response.primary_keys == ["id"]

@@ -15,10 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.
     paperform_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import (
-    ENDPOINTS,
-    PAPERFORM_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.paperform.settings import PAPERFORM_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module; validate_credentials
 # builds its own tracked session in the paperform module.
@@ -358,25 +355,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_shape(self, endpoint: str) -> None:
-        config = PAPERFORM_ENDPOINTS[endpoint]
-        response = paperform_source(
-            api_key="pf-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-
     def test_form_scoped_endpoints_include_form_id_in_primary_key(self) -> None:
         # These tables aggregate rows across every form, so per-form identifiers (submission id,
         # field key, SKU, coupon code) are only unique with the parent form id in the key.

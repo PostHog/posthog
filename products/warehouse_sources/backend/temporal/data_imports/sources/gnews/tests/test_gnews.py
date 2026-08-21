@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnew
     _flatten_article,
     _format_from_value,
     get_rows,
-    gnews_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.settings import GNEWS_ENDPOINTS, PAGE_SIZE
@@ -270,15 +269,3 @@ class TestResumableStateSaving:
         assert 1 in saved_pages
         assert 2 in saved_pages
         assert max(saved_pages) <= 2
-
-
-class TestGnewsSource:
-    @parameterized.expand([("articles",), ("top_headlines",)])
-    def test_source_response_contract(self, endpoint: str) -> None:
-        response = gnews_source("k", endpoint, "posthog", "general", None, None, MagicMock(), _resume_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["url"]
-        # GNews only offers newest-first ordering; asc would corrupt the incremental watermark.
-        assert response.sort_mode == "desc"
-        assert response.partition_keys == ["publishedAt"]
-        assert response.partition_mode == "datetime"

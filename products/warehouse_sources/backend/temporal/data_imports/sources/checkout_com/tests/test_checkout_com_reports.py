@@ -508,30 +508,6 @@ class TestDiscoverReportTypes:
 
 
 class TestCheckoutComReportsSourceResponse:
-    @pytest.mark.parametrize(
-        "schema_name, primary_keys, partition_keys",
-        [
-            ("reports", ["id"], ["created_on"]),
-            ("balances_report", ["file_id", "file_row_index"], ["report_created_on"]),
-            # Report types Checkout.com regenerates over an overlapping range key on the
-            # action instead, and stay unpartitioned: the merge matches on primary key and
-            # partition together, so partitioning on report creation time would put a
-            # restatement in a different partition and insert a copy instead of updating.
-            ("financial_actions_report", ["action_id", "breakdown_type"], None),
-            ("financial_actions_by_payout_report", ["action_id", "breakdown_type"], None),
-        ],
-    )
-    def test_response_metadata(self, schema_name, primary_keys, partition_keys):
-        response = _source(schema_name)
-
-        assert response.name == schema_name
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == partition_keys
-        assert response.partition_mode == ("datetime" if partition_keys else None)
-        # Reports are re-sorted oldest-first before yielding, so ascending watermark
-        # commits are safe.
-        assert response.sort_mode == "asc"
-
     def test_unknown_schema_raises(self):
         with pytest.raises(ValueError):
             _source("nope")

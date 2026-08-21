@@ -278,21 +278,3 @@ class TestValidateCredentials:
         called_url = call.args[0] if call.args else call.kwargs["url"]
         assert called_url == APPS_URL
         assert call.kwargs["headers"]["Authorization"] == "Bearer key"
-
-
-class TestAirOpsSourceResponse:
-    @pytest.mark.parametrize(
-        ("endpoint", "partition_key", "primary_keys"),
-        [
-            ("apps", "created_at", ["id"]),
-            # Executions are keyed by (app id, id) because execution ids are scoped per app.
-            ("executions", "createdAt", ["airops_app_id", "id"]),
-        ],
-    )
-    def test_partition_and_primary_keys(self, endpoint: str, partition_key: str, primary_keys: list[str]) -> None:
-        # Partition on a STABLE creation timestamp (never updated_at), which differs per endpoint.
-        response = _source(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.partition_keys == [partition_key]
-        assert response.partition_mode == "datetime"

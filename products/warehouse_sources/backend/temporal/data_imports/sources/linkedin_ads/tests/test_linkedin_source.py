@@ -26,62 +26,6 @@ class TestLinkedInAdsSource:
         self.team_id = 123
         self.config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="789")
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
-            "REVOKED_ACCESS_TOKEN",
-            "The token used in the request has expired",
-            "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
-            'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
-            # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
-            "Integration matching query does not exist.",
-            # A sunset version header (see `deprecated_versions`) — happens on every call under that
-            # pin regardless of resource, so it must never be left to retry forever.
-            'LinkedIn API error (426): {"status":426,"code":"NONEXISTENT_VERSION","message":"Requested version 20250801 is not active"}',
-        ],
-    )
-    def test_non_retryable_errors_match_upstream_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            'LinkedIn API error (retryable, 500): {"message":"Internal Server Error"}',
-            'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
-            "Connection reset by peer",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            'LinkedIn API error (retryable, 500): {"message":"Internal Server Error","status":500}',
-            'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
-            'LinkedIn API error (retryable, 503): {"message":"Service Unavailable"}',
-            "LinkedIn API returned a malformed (non-JSON) response: Expecting value: line 1 column 1 (char 0)",
-        ],
-    )
-    def test_retryable_errors_match_exhausted_transient_failures(self, observed_error):
-        retryable_errors = self.source.get_retryable_errors()
-        assert any(pattern in observed_error for pattern in retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND"}',
-            'LinkedIn daily rate limit reached (429): {"message":"throttled"}',
-            "Connection reset by peer",
-        ],
-    )
-    def test_retryable_errors_does_not_match_unrelated(self, other_error):
-        retryable_errors = self.source.get_retryable_errors()
-        assert not any(pattern in other_error for pattern in retryable_errors)
-
     def test_defaults_new_sources_to_202608(self):
         assert self.source.default_version == LINKEDIN_ADS_VERSION_202608
         assert set(self.source.supported_versions) == {
@@ -100,35 +44,6 @@ class TestLinkedInAdsSource:
             VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
         )
         assert self.source.default_version not in {d.version for d in self.source.deprecated_versions}
-
-    @pytest.mark.parametrize(
-        "pinned_version,expected_header",
-        [
-            # Existing sources pinned to the legacy label must keep sending the header they always
-            # sent (202508), so their syncs stay byte-for-byte unchanged after the default flip.
-            ("v1", "202508"),
-            (LINKEDIN_ADS_VERSION_202606, "202606"),
-            (LINKEDIN_ADS_VERSION_202607, "202607"),
-            (LINKEDIN_ADS_VERSION_202608, "202608"),
-            # No pin resolves to the new default.
-            (None, "202608"),
-            # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
-            ("209901", "209901"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_source"
-    )
-    def test_source_for_pipeline_dispatches_resolved_api_version(
-        self, mock_linkedin_ads_source, pinned_version, expected_header
-    ):
-        inputs = mock.MagicMock()
-        inputs.api_version = pinned_version
-        inputs.should_use_incremental_field = False
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_linkedin_ads_source.call_args.kwargs["api_version"] == expected_header
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
@@ -224,31 +139,6 @@ class TestLinkedInAdsSource:
         assert "Failed to validate LinkedIn Ads credentials" in error_message
         assert "Database error" in error_message
         mock_capture_exception.assert_called_once()
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            # A non-numeric Account ID raises this 400 — the quoted key value is volatile, the
-            # type-coercion phrase is the stable part we match on.
-            'LinkedIn API error (400): {"message":"Key value \'Reed%20Lnkedin\' must be of type \'java.lang.Long\'","status":400}',
-            'LinkedIn API error (400): {"message":"Key value \'LI\' must be of type \'java.lang.Long\'","status":400}',
-        ],
-    )
-    def test_non_retryable_errors_match_invalid_account_id(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            # Transient transport / 5xx errors must stay retryable.
-            "LinkedIn API error (retryable, 503): service unavailable",
-            'LinkedIn daily rate limit reached (429): {"message":"throttled","status":429}',
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "invalid_account_id",

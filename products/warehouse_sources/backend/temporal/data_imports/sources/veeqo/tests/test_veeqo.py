@@ -354,27 +354,3 @@ class TestPagination:
         # The framework api_key auth exposes the key via secret_values(), which the
         # tracked session receives as redact_values.
         assert "secret-key" in MockSession.call_args.kwargs["redact_values"]
-
-
-class TestVeeqoSourceResponse:
-    @parameterized.expand([(name,) for name in VEEQO_ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = veeqo_source(
-            "key",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        config = VEEQO_ENDPOINTS[endpoint]
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Veeqo documents no list ordering, so the watermark must only commit after
-        # a successful sync (desc semantics) — asc would checkpoint ≈now mid-sync.
-        assert response.sort_mode == "desc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None

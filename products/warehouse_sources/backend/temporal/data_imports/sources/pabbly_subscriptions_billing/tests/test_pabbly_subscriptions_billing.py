@@ -15,11 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_sub
     PabblyRetryableError,
     check_access,
     get_rows,
-    pabbly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.settings import (
-    ENDPOINTS,
     PABBLY_ENDPOINTS,
 )
 
@@ -375,25 +373,6 @@ class TestCheckAccess:
 
 
 class TestPabblySourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        config = PABBLY_ENDPOINTS[endpoint]
-        response = pabbly_source(
-            api_key="pabbly-key",
-            secret_key="pabbly-secret",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_fan_out_children_key_on_parent_and_id(self) -> None:
         # Pabbly doesn't document that child ids are globally unique, so a per-parent id must
         # still be unique table-wide via the composite key.

@@ -248,30 +248,6 @@ class TestValidateCredentials:
 
 
 class TestSelectStarSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        # Construction does no I/O (items is a lazy generator), so no session patch is needed.
-        response = select_star_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == ["guid"]
-        assert response.sort_mode == "asc"
-
-    def test_tables_and_dashboards_are_partitioned(self) -> None:
-        for endpoint in ("Tables", "Dashboards"):
-            response = select_star_source(
-                "tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock()
-            )
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [SELECTSTAR_ENDPOINTS[endpoint].partition_key]
-
-    def test_endpoints_without_a_stable_created_field_are_not_partitioned(self) -> None:
-        for endpoint in ("Columns", "Databases", "Schemas", "Tags"):
-            response = select_star_source(
-                "tok", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock()
-            )
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_every_endpoint_uses_guid_primary_key(self) -> None:
         assert all(config.primary_keys == ["guid"] for config in SELECTSTAR_ENDPOINTS.values())
         assert set(SELECTSTAR_ENDPOINTS) == set(ENDPOINTS)

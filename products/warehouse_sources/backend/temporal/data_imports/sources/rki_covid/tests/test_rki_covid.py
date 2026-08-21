@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.
     _fetch,
     build_url,
     get_rows,
-    rki_covid_source,
     validate_connection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rki_covid.settings import RKI_COVID_ENDPOINTS
@@ -178,30 +177,6 @@ class TestRKICovid:
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
             _collect_rows(get_rows("germany_history_cases", 90, MagicMock()))
         assert session.get.call_args.args[0] == "https://api.corona-zahlen.org/germany/history/cases/90"
-
-    @parameterized.expand(
-        [
-            ("germany", None, None),
-            ("germany_age_groups", ["age_group"], None),
-            ("germany_history_cases", ["date"], "date"),
-            ("germany_history_hospitalization", ["date"], "date"),
-            ("states", ["abbreviation"], None),
-            ("districts", ["ags"], None),
-            ("testing_history", ["calendarWeek"], None),
-        ]
-    )
-    def test_rki_covid_source_maps_primary_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str] | None, partition_key: str | None
-    ) -> None:
-        response = rki_covid_source(endpoint, None, MagicMock())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        if partition_key is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-        else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [partition_key]
 
     @parameterized.expand(
         [

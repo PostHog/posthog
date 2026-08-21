@@ -259,17 +259,6 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(STATUSPAGE_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint):
-        config = STATUSPAGE_ENDPOINTS[endpoint]
-        response = statuspage_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
     @pytest.mark.parametrize(
         "endpoint, expected_keys",
         [

@@ -308,20 +308,3 @@ class TestPagination:
 
         assert params[0]["updated_at_min"] == "2026-01-01T00:00:00"
         assert params[0]["sort_by"] == "updated_at-asc"
-
-
-class TestRechargeSource:
-    @parameterized.expand([(name,) for name in RECHARGE_ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = recharge_source(
-            "token",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
