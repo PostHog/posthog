@@ -8,7 +8,6 @@
                 "backend/routes.py",
                 "backend/hogql_queries/**",
                 "backend/max_tools.py",
-                "backend/models/team_customer_analytics_config.py",
                 "backend/tasks/**",
                 "backend/temporal/**",
                 "backend/models/**",
