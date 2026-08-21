@@ -27,7 +27,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.logic.services.compute_quota import is_billable_compute
+from products.tasks.backend.logic.services.compute_quota import DIRECT_BILLABLE_ORIGIN_PRODUCTS, is_billable_compute
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
@@ -310,7 +310,7 @@ def get_billable_sandbox_compute_usage_by_team(
             user_attributed_at__isnull=False,
             user_attributed_at__lt=end,
         )
-        .filter(Q(origin_product=Task.OriginProduct.USER_CREATED) | Q(origin_product=Task.OriginProduct.LOOP))
+        .filter(Q(origin_product__in=DIRECT_BILLABLE_ORIGIN_PRODUCTS) | Q(origin_product=Task.OriginProduct.LOOP))
         .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
     )
 

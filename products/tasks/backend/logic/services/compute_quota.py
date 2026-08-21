@@ -10,6 +10,7 @@ from products.tasks.backend.models import Task, TaskClientProvenance
 
 COMPUTE_QUOTA_DENIAL_CODE = "posthog_code_billing_limit_exceeded"
 ORGANIZATION_DEACTIVATED_DENIAL_CODE = "organization_deactivated"
+DIRECT_BILLABLE_ORIGIN_PRODUCTS = frozenset({Task.OriginProduct.USER_CREATED, Task.OriginProduct.CANVAS})
 
 
 class ComputeQuotaDenialReason(StrEnum):
@@ -47,7 +48,7 @@ def is_billable_compute(
 ) -> bool:
     if client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
         return False
-    if origin_product == Task.OriginProduct.USER_CREATED:
+    if origin_product in DIRECT_BILLABLE_ORIGIN_PRODUCTS:
         return True
     return bool(
         origin_product == Task.OriginProduct.LOOP and source_loop_id is not None and source_loop_internal is False

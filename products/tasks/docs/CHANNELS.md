@@ -118,6 +118,7 @@ membership without adding permissions to Task.
   also clears the stored GitHub user-integration preference and any borrowed MCP
   credential owner, posts a system `task_handed_off` announcement into the task's
   thread, and notifies the recipient.
+- Canvas generation tasks use `origin_product: "canvas"`. The Spaces session list exposes this as the Canvas source filter.
 
 ### Canvas endpoints
 

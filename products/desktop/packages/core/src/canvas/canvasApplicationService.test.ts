@@ -84,6 +84,7 @@ describe("CanvasApplicationService", () => {
       adapter: "claude",
       model: "model-1",
       allowNoRepo: true,
+      originProduct: "canvas",
     });
     expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
     expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");

@@ -26,16 +26,14 @@ from products.tasks.backend.logic.services.permission_broker import (
     try_auto_respond_permission_request,
 )
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.models import (
-    Task as TaskModel,
-    TaskRun as TaskRunModel,
-)
+from products.tasks.backend.models import TaskRun as TaskRunModel
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
     is_slack_interaction_state,
+    is_user_driven_origin_product,
 )
 
 from ee.hogai.sandbox import is_turn_complete
@@ -124,7 +122,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     # flight; see _background_heartbeat), so the relay never resets a timer for
     # a run that is genuinely idle.
     origin_product = task_run.task.origin_product
-    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
+    is_user_origin = is_user_driven_origin_product(origin_product)
     inactivity_timeout_seconds = resolve_inactivity_timeout(
         is_user_origin=is_user_origin, origin_product=origin_product, state=task_run.state
     ).total_seconds()

@@ -47,6 +47,7 @@ export interface TaskCreationInput {
   customImageId?: string;
   cloudPrAuthorshipMode?: PrAuthorshipMode;
   cloudRunSource?: CloudRunSource;
+  originProduct?: Task["origin_product"];
   /**
    * When true, the cloud run agent pushes its work and opens a draft PR on
    * completion without waiting for an explicit ask (Settings → Advanced).

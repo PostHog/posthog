@@ -817,7 +817,7 @@ export class TaskCreationSaga extends Saga<
               : undefined,
           origin_product: input.signalReportId
             ? "signal_report"
-            : "user_created",
+            : (input.originProduct ?? "user_created"),
           // The server associates the task with the report and records the implementation
           // task_run artefact — no relationship label is sent (associations are unlabelled).
           branch:
