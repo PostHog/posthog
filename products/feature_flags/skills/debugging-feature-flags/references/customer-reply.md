@@ -121,10 +121,9 @@ Happy to take another look once the change is out if the value doesn't move.
 
 ## Worked example — "it returns false with no conditions, but the testing tab says true"
 
-Use when the flag is restricted by evaluation runtime and the customer's caller isn't being classified
-as that runtime. It has to account for the testing tab disagreeing, since that's usually the customer's
-main piece of evidence and ignoring it reads as not having understood the ticket. Lead with the config
-change, which is immediate, and treat the SDK upgrade as the durable fix.
+Use when the flag is runtime-scoped and the customer's caller isn't classified as that runtime. It has
+to account for the testing tab disagreeing, since that's usually their main evidence. Lead with the
+config change, which is immediate; the SDK upgrade is the durable fix.
 
 ```text
 Hi Robin,
