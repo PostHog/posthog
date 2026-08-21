@@ -45,6 +45,9 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToWebsiteCommandCenter: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
+  ActivityHoverCard: () => <div>Recent activity card</div>,
+}));
 
 import { useChannelPaneStore } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
@@ -84,7 +87,7 @@ describe("NavRail", () => {
 
   it("shows the space tree without routing to a space", async () => {
     const user = userEvent.setup();
-    useNavRailStore.setState({ pane: "activity" });
+    mocks.view = { type: "activity" };
     render(<NavRail />);
 
     await user.click(screen.getByLabelText("Spaces"));
@@ -122,6 +125,30 @@ describe("NavRail", () => {
       "data-selected",
       "true",
     );
+  });
+
+  it("peeks at the feed on hover while Activity is somewhere else", async () => {
+    const user = userEvent.setup();
+    render(<NavRail />);
+
+    await user.hover(screen.getByLabelText("Activity"));
+
+    expect(
+      await screen.findByText("Recent activity card", {}, { timeout: 1_000 }),
+    ).toBeInTheDocument();
+  });
+
+  it("drops the peek once Activity is the destination", async () => {
+    const user = userEvent.setup();
+    mocks.view = { type: "activity" };
+    render(<NavRail />);
+
+    const bell = screen.getByLabelText("Activity");
+    expect(bell).not.toHaveAttribute("aria-haspopup");
+    await user.hover(bell);
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
   });
 
   it("counts a channel or task as part of Spaces", () => {

@@ -8,7 +8,10 @@ import {
 } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
   Kbd,
+  Popover,
+  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -19,6 +22,7 @@ import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
+import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import {
@@ -47,7 +51,13 @@ import {
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import {
+  type ComponentPropsWithRef,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -96,6 +106,97 @@ function NavIcon({
       </TooltipContent>
     </Tooltip>
   );
+}
+
+interface NavButtonProps extends ComponentPropsWithRef<"button"> {
+  icon: ReactNode;
+  label: string;
+  isActive: boolean;
+  badge?: ReactNode;
+}
+
+// Same quill Button as NavIcon above — this variant only exists because the
+// Activity entry is a Popover trigger, so it needs to forward the trigger's
+// props and ref. Hand-rolling the button here left it a size larger than its
+// neighbours.
+function NavButton({
+  icon,
+  label,
+  isActive,
+  onClick,
+  badge,
+  className,
+  ref,
+  ...buttonProps
+}: NavButtonProps) {
+  return (
+    <Button
+      {...buttonProps}
+      ref={ref}
+      type="button"
+      variant="default"
+      size="icon"
+      aria-label={label}
+      data-selected={isActive || undefined}
+      onClick={onClick}
+      className={cn(
+        "relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground",
+        className,
+      )}
+    >
+      {icon}
+      {badge}
+    </Button>
+  );
+}
+
+function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        openOnHover
+        delay={300}
+        closeDelay={100}
+        onClick={(event) => event.preventBaseUIHandler()}
+        render={trigger}
+      />
+      {open && (
+        <ActivityHoverCard side="right" onClose={() => setOpen(false)} />
+      )}
+    </Popover>
+  );
+}
+
+/**
+ * The bell, with a peek at the feed on hover.
+ *
+ * The card is for reading the feed from wherever you are without giving up the
+ * screen you are on. Once Activity is the destination the feed is already
+ * beside you, so hovering its own entry would only cover it with a copy.
+ */
+function ActivityNavItem({
+  isActive,
+  unreadCount,
+  onClick,
+}: {
+  isActive: boolean;
+  unreadCount: number;
+  onClick: () => void;
+}) {
+  const bell = (
+    <NavButton
+      icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
+      label="Activity"
+      isActive={isActive}
+      onClick={onClick}
+      badge={<CountBadge count={unreadCount} className={ICON_BADGE_CLASS} />}
+    />
+  );
+
+  if (isActive) return bell;
+  return <ActivityHoverPopover trigger={bell} />;
 }
 
 /**
@@ -216,19 +317,10 @@ export function NavRail() {
           // and the pane beside it don't move, so nothing is lost by looking.
           onClick={withTrack("spaces", go("spaces", showChannelList))}
         />
-        <NavIcon
-          icon={
-            <BellIcon
-              size={16}
-              weight={railPane === "activity" ? "fill" : "regular"}
-            />
-          }
-          label="Activity"
+        <ActivityNavItem
           isActive={railPane === "activity"}
+          unreadCount={unseenActivity}
           onClick={withTrack("activity", goActivity)}
-          badge={
-            <CountBadge count={unseenActivity} className={ICON_BADGE_CLASS} />
-          }
         />
         <NavIcon
           icon={

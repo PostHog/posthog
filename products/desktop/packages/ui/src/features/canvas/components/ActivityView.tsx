@@ -146,10 +146,11 @@ export function ActivityRow({
 
   return (
     <div className="group relative">
-      <button
+      <Button
         type="button"
         onClick={openTask}
-        className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-fill-secondary" : ""}`}
+        left
+        className={`h-auto w-full text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-primary/10 outline outline-primary/20 hover:bg-primary/15" : ""}`}
       >
         <span className="relative mt-0.5 shrink-0">
           {isAgentActivity ? (
@@ -194,9 +195,9 @@ export function ActivityRow({
               </Text>
             )}
           </span>
-          <Text size="1" className="block truncate text-muted-foreground">
+          <span className="block truncate text-muted-foreground text-xs">
             {item.taskTitle}
-          </Text>
+          </span>
           {item.snippet && !compact && (
             <MentionText
               content={item.snippet}
@@ -205,11 +206,11 @@ export function ActivityRow({
             />
           )}
         </span>
-      </button>
+      </Button>
       {compact && (
         <Text
           size="1"
-          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground"
+          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground text-xs"
         >
           {formatRelativeTimeShort(item.activityAt)}
         </Text>

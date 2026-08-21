@@ -42,7 +42,7 @@ function RowStar({ channel }: { channel: Channel }) {
       }}
       // Parks in the row's reserved well: 8px padding + 3px gap = 11px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[3px] text-muted-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-2 text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
     </Button>
@@ -69,14 +69,13 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   });
 
   return (
-    <div className="relative h-10 border-border border-b px-2 pt-2 pb-2">
+    <div className="relative h-10 border-border border-b px-1.5 pt-1.5 pb-2">
       <Tooltip>
         <TooltipTrigger
           render={
             <Button
               variant="default"
               left
-              size="sm"
               aria-label="Back to spaces"
               onClick={() => {
                 track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
