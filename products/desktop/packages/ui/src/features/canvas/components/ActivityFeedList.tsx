@@ -1,4 +1,5 @@
 import { BellIcon, ChecksIcon } from "@phosphor-icons/react";
+import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
   Button,
   cn,
@@ -30,6 +31,13 @@ import {
 interface ActivityFeedListProps {
   /** Called when a row navigates away — the popover uses it to close itself. */
   onNavigate?: () => void;
+  /**
+   * Read the picked row in the pane beside the feed instead of routing to it.
+   * The rail's Activity pane sets this; the code layout's popover does not,
+   * because it has no pane to render into.
+   */
+  onSelectItem?: (item: TaskActivityItem) => void;
+  selectedId?: string;
   className?: string;
 }
 
@@ -40,6 +48,8 @@ interface ActivityFeedListProps {
  */
 export function ActivityFeedList({
   onNavigate,
+  onSelectItem,
+  selectedId,
   className,
 }: ActivityFeedListProps) {
   const client = useOptionalAuthenticatedClient();
@@ -138,6 +148,8 @@ export function ActivityFeedList({
                 blockedTaskIds={blockedTaskIds}
                 surface="activity_panel"
                 onNavigate={onNavigate}
+                onSelect={onSelectItem}
+                isSelected={item.id === selectedId}
                 compact
               />
             ))}

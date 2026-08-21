@@ -1,4 +1,4 @@
-import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
+import { StarIcon, XIcon } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -97,9 +97,13 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 showStar && "pr-8",
               )}
             >
-              <CaretLeftIcon
-                size={12}
-                className="shrink-0 text-muted-foreground"
+              {/* The way out of a space, in the brand's own colour: a muted
+                  caret read as decoration on a header rather than the control
+                  it is, and people could not find their way back to the list. */}
+              <XIcon
+                size={14}
+                weight="bold"
+                className="shrink-0 text-primary"
               />
               {/* Only #me still has a glyph under the layout, and its well is
                   drawn only when there's something in it — an empty 16px column
@@ -141,7 +145,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
             </Button>
           }
         />
-        <TooltipContent side="bottom">Go back</TooltipContent>
+        <TooltipContent side="bottom">Back to spaces</TooltipContent>
       </Tooltip>
       {/* #me can't be starred, so its well stays empty — a greyed-out star read
           as a control you were being denied. The well itself is unconditional

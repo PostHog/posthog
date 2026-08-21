@@ -4,6 +4,7 @@ import {
   GearSix,
   HouseSimple,
   Lightning,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -20,7 +21,7 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import {
-  showChannelsRailPane,
+  type NavRailPane,
   useNavRailStore,
 } from "@posthog/ui/features/canvas/stores/navRailStore";
 import {
@@ -43,7 +44,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -95,15 +96,37 @@ function NavIcon({
 }
 
 /**
- * The app's leftmost column: the project menu on top, then every destination as
- * an icon.
+ * Which destination a route belongs to, so a deep link, a back button or a
+ * ⌘1-9 jump lights the same entry the rail would have. Anything reached through
+ * the space tree — a channel, a task, a new-task screen — belongs to Spaces.
+ */
+function paneForView(viewType: string): NavRailPane {
+  switch (viewType) {
+    case "home":
+      return "home";
+    case "inbox":
+      return "inbox";
+    case "command-center":
+      return "command-center";
+    case "loops":
+      return "loops";
+    case "activity":
+      return "activity";
+    default:
+      return "spaces";
+  }
+}
+
+/**
+ * The app's leftmost column: every destination as an icon, with the project
+ * menu at its foot.
  *
  * It sits outside the resizable sidebar, so collapsing that sidebar leaves the
- * destinations reachable. Two of them own the column to the rail's right —
- * Home shows the channel tree, Activity shows the activity feed — and picking
- * one is view state, not a route, which is why they set the pane rather than
- * navigate. The rest have no sidebar list of their own, so they route the main
- * pane and leave the column showing whatever it was showing.
+ * destinations reachable. Two of them own the column to the rail's right:
+ * Spaces draws the channel tree, Activity draws the feed. Both are view state
+ * rather than routes — picking them must not take you off the screen you are
+ * on — so they set the pane and navigate nothing. The rest are whole-screen
+ * destinations: they route, and the column collapses away.
  */
 export function NavRail() {
   const view = useAppView();
@@ -127,19 +150,17 @@ export function NavRail() {
     action();
   };
 
-  // A deep link to the Activity page lights the same entry, so the rail agrees
-  // with the screen even when the route, not the rail, put you there.
-  const isActivity = railPane === "activity" || view.type === "activity";
-  const isInbox = view.type === "inbox";
-  const isCommandCenter = view.type === "command-center";
-  const isLoops = view.type === "loops";
-  // Home stays lit while you read a channel or a task: those are all reached
-  // through its tree, so the rail keeps pointing at where you came in.
-  const isHome = !isActivity && !isInbox && !isCommandCenter && !isLoops;
+  // Follow the route, but only when the route itself changes: Spaces and
+  // Activity deliberately leave the URL alone, and re-deriving on every render
+  // would snap the pane straight back to whatever screen is behind them.
+  const routePane = paneForView(view.type);
+  useEffect(() => {
+    setRailPane(routePane);
+  }, [routePane, setRailPane]);
 
-  const goHome = () => {
-    showChannelsRailPane();
-    navigateToHome();
+  const go = (pane: NavRailPane, navigate?: () => void) => () => {
+    setRailPane(pane);
+    navigate?.();
   };
 
   return (
@@ -154,28 +175,52 @@ export function NavRail() {
         style={{ width: NAV_RAIL_WIDTH }}
       >
         <NavIcon
-          icon={<HouseSimple size={16} weight={isHome ? "fill" : "regular"} />}
+          icon={
+            <HouseSimple
+              size={16}
+              weight={railPane === "home" ? "fill" : "regular"}
+            />
+          }
           label="Home"
-          isActive={isHome}
-          onClick={withTrack("home", goHome)}
+          isActive={railPane === "home"}
+          onClick={withTrack("home", go("home", navigateToHome))}
         />
         <NavIcon
           icon={
-            <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
+            <SquaresFourIcon
+              size={16}
+              weight={railPane === "spaces" ? "fill" : "regular"}
+            />
+          }
+          label="Spaces"
+          isActive={railPane === "spaces"}
+          onClick={withTrack("spaces", go("spaces"))}
+        />
+        <NavIcon
+          icon={
+            <EnvelopeSimple
+              size={16}
+              weight={railPane === "inbox" ? "fill" : "regular"}
+            />
           }
           label="Inbox"
           shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={isInbox}
-          onClick={withTrack("inbox", navigateToInbox)}
+          isActive={railPane === "inbox"}
+          onClick={withTrack("inbox", go("inbox", navigateToInbox))}
           badge={
             <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
           }
         />
         <NavIcon
-          icon={<BellIcon size={16} weight={isActivity ? "fill" : "regular"} />}
+          icon={
+            <BellIcon
+              size={16}
+              weight={railPane === "activity" ? "fill" : "regular"}
+            />
+          }
           label="Activity"
-          isActive={isActivity}
-          onClick={withTrack("activity", () => setRailPane("activity"))}
+          isActive={railPane === "activity"}
+          onClick={withTrack("activity", go("activity"))}
           badge={
             <CountBadge count={unseenActivity} className={ICON_BADGE_CLASS} />
           }
@@ -184,12 +229,15 @@ export function NavRail() {
           icon={
             <Lightning
               size={16}
-              weight={isCommandCenter ? "fill" : "regular"}
+              weight={railPane === "command-center" ? "fill" : "regular"}
             />
           }
           label="Command Center"
-          isActive={isCommandCenter}
-          onClick={withTrack("command_center", navigateToWebsiteCommandCenter)}
+          isActive={railPane === "command-center"}
+          onClick={withTrack(
+            "command_center",
+            go("command-center", navigateToWebsiteCommandCenter),
+          )}
           badge={
             <CountBadge
               count={commandCenterCount}
@@ -200,10 +248,15 @@ export function NavRail() {
         />
         {loopsEnabled ? (
           <NavIcon
-            icon={<LoopIcon size={16} weight={isLoops ? "fill" : "regular"} />}
+            icon={
+              <LoopIcon
+                size={16}
+                weight={railPane === "loops" ? "fill" : "regular"}
+              />
+            }
             label="Loops"
-            isActive={isLoops}
-            onClick={withTrack("loops", navigateToLoops)}
+            isActive={railPane === "loops"}
+            onClick={withTrack("loops", go("loops", navigateToLoops))}
           />
         ) : null}
         <div className="mt-auto" />

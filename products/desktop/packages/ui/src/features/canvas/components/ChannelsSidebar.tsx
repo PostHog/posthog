@@ -13,6 +13,7 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
+import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
@@ -22,7 +23,8 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
-  showChannelsRailPane,
+  railPaneHasSidebar,
+  showSpacesRailPane,
   useNavRailStore,
 } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -205,7 +207,7 @@ export function ChannelsSidebar() {
     setCurrentChannel(routeChannelId);
     // Landing on a channel is a request to see the tree it lives in, so the
     // rail comes back off Activity with it.
-    showChannelsRailPane();
+    showSpacesRailPane();
     // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
     // it, so the slider follows the route even if the list was being browsed.
     // Unless the navigation said otherwise: opening a session from the list's
@@ -217,6 +219,8 @@ export function ChannelsSidebar() {
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const railPane = useNavRailStore((s) => s.pane);
+  const selectActivity = useActivityDetailStore((s) => s.select);
+  const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;
 
@@ -242,6 +246,12 @@ export function ChannelsSidebar() {
     routeChannelId,
     setCurrentChannel,
   ]);
+
+  // Home, Inbox, Command Center and Loops are whole-screen destinations with no
+  // list of their own. Nothing to dock, so the column goes rather than standing
+  // there empty — and with it the hover-peek strip, which would otherwise slide
+  // out a blank panel.
+  if (channelsLayout && !railPaneHasSidebar(railPane)) return null;
 
   return (
     <ResizableSidebar
@@ -271,7 +281,7 @@ export function ChannelsSidebar() {
             // curve has to meet its own sides, and a second owner of any one
             // edge (the rail, the sidebar box) doubles that line.
             channelsLayout &&
-              "rounded-tl-sm border-border border-t border-r border-l",
+              "rounded-tl-lg border-border border-t border-r border-l",
           )}
         >
           {!channelsLayout && (
@@ -283,7 +293,11 @@ export function ChannelsSidebar() {
 
           {channelsLayout ? (
             railPane === "activity" ? (
-              <ActivityFeedList className="h-full" />
+              <ActivityFeedList
+                className="h-full"
+                selectedId={selectedActivityId}
+                onSelectItem={selectActivity}
+              />
             ) : (
               <ChannelPanes
                 channelId={currentChannelId}

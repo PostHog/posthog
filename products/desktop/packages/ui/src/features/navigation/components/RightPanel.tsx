@@ -218,8 +218,11 @@ function useDrawnSide(
 }
 
 /** Every side belongs to a session, so nothing below this runs elsewhere. */
-export function RightPanel() {
-  const taskId = useParams({ strict: false }).taskId;
+export function RightPanel({ taskId: override }: { taskId?: string } = {}) {
+  const routeTaskId = useParams({ strict: false }).taskId;
+  // The route names the session on every surface but one: Activity reads a task
+  // into the content pane without routing to it, so it hands the id over.
+  const taskId = override ?? routeTaskId;
   // Keyed by session: carrying per-session state across a navigation draws the
   // previous session's panel over the new one for a frame.
   return taskId ? <SessionRightPanel key={taskId} taskId={taskId} /> : null;

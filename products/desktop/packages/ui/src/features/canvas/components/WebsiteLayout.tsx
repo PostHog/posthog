@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { ActivityDetailPane } from "@posthog/ui/features/canvas/components/ActivityDetailPane";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
@@ -40,11 +41,13 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
+import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
 import {
@@ -360,19 +363,31 @@ export function WebsiteLayout() {
 
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
-  const taskId = params.taskId;
+
+  // Activity reads a task into this pane without routing to it, so the session
+  // the chrome is about comes from the feed's selection rather than the URL.
+  // Everything downstream — the header's actions, the right panel, which space
+  // the mention rules come from — has to follow that same session.
+  const railPane = useNavRailStore((s) => s.pane);
+  const selectedActivity = useActivityDetailStore((s) => s.selected);
+  const showActivityDetail = spacesLayout && railPane === "activity";
+  const taskId = showActivityDetail ? selectedActivity?.taskId : params.taskId;
+  const taskChannelId = showActivityDetail
+    ? (selectedActivity?.channelId ?? undefined)
+    : channelId;
+
   const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
-  const { tasks: filedTasks } = useChannelTasks(channelId);
+  const { tasks: filedTasks } = useChannelTasks(taskChannelId);
   const channelTask = filedTasks.some((record) => record.taskId === taskId)
     ? tasks?.find((task) => task.id === taskId)
     : undefined;
 
   const { channels } = useChannels();
   const mentionsDisabledReason =
-    channels.find((channel) => channel.id === channelId)?.channelType ===
+    channels.find((channel) => channel.id === taskChannelId)?.channelType ===
     "personal"
       ? PRIVATE_SPACE_MENTIONS_DISABLED
       : null;
@@ -465,12 +480,12 @@ export function WebsiteLayout() {
             it. */}
         <div className="isolate min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-            <Outlet />
+            {showActivityDetail ? <ActivityDetailPane /> : <Outlet />}
           </MentionAvailabilityProvider>
         </div>
         {/* One panel at a time at the right of the content: the session's
             timeline, artifacts, comments, or changes. */}
-        {spacesLayout && <RightPanel />}
+        {spacesLayout && <RightPanel taskId={taskId} />}
       </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's

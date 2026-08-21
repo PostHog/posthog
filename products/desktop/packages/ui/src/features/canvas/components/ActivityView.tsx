@@ -69,6 +69,8 @@ export function ActivityRow({
   blockedTaskIds,
   surface = "activity",
   onNavigate,
+  onSelect,
+  isSelected = false,
   compact = false,
 }: {
   item: TaskActivityItem;
@@ -85,6 +87,12 @@ export function ActivityRow({
   blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
   onNavigate?: () => void;
+  /**
+   * Read the row beside the feed instead of navigating to it. Set by the rail's
+   * Activity pane, where routing away would take the feed off the screen.
+   */
+  onSelect?: (item: TaskActivityItem) => void;
+  isSelected?: boolean;
   compact?: boolean;
 }) {
   const isAgentActivity =
@@ -115,6 +123,10 @@ export function ActivityRow({
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
     onNavigate?.();
+    if (onSelect) {
+      onSelect(item);
+      return;
+    }
     if (channelId && item.commentTarget?.scope === "desktop_canvas") {
       useCanvasChatPanelStore.getState().openComments();
       navigateToChannelDashboard(channelId, item.commentTarget.itemId);
@@ -137,7 +149,7 @@ export function ActivityRow({
       <button
         type="button"
         onClick={openTask}
-        className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2"} ${item.isUnread ? "bg-fill-secondary" : ""}`}
+        className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-fill-secondary" : ""}`}
       >
         <span className="relative mt-0.5 shrink-0">
           {isAgentActivity ? (

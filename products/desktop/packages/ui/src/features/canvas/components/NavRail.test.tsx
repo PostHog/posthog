@@ -42,7 +42,7 @@ describe("NavRail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.view = { type: "home" };
-    useNavRailStore.setState({ pane: "channels" });
+    useNavRailStore.setState({ pane: "spaces" });
   });
 
   it("hands the sidebar column to Activity without leaving the current screen", async () => {
@@ -56,35 +56,46 @@ describe("NavRail", () => {
     expect(mocks.navigateToInbox).not.toHaveBeenCalled();
   });
 
-  it("gives the column back to the channel tree from Home", async () => {
+  it("shows the space tree without routing to a space", async () => {
     const user = userEvent.setup();
     useNavRailStore.setState({ pane: "activity" });
     render(<NavRail />);
 
-    await user.click(screen.getByLabelText("Home"));
+    await user.click(screen.getByLabelText("Spaces"));
 
-    expect(useNavRailStore.getState().pane).toBe("channels");
-    expect(mocks.navigateToHome).toHaveBeenCalledOnce();
+    expect(useNavRailStore.getState().pane).toBe("spaces");
+    expect(mocks.navigateToHome).not.toHaveBeenCalled();
   });
 
-  it("lights Activity for a deep link to the activity page", () => {
+  it("keeps a route-free pick from snapping back to the route behind it", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<NavRail />);
+
+    await user.click(screen.getByLabelText("Spaces"));
+    rerender(<NavRail />);
+
+    expect(useNavRailStore.getState().pane).toBe("spaces");
+  });
+
+  it("follows the route when the route is what moved", () => {
     mocks.view = { type: "activity" };
     render(<NavRail />);
 
+    expect(useNavRailStore.getState().pane).toBe("activity");
     expect(screen.getByLabelText("Activity")).toHaveAttribute(
       "data-selected",
       "true",
     );
-    expect(screen.getByLabelText("Home")).not.toHaveAttribute("data-selected");
   });
 
-  it("keeps Home lit while a channel or task is open", () => {
+  it("counts a channel or task as part of Spaces", () => {
     mocks.view = { type: "task-detail" };
     render(<NavRail />);
 
-    expect(screen.getByLabelText("Home")).toHaveAttribute(
+    expect(screen.getByLabelText("Spaces")).toHaveAttribute(
       "data-selected",
       "true",
     );
+    expect(screen.getByLabelText("Home")).not.toHaveAttribute("data-selected");
   });
 });

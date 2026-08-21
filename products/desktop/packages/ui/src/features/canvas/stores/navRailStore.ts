@@ -1,14 +1,27 @@
 import { create } from "zustand";
 
 /**
- * Which destination the nav rail has selected, and therefore what the sidebar
- * column beside it shows.
+ * Which rail destination is selected, and therefore what the column beside the
+ * rail shows.
  *
- * Only the destinations that own a sidebar list live here. The rail's other
- * entries (Inbox, Command Center, Loops, Settings) are main-pane destinations
- * with nothing to put in the column, so they route and leave the pane alone.
+ * Only two destinations own that column: Spaces draws the channel tree (and the
+ * channel you slide into from it), Activity draws the feed. The rest are
+ * whole-screen destinations with no list of their own, so the column collapses
+ * away and the content pane takes its width.
  */
-export type NavRailPane = "channels" | "activity";
+export type NavRailPane =
+  | "home"
+  | "spaces"
+  | "activity"
+  | "inbox"
+  | "command-center"
+  | "loops";
+
+const PANES_WITH_SIDEBAR = new Set<NavRailPane>(["spaces", "activity"]);
+
+export function railPaneHasSidebar(pane: NavRailPane): boolean {
+  return PANES_WITH_SIDEBAR.has(pane);
+}
 
 interface NavRailState {
   pane: NavRailPane;
@@ -16,15 +29,11 @@ interface NavRailState {
 }
 
 export const useNavRailStore = create<NavRailState>()((set) => ({
-  pane: "channels",
+  pane: "spaces",
   setPane: (pane) => set({ pane }),
 }));
 
 /** Put the channel tree back in the column — every channel entry point calls this. */
-export function showChannelsRailPane(): void {
-  useNavRailStore.getState().setPane("channels");
-}
-
-export function showActivityRailPane(): void {
-  useNavRailStore.getState().setPane("activity");
+export function showSpacesRailPane(): void {
+  useNavRailStore.getState().setPane("spaces");
 }
