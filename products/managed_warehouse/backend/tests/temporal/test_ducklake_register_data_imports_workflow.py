@@ -898,8 +898,16 @@ async def test_workflow_cleanup_finalizer_runs_when_copy_activity_fails(monkeypa
     assert cleanup_call.args[1].schema_name == _activity_inputs().metadata.ducklake_schema_name
 
 
-def test_cleanup_activity_drops_requested_tables(monkeypatch):
+def test_cleanup_activity_drops_requested_tables_and_sweeps_stale_ones(monkeypatch):
+    stale_shadow = f"__ph_register_{uuid.UUID(int=3).hex}"
     conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "FROM __ducklake_metadata_ducklake.ducklake_table" in str(query):
+            return MagicMock(fetchall=MagicMock(return_value=[(stale_shadow,)]))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
     monkeypatch.setattr(
         registration_module,
         "_connect_to_duckgres_for_team",
@@ -918,6 +926,82 @@ def test_cleanup_activity_drops_requested_tables(monkeypatch):
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_abc" in query for query in executed) == 1
     assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_abc" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and stale_shadow in query for query in executed) == 1
+    sweep_query = next(query for query in executed if "FROM __ducklake_metadata_ducklake.ducklake_table" in query)
+    assert registration_module._REGISTRATION_TABLE_REGEX in sweep_query
+    assert "posthog_data_imports_team_1" in sweep_query
+    assert "CAST" in sweep_query and "AS INTERVAL" in sweep_query
+
+
+def test_cleanup_activity_survives_sweep_failure(monkeypatch):
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "FROM __ducklake_metadata_ducklake.ducklake_table" in str(query):
+            raise RuntimeError("metadata catalog unavailable")
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        registration_module,
+        "_connect_to_duckgres_for_team",
+        lambda team_id: contextlib.nullcontext(conn),
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "capture_exception", MagicMock())
+
+    registration_module.cleanup_ducklake_registration_tables_activity(
+        registration_module.DuckLakeRegisterCleanupInputs(
+            team_id=1,
+            schema_name="posthog_data_imports_team_1",
+            table_names=["__ph_register_abc", "__ph_previous_abc"],
+        )
+    )
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_abc" in query for query in executed) == 1
+    assert sum("DROP TABLE IF EXISTS" in query and "__ph_previous_abc" in query for query in executed) == 1
+
+
+def test_sweep_query_executes_on_duckdb_and_applies_the_guards():
+    import duckdb
+
+    conn = duckdb.connect()
+    conn.execute('CREATE SCHEMA "__ducklake_metadata_ducklake"')
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_table '
+        "(table_id BIGINT, schema_id BIGINT, table_name VARCHAR, begin_snapshot BIGINT, end_snapshot BIGINT)"
+    )
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_schema '
+        "(schema_id BIGINT, schema_name VARCHAR, end_snapshot BIGINT)"
+    )
+    conn.execute(
+        'CREATE TABLE "__ducklake_metadata_ducklake".ducklake_snapshot (snapshot_id BIGINT, snapshot_time VARCHAR)'
+    )
+    conn.execute(
+        "INSERT INTO \"__ducklake_metadata_ducklake\".ducklake_schema VALUES (1, 'posthog_data_imports_team_1', NULL)"
+    )
+    old_shadow = f"__ph_register_{uuid.UUID(int=1).hex}"
+    young_shadow = f"__ph_register_{uuid.UUID(int=2).hex}"
+    expired_snapshot_shadow = f"__ph_previous_{uuid.UUID(int=3).hex}"
+    conn.execute(
+        'INSERT INTO "__ducklake_metadata_ducklake".ducklake_snapshot '
+        "VALUES (10, CAST(now() - INTERVAL '2 days' AS VARCHAR)), (11, CAST(now() AS VARCHAR))"
+    )
+    conn.execute(
+        'INSERT INTO "__ducklake_metadata_ducklake".ducklake_table VALUES '
+        f"(100, 1, '{old_shadow}', 10, NULL), "
+        f"(101, 1, '{young_shadow}', 11, NULL), "
+        f"(102, 1, '{expired_snapshot_shadow}', 9, NULL), "  # snapshot row 9 does not exist
+        f"(103, 1, 'stripe_prod_customer', 10, NULL), "  # non-matching name, old
+        f"(104, 1, '{old_shadow}', 10, 11)"  # already dropped
+    )
+
+    rendered = registration_module._sweep_query("posthog_data_imports_team_1").as_string()
+    swept = {row[0] for row in conn.execute(rendered).fetchall()}
+
+    assert swept == {old_shadow, expired_snapshot_shadow}
 
 
 def test_register_uses_workflow_minted_names(monkeypatch):

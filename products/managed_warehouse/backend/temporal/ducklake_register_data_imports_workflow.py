@@ -827,6 +827,54 @@ def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, tab
                     time.sleep(_CLEANUP_DROP_RETRY_SECONDS * attempt)
 
 
+# A registration attempt's tables can live at most 4h (the copy activity's
+# start_to_close) plus ~25min of finalizer retries; anything older under the
+# registration naming pattern is an orphan from a path no finalizer could reach
+# (workflow terminate, pre-patch histories, cleanup retry exhaustion). The
+# missing-snapshot rule below additionally requires every deployment's snapshot
+# retention to exceed this age, or an in-flight attempt's table could be swept.
+_SWEEP_MIN_AGE = dt.timedelta(hours=6)
+# Each drop is its own catalog commit; the batch is sized so a full sweep fits
+# comfortably inside the finalizer's start_to_close on a contended catalog.
+# Every registration run sweeps again, so a backlog drains across runs.
+_SWEEP_BATCH_LIMIT = 15
+_REGISTRATION_TABLE_REGEX = "^__ph_(register|previous)_[0-9a-f]{32}$"
+
+
+def _sweep_query(schema_name: str) -> psql.Composed:
+    # A missing snapshot row means the table's creation snapshot already expired,
+    # so it is strictly older than any age guard: treat it as stale, not unknown.
+    return psql.SQL(
+        "SELECT t.table_name "
+        "FROM __ducklake_metadata_ducklake.ducklake_table t "
+        "JOIN __ducklake_metadata_ducklake.ducklake_schema s "
+        "  ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL "
+        "LEFT JOIN __ducklake_metadata_ducklake.ducklake_snapshot sn "
+        "  ON sn.snapshot_id = t.begin_snapshot "
+        "WHERE t.end_snapshot IS NULL "
+        "  AND s.schema_name = {} "
+        "  AND regexp_matches(t.table_name, {}) "
+        # DuckDB does not infer intervals from bare string literals; the
+        # explicit CAST is what makes the age guard bind at all.
+        "  AND (sn.snapshot_id IS NULL OR CAST(sn.snapshot_time AS TIMESTAMPTZ) < now() - CAST({} AS INTERVAL)) "
+        "LIMIT {}"
+    ).format(
+        psql.Literal(schema_name),
+        psql.Literal(_REGISTRATION_TABLE_REGEX),
+        psql.Literal(f"{int(_SWEEP_MIN_AGE.total_seconds())} seconds"),
+        psql.Literal(_SWEEP_BATCH_LIMIT),
+    )
+
+
+def _sweep_stale_registration_tables(conn: psycopg.Connection, schema_name: str) -> list[str]:
+    rows = conn.execute(_sweep_query(schema_name)).fetchall()
+    swept: list[str] = []
+    for (table_name,) in rows:
+        _drop_registration_table(conn, schema_name, table_name)
+        swept.append(table_name)
+    return swept
+
+
 @activity.defn
 def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanupInputs) -> None:
     """Drop this attempt's registration tables, however the register activity ended.
@@ -835,7 +883,10 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
     cannot orphan the shadow/previous tables: the workflow replays and re-schedules
     this activity until the drops land. Attempt-scoped uuid names plus
     ``DROP TABLE IF EXISTS`` make it idempotent and collision-free with any other
-    registration attempt.
+    registration attempt. Afterwards it sweeps stale registration tables in the
+    same schema, so each run that reaches registration also disposes of orphans
+    no finalizer could reach; the age guard keeps concurrent attempts' young
+    tables safe.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(schema_name=inputs.schema_name)
@@ -846,7 +897,17 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
         setup_duckgres_session(conn, extensions=("ducklake",))
         for table_name in inputs.table_names:
             _drop_registration_table(conn, inputs.schema_name, table_name)
-    logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names)
+        logger.info("Cleaned up DuckLake registration tables", table_names=inputs.table_names)
+        try:
+            swept = _sweep_stale_registration_tables(conn, inputs.schema_name)
+        except Exception as error:
+            # The sweep is opportunistic: this attempt's own tables are already
+            # dropped, and the next registration in this schema sweeps again.
+            logger.warning("Stale registration table sweep failed", error=str(error))
+            capture_exception(error)
+        else:
+            if swept:
+                logger.info("Swept stale DuckLake registration tables", table_names=swept)
 
 
 def _hive_partition_columns(landing_uri: str, landing_paths: list[str]) -> list[str]:
