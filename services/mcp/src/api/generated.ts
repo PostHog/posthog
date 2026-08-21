@@ -71130,6 +71130,8 @@ export namespace Schemas {
       source_id: string;
       /** Signal weight in [0, 1]; drives report ranking. */
       weight: number;
+      /** Emissions of the same source object (same source_product, source_type, source_id) collapsed into this entry. Fields reflect the latest occurrence. */
+      duplicate_count?: number;
       /** Emission timestamp. */
       timestamp: string;
       /** Product-specific payload; shape depends on (source_product, source_type). */
@@ -71144,7 +71146,7 @@ export namespace Schemas {
     export interface ReportSignalsResponse {
       /** The report these signals were clustered into. */
       report: SignalReport;
-      /** All signals contributing to the report. */
+      /** Signals contributing to the report, one entry per source object (repeat emissions collapsed into duplicate_count). */
       signals: SignalNode[];
     }
 

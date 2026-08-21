@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -23,6 +25,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    collapse_duplicate_signals,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
@@ -41,6 +44,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         source_product: str,
         inserted_at: datetime,
         source_type: str = "some_type",
+        source_id: str | None = None,
         deleted: bool = False,
         content: str = "the signal content",
         skill_name: str | None = None,
@@ -55,7 +59,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
             "report_id": report_id,
             "source_product": source_product,
             "source_type": source_type,
-            "source_id": f"src-{document_id}",
+            "source_id": source_id if source_id is not None else f"src-{document_id}",
             "deleted": deleted,
         }
         if skill_name is not None or extra is not None:
@@ -393,6 +397,39 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
 
         assert self._signal_ids(query_report) == expected_ids
 
+    def test_collapses_repeat_emissions_for_the_same_source(self) -> None:
+        self._emit_version(
+            document_id="s1",
+            report_id="rA",
+            source_product="error_tracking",
+            source_type="issue_spiking",
+            source_id="issue-1",
+            inserted_at=self.base,
+            content="first spike",
+        )
+        self._emit_version(
+            document_id="s2",
+            report_id="rA",
+            source_product="error_tracking",
+            source_type="issue_spiking",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=1),
+            content="latest spike",
+        )
+        self._emit_version(
+            document_id="other",
+            report_id="rA",
+            source_product="replay",
+            inserted_at=self.base + timedelta(hours=2),
+        )
+
+        signals = fetch_signals_for_report_sync(self.team, "rA")
+
+        assert [(s["signal_id"], s["duplicate_count"], s["content"]) for s in signals] == [
+            ("s2", 2, "latest spike"),
+            ("other", 1, "the signal content"),
+        ]
+
     def test_returns_latest_content_for_a_revised_signal(self) -> None:
         # The dedup must surface the newest version's content, not an arbitrary one.
         self._emit_version(
@@ -409,6 +446,55 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         signals = fetch_signals_for_report_sync(self.team, "rA")
 
         assert [s["content"] for s in signals] == ["new text"]
+
+
+def _signal_dict(signal_id: str, *, source_id: str, source_type: str = "issue_spiking", **overrides: object) -> dict:
+    return {
+        "signal_id": signal_id,
+        "content": f"content {signal_id}",
+        "source_product": "error_tracking",
+        "source_type": source_type,
+        "source_id": source_id,
+        "weight": 0.5,
+        "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+        "extra": {},
+        "match_metadata": None,
+        **overrides,
+    }
+
+
+class TestCollapseDuplicateSignals(SimpleTestCase):
+    def test_latest_occurrence_wins_at_the_first_occurrence_position(self) -> None:
+        signals = [
+            _signal_dict("e1", source_id="issue-1", content="old stack"),
+            _signal_dict("other", source_id="issue-2"),
+            _signal_dict("e2", source_id="issue-1"),
+            _signal_dict("e3", source_id="issue-1", content="fresh stack", weight=0.9),
+        ]
+
+        collapsed = collapse_duplicate_signals(signals)
+
+        assert [(s["signal_id"], s["duplicate_count"]) for s in collapsed] == [("e3", 3), ("other", 1)]
+        assert collapsed[0]["content"] == "fresh stack"
+        assert collapsed[0]["weight"] == 0.9
+
+    @parameterized.expand(
+        [
+            ("different_source_id", {"source_id": "issue-2"}),
+            ("different_source_type", {"source_id": "issue-1", "source_type": "issue_created"}),
+            ("different_source_product", {"source_id": "issue-1", "source_product": "replay"}),
+            ("missing_source_id_on_both", None),
+        ]
+    )
+    def test_distinct_identities_never_collapse(self, _name: str, second_overrides: dict | None) -> None:
+        if second_overrides is None:
+            signals = [_signal_dict("a", source_id=""), _signal_dict("b", source_id="")]
+        else:
+            signals = [_signal_dict("a", source_id="issue-1"), _signal_dict("b", **second_overrides)]
+
+        collapsed = collapse_duplicate_signals(signals)
+
+        assert [(s["signal_id"], s["duplicate_count"]) for s in collapsed] == [("a", 1), ("b", 1)]
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):

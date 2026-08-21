@@ -815,6 +815,11 @@ class SignalNodeSerializer(serializers.Serializer):
     )
     source_id = serializers.CharField(help_text="Emitter-scoped id of the underlying object (issue, ticket, ...).")
     weight = serializers.FloatField(help_text="Signal weight in [0, 1]; drives report ranking.")
+    duplicate_count = serializers.IntegerField(
+        default=1,
+        help_text="Emissions of the same source object (same source_product, source_type, source_id) "
+        "collapsed into this entry. Fields reflect the latest occurrence.",
+    )
     timestamp = serializers.DateTimeField(help_text="Emission timestamp.")
     extra = SignalExtraField(help_text="Product-specific payload; shape depends on (source_product, source_type).")
     match_metadata = SignalMatchMetadataField(
@@ -828,7 +833,11 @@ class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
     report = SignalReportSerializer(help_text="The report these signals were clustered into.")
-    signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
+    signals = SignalNodeSerializer(
+        many=True,
+        help_text="Signals contributing to the report, one entry per source object "
+        "(repeat emissions collapsed into duplicate_count).",
+    )
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

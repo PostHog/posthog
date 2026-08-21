@@ -574,8 +574,46 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         raise
 
 
+def collapse_duplicate_signals(signals: list[dict]) -> list[dict]:
+    """Collapse repeat emissions of the same source object into one entry with a count.
+
+    A source can legitimately re-emit for the same underlying object (an error-tracking
+    issue spiking day after day), and each emission is its own ClickHouse row; readers
+    want "this issue, seen 12 times", not twelve near-identical entries. Entries sharing
+    (source_product, source_type, source_id) collapse into one carrying ``duplicate_count``.
+
+    Expects input ordered by timestamp ascending (as `_signals_for_report_query` returns
+    it): the latest occurrence wins the collapsed entry's fields — freshest content,
+    stack sample, and timestamp — placed at the first occurrence's position, so the
+    order of first appearances is preserved. Distinct source_types for one object
+    (issue created vs issue spiking) stay separate entries, keeping the lifecycle story.
+    Signals without a source_id never collapse.
+    """
+    collapsed: dict[tuple, dict] = {}
+    for signal in signals:
+        source_id = signal.get("source_id") or ""
+        key: tuple = (
+            (signal.get("source_product", ""), signal.get("source_type", ""), source_id)
+            if source_id
+            else ("__no_source_id__", signal["signal_id"])
+        )
+        existing = collapsed.get(key)
+        if existing is None:
+            collapsed[key] = {**signal, "duplicate_count": 1}
+        else:
+            count = existing["duplicate_count"] + 1
+            existing.update(signal)
+            existing["duplicate_count"] = count
+    return list(collapsed.values())
+
+
 def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
-    """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
+    """Fetch a report's signals from ClickHouse, one entry per source object. Synchronous.
+
+    Repeat emissions for the same source object come back collapsed (see
+    `collapse_duplicate_signals`); callers that need every raw occurrence should use
+    `fetch_signals_for_report_activity` instead.
+    """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsDebugFetchForReport",
@@ -602,7 +640,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
             }
         )
 
-    return signals_list
+    return collapse_duplicate_signals(signals_list)
 
 
 # ---------------------------------------------------------------------------
