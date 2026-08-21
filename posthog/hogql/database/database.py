@@ -63,6 +63,7 @@ from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
+from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -423,6 +424,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "hog_invocation_results": TableNode(
                         name="hog_invocation_results", table=HogInvocationResultsTable()
                     ),
+                    "billing_usage_records": TableNode(name="billing_usage_records", table=BillingUsageRecordsTable()),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),

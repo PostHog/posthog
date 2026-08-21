@@ -248,7 +248,12 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         }
-        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
+        assert {
+            "posthog.ai_events",
+            "posthog.trace_spans",
+            "posthog.metrics",
+            "posthog.billing_usage_records",
+        }.issubset(names)
         assert "events" in names
         assert "posthog.events" not in names
 
@@ -264,6 +269,17 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         }
         assert {"trace_id", "span_id"}.issubset(columns)
+
+        usage_columns = {
+            row[0]
+            for row in execute_hogql_query(
+                "SELECT column_name FROM system.information_schema.columns "
+                "WHERE table_name = 'posthog.billing_usage_records'",
+                team=self.team,
+            ).results
+            or []
+        }
+        assert {"team_id", "producer_id", "quantity", "dimensions"}.issubset(usage_columns)
 
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
