@@ -36,10 +36,10 @@ The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-m
 - a scheme that is not HTTPS
 - a port other than the default port for the scheme. The lane only accepts HTTPS, so the only permitted port is 443
 - too long
-- contains a known URL credential, signature, or token
+- contains a known URL credential, signature, token, or signed-header list
 - contains a non-empty userinfo section
 
-The presence of a listed signature, credential, or token is enough to refuse the URL. The lane does not validate the value or require other fields from the same signing scheme. Supporting fields such as the algorithm, creation time, expiry, and signed-header list do not cause a refusal by themselves.
+The presence of a listed signature, credential, token, or signed-header list is enough to refuse the URL. The lane does not validate the value or require other fields from the same signing scheme. Supporting fields such as the algorithm, creation time, and expiry do not cause a refusal by themselves.
 
 The lane checks every occurrence of a query parameter, including an occurrence with an empty value. It decodes percent-encoding in each parameter name before a case-insensitive comparison. It refuses the URL if it cannot enumerate and decode every parameter. The lane compares path patterns case-insensitively. A `*` wildcard in a domain pattern matches one non-empty DNS label.
 
@@ -74,13 +74,16 @@ Query parameters:
 | `sessionid`            |               |                                                                  |
 | `sig`                  |               | Includes Azure SAS and Cloudflare Images signatures              |
 | `Signature`            |               | Includes AWS, CloudFront, and Alibaba OSS signatures              |
+| `SignedHeaders`        |               | Signed URL header list                                            |
 | `token`                |               |                                                                  |
 | `X-Amz-Credential`     |               | AWS Signature Version 4 credential                               |
 | `X-Amz-Security-Token` |               | AWS temporary credential                                         |
 | `X-Amz-Signature`      |               | AWS Signature Version 4 signature                                |
+| `X-Amz-SignedHeaders`  |               | AWS Signature Version 4 signed header list                       |
 | `X-Cos-Security-Token` |               | Tencent COS temporary credential                                 |
 | `X-Goog-Credential`    |               | Google Cloud Storage Signature Version 4 credential              |
 | `X-Goog-Signature`     |               | Google Cloud Storage Signature Version 4 signature               |
+| `X-Goog-SignedHeaders` |               | Google Cloud Storage Signature Version 4 signed header list      |
 | `x-oss-credential`     |               | Alibaba OSS Signature Version 4 credential                       |
 | `x-oss-security-token` |               | Alibaba OSS temporary credential                                 |
 | `x-oss-signature`      |               | Alibaba OSS Signature Version 4 signature                        |
@@ -573,9 +576,9 @@ ai_research_session_replay_image_fetch_retry_1h
 | [Google robots.txt behavior](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)                    | Requirements 3.16 and 3.17. The places where PostHog follows or is more conservative than Google                                                                     |
 | [Smokescreen](https://github.com/stripe/smokescreen)                                                                     | Section 6. The outbound proxy that enforces the production network boundary                                                                                           |
 | [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and root domains used by bounded metrics                                                                                                              |
-| [AWS S3 query authentication](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html)   | Requirement 1.2. AWS Signature Version 4 credential, token, and signature parameters                                                                                 |
+| [AWS S3 query authentication](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-query-string-auth.html)   | Requirement 1.2. AWS Signature Version 4 credential, token, signature, and signed-header parameters                                                                  |
 | [AWS CloudFront signed URLs](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-creating-signed-url-custom-policy.html) | Requirement 1.2. The `Signature` parameter                                                                                                                            |
-| [Google Cloud Storage signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signed-urls)               | Requirement 1.2. Google Cloud Storage credential and signature parameters                                                                                             |
+| [Google Cloud Storage signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signed-urls)               | Requirement 1.2. Google Cloud Storage credential, signature, and signed-header parameters                                                                             |
 | [Azure Storage shared access signatures](https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas) | Requirement 1.2. The `sig` parameter                                                                                                                                  |
 | [Cloudinary media access control](https://cloudinary.com/documentation/control_access_to_media)                         | Requirement 1.2. Cloudinary URL signatures and access tokens                                                                                                         |
 | [Imgix URL signatures](https://github.com/imgix/imgix-blueprint#securing-urls)                                           | Requirement 1.2. The `s` parameter and its signature format                                                                                                          |
