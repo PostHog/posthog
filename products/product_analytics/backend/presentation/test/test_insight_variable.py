@@ -372,6 +372,15 @@ class TestMapStaleToLatest(TestCase):
                 ["var_a", "var_b"],
                 ["var_a"],
             ),
+            (
+                "non_dict_values_skipped",
+                {
+                    "old-id-1": 1,
+                    "old-id-2": {"code_name": "var_a", "value": 1},
+                },
+                ["var_a"],
+                ["var_a"],
+            ),
         ]
     )
     def test_map_stale_to_latest(self, _name, stale, latest_code_names, expected_matched_code_names):
@@ -387,6 +396,6 @@ class TestMapStaleToLatest(TestCase):
             assert v["variableId"] == str(matched_var.id)
 
             # original stale values are preserved via spread
-            original = next(sv for sv in stale.values() if sv.get("code_name") == code_name)
+            original = next(sv for sv in stale.values() if isinstance(sv, dict) and sv.get("code_name") == code_name)
             for key, val in original.items():
                 assert v[key] == val

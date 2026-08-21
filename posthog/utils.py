@@ -1835,6 +1835,11 @@ def variables_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
+    if not isinstance(request_variables, dict) or not all(isinstance(v, dict) for v in request_variables.values()):
+        raise serializers.ValidationError(
+            {"variables_override": "variables_override must be an object mapping each variable to an object"}
+        )
+
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
