@@ -7552,9 +7552,13 @@ async function handleFetch(
                 is_shared_view: isSharedView(),
                 failure_reason: reason,
             })
-            throw new NetworkError(reason, error)
+            const networkError = new NetworkError(reason, error)
+            networkError.endpoint = `${method} ${requestPathname(url)}`
+            throw networkError
         }
-        throw new ApiError(error as any, response?.status)
+        const apiError = new ApiError(error as any, response?.status)
+        apiError.endpoint = `${method} ${requestPathname(url)}`
+        throw apiError
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

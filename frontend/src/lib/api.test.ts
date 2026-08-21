@@ -374,6 +374,8 @@ describe('API helper', () => {
             expect(error.message).toBe(message)
             // Recovery paths across the app read `status === undefined` as "transient, may be retried"
             expect(error.status).toBeUndefined()
+            // Without an HTTP status, the endpoint is the only context error tracking has to name the route
+            expect(error.endpoint).toBe('GET /api/environments/2/insights/')
         })
 
         it('classifies a fetch rejection during page teardown as navigating', async () => {
@@ -444,6 +446,7 @@ describe('API helper', () => {
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            expect(error.endpoint).toBe('GET /api/environments/2/insights/')
         })
     })
 
