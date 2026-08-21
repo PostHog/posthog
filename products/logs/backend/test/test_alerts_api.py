@@ -1135,7 +1135,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
-        assert "Delete every HogFunction in the destination group together." in response.json()["detail"]
+        assert "Delete all destinations in this group together." in response.json()["detail"]
         assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
 
     @parameterized.expand(

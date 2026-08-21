@@ -287,7 +287,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
     def test_rejects_partial_destination_group(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
-        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -352,7 +352,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         HogFunction.objects.filter(id=destinations[0].id).update(enabled=False)
 
-        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -377,7 +377,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         first = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
         second = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-OPS"))
 
-        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",
@@ -408,7 +408,7 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
             template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x")
         )
 
-        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+        with self.assertRaisesRegex(ValidationError, "Delete all destinations in this group"):
             soft_delete_alert_destinations(
                 team_id=self.team.id,
                 alert_id="alert-1",

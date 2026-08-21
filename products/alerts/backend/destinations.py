@@ -297,9 +297,9 @@ def soft_delete_alert_destinations(
             names_only_part_of_the_group = bool(group_ids & unique_ids) and not group_ids <= unique_ids
             if names_only_part_of_the_group:
                 message = (
-                    "Delete every HogFunction in the destination group together."
+                    "Delete all destinations in this group together."
                     if group_key.is_config_readable
-                    else "Some destinations of this type can no longer be read, so every destination of this type has to be deleted together."
+                    else "Some destinations of this type have settings that can no longer be read. To delete any of them, remove every destination of this type together."
                 )
                 raise ValidationError({"hog_function_ids": [message]})
 
