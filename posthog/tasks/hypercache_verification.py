@@ -274,7 +274,7 @@ def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
     automatically fixing any cache misses, mismatches, or expiry tracking issues.
     Uses a distributed lock to skip execution if a previous run is still in progress.
 
-    Expected duration: ~15-20 minutes for ~513k teams (observed 2026-08-19).
+    Expected duration: ~15-20 minutes (observed 2026-08-19).
 
     Metrics: posthog_hypercache_verify_fixes_total{cache_type="team_metadata", issue_type="..."},
     posthog_hypercache_verification_incomplete_runs_total{cache_type="team_metadata", reason="..."}
