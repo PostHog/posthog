@@ -1,5 +1,4 @@
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonCollapse, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
@@ -46,7 +45,11 @@ const cohortLabel = (isoDate: string, interval: MarketingAnalyticsRetentionInter
     }
 }
 
-let uniqueNode = 0
+// One retention table renders at a time, so a single stable key is enough. An incrementing key
+// would leave a fresh dataNodeLogic attached to the scene on every visit to the tab, since
+// useAttachedLogic only detaches when the scene unmounts. The filter bar's ReloadAll would then
+// re-run each earlier visit's stale query on top of the live one.
+const RETENTION_DATA_NODE_KEY = 'MarketingRetention'
 
 export function RetentionCohortTable({
     query,
@@ -55,9 +58,12 @@ export function RetentionCohortTable({
     query: MarketingAnalyticsRetentionQuery
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element {
-    const [key] = useState(() => `MarketingRetention.${uniqueNode++}`)
     // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
-    const logic = dataNodeLogic({ query, key, dataNodeCollectionId: MARKETING_ANALYTICS_RETENTION_COLLECTION_ID })
+    const logic = dataNodeLogic({
+        query,
+        key: RETENTION_DATA_NODE_KEY,
+        dataNodeCollectionId: MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
+    })
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy } = useValues(marketingRetentionLogic)
