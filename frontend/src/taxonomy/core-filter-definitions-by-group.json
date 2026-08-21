@@ -4241,7 +4241,9 @@
     "groups": {
         "$group_key": {
             "description": "Specified group key",
-            "label": "Group key"
+            "label": "Group key",
+            "type": "String",
+            "virtual": true
         },
         "$virt_mrr": {
             "description": "The current MRR for this group.",
