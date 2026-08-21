@@ -146,16 +146,19 @@ export function useChannelReports(
     markReportsSeen(viewKey, latestArrival);
   }, [hasHydrated, latestArrival, markReportsSeen, viewKey]);
 
+  // Pagination follows whichever query feeds the visible list, so the
+  // Archived bucket pages through its own fetch.
+  const activeQuery = archivedMode ? archivedQuery : query;
   return {
     reports,
     statusCounts,
     unseenCount,
     markSeen,
-    isLoading: archivedMode ? archivedQuery.isLoading : query.isLoading,
-    isError: archivedMode ? archivedQuery.isError : query.isError,
+    isLoading: activeQuery.isLoading,
+    isError: activeQuery.isError,
     forMeCount,
-    fetchNextPage: query.fetchNextPage,
-    hasNextPage: query.hasNextPage ?? false,
-    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: activeQuery.fetchNextPage,
+    hasNextPage: activeQuery.hasNextPage ?? false,
+    isFetchingNextPage: activeQuery.isFetchingNextPage,
   };
 }

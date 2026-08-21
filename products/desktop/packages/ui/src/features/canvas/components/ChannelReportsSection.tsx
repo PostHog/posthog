@@ -7,6 +7,7 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
+  Spinner,
 } from "@posthog/quill";
 import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import { ReportRow } from "@posthog/ui/features/canvas/components/ReportRow";
@@ -16,6 +17,7 @@ import {
   useChannelReports,
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { useEffect, useMemo, useState } from "react";
 
 /**
@@ -35,10 +37,35 @@ export function ChannelReportsSection({
     EMPTY_CHANNEL_REPORTS_FILTERS,
   );
   const openReport = useOpenInboxReport();
-  const { reports, isLoading, isError, markSeen } = useChannelReports(
-    view,
-    filters,
-  );
+  const {
+    reports,
+    isLoading,
+    isError,
+    markSeen,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useChannelReports(view, filters);
+
+  // Infinite scroll: a sentinel below the rows fetches the next page as it
+  // nears the viewport. It sits outside the filtered list on purpose — when
+  // client-side filters hide a whole page, the sentinel stays visible and
+  // keeps paging until a match shows up or the server runs out.
+  const [sentinelRef, sentinelInView] = useInView<HTMLDivElement>({
+    rootMargin: "600px 0px",
+  });
+  useEffect(() => {
+    if (!sentinelInView || !hasNextPage || isFetchingNextPage || isLoading) {
+      return;
+    }
+    fetchNextPage();
+  }, [
+    sentinelInView,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    fetchNextPage,
+  ]);
 
   // Looking at the list reads this space's reports; markSeen's identity
   // advances with the newest arrival, so new reports re-stamp while open.
@@ -122,7 +149,17 @@ export function ChannelReportsSection({
       <div className="flex items-center gap-1 px-2 pt-1 pb-1">
         <ReportFilterControls filters={filters} onChange={setFilters} />
       </div>
-      <div className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto">{body}</div>
+      <div className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto">
+        {body}
+        {!isLoading && !isError && (hasNextPage || isFetchingNextPage) && (
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center py-2"
+          >
+            {isFetchingNextPage && <Spinner />}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
