@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import re
 import asyncio
 import logging
-from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.runner import parse_agent_artifacts
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, ResearchCase, ScoutCase
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
@@ -84,6 +83,10 @@ async def run_research(
     return output
 
 
+class RepoSelectionOutput(RepoSelectionResult):
+    raw_log: str = ""
+
+
 async def run_repo_selection(
     case: RepoSelectionCase,
     sandbox_context: CustomPromptSandboxContext,
@@ -103,10 +106,10 @@ async def run_repo_selection(
         output_fn=lambda message: logger.info("repo-selection[%s]: %s", case.case_id, message),
         agent_runtime=_runtime(ctx),
     )
-    output = result.model_dump(mode="json")
+    raw_log = ""
     if result.task_id:
-        output["raw_log"] = await _read_task_logs(sandbox_context.team_id, result.task_id)
-    return output
+        raw_log = await _read_task_logs(sandbox_context.team_id, result.task_id)
+    return RepoSelectionOutput(**result.model_dump(), raw_log=raw_log).model_dump(mode="json")
 
 
 class ImplementationOutput(BaseModel):
@@ -129,23 +132,6 @@ class ImplementationOutput(BaseModel):
         return self
 
 
-class _ImplementationResponse(BaseModel):
-    diff: str = Field(description="The full unified diff from git diff --cached.")
-    summary: str = Field(description="One sentence describing the change.")
-
-
-def _implementation_prompt(case: ImplementationCase, repository: str) -> str:
-    return f"""You are a coding agent. The repository `{repository}` is checked out on disk.
-
-Implement this change with a minimal, focused edit:
-
-{case.issue_prompt}
-
-Do not refactor unrelated code or touch lock files. Run relevant tests when practical. Before responding,
-run `git add -A` and `git diff --cached`. Return JSON with the exact full unified diff in `diff` and a
-one-sentence `summary`. Do not push or open a pull request."""
-
-
 def _files_from_diff(diff: str) -> list[str]:
     files: list[str] = []
     for line in diff.splitlines():
@@ -165,14 +151,27 @@ async def run_implementation(
     sandbox_context: CustomPromptSandboxContext,
     ctx: EvalContext,
 ) -> dict[str, Any]:
+    from products.signals.backend.auto_start import (
+        build_implementation_task_description,
+        build_implementation_task_prompt,
+    )
     from products.signals.evals.agentic.repos import REGISTRY
     from products.tasks.backend.facade import api as tasks_facade
 
     repository = REGISTRY[case.repo].full_name if case.repo in REGISTRY else case.repo
-    session, reported = await MultiTurnSession.start(
-        prompt=_implementation_prompt(case, repository),
+    prompt = build_implementation_task_prompt(
+        build_implementation_task_description(
+            report_id=f"eval-{case.case_id}",
+            team_id=sandbox_context.team_id,
+            summary=case.issue_prompt,
+            repository=repository,
+            priority=None,
+        ),
+        f"posthog-self-driving/eval-{case.case_id}",
+    )
+    session, reported = await MultiTurnSession.start_raw(
+        prompt=prompt,
         context=_context(sandbox_context, ctx, repository=repository),
-        model=_ImplementationResponse,
         step_name="implementation",
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         ai_stage="implementation",
@@ -186,128 +185,72 @@ async def run_implementation(
     finally:
         await session.end()
     raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
-    artifacts = parse_agent_artifacts(raw_log, duration_seconds=0, agent_finished=True)
-    diff = artifacts.git_diff
+    diff = parse_agent_artifacts(raw_log, duration_seconds=0, agent_finished=True).git_diff
     return ImplementationOutput(
         diff=diff,
-        files_changed=_files_from_diff(diff),
-        summary=reported.summary,
+        summary=reported,
         raw_log=raw_log,
         task_id=task_id,
         task_run_id=task_run_id,
     ).model_dump(mode="json")
 
 
-def _string_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bool | int | float):
-        return str(value)
-    if isinstance(value, Mapping):
-        for key in ("value", "choice", "status", "priority", "actionability", "decision", "summary", "reasoning"):
-            if key in value:
-                return _string_or_none(value[key])
-    if isinstance(value, list | tuple):
-        return "; ".join(item for item in (_string_or_none(item) for item in value) if item)
-    return str(value)
-
-
-def _string_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list | tuple):
-        return [item for item in (_string_or_none(item) for item in value) if item]
-    text = _string_or_none(value)
-    return [text] if text else []
-
-
-def _canonical_decision(value: str | None) -> str:
-    normalized = (value or "").lower().replace(" ", "_").replace("-", "_")
-    for decision in ("emit_report", "edit_report", "remember_only", "close_quiet", "skip"):
-        if decision in normalized:
-            return decision
-    return normalized
-
-
-def _canonical_actionability(value: str | None) -> str | None:
-    normalized = (value or "").lower()
-    if not normalized:
-        return None
-    if "human" in normalized or "input" in normalized:
-        return "requires_human_input"
-    if "not" in normalized and "action" in normalized:
-        return "not_actionable"
-    if "action" in normalized:
-        return "immediately_actionable"
-    return value
-
-
-def _canonical_priority(value: str | None) -> str | None:
-    match = re.search(r"p\s*-?\s*([0-4])", (value or "").lower())
-    return f"P{match.group(1)}" if match else None
-
-
-def _normalize_scout_payload(value: Any) -> Any:
-    if not isinstance(value, Mapping):
-        return value
-    payload = dict(value)
-    payload["decision"] = _canonical_decision(_string_or_none(payload.get("decision")))
-    payload["summary"] = _string_or_none(payload.get("summary")) or ""
-    payload["evidence"] = _string_list(payload.get("evidence"))
-    payload["scratchpad_keys"] = _string_list(payload.get("scratchpad_keys"))
-    payload["suggested_reviewers"] = _string_list(payload.get("suggested_reviewers"))
-    payload["actionability"] = _canonical_actionability(_string_or_none(payload.get("actionability")))
-    payload["priority"] = _canonical_priority(_string_or_none(payload.get("priority")))
-    payload["existing_report_id"] = _string_or_none(payload.get("existing_report_id"))
-    payload["repository"] = _string_or_none(payload.get("repository"))
-    return payload
-
-
-class ScoutDecisionOutput(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    decision: str
+class ScoutOutput(BaseModel):
+    outcome: str
     summary: str
-    evidence: list[str] = Field(default_factory=list)
-    actionability: str | None = None
-    priority: str | None = None
-    existing_report_id: str | None = None
+    emitted_report_ids: list[str] = Field(default_factory=list)
+    edited_report_ids: list[str] = Field(default_factory=list)
+    emitted_finding_ids: list[str] = Field(default_factory=list)
     scratchpad_keys: list[str] = Field(default_factory=list)
-    suggested_reviewers: list[str] = Field(default_factory=list)
-    repository: str | None = None
     raw_log: str = ""
-    task_id: str | None = None
+    run_id: str | None = None
     task_run_id: str | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_payload(cls, value: Any) -> Any:
-        return _normalize_scout_payload(value)
+
+def _seed_scout(case: ScoutCase, sandbox_context: CustomPromptSandboxContext) -> tuple[str, set[str]]:
+    from products.signals.backend.models import SignalScratchpad
+
+    keys = set(SignalScratchpad.all_teams.filter(team_id=sandbox_context.team_id).values_list("key", flat=True))
+    return case.skill_name, keys
 
 
-def _scout_prompt(case: ScoutCase) -> str:
-    return f"""Evaluate one Signals scout run using this synthetic project brief. Do not call tools.
+def _read_scout_output(
+    team_id: int,
+    run_id: str,
+    previous_scratchpad_keys: set[str],
+) -> tuple[list[str], list[str], list[str], list[str], str]:
+    from products.signals.backend.models import SignalScoutRun, SignalScratchpad
 
-Scout: {case.scout_name}
+    run = SignalScoutRun.objects.unscoped().get(team_id=team_id, id=run_id)
+    scratchpad_keys = list(
+        SignalScratchpad.all_teams.filter(team_id=team_id)
+        .exclude(key__in=previous_scratchpad_keys)
+        .values_list("key", flat=True)
+    )
+    return (
+        list(run.emitted_report_ids or []),
+        list(run.edited_report_ids or []),
+        list(run.emitted_finding_ids or []),
+        scratchpad_keys,
+        run.summary,
+    )
 
-Project profile:
-{case.project_profile}
 
-Prior context:
-{case.prior_context or "No prior context."}
-
-Current observations:
-{case.observations}
-
-Candidate reports:
-{case.candidate_reports or "No matching reports found."}
-
-Choose exactly one decision: emit_report, edit_report, remember_only, close_quiet, or skip. Be conservative:
-duplicate reports and false positives are worse than quiet close-outs. For emit/edit include concrete evidence,
-actionability, priority, and grounded summary. For edit or dedupe set existing_report_id. Always include stable,
-topical scratchpad_keys. Set repository and suggested_reviewers only when the brief identifies them."""
+def _scout_outcome(
+    emitted_report_ids: list[str],
+    edited_report_ids: list[str],
+    emitted_finding_ids: list[str],
+    scratchpad_keys: list[str],
+) -> str:
+    if emitted_report_ids:
+        return "emit_report"
+    if edited_report_ids:
+        return "edit_report"
+    if emitted_finding_ids:
+        return "emit_signal"
+    if scratchpad_keys:
+        return "remember"
+    return "no_output"
 
 
 async def run_scout(
@@ -315,25 +258,39 @@ async def run_scout(
     sandbox_context: CustomPromptSandboxContext,
     ctx: EvalContext,
 ) -> dict[str, Any]:
-    from products.tasks.backend.facade import api as tasks_facade
+    from products.signals.backend.scout_harness.runner import arun_signals_scout
+    from products.tasks.backend.models import TaskRun
 
-    session, result = await MultiTurnSession.start(
-        prompt=_scout_prompt(case),
-        context=_context(sandbox_context, ctx, repository=None),
-        model=ScoutDecisionOutput,
-        step_name="scout",
-        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
-        ai_stage="scout",
-        internal=True,
+    skill_name, previous_scratchpad_keys = await asyncio.to_thread(_seed_scout, case, sandbox_context)
+    result = await arun_signals_scout(
+        team_id=sandbox_context.team_id,
+        skill_name=skill_name,
         verbose=True,
-        output_fn=lambda message: logger.info("scout[%s]: %s", case.case_id, message),
+        triggered_by="manual",
+        agent_runtime=_runtime(ctx),
     )
-    try:
-        task_id = str(session.task.id)
-        task_run_id = str(session.task_run.id)
-    finally:
-        await session.end()
-    result.raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
-    result.task_id = task_id
-    result.task_run_id = task_run_id
-    return result.model_dump(mode="json")
+    if result.run_id is None or result.task_run_id is None:
+        return ScoutOutput(outcome="no_output", summary=result.skip_reason or "").model_dump(mode="json")
+    run_id = result.run_id
+    task_run_id = result.task_run_id
+    task_id = await asyncio.to_thread(
+        lambda: str(TaskRun.objects.values_list("task_id", flat=True).get(id=task_run_id))
+    )
+    emitted_reports, edited_reports, emitted_findings, scratchpad_keys, summary = await asyncio.to_thread(
+        _read_scout_output,
+        sandbox_context.team_id,
+        run_id,
+        previous_scratchpad_keys,
+    )
+    raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
+    return ScoutOutput(
+        outcome=_scout_outcome(emitted_reports, edited_reports, emitted_findings, scratchpad_keys),
+        summary=summary,
+        emitted_report_ids=emitted_reports,
+        edited_report_ids=edited_reports,
+        emitted_finding_ids=emitted_findings,
+        scratchpad_keys=scratchpad_keys,
+        raw_log=raw_log,
+        run_id=run_id,
+        task_run_id=task_run_id,
+    ).model_dump(mode="json")

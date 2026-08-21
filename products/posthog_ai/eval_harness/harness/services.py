@@ -53,7 +53,6 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
             "Run `bin/start-llm-gateway` once or `cd services/llm-gateway && uv venv .venv && uv pip install -e .`"
         )
     # The LLM gateway uses pydantic BaseSettings with env_prefix="LLM_GATEWAY_".
-    # We need to point it at the test database.
     conn = connections["default"]
     # The test DB setup rewrites settings_dict["NAME"] to the test DB name in
     # place, so don't re-prefix it.

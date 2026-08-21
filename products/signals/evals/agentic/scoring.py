@@ -1,5 +1,3 @@
-"""Typed deterministic scoring used by the Signals datasets."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,13 +15,6 @@ class ScoreType(str, Enum):
 
 @dataclass(frozen=False)
 class Score:
-    """A single graded dimension of a step output.
-
-    ``value`` is normalized to ``[score_min, score_max]`` (default 0..1). ``passed`` is
-    the binary verdict used for pass-rate aggregation and the ``$ai_evaluation_result``
-    field; for numeric scores it is derived from a threshold by the scorer.
-    """
-
     name: str
     value: float
     passed: bool
@@ -69,8 +60,6 @@ class Score:
 
 @runtime_checkable
 class Scorer(Protocol):
-    """Grades a typed Signals step output."""
-
     name: str
 
     async def score(self, case: EvalCase, output: Any, ctx: ScoringContext) -> list[Score]: ...
@@ -78,15 +67,11 @@ class Scorer(Protocol):
 
 @dataclass(frozen=False)
 class ScoringContext:
-    """Reserved for deterministic scorer dependencies."""
-
     repo_root: str | None = None
     extra: dict[str, Any] | None = None
 
 
 class DeterministicScorer:
-    """Base for scorers that grade with no I/O. Subclasses implement ``grade``."""
-
     def __init__(self, name: str):
         self.name = name
 

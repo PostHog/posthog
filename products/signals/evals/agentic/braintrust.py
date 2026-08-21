@@ -4,12 +4,19 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
+from products.posthog_ai.eval_harness.acp_log import parse_log
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import AsyncOnlyScorerMixin, Score, Scorer
 from products.signals.backend.report_generation.research import ReportResearchOutput
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.evals.agentic.datasets import EvalCase, ImplementationCase, ResearchCase, ScoutCase
-from products.signals.evals.agentic.runners import ImplementationOutput, ScoutDecisionOutput
+from products.signals.evals.agentic.datasets import (
+    EvalCase,
+    ImplementationCase,
+    RepoSelectionCase,
+    ResearchCase,
+    ScoutCase,
+)
+from products.signals.evals.agentic.runners import ImplementationOutput, RepoSelectionOutput, ScoutOutput
+from products.signals.evals.agentic.scorers_repo_selection import repository_evidence_calls
 from products.signals.evals.agentic.scoring import ScoringContext
 
 OutputDecoder = Callable[[dict[str, Any]], Any]
@@ -30,16 +37,16 @@ def decode_research(output: dict[str, Any]) -> ReportResearchOutput:
     return ReportResearchOutput.model_validate(output)
 
 
-def decode_repo_selection(output: dict[str, Any]) -> RepoSelectionResult:
-    return RepoSelectionResult.model_validate(output)
+def decode_repo_selection(output: dict[str, Any]) -> RepoSelectionOutput:
+    return RepoSelectionOutput.model_validate(output)
 
 
 def decode_implementation(output: dict[str, Any]) -> ImplementationOutput:
     return ImplementationOutput.model_validate(output)
 
 
-def decode_scout(output: dict[str, Any]) -> ScoutDecisionOutput:
-    return ScoutDecisionOutput.model_validate(output)
+def decode_scout(output: dict[str, Any]) -> ScoutOutput:
+    return ScoutOutput.model_validate(output)
 
 
 class SignalsScorerAdapter(AsyncOnlyScorerMixin, Scorer):
@@ -163,6 +170,65 @@ class ResearchSummaryJudge(JudgedScorer):
         }
 
 
+_REPOSITORY_SELECTION_JUDGE_PROMPT = """
+You are grading a repository selection from two plausible open-source candidates.
+
+Request, candidates, and reference evidence:
+{{expected}}
+
+Selection:
+{{output}}
+
+Choose exactly one grade:
+- perfect: selects the right owner and cites specific repository evidence
+- near_perfect: correct with only a minor gap in the evidence
+- slightly_off: correct repository but generic or partly mistaken reasoning
+- somewhat_misaligned: defensible choice but misses stronger contrary evidence
+- strongly_misaligned: wrong repository or unsupported reasoning
+- useless: empty, incoherent, or unrelated
+"""
+
+
+class RepositorySelectionJudge(JudgedScorer):
+    def __init__(self, cases: Sequence[RepoSelectionCase], **kwargs: Any) -> None:
+        self._cases = {case.case_id: case for case in cases}
+        super().__init__(
+            name="repository_selection_quality_judge",
+            prompt_template=_REPOSITORY_SELECTION_JUDGE_PROMPT,
+            choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=512,
+            **kwargs,
+        )
+
+    def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
+        case = _lookup_case(self._cases, expected)
+        if case is None or not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
+        selection = decode_repo_selection(output)
+        evidence_calls = repository_evidence_calls(selection.raw_log)
+        return {
+            "expected": json.dumps(
+                {
+                    "request": [signal.content for signal in case.signals],
+                    "candidates": case.candidate_repos,
+                    "expected_repository": case.expected.expected_repository,
+                    "reference_evidence": case.judging_notes,
+                },
+                indent=2,
+            ),
+            "output": json.dumps(
+                {
+                    "repository": selection.repository,
+                    "reason": selection.reason,
+                    "repository_evidence_used": bool(evidence_calls),
+                    "repository_evidence_calls": evidence_calls,
+                },
+                indent=2,
+            ),
+        }
+
+
 _IMPLEMENTATION_JUDGE_PROMPT = """
 You are grading whether a code diff correctly and minimally addresses an issue.
 
@@ -208,12 +274,12 @@ class ImplementationFixJudge(JudgedScorer):
 
 
 _SCOUT_JUDGE_PROMPT = """
-You are grading a conservative Signals scout triage decision.
+You are grading a Signals scout run.
 
-Synthetic brief and expected target:
+Canonical scout, seeded project facts, and expected persisted outcome:
 {{expected}}
 
-Model decision:
+Production run summary and persisted side effects:
 {{output}}
 
 Choose exactly one grade:
@@ -221,8 +287,10 @@ Choose exactly one grade:
 - near_perfect: correct with only trivial omissions
 - slightly_off: mostly correct with one meaningful weakness
 - somewhat_misaligned: partially correct but important reasoning diverges
-- strongly_misaligned: creates noise, misses dedupe, or invents evidence
+- strongly_misaligned: creates noise or invents evidence
 - useless: empty, incoherent, or unrelated
+
+A run that does not successfully query the seeded project data is useless, even if its final outcome happens to match.
 """
 
 
@@ -243,16 +311,32 @@ class ScoutDecisionQualityJudge(JudgedScorer):
         if case is None or not output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "missing case or output"})
         scout = decode_scout(output)
+        tools = [
+            {
+                "name": tool.name,
+                "input": tool.input,
+                "output": (tool.output or "")[:2_000],
+                "error": tool.is_error,
+            }
+            for tool in parse_log(scout.raw_log).tools
+        ]
         return {
             "expected": json.dumps(
                 {
-                    "profile": case.project_profile,
-                    "prior": case.prior_context,
-                    "observations": case.observations,
-                    "candidate_reports": case.candidate_reports,
-                    "target": str(case.expected),
+                    "canonical_skill": case.skill_name,
+                    "seeded_scenario": case.seed,
+                    "reference_facts": case.judging_notes,
+                    "expected_query_tools": case.expected_query_tools,
+                    "outcome": case.expected.expected_outcome,
                 },
                 indent=2,
             ),
-            "output": scout.model_dump_json(indent=2, exclude={"raw_log"}),
+            "output": json.dumps(
+                {
+                    **scout.model_dump(mode="json", exclude={"raw_log"}),
+                    "seed": output.get("seed"),
+                    "tool_calls": tools,
+                },
+                indent=2,
+            ),
         }

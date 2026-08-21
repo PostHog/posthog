@@ -4,10 +4,12 @@ from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.evals.agentic.braintrust import (
     ImplementationFixJudge,
+    RepositorySelectionJudge,
     SignalsScorerAdapter,
     decode_repo_selection,
 )
 from products.signals.evals.agentic.datasets import ImplementationCase, RepoSelectionCase, RepoSelectionExpectation
+from products.signals.evals.agentic.runners import RepoSelectionOutput
 from products.signals.evals.agentic.scorers_repo_selection import RepoSelectionCorrectnessScorer
 
 
@@ -41,3 +43,29 @@ def test_implementation_judge_fails_closed_without_captured_diff() -> None:
     assert isinstance(score, Score)
     assert score.score == 0.0
     assert score.metadata["reason"] == "no actual diff captured"
+
+
+def test_repository_selection_judge_includes_reference_evidence() -> None:
+    case = RepoSelectionCase(
+        case_id="ambiguous",
+        step="repo_selection",
+        signals=(),
+        candidate_repos=("excalidraw/excalidraw", "tldraw/tldraw"),
+        judging_notes="Excalidraw owns staticSvgScene.ts.",
+        expected=RepoSelectionExpectation(expected_repository="excalidraw/excalidraw"),
+    )
+    judge = RepositorySelectionJudge([case])
+
+    prepared = judge._prepare(
+        RepoSelectionOutput(
+            repository="excalidraw/excalidraw",
+            reason="staticSvgScene.ts matches",
+            raw_log="",
+        ).model_dump(mode="json"),
+        {"case_id": case.case_id},
+    )
+
+    assert isinstance(prepared, dict)
+    assert "staticSvgScene.ts" in prepared["expected"]
+    assert "excalidraw/excalidraw" in prepared["output"]
+    assert '"repository_evidence_used": false' in prepared["output"]

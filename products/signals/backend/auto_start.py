@@ -202,7 +202,11 @@ def _head_branch_instruction(head_branch: str) -> str:
     )
 
 
-def _build_autostart_task_description(
+def build_implementation_task_prompt(description: str, head_branch: str) -> str:
+    return description + _head_branch_instruction(head_branch)
+
+
+def build_implementation_task_description(
     *,
     report_id: str,
     team_id: int,
@@ -350,7 +354,7 @@ def _create_implementation_task_if_absent(
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
     head_branch = _generate_self_driving_head_branch(title)
-    description = description + _head_branch_instruction(head_branch)
+    description = build_implementation_task_prompt(description, head_branch)
 
     exempt_reason: str | None = None
     task_id: str | None = None
@@ -696,7 +700,7 @@ async def maybe_autostart_implementation_task(
         team_id=team_id,
         report_id=report_id,
         title=title,
-        description=_build_autostart_task_description(
+        description=build_implementation_task_description(
             report_id=report_id,
             team_id=team_id,
             summary=summary,

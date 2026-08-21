@@ -1,5 +1,3 @@
-"""Eval runner for product workflows that launch sandbox agents internally."""
-
 from __future__ import annotations
 
 import json
@@ -13,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 from .acp_log import parse_log
-from .base import _BaseEvalRun, get_last_assistant_text, log_conversation_spans, prepare_sandbox_case
+from .base import _BaseEvalRun, get_last_assistant_text, log_agent_spans, prepare_sandbox_case
 from .config import SandboxedEvalCase
 from .engines.types import CaseHooks, ExperimentResult
 from .harness.kernel_sandboxes import reclaim_kernels
@@ -99,7 +97,11 @@ class _WorkflowEvalRun(_BaseEvalRun):
         raw_log = output.get("raw_log")
         if isinstance(raw_log, str) and raw_log:
             parsed = parse_log(raw_log, initial_prompt=case.prompt)
-            log_conversation_spans(hooks, parsed)
+            log_agent_spans(hooks, parsed)
+            if parsed.total_token_usage:
+                output.setdefault("token_usage", parsed.total_token_usage)
+            if parsed.total_cost_usd is not None:
+                output.setdefault("cost_usd", parsed.total_cost_usd)
             if last_message := get_last_assistant_text(parsed):
                 output.setdefault("last_message", last_message)
         await self._write_local_logs(case, output, time.monotonic() - started)

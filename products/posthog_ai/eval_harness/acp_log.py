@@ -19,6 +19,7 @@ class GenerationDescriptor:
     input_messages: list[dict[str, Any]] = field(default_factory=list)
     output_content: list[dict[str, Any]] = field(default_factory=list)
     token_usage: dict[str, int] = field(default_factory=dict)
+    cost_usd: float | None = None
     timestamp: str = ""
     """Timestamp of the first output block in this generation (for chronological ordering)."""
 
@@ -30,6 +31,10 @@ class GenerationDescriptor:
     """Timestamp of the last output block added to this generation — approximates
     when the model's streaming response finished."""
 
+    @property
+    def metrics(self) -> dict[str, int | float]:
+        return _llm_metrics(self.token_usage, self.cost_usd)
+
 
 @dataclass
 class SpanDescriptor:
@@ -40,9 +45,21 @@ class SpanDescriptor:
 
 
 @dataclass
+class ToolDescriptor:
+    tool_call_id: str
+    name: str
+    input: dict[str, Any] = field(default_factory=dict)
+    output: str | None = None
+    is_error: bool = False
+    start_ts: str = ""
+    end_ts: str = ""
+
+
+@dataclass
 class ParsedLog:
     generations: list[GenerationDescriptor] = field(default_factory=list)
     spans: list[SpanDescriptor] = field(default_factory=list)
+    tools: list[ToolDescriptor] = field(default_factory=list)
     first_timestamp: str = ""
     last_timestamp: str = ""
     model: str = ""
@@ -74,6 +91,41 @@ class ParsedLog:
             for k, v in gen.token_usage.items():
                 total[k] = total.get(k, 0) + v
         return total
+
+    @property
+    def total_cost_usd(self) -> float | None:
+        costs = [generation.cost_usd for generation in self.generations if generation.cost_usd is not None]
+        return sum(costs) if costs else None
+
+    @property
+    def metrics(self) -> dict[str, int | float]:
+        return _llm_metrics(self.total_token_usage, self.total_cost_usd)
+
+
+def _llm_metrics(token_usage: dict[str, int], cost_usd: float | None) -> dict[str, int | float]:
+    metrics: dict[str, int | float] = {}
+    uncached_input_tokens = token_usage.get("inputTokens", 0)
+    output_tokens = token_usage.get("outputTokens", 0)
+    cached_read_tokens = token_usage.get("cachedReadTokens", 0)
+    cached_write_tokens = token_usage.get("cachedWriteTokens", 0)
+    input_tokens = uncached_input_tokens + cached_read_tokens + cached_write_tokens
+    total_tokens = input_tokens + output_tokens
+
+    if input_tokens:
+        metrics["prompt_tokens"] = input_tokens
+    if output_tokens:
+        metrics["completion_tokens"] = output_tokens
+    if cached_read_tokens:
+        metrics["prompt_cached_tokens"] = cached_read_tokens
+    if cached_write_tokens:
+        metrics["prompt_cache_creation_tokens"] = cached_write_tokens
+    if reasoning_tokens := token_usage.get("reasoningTokens", 0):
+        metrics["reasoning_tokens"] = reasoning_tokens
+    if total_tokens:
+        metrics["tokens"] = total_tokens
+    if cost_usd is not None:
+        metrics["cost"] = cost_usd
+    return metrics
 
 
 class AcpLogParser:
@@ -109,6 +161,8 @@ class AcpLogParser:
         self._gen_last_output_ts: str = ""  # Timestamp of most recent output block
         self._last_tool_result_ts: str = ""  # Drives next gen's start_ts
         self._pending_gen_usage: dict[str, int] = {}  # Latest _posthog/usage_update, consumed on flush
+        self._pending_gen_cost_usd: float | None = None
+        self._tools_by_id: dict[str, ToolDescriptor] = {}
 
     def parse(self, raw_log: str) -> ParsedLog:
         for line in raw_log.strip().split("\n"):
@@ -199,6 +253,9 @@ class AcpLogParser:
                 "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
                 "totalTokens": usage.get("totalTokens", 0),
             }
+            reasoning_tokens = usage.get("reasoningTokens", usage.get("thoughtTokens"))
+            if reasoning_tokens is not None:
+                self._last_token_usage["reasoningTokens"] = reasoning_tokens
         if entry_result.get("stopReason") == "end_turn":
             self._flush_generation(token_usage=self._last_token_usage)
             self._last_token_usage = {}
@@ -208,25 +265,30 @@ class AcpLogParser:
     def _on_usage_update(self, notification: dict) -> None:
         """Record per-model-call token usage for the generation currently being built.
 
-        The codex adapter reports each call's tokens in ``params.usage`` here — its
-        end_turn result carries no usage. The claude adapter's variant of this
-        notification has no ``usage`` key (usage arrives on the prompt result), so
-        it falls through untouched.
+        Codex reports tokens in ``params.usage``. Claude reports cumulative session
+        tokens in ``params.used`` and the exact USD cost in ``params.cost``.
         """
         params = notification.get("params")
-        usage = params.get("usage") if isinstance(params, dict) else None
-        if not isinstance(usage, dict):
+        if not isinstance(params, dict):
             return
-        normalized = {
-            "inputTokens": usage.get("inputTokens", 0),
-            "outputTokens": usage.get("outputTokens", 0),
-            "cachedReadTokens": usage.get("cachedReadTokens", 0),
-            "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
-            "totalTokens": usage.get("totalTokens", 0),
-        }
-        if "reasoningTokens" in usage:
-            normalized["reasoningTokens"] = usage.get("reasoningTokens", 0)
-        self._pending_gen_usage = normalized
+        usage = params.get("usage")
+        if not isinstance(usage, dict):
+            used = params.get("used")
+            usage = used if isinstance(used, dict) else None
+        if isinstance(usage, dict):
+            normalized = {
+                "inputTokens": usage.get("inputTokens", 0),
+                "outputTokens": usage.get("outputTokens", 0),
+                "cachedReadTokens": usage.get("cachedReadTokens", 0),
+                "cachedWriteTokens": usage.get("cachedWriteTokens", 0),
+                "totalTokens": usage.get("totalTokens", 0),
+            }
+            if "reasoningTokens" in usage:
+                normalized["reasoningTokens"] = usage.get("reasoningTokens", 0)
+            self._pending_gen_usage = normalized
+        cost = params.get("cost")
+        if isinstance(cost, int | float):
+            self._pending_gen_cost_usd = float(cost)
 
     def _on_console(self, notification: dict, ts: str) -> None:
         params = notification.get("params", {}) or {}
@@ -304,7 +366,7 @@ class AcpLogParser:
             ),
             update.get("title", "unknown_tool"),
         )
-        tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
+        tool_call_id = str(update.get("toolCallId", str(uuid.uuid4())))
         raw_input = update.get("rawInput", {})
 
         self._current_output.append(
@@ -315,6 +377,14 @@ class AcpLogParser:
                 "input": raw_input if isinstance(raw_input, dict) else {},
             }
         )
+        descriptor = ToolDescriptor(
+            tool_call_id=tool_call_id,
+            name=str(tool_name),
+            input=raw_input if isinstance(raw_input, dict) else {},
+            start_ts=ts,
+        )
+        self._result.tools.append(descriptor)
+        self._tools_by_id[tool_call_id] = descriptor
         self._gen_last_output_ts = ts
 
     def _on_tool_call_update(self, update: dict, ts: str) -> None:
@@ -328,6 +398,8 @@ class AcpLogParser:
                 if block.get("type") == "tool_use" and block.get("id") == tool_call_id:
                     block["input"] = late_input
                     break
+            if descriptor := self._tools_by_id.get(tool_call_id):
+                descriptor.input = late_input
 
         status = update.get("status", "")
         if status not in ("completed", "failed", "error") or not tool_call_id:
@@ -347,6 +419,10 @@ class AcpLogParser:
         if status in ("failed", "error"):
             tool_result["is_error"] = True
         self._pending_tool_results.append(tool_result)
+        if descriptor := self._tools_by_id.get(tool_call_id):
+            descriptor.output = tool_result["content"]
+            descriptor.is_error = status in ("failed", "error")
+            descriptor.end_ts = ts
         if ts:
             self._last_tool_result_ts = ts
 
@@ -381,11 +457,14 @@ class AcpLogParser:
         # latest _posthog/usage_update, which codex emits once per model call.
         effective_usage = token_usage or self._pending_gen_usage
         self._pending_gen_usage = {}
+        cost_usd = self._pending_gen_cost_usd
+        self._pending_gen_cost_usd = None
         self._result.generations.append(
             GenerationDescriptor(
                 input_messages=list(self._history),
                 output_content=list(self._current_output),
                 token_usage=effective_usage or {},
+                cost_usd=cost_usd,
                 timestamp=self._gen_timestamp,
                 start_ts=self._gen_start_ts,
                 end_ts=self._gen_last_output_ts or self._gen_timestamp,

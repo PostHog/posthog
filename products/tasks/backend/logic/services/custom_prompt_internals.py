@@ -17,7 +17,6 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
@@ -216,17 +215,13 @@ async def create_task_and_trigger(
     mcp_gateway_server_ids: list[str] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
-    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=context.team_id)
+    team = await sync_to_async(Team.objects.get)(id=context.team_id)
     # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
     # None would clobber it. sandbox_environment_id already accepts None.
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
-    # thread_sensitive=False: create_and_run is slow, self-contained sync work (ORM +
-    # GitHub + workflow submission); on the shared thread-sensitive executor, N parallel
-    # callers (parallel eval cases) serialize into a single-file queue. database_sync_to_async
-    # closes old connections around the call so the persistent executor thread doesn't retain them.
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
+    task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
         description=description,
@@ -254,8 +249,8 @@ async def create_task_and_trigger(
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
     )
-    # lambda wrap: task.latest_run is a lazy ORM property; database_sync_to_async needs a callable
-    task_run = await database_sync_to_async(lambda: task.latest_run, thread_sensitive=False)()
+    # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
+    task_run = await sync_to_async(lambda: task.latest_run)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run

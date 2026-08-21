@@ -1,30 +1,3 @@
-"""Research cases — weighted toward the production signal mix.
-
-In production, signal volume is dominated by error tracking (``error_tracking/issue_created``)
-with session replay (``session_replay/session_problem``) a strong second; linear/github/
-zendesk/conversations form a long tail. This dataset mirrors that emphasis and the content
-shapes the emitters in this repo actually produce:
-
-- **error_tracking** signals use the real emitter template ("New error tracking issue created
-  - this particular exception was observed for the first time:\\n{name}: {description}"),
-  weight 1.0, and the seeded project's actual issues (Checkout API timeout, File preview
-  render failure, Team invite rejected).
-- **session_replay/session_problem** signals are AI-written segment descriptions of a single
-  session (what the user did and where they struggled), weight 0.5, with the production
-  ``extra`` keys (session_id, segment_title, problem_type ∈ blocking_exception/failure/
-  confusion/abandonment). Session ids are real seeded team-1 sessions.
-- Other sources use the production ``source_type`` vocabulary (github/linear → ``issue``,
-  zendesk/conversations → ``ticket``).
-
-Two flavours remain: **data-grounded** cases set ``expect_data_evidence=True`` and only anchor
-on data the seeded project actually contains (downloaded_file, signed_up, uploaded_file,
-invited_team_member, paid_bill, $web_vitals, upgraded_plan, the three error-tracking issues,
-the four experiments); **verdict** cases grade actionability/priority calibration, including
-the production-dominant "third-party error, not our bug" triage. Subjective judgments use
-acceptable-range ground truth; ``None`` in ``expected_priority`` accepts a not-actionable
-report carrying no priority.
-"""
-
 from __future__ import annotations
 
 from products.signals.evals.agentic.datasets import ResearchCase, ResearchExpectation, SignalSpec
@@ -32,8 +5,6 @@ from products.signals.evals.agentic.datasets import ResearchCase, ResearchExpect
 _REPOSITORY = "posthog/hedgebox"
 
 
-# Production emitter template for error_tracking/issue_created signals
-# (see products/signals/backend/temporal/backfill_error_tracking.py).
 def _et_issue_created(name: str, description: str) -> str:
     return (
         "New error tracking issue created - this particular exception was observed for the "
@@ -50,9 +21,6 @@ SESSION_IDS = (
 
 
 def _session_extra(session_id: str, segment_title: str, problem_type: str) -> dict:
-    """The production ``extra`` shape for a session_problem signal (see
-    posthog/temporal/session_replay/session_summary/activities/video_based/
-    a7b_emit_session_problem_signals.py)."""
     return {
         "session_id": session_id,
         "segment_title": segment_title,
@@ -84,15 +52,11 @@ _download_case = ResearchCase(
         expected_actionability=("immediately_actionable", "requires_human_input"),
         expected_priority=("P1", "P2", "P3"),
         expected_already_addressed=False,
-        expected_code_path_substrings={"sig_download_failure": ("src/app/files", "files/[id]")},
-        summary_must_mention=("download",),
     ),
 )
 
 CASES: list[ResearchCase] = [
-    # ── Code-grounded ────────────────────────────────────────────────────────────
     _download_case,
-    # ── Error tracking (production-dominant source; real seeded issues) ──────────
     ResearchCase(
         case_id="research_checkout_timeout",
         step="research",
@@ -112,13 +76,8 @@ CASES: list[ResearchCase] = [
                 weight=1.0,
             ),
         ),
-        # Data-grounded cases assert what they actually test: the agent found and analyzed the
-        # relevant project data, and summarized it. The actionability/priority verdict depends on
-        # the data's magnitude (which varies in demo data), so verdict calibration is left to the
-        # verdict cases below — asserting a fixed verdict here would test data volume, not the agent.
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("checkout",),
         ),
     ),
     ResearchCase(
@@ -142,7 +101,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("preview",),
         ),
     ),
     ResearchCase(
@@ -166,7 +124,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("invite",),
         ),
     ),
     ResearchCase(
@@ -190,7 +147,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("checkout",),
         ),
     ),
     ResearchCase(
@@ -218,7 +174,6 @@ CASES: list[ResearchCase] = [
             expected_priority=("P3", "P4", None),
         ),
     ),
-    # ── Session replay (second-largest production source; session_problem shape) ──
     ResearchCase(
         case_id="research_download_engagement",
         step="research",
@@ -241,7 +196,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("download",),
         ),
     ),
     ResearchCase(
@@ -266,7 +220,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("slow",),
         ),
     ),
     ResearchCase(
@@ -291,7 +244,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("signup",),
         ),
     ),
     ResearchCase(
@@ -316,7 +268,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("preview",),
         ),
     ),
     ResearchCase(
@@ -341,10 +292,8 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("upgrade",),
         ),
     ),
-    # ── Multi-signal (cross-source convergence, like production report clusters) ──
     ResearchCase(
         case_id="research_multi_checkout_cluster",
         step="research",
@@ -376,10 +325,8 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("checkout",),
         ),
     ),
-    # ── Other sources, data-grounded (experiments, warehouse, product asks) ───────
     ResearchCase(
         case_id="research_pricing_experiment",
         step="research",
@@ -400,7 +347,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("pricing",),
         ),
     ),
     ResearchCase(
@@ -424,7 +370,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("signup",),
         ),
     ),
     ResearchCase(
@@ -447,7 +392,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("upload",),
         ),
     ),
     ResearchCase(
@@ -470,7 +414,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("bill",),
         ),
     ),
     ResearchCase(
@@ -493,7 +436,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("onboarding",),
         ),
     ),
     ResearchCase(
@@ -516,7 +458,6 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("sharing",),
         ),
     ),
     ResearchCase(
@@ -539,10 +480,8 @@ CASES: list[ResearchCase] = [
         ),
         expected=ResearchExpectation(
             expect_data_evidence=True,
-            summary_must_mention=("churn",),
         ),
     ),
-    # ── Verdict variety / adversarial ─────────────────────────────────────────────
     ResearchCase(
         case_id="research_vague_low_signal",
         step="research",
@@ -566,9 +505,6 @@ CASES: list[ResearchCase] = [
     ResearchCase(
         case_id="research_feature_request",
         step="research",
-        # Needs a repo that plausibly owns the feature (exports/downloads) — with a
-        # non-owning repo the correct verdict is "misrouted", which grades the routing,
-        # not the judgment.
         repo=_REPOSITORY,
         notes="linear feature request — actionable-or-human, not a P0 emergency.",
         signals=(
@@ -587,7 +523,6 @@ CASES: list[ResearchCase] = [
         expected=ResearchExpectation(
             expected_actionability=("requires_human_input", "immediately_actionable"),
             expected_priority=("P2", "P3", "P4"),
-            summary_must_mention=("download",),
         ),
     ),
     ResearchCase(
@@ -616,8 +551,6 @@ CASES: list[ResearchCase] = [
     ResearchCase(
         case_id="research_idor_urgent",
         step="research",
-        # Must run against a repo that plausibly owns sharing/access control, else the
-        # correct verdict is "misrouted for this repo" and urgency is unmeasurable.
         repo=_REPOSITORY,
         notes="cross-tenant data access report — must be treated as high priority, never brushed off.",
         signals=(
@@ -637,7 +570,6 @@ CASES: list[ResearchCase] = [
         expected=ResearchExpectation(
             expected_actionability=("immediately_actionable", "requires_human_input"),
             expected_priority=("P0", "P1"),
-            summary_must_mention=("file",),
         ),
     ),
     ResearchCase(

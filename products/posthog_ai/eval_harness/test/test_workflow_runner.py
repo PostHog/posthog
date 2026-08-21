@@ -103,6 +103,35 @@ def test_workflow_receives_isolated_context_and_writes_output(tmp_path: Path, mo
     ctx.demo_data.make_context.assert_called_once_with("case-one")  # type: ignore[union-attr]
 
 
+def test_workflow_records_agent_usage_in_output_and_local_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw_log = "\n".join(
+        [
+            '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message","content":{"type":"text","text":"done"}}}}}',
+            '{"notification":{"method":"_posthog/usage_update","params":{"used":{"inputTokens":10,"outputTokens":2,"cachedReadTokens":3},"cost":0.04}}}',
+            '{"notification":{"result":{"stopReason":"end_turn"}}}',
+        ]
+    )
+
+    async def task(case, sandbox_context, ctx, hooks):
+        return {"raw_log": raw_log}
+
+    run = _run(tmp_path, monkeypatch, _context(), task)
+    output = asyncio.run(run._execute_case({"name": "case-one", "prompt": "investigate"}, hooks=NullCaseHooks()))
+
+    assert output["token_usage"] == {
+        "inputTokens": 10,
+        "outputTokens": 2,
+        "cachedReadTokens": 3,
+        "cachedWriteTokens": 0,
+        "totalTokens": 0,
+    }
+    assert output["cost_usd"] == 0.04
+    summary = (tmp_path / "case-one.summary.txt").read_text()
+    assert '"inputTokens": 10' in summary
+
+
 def test_workflow_timeout_is_scored_as_a_case_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     async def task(case, sandbox_context, ctx, hooks):
         await asyncio.sleep(30)

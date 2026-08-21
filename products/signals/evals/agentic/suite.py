@@ -13,6 +13,7 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 CaseT = TypeVar("CaseT", bound=EvalCase)
 PromptFn = Callable[[CaseT], str]
+SetupFn = Callable[[CustomPromptSandboxContext, CaseT | None], dict[str, Any]]
 RunFn = Callable[[CaseT, CustomPromptSandboxContext, EvalContext], Awaitable[dict[str, Any]]]
 PROJECT_NAME = "signals-agentic"
 
@@ -21,15 +22,15 @@ def harness_cases(
     cases: Sequence[CaseT],
     prompt: PromptFn[CaseT],
     *,
-    setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = None,
+    setup: SetupFn[CaseT] | None = None,
 ) -> list[SandboxedEvalCase]:
     return [
         SandboxedEvalCase(
             name=case.case_id,
             prompt=prompt(case),
-            expected={"case_id": case.case_id, "target": asdict(case)["expected"]},
+            expected={"case_id": case.case_id, "target": asdict(case).get("expected")},
             metadata={"step": case.step, "notes": case.notes},
-            setup=setup,
+            setup=(lambda context, selected=case: setup(context, selected)) if setup else None,
         )
         for case in cases
     ]
@@ -43,7 +44,7 @@ async def run_suite(
     runner: RunFn[CaseT],
     scorers: Sequence[Any],
     ctx: EvalContext,
-    setup: Callable[[CustomPromptSandboxContext], dict[str, Any]] | None = None,
+    setup: SetupFn[CaseT] | None = None,
 ) -> None:
     by_name = {case.case_id: case for case in cases}
 

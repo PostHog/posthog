@@ -330,16 +330,116 @@ def _agent_message_line(text: str) -> str:
                     {
                         "jsonrpc": "2.0",
                         "method": "_posthog/usage_update",
-                        "params": {"sessionId": "s1", "used": {"inputTokens": 50}, "cost": 0.75},
+                        "params": {
+                            "sessionId": "s1",
+                            "used": {
+                                "inputTokens": 50,
+                                "outputTokens": 7,
+                                "cachedReadTokens": 4,
+                                "cachedWriteTokens": 3,
+                            },
+                            "cost": 0.75,
+                        },
                     }
                 ),
                 _line({"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}}),
             ],
-            [{}],
-            id="claude_usage_update_without_usage_key_is_ignored",
+            [
+                {
+                    "inputTokens": 50,
+                    "outputTokens": 7,
+                    "cachedReadTokens": 4,
+                    "cachedWriteTokens": 3,
+                    "totalTokens": 0,
+                }
+            ],
+            id="claude_usage_update_is_captured",
+        ),
+        pytest.param(
+            [
+                _agent_message_line("done"),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/usage_update",
+                        "params": {
+                            "sessionId": "s1",
+                            "usage": {
+                                "inputTokens": 100,
+                                "outputTokens": 20,
+                                "reasoningTokens": 8,
+                                "totalTokens": 120,
+                            },
+                        },
+                    }
+                ),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {
+                            "stopReason": "end_turn",
+                            "usage": {
+                                "inputTokens": 100,
+                                "outputTokens": 20,
+                                "thoughtTokens": 8,
+                                "totalTokens": 120,
+                            },
+                        },
+                    }
+                ),
+            ],
+            [
+                {
+                    "inputTokens": 100,
+                    "outputTokens": 20,
+                    "cachedReadTokens": 0,
+                    "cachedWriteTokens": 0,
+                    "totalTokens": 120,
+                    "reasoningTokens": 8,
+                }
+            ],
+            id="codex_end_turn_preserves_reasoning_tokens",
         ),
     ],
 )
 def test_parse_log_attaches_token_usage_per_generation(lines: list[str], expected_usages: list[dict]) -> None:
     parsed = parse_log("\n".join(lines))
     assert [gen.token_usage for gen in parsed.generations] == expected_usages
+
+
+def test_parse_log_sums_cost_and_exposes_braintrust_metrics() -> None:
+    parsed = parse_log(
+        "\n".join(
+            [
+                _agent_message_line("done"),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/usage_update",
+                        "params": {
+                            "sessionId": "s1",
+                            "used": {
+                                "inputTokens": 50,
+                                "outputTokens": 7,
+                                "cachedReadTokens": 4,
+                                "cachedWriteTokens": 3,
+                            },
+                            "cost": 0.75,
+                        },
+                    }
+                ),
+                _line({"jsonrpc": "2.0", "id": 2, "result": {"stopReason": "end_turn"}}),
+            ]
+        )
+    )
+
+    assert parsed.total_cost_usd == 0.75
+    assert parsed.metrics == {
+        "prompt_tokens": 57,
+        "completion_tokens": 7,
+        "prompt_cached_tokens": 4,
+        "prompt_cache_creation_tokens": 3,
+        "tokens": 64,
+        "cost": 0.75,
+    }

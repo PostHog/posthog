@@ -1563,6 +1563,46 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_accepts_an_explicit_agent_runtime(ateam, aerrors_skill):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    runtime = AgentRuntime(runtime_adapter="claude", model="claude-haiku-4-5", reasoning_effort="low")
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.resolve_scout_model") as resolve_model,
+        patch("products.signals.backend.scout_harness.runner.resolve_agent_runtime") as resolve_runtime,
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture"),
+    ):
+        await arun_signals_scout(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            agent_runtime=runtime,
+        )
+
+    resolve_model.assert_not_called()
+    resolve_runtime.assert_not_called()
+    assert captured["context"].runtime_adapter == "claude"
+    assert captured["context"].model == "claude-haiku-4-5"
+    assert captured["context"].reasoning_effort == "low"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, aerrors_skill):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # Failure inside MultiTurnSession.start means we never get a session.task_run
