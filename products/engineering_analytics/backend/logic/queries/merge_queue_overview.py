@@ -41,6 +41,10 @@ _MERGE_QUEUE_SELECT = """
         quantileIf(0.5)(gate_to_merge_seconds, __PREV__) AS median_prev,
         quantileIf(0.9)(gate_to_merge_seconds, __CUR__) AS p90_cur,
         quantileIf(0.9)(gate_to_merge_seconds, __PREV__) AS p90_prev,
+        quantileIf(0.95)(gate_to_merge_seconds, __CUR__) AS p95_cur,
+        quantileIf(0.95)(gate_to_merge_seconds, __PREV__) AS p95_prev,
+        quantileIf(0.99)(gate_to_merge_seconds, __CUR__) AS p99_cur,
+        quantileIf(0.99)(gate_to_merge_seconds, __PREV__) AS p99_prev,
         avgIf(attempts, __CUR__) AS avg_attempts_cur,
         avgIf(attempts, __PREV__) AS avg_attempts_prev,
         countIf(attempts > 1 AND __CUR__) / nullIf(countIf(__CUR__), 0) AS multi_attempt_share_cur,
@@ -77,7 +81,7 @@ _MERGE_QUEUE_SELECT = """
 @dataclass(frozen=True, kw_only=True)
 class MergeQueueWindowStats:
     """Landing stats over merged PRs with at least one corroborated gate run, for a window and its
-    previous twin. ``median``/``p90`` measure first gate run start to merge, the observable anchor
+    previous twin. The percentiles measure first gate run start to merge, the observable anchor
     for enqueue-to-merge; pending time before gate testing starts is not visible in this data."""
 
     merged_pr_count: int
@@ -86,6 +90,10 @@ class MergeQueueWindowStats:
     median_first_gate_to_merge_seconds_prev: float | None
     p90_first_gate_to_merge_seconds: float | None
     p90_first_gate_to_merge_seconds_prev: float | None
+    p95_first_gate_to_merge_seconds: float | None
+    p95_first_gate_to_merge_seconds_prev: float | None
+    p99_first_gate_to_merge_seconds: float | None
+    p99_first_gate_to_merge_seconds_prev: float | None
     avg_attempts_per_merge: float | None
     avg_attempts_per_merge_prev: float | None
     multi_attempt_merge_share: float | None
@@ -101,6 +109,10 @@ _EMPTY_STATS = MergeQueueWindowStats(
     median_first_gate_to_merge_seconds_prev=None,
     p90_first_gate_to_merge_seconds=None,
     p90_first_gate_to_merge_seconds_prev=None,
+    p95_first_gate_to_merge_seconds=None,
+    p95_first_gate_to_merge_seconds_prev=None,
+    p99_first_gate_to_merge_seconds=None,
+    p99_first_gate_to_merge_seconds_prev=None,
     avg_attempts_per_merge=None,
     avg_attempts_per_merge_prev=None,
     multi_attempt_merge_share=None,
@@ -150,6 +162,10 @@ def query_merge_queue_overview(
         median_prev,
         p90_cur,
         p90_prev,
+        p95_cur,
+        p95_prev,
+        p99_cur,
+        p99_prev,
         avg_attempts_cur,
         avg_attempts_prev,
         multi_share_cur,
@@ -164,6 +180,10 @@ def query_merge_queue_overview(
         median_first_gate_to_merge_seconds_prev=opt_float(median_prev),
         p90_first_gate_to_merge_seconds=opt_float(p90_cur),
         p90_first_gate_to_merge_seconds_prev=opt_float(p90_prev),
+        p95_first_gate_to_merge_seconds=opt_float(p95_cur),
+        p95_first_gate_to_merge_seconds_prev=opt_float(p95_prev),
+        p99_first_gate_to_merge_seconds=opt_float(p99_cur),
+        p99_first_gate_to_merge_seconds_prev=opt_float(p99_prev),
         avg_attempts_per_merge=opt_float(avg_attempts_cur),
         avg_attempts_per_merge_prev=opt_float(avg_attempts_prev),
         multi_attempt_merge_share=opt_float(multi_share_cur),

@@ -451,6 +451,8 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # PR 80: first gate at -4d, merged -2d (2 days); PR 81: -4d to -3d (1 day).
         assert overview.merge_queue_median_first_gate_to_merge_seconds == pytest.approx(1.5 * 86400)
         assert overview.merge_queue_p90_first_gate_to_merge_seconds == pytest.approx(1.9 * 86400)
+        assert overview.merge_queue_p95_first_gate_to_merge_seconds == pytest.approx(1.95 * 86400)
+        assert overview.merge_queue_p99_first_gate_to_merge_seconds == pytest.approx(1.99 * 86400)
         assert overview.merge_queue_median_first_gate_to_merge_seconds_prev is None
 
     def test_repo_overview_ready_to_merge_median_and_series(self) -> None:

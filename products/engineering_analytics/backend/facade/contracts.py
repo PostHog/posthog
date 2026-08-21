@@ -1102,6 +1102,10 @@ class RepoOverview:
     merge_queue_median_first_gate_to_merge_seconds_prev: float | None
     merge_queue_p90_first_gate_to_merge_seconds: float | None
     merge_queue_p90_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p95_first_gate_to_merge_seconds: float | None
+    merge_queue_p95_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p99_first_gate_to_merge_seconds: float | None
+    merge_queue_p99_first_gate_to_merge_seconds_prev: float | None
     # Mean distinct gate attempts per queue-landed merge (distinct gate branches, bisection collapsed).
     merge_queue_avg_attempts_per_merge: float | None
     merge_queue_avg_attempts_per_merge_prev: float | None

@@ -460,6 +460,22 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "The same p90 over the previous window. Null when no queue-landed merges.",
                 "allow_null": True,
             },
+            "merge_queue_p95_first_gate_to_merge_seconds": {
+                "help_text": "p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p95_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p95 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds": {
+                "help_text": "p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
+            "merge_queue_p99_first_gate_to_merge_seconds_prev": {
+                "help_text": "The same p99 over the previous window. Null when no queue-landed merges.",
+                "allow_null": True,
+            },
             "merge_queue_avg_attempts_per_merge": {
                 "help_text": "Mean distinct gate attempts (distinct gate branches, flake-bisection branches "
                 "collapsed) per queue-landed merge. Null when no queue-landed merges.",
