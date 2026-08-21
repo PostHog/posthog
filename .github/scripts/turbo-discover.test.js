@@ -13,9 +13,10 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -139,3 +140,29 @@ for (const workflow of WORKFLOWS) {
         assert.deepEqual(sorted([...arms.ignored, ...claimedFromCore]), sorted(DJANGO_SEGMENTS.Core.exclude))
     })
 }
+
+// Isolation is the claim that a product can be tested without the Django suite.
+// A product that ships the contract-check script but no turbo.json of its own
+// leaves the task on the root definition, whose inputs are its whole backend,
+// so every backend edit reads as a contract change and cascades anyway.
+test('isolation needs both the contract-check script and narrowed contract inputs', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'isolated-products-'))
+    const declare = (product, turboJson) => {
+        fs.mkdirSync(path.join(repoRoot, 'products', product), { recursive: true })
+        if (turboJson) {
+            fs.writeFileSync(path.join(repoRoot, 'products', product, 'turbo.json'), JSON.stringify(turboJson))
+        }
+    }
+    declare('declared', { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } })
+    declare('empty-inputs', { tasks: { 'backend:contract-check': { inputs: [] } } })
+    declare('other-task', { tasks: { 'backend:test': { inputs: ['backend/**'] } } })
+    declare('no-turbo-json', null)
+
+    // Every task here comes from `turbo run backend:contract-check`, so each of
+    // these products already declares the script.
+    const tasks = ['declared', 'empty-inputs', 'other-task', 'no-turbo-json'].map((product) => ({
+        package: `@posthog/products-${product}`,
+    }))
+
+    assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)], ['declared'])
+})

@@ -601,15 +601,17 @@ function listProducts(repoRoot) {
         .sort()
 }
 
-// A product is isolated when it declares a backend:contract-check script, the
-// same signal turbo-discover uses to decide a product can be tested alone.
-// Non-isolated products have no narrowed contract, so a change in one is
-// treated as a core change.
-function listIsolatedProducts(repoRoot, products) {
+// A product is isolated when it declares a backend:contract-check script *and*
+// narrows that task's inputs in its own turbo.json, the same pair turbo-discover
+// uses to decide a product can be tested alone. The script alone leaves the task
+// on the root definition, whose inputs are the product's whole backend, so the
+// product claims a contract surface it never narrowed. Non-isolated products
+// have no narrowed contract, so a change in one is treated as a core change.
+function listIsolatedProducts(repoRoot, products, contractSurfaces) {
     const isolated = new Set()
     for (const product of products) {
         const manifest = path.join(repoRoot, 'products', product, 'package.json')
-        if (!fs.existsSync(manifest)) {
+        if (!fs.existsSync(manifest) || !contractSurfaces.has(product)) {
             continue
         }
         const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'))
@@ -1845,12 +1847,13 @@ function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
     const rustGraph = loadRustGraph(repoRoot)
+    const contractSurfaces = loadContractSurfaces(repoRoot, products)
     return {
         products,
         cargoLockCrates: parseCargoLockCrates(process.env[CARGO_LOCK_CRATES_ENV], rustGraph),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(repoRoot, products),
-        contractSurfaces: loadContractSurfaces(repoRoot, products),
+        isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
+        contractSurfaces,
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
@@ -1869,6 +1872,8 @@ module.exports = {
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    listIsolatedProducts,
+    loadContractSurfaces,
     parseCrateDependencies,
     parseCrateName,
     parsePytestIgnores,
