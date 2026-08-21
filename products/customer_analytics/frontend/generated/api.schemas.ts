@@ -2487,6 +2487,11 @@ export type FeatureRequestsListParams = {
      */
     archive_state?: FeatureRequestsListArchiveState
     /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[]
+    /**
      * Number of results to return per page.
      */
     limit?: number

@@ -1454,6 +1454,7 @@ const featureRequestsList = (): ToolBase<
             query: {
                 account_ids: params.account_ids,
                 archive_state: params.archive_state,
+                created_by_ids: params.created_by_ids,
                 limit: params.limit,
                 offset: params.offset,
                 priorities: params.priorities,

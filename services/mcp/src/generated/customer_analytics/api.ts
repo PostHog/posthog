@@ -1186,6 +1186,10 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Whether to return active requests, archived requests, or all requests.\n\n\* `active` - Active\n\* `archived` - Archived\n\* `all` - All'
         ),
+    created_by_ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Creator user IDs to include. Multiple values use OR semantics.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     priorities: zod

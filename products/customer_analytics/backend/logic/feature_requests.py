@@ -237,6 +237,8 @@ def _apply_filters(
             account_links__account_id__in=account_filter_ids,
             account_links__unlinked_at__isnull=True,
         )
+    if filters.created_by_ids:
+        queryset = queryset.filter(created_by_id__in=filters.created_by_ids)
     if filters.archive_state == "active":
         queryset = queryset.filter(archived_at__isnull=True)
     elif filters.archive_state == "archived":

@@ -330,6 +330,7 @@ class FeatureRequestViewSet(
                     priorities=tuple(data.get("priorities", ())),
                     product_area_ids=tuple(data.get("product_area_ids", ())),
                     account_ids=tuple(data.get("account_ids", ())),
+                    created_by_ids=tuple(data.get("created_by_ids", ())),
                     archive_state=data["archive_state"],
                     ordering=data["request_ordering"],
                 ),
