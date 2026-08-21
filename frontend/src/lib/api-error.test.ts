@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { apiFailureCaptureProperties, ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -117,6 +117,36 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+
+        // A self-hosted or dev instance's own backend threw the untyped 500, so it is not our defect.
+        it.each([
+            ['on cloud', true, true],
+            ['on a self-hosted host', false, false],
+            ['when cloud is unknown', undefined, true],
+        ])('reports an untyped 500 %s', (_, isCloud, expected) => {
+            expect(shouldReportApiFailure({ status: 500, code: 'error' }, { isCloud })).toBe(expected)
+        })
+
+        // A typed 500 carries a real backend code, so it stays reportable even off cloud.
+        it('reports a typed 500 off cloud', () => {
+            expect(shouldReportApiFailure({ status: 500, code: 'clickhouse_error' }, { isCloud: false })).toBe(true)
+        })
+    })
+
+    describe('apiFailureCaptureProperties', () => {
+        it('names the failed endpoint and status', () => {
+            const error = new ApiError('boom', 500)
+            error.endpoint = 'GET /api/projects/1/insights'
+
+            expect(apiFailureCaptureProperties(error)).toEqual({
+                api_endpoint: 'GET /api/projects/1/insights',
+                api_status: 500,
+            })
+        })
+
+        it('returns nothing for a non-ApiError', () => {
+            expect(apiFailureCaptureProperties(new Error('boom'))).toEqual({})
         })
     })
 })

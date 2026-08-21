@@ -7585,7 +7585,9 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        const apiError = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        apiError.endpoint = `${method} ${pathname}`
+        throw apiError
     }
 
     return response

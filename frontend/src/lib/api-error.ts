@@ -60,10 +60,13 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * no recovery runs. That event is also the better record, since an exception raised here cannot say
  * which endpoint failed: every `ApiError` shares this file's stack.
  *
- * A plain 500 stays reportable on purpose, being a genuine backend exception, and so does anything
- * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it.
+ * A 500 on PostHog Cloud stays reportable, being a genuine backend exception, and so does anything
+ * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it. But
+ * an untyped 500 ("A server error occurred.", DRF `code` `error`) from a non-cloud host is that
+ * host's own backend failing — a self-hosted or dev instance we cannot fix from this repo — so it is
+ * dropped. `isCloud` is only known false when the app is sure; an unknown value keeps reporting.
  */
-export function shouldReportApiFailure(error: unknown): boolean {
+export function shouldReportApiFailure(error: unknown, options?: { isCloud?: boolean }): boolean {
     if (error === null || typeof error !== 'object') {
         return true
     }
@@ -81,7 +84,30 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
         return false
     }
+    if (status === 500 && failure.code === 'error' && options?.isCloud === false) {
+        return false
+    }
     return !isApprovalRequiredError(failure)
+}
+
+/**
+ * Context to attach when an `ApiError` is filed as an error tracking issue. Every `ApiError` is
+ * built in this file, so they all share one stack and grouping falls back on the minified chunk
+ * name, which changes every deploy. The endpoint and status are the only way the issue can name
+ * which request failed and tell one failing route apart from another.
+ */
+export function apiFailureCaptureProperties(error: unknown): Record<string, string | number> {
+    if (!(error instanceof ApiError)) {
+        return {}
+    }
+    const properties: Record<string, string | number> = {}
+    if (error.endpoint) {
+        properties.api_endpoint = error.endpoint
+    }
+    if (typeof error.status === 'number') {
+        properties.api_status = error.status
+    }
+    return properties
 }
 
 export class ApiError extends Error {
@@ -96,6 +122,9 @@ export class ApiError extends Error {
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
+
+    /** `METHOD /path` of the failed request, set by `handleFetch` so error tracking can name it. */
+    endpoint: string | null = null
 
     constructor(
         message?: string,
