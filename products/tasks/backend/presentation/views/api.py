@@ -153,6 +153,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
+    TaskRunPostHogReferencesRequestSerializer,
+    TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -212,6 +214,10 @@ def _pi_cloud_runtime_disabled_response() -> Response:
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+
+# Detail-route lookup pattern for viewsets keyed on a UUID primary key. Keeps the router from
+# matching an unknown collection path as a pk and passing a non-UUID string to the ORM.
+UUID_LOOKUP_REGEX = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
@@ -1794,6 +1800,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
     @validated_request(
+        request_serializer=TaskRunPostHogReferencesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPostHogReferencesResponseSerializer,
+                description="Run with updated reference artifacts",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Register PostHog object references for a task run",
+        description="Attach live PostHog object references to the run artifact manifest without uploading files.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/references",
+        required_scopes=["task:write"],
+    )
+    def artifacts_references(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest = tasks_facade.register_task_run_posthog_references(
+            pk,
+            task_id,
+            self.team_id,
+            references=request.validated_data["references"],
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
+            acting_user_id=self._user_id(),
+        )
+        if manifest is None:
+            raise NotFound()
+        serializer = TaskRunPostHogReferencesResponseSerializer({"artifacts": manifest})
+        return Response(serializer.data)
+
+    @validated_request(
         request_serializer=TaskRunArtifactsPrepareUploadRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -2299,7 +2339,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.",
+        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.",
         strict_request_validation=True,
     )
     @action(
@@ -2332,6 +2372,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
+        # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
+        if method == "side_question":
+            if access_response := code_access_required_response(request.user):
+                return access_response
+            if limit_response := usage_limit_response(request.user, self.team_id):
+                return limit_response
 
         if method == "user_message":
             # The Inbox starts interactive runs and drops the user straight into this composer,
@@ -2466,6 +2514,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
             )
             if agent_response.ok:
+                tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(agent_response.json())
 
             try:
@@ -3364,6 +3413,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    lookup_value_regex = UUID_LOOKUP_REGEX
 
     @extend_schema(responses={200: SandboxEnvironmentListSerializer(many=True)})
     def list(self, request, **kwargs):
@@ -3427,6 +3477,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    lookup_value_regex = UUID_LOOKUP_REGEX
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)

@@ -2,7 +2,7 @@ from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
-import products.alerts.backend.api.alert as alert
+import products.alerts.backend.presentation.views.alert as alert
 from products.product_analytics.backend.presentation.insight import InsightViewSet
 from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet

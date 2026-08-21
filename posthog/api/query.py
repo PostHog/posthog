@@ -73,7 +73,7 @@ from posthog.rate_limit import (
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
+from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -180,6 +180,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCategoryMapQuery": ["query:read", "mcp_analytics:read"],
 }
 
 
@@ -401,9 +402,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         managed_connection_id = next(
             (
-                label.removeprefix(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
                 for label in query_status.labels or []
-                if label.startswith(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                if label.startswith(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
             ),
             None,
         )

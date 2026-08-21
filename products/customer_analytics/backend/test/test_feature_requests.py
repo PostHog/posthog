@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, UploadedMedia, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
 
@@ -26,6 +26,7 @@ from ee.models.rbac.access_control import AccessControl
 class _EvidenceResponse(TypedDict):
     id: str
     summary: str
+    image_ids: list[str]
 
 
 class _AccountLinkResponse(TypedDict):
@@ -96,6 +97,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         account_link_id: str,
         summary: str,
         customer_quote: str = "",
+        image_ids: list[str] | None = None,
     ) -> _FeatureRequestResponse:
         response = self.client.post(
             f"{self.requests_url}{request_id}/add_evidence/",
@@ -107,6 +109,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 "evidence_source": "conversation",
                 "source_url": "",
                 "requested_on": date.today().isoformat(),
+                "image_ids": image_ids or [],
             },
             format="json",
         )
@@ -136,6 +139,25 @@ class TestFeatureRequestsAPI(APIBaseTest):
         )
         self.assertEqual(retrieved.json()["request_status"], "requested")
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 1)
+
+    def test_create_can_include_initial_evidence(self) -> None:
+        payload = self._payload()
+        payload["evidence"] = {
+            "evidence_source": "meeting",
+            "requested_on": "2026-01-01",
+        }
+
+        response = self.client.post(self.requests_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        evidence = response.json()["account_links"][0]["evidence"]
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["summary"], "")
+        self.assertEqual(evidence[0]["evidence_source"], "meeting")
+        self.assertEqual(evidence[0]["requested_on"], "2026-01-01")
+        history = self.client.get(f"{self.requests_url}{response.json()['id']}/history/").json()
+        initial_changes = {change["field"]: change for change in history[0]["changes"]}
+        self.assertEqual(initial_changes["evidence"]["after"]["requested_on"], evidence[0]["requested_on"])
 
     def test_description_can_be_omitted_or_cleared(self) -> None:
         payload_without_description = self._payload()
@@ -624,14 +646,61 @@ class TestFeatureRequestsAPI(APIBaseTest):
             ["Dated evidence", "Undated evidence"],
         )
 
+    def test_image_only_evidence_requires_images_from_the_same_project(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        account_link_id = created["account_links"][0]["id"]
+        image = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="request.png",
+            content_type="image/png",
+            media_location="feature-requests/request.png",
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_image = UploadedMedia.objects.create(
+            team=other_team,
+            created_by=self.user,
+            file_name="other.png",
+            content_type="image/png",
+            media_location="feature-requests/other.png",
+        )
+        add_evidence_url = f"{self.requests_url}{created['id']}/add_evidence/"
+        payload = {
+            "expected_version": created["version"],
+            "account_link_id": account_link_id,
+            "summary": "",
+            "customer_quote": "",
+            "evidence_source": "conversation",
+            "source_url": "",
+            "image_ids": [str(other_image.id)],
+        }
+
+        rejected = self.client.post(add_evidence_url, payload, format="json")
+        payload["image_ids"] = [str(image.id)]
+        accepted = self.client.post(add_evidence_url, payload, format="json")
+
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(accepted.status_code, status.HTTP_200_OK)
+        self.assertEqual(accepted.json()["account_links"][0]["evidence"][0]["image_ids"], [str(image.id)])
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
+        self.assertEqual(history[0]["changes"][0]["after"]["image_ids"], [str(image.id)])
+
     def test_evidence_updates_and_deletes_with_request_version_checks(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         account_link_id = created["account_links"][0]["id"]
+        image = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name="request.png",
+            content_type="image/png",
+            media_location="feature-requests/request.png",
+        )
         with_evidence = self._add_evidence(
             request_id=created["id"],
             version=created["version"],
             account_link_id=account_link_id,
             summary="Initial summary",
+            image_ids=[str(image.id)],
         )
         evidence_id = with_evidence["account_links"][0]["evidence"][0]["id"]
         update_url = f"{self.requests_url}{created['id']}/update_evidence/"
@@ -669,6 +738,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(updated["account_links"][0]["evidence"][0]["summary"], "Updated summary")
+        self.assertEqual(updated["account_links"][0]["evidence"][0]["image_ids"], [str(image.id)])
         self.assertEqual(deleted.status_code, status.HTTP_200_OK)
         self.assertEqual(deleted.json()["account_links"][0]["evidence"], [])
         self.assertFalse(FeatureRequestEvidence.objects.for_team(self.team.id).filter(id=evidence_id).exists())
@@ -730,9 +800,15 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_creator = User.objects.create_and_join(
+            self.organization, "feature-request-creator@example.com", "testtest"
+        )
+        self._set_access_level(other_creator, "editor")
+        self.client.force_login(other_creator)
         second_payload = self._payload()
         second_payload["title"] = "Session replay export"
         second = self.client.post(self.requests_url, second_payload, format="json").json()
+        self.client.force_login(self.user)
         third_payload = self._payload()
         third_payload["title"] = "Unprioritized export"
         third = self.client.post(self.requests_url, third_payload, format="json").json()
@@ -768,6 +844,10 @@ class TestFeatureRequestsAPI(APIBaseTest):
             },
         )
         archived = self.client.get(self.requests_url, {"archive_state": "archived"})
+        created_by_other = self.client.get(
+            self.requests_url,
+            {"archive_state": "all", "created_by_ids": str(other_creator.id)},
+        )
         ordered = self.client.get(
             self.requests_url,
             {"archive_state": "all", "request_ordering": "-priority"},
@@ -776,6 +856,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(active.status_code, status.HTTP_200_OK)
         self.assertEqual([request["id"] for request in active.json()["results"]], [first["id"]])
         self.assertEqual([request["id"] for request in archived.json()["results"]], [second["id"]])
+        self.assertEqual([request["id"] for request in created_by_other.json()["results"]], [second["id"]])
         self.assertEqual(
             [request["id"] for request in ordered.json()["results"]],
             [second["id"], first["id"], third["id"]],

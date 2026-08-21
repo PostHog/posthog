@@ -98,7 +98,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
-        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -194,7 +193,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const { width, containerRef, mounted } = useContainerWidth()
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({
+            layoutEditMode,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            updateLayouts,
+        })
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
@@ -699,7 +702,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                    {isEditablePlacement && (
                         <InsertTileOverlay
                             layout={layouts['sm']}
                             gridWidth={gridWidth}

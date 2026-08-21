@@ -56,7 +56,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
+    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -518,6 +520,9 @@ def _first_error_string(detail: Any) -> Optional[str]:
 # The literal template_id each fixed-template node type requires. A saved library template
 # (from workflows-list-email-templates) is referenced via config.template_uuid, never here -
 # putting its UUID in template_id is the dominant authoring mistake on these nodes.
+# A trigger config's `type` doubles as its filter source, so the two vocabularies are the same set.
+DATA_WAREHOUSE_TRIGGER_TYPES = DATA_WAREHOUSE_SOURCES
+
 _FIXED_TEMPLATE_IDS = {
     "function_email": "template-email",
     "function_sms": "template-twilio",
@@ -1234,12 +1239,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
-            elif data.get("config", {}).get("type") == "data-warehouse-table":
+            elif data.get("config", {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES:
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
-                # per synced row, filtering only against the row payload. The dot-notated table_name
-                # must match the format produced by the Python CDPProducer so producer gating and
-                # trigger config use identical strings.
+                # per synced row, filtering only against the row payload. The table_name must match
+                # the string the Python CDPProducer emits — dot-notated for a source table, the
+                # saved query's own name for a materialized view — so producer gating and trigger
+                # config use identical strings.
                 config = data.get("config", {})
+                trigger_type = config.get("type")
                 table_name = config.get("table_name")
                 if not is_draft and (not table_name or not isinstance(table_name, str)):
                     raise serializers.ValidationError(
@@ -1247,11 +1254,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                     )
 
                 # Compile the row-property filters to bytecode so the executor can evaluate them.
-                # We force the data-warehouse-table source so only row properties are considered.
+                # We force the warehouse source so only row properties are considered.
                 filters = config.get("filters", {}) or {}
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
-                filters["source"] = "data-warehouse-table"
+                filters["source"] = trigger_type
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                 if is_draft:
                     if serializer.is_valid():
@@ -1297,6 +1304,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
+            gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
+            already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
+            if template is not None and gating_flag is not None and not already_stored:
+                # Outside a request (internal re-saves, direct construction) there is no team to
+                # evaluate the flag against, and the flow was already allowed to hold this step.
+                get_team = self.context.get("get_team")
+                if get_team is not None and not gated_template_enabled(gating_flag, get_team()):
+                    template = None
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
@@ -2044,6 +2059,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 
+        # Action ids already stored with a flag-gated template, so the gate only polices new
+        # adoption: a flow that was allowed to hold the step keeps validating after a flag
+        # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
+        # failing refresh_hog_flows. Only an active flow's steps count - active means the step
+        # passed the gate at activation, whereas a draft can hold the step without ever passing
+        # it (lenient web saves skip strict validation), so grandfathering a draft would let an
+        # unflagged team activate the step.
+        self.context["stored_gated_template_action_ids"] = {
+            action["id"]
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+        }
+
         status = data.get("status")
         if status is None and instance:
             status = instance.status
@@ -2082,7 +2112,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         self.context["is_dwh_source"] = any(
             isinstance(action, dict)
             and action.get("type") == "trigger"
-            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
         return super().to_internal_value(data)
@@ -2168,12 +2198,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         data["trigger"] = trigger_actions[0]["config"]
 
-        # Some triggers are person-less ("row-scoped"): a synced warehouse row and a Slack poster are
-        # both things no PostHog person is attached to. Person-dependent steps and person-aware exit
-        # conditions would silently assume person data, so we block them here — the serializer is the
-        # source of truth, so the API, MCP, and frontend can't bypass it. We force exit_only_at_end
-        # since the other exit conditions re-evaluate trigger/conversion filters that may reference
-        # person properties.
+        # Some triggers are person-less ("row-scoped"): a synced warehouse row, a materialized view row,
+        # and a Slack poster are all things no PostHog person is attached to. Person-dependent steps and
+        # person-aware exit conditions would silently assume person data, so we block them here — the
+        # serializer is the source of truth, so the API, MCP, and frontend can't bypass it. We force
+        # exit_only_at_end since the other exit conditions re-evaluate trigger/conversion filters that
+        # may reference person properties.
         if data["trigger"].get("type") in ROW_SCOPED_TRIGGER_TYPES:
             data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
             if not is_draft:
