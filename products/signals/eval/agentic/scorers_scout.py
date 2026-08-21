@@ -154,7 +154,7 @@ class ScoutSummaryTermsScorer(DeterministicScorer):
                 )
             )
         if exp.forbidden_summary_terms:
-            present = [term for term in exp.forbidden_summary_terms if term.lower() in blob]
+            present = [term for term in exp.forbidden_summary_terms if _normalize_term_text(term) in blob]
             checks.append(
                 Score.boolean(
                     "scout_summary_forbidden_terms",

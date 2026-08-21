@@ -40,7 +40,7 @@ from products.signals.eval.agentic.scorers_repo_selection import (
     default_repo_selection_scorers,
 )
 from products.signals.eval.agentic.scorers_research import DataEvidenceScorer, default_research_scorers
-from products.signals.eval.agentic.scorers_scout import default_scout_scorers
+from products.signals.eval.agentic.scorers_scout import ScoutSummaryTermsScorer, default_scout_scorers
 from products.signals.eval.agentic.scoring import JudgeVerdict, ScoringContext
 
 _CTX = ScoringContext(judge=None)
@@ -320,6 +320,29 @@ def test_generated_loader_skips_malformed_and_duplicate_rows(tmp_path, monkeypat
     monkeypatch.setattr(generated, "GENERATED_DIR", tmp_path)
     assert [c.case_id for c in generated.load_generated_research()] == ["ok_1"]
     assert generated.load_generated_repo_selection() == []
+
+
+def test_scout_forbidden_term_normalized_before_match():
+    # The summary blob is normalized (commas stripped, × -> x), so a forbidden term carrying a
+    # comma must be normalized too — otherwise '2,240' never matches the '2240' in the blob and a
+    # summary that leaks the forbidden number scores a silent pass.
+    case = ScoutCase(
+        case_id="scout_forbidden_norm",
+        step="scout",
+        expected=ScoutExpectation(expected_decision="emit_report", forbidden_summary_terms=("2,240",)),
+    )
+    leaks = ScoutDecisionOutput(
+        decision="emit_report",
+        summary="Affected 2,240 sessions in the last hour.",
+        evidence=[],
+        actionability="immediately_actionable",
+        priority="P2",
+        existing_report_id=None,
+        scratchpad_keys=[],
+        suggested_reviewers=[],
+        repository=None,
+    )
+    assert _score([ScoutSummaryTermsScorer()], case, leaks)["scout_summary_forbidden_terms"] is False
 
 
 def test_scout_scorers_discriminate():
