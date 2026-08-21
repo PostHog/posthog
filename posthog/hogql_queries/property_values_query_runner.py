@@ -159,11 +159,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _person_query(self) -> ast.SelectQuery:
-        # Deliberately approximate: the deduplicating `persons` table pays a full argMax
-        # GROUP BY over every person row before anything else runs (30s on large teams).
-        # Autocomplete instead samples 100k raw rows and discounts ids with a tombstone.
-        # Deletion hiding is best-effort: a tombstone only cancels the values it carries
-        # itself, so values from versions written before the deletion still appear.
+        # `persons` resolves every person to its latest version first, far too slow
+        # for autocomplete, so this samples raw rows instead. Deletion hiding is
+        # best-effort: a deletion row only hides values it carries itself.
         if self.query.search_value:
             inner_where = parse_expr(
                 "value ILIKE {pattern}",
@@ -196,9 +194,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _distinct_id_query(self) -> ast.SelectQuery:
-        # distinct_id lives in the mapping table, not in person properties — the generic
-        # person path would always return an empty list. argMax hides tombstoned rows;
-        # c is always 1 since GROUP BY already deduplicates.
+        # distinct_id lives in the distinct_id-to-person mapping table, not in person
+        # properties, so the generic person query would return nothing. c is always 1
+        # because the GROUP BY already deduplicates.
         where: ast.Expr = ast.Constant(value=True)
         if self.query.search_value:
             where = parse_expr(
