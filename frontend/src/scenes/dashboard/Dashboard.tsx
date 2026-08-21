@@ -27,6 +27,7 @@ import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOnboardingChecklist } from './DashboardOnboardingChecklist'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -150,6 +151,8 @@ function DashboardScene({
             )}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
+
+            {dashboard?.id && <DashboardOnboardingChecklist dashboardId={dashboard.id} />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" supportOnly />

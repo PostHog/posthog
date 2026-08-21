@@ -708,6 +708,16 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         promptLabel: string
     }
+    reportDashboardOnboardingAiStarted: (
+        dashboardId: number,
+        surface: 'checklist' | 'empty_state'
+    ) => {
+        dashboardId: number
+        surface: 'checklist' | 'empty_state'
+    }
+    reportDashboardOnboardingChecklistDismissed: (dashboardId: number) => {
+        dashboardId: number
+    }
     reportDashboardExported: (
         dashboardId: number,
         exportFormat: ExporterFormat
@@ -2447,6 +2457,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             promptLabel,
             dashboardId,
         }),
+        reportDashboardOnboardingAiStarted: (dashboardId: number, surface: 'checklist' | 'empty_state') => ({
+            dashboardId,
+            surface,
+        }),
+        reportDashboardOnboardingChecklistDismissed: (dashboardId: number) => ({ dashboardId }),
         reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
             dashboardId,
             exportFormat,
@@ -3525,6 +3540,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 source: 'web',
             })
+        },
+        reportDashboardOnboardingAiStarted: async ({ dashboardId, surface }) => {
+            posthog.capture('dashboard onboarding ai started', {
+                dashboard_id: dashboardId,
+                surface,
+            })
+        },
+        reportDashboardOnboardingChecklistDismissed: async ({ dashboardId }) => {
+            posthog.capture('dashboard onboarding checklist dismissed', { dashboard_id: dashboardId })
         },
         reportDashboardExported: async ({ dashboardId, exportFormat }) => {
             posthog.capture('dashboard exported', {

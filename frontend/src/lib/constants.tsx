@@ -289,6 +289,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_CUSTOMIZATION: 'dashboard-customization', // owner: @MattPua #team-analytics-platform
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
+    DASHBOARD_ONBOARDING_CHECKLIST: 'dashboard-onboarding-checklist', // owner: #team-analytics-platform multivariate=control,checklist, guides creators of new dashboards
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_BACKEND_V2: 'data-modeling-backend-v2', // owner: #team-data-modeling

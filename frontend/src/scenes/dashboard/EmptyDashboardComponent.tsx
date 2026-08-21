@@ -25,6 +25,7 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
+import { dashboardOnboardingChecklistLogic } from './dashboardOnboardingChecklistLogic'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const HedgehogChart = pngHoggie(chartPng)
@@ -43,6 +44,7 @@ function DashboardEmptyActions({
     onAddWidget,
     push,
     onOpenAiWithPrompt,
+    dashboardOnboardingChecklistActive,
 }: {
     canEdit: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -52,6 +54,7 @@ function DashboardEmptyActions({
     onAddWidget: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
+    dashboardOnboardingChecklistActive: boolean
 }): JSX.Element {
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
 
@@ -95,11 +98,13 @@ function DashboardEmptyActions({
                     </AccessControlAction>
                 )}
             </div>
-            <EmptyDashboardAiStarterPrompts
-                dashboardId={dashboard?.id}
-                chipDisabledReason={chipDisabledReason}
-                onOpenAiWithPrompt={onOpenAiWithPrompt}
-            />
+            {!dashboardOnboardingChecklistActive && (
+                <EmptyDashboardAiStarterPrompts
+                    dashboardId={dashboard?.id}
+                    chipDisabledReason={chipDisabledReason}
+                    onOpenAiWithPrompt={onOpenAiWithPrompt}
+                />
+            )}
         </div>
     )
 }
@@ -107,6 +112,9 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { active: dashboardOnboardingChecklistActive } = useValues(
+        dashboardOnboardingChecklistLogic({ dashboardId: dashboard?.id ?? -1 })
+    )
     const { setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -149,6 +157,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
+                    dashboardOnboardingChecklistActive={dashboardOnboardingChecklistActive}
                 />
             }
         />

@@ -34,7 +34,7 @@ export function DashboardAiPromptChips({
     maxChips,
     description = 'Pick a topic below. PostHog AI does the work so you can look at the data you care about quickly.',
 }: DashboardAiPromptChipsProps): JSX.Element {
-    const { reportDashboardEmptyAiPromptClicked } = useActions(eventUsageLogic)
+    const { reportDashboardEmptyAiPromptClicked, reportDashboardOnboardingAiStarted } = useActions(eventUsageLogic)
 
     const chips = typeof maxChips === 'number' && maxChips >= 0 ? chipsProp.slice(0, maxChips) : chipsProp
 
@@ -57,6 +57,9 @@ export function DashboardAiPromptChips({
                                 data-attr={`${dataAttrPrefix}-${chip.id}`}
                                 onClick={() => {
                                     reportDashboardEmptyAiPromptClicked(chip.label, dashboardId)
+                                    if (dashboardId) {
+                                        reportDashboardOnboardingAiStarted(dashboardId, 'empty_state')
+                                    }
                                     onOpenAiWithPrompt(chip.prompt)
                                 }}
                             >
