@@ -10,6 +10,118 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("getInsightDefinition", () => {
+    it("loads the saved insight with a blocking refresh and returns its result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "Unique users per variant",
+            derived_name: null,
+            description: "Feature flag calls",
+            query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+            result: [
+              {
+                label: "$feature_flag_called - true",
+                data: [],
+                days: [],
+                aggregated_value: 2,
+              },
+            ],
+            columns: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("sdyR2Pn8")).resolves.toEqual({
+        name: "Unique users per variant",
+        description: "Feature flag calls",
+        query: { kind: "InsightVizNode", source: { kind: "TrendsQuery" } },
+        response: {
+          results: [
+            {
+              label: "$feature_flag_called - true",
+              data: [],
+              days: [],
+              aggregated_value: 2,
+            },
+          ],
+          columns: [],
+        },
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("refresh")).toBe("blocking");
+    });
+
+    it("returns null when the saved insight does not exist", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Not found." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightDefinition("missing")).resolves.toBeNull();
+    });
+  });
+
+  describe("getEvidencePreview", () => {
+    it("retrieves a person by UUID instead of taking the first search result", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            uuid: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            name: "Ann",
+            distinct_ids: ["ann-1"],
+            properties: { email: "ann@example.com" },
+            created_at: "2024-01-03T10:00:00Z",
+            last_seen_at: "2024-01-04T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview(
+          "person",
+          "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        ),
+      ).resolves.toMatchObject({
+        title: "Ann",
+        resolvedId: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe(
+        "/api/projects/42/persons/0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee/",
+      );
+    });
+  });
+
   it("fetches later task pages before reporting complete results", async () => {
     const client = new PostHogAPIClient(
       "https://app.posthog.test",

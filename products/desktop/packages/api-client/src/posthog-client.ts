@@ -6041,19 +6041,33 @@ export class PostHogAPIClient {
     name: string | null;
     description: string | null;
     query: unknown;
+    response: Record<string, unknown> | null;
   } | null> {
     const projectId = (await this.getTeamId()).toString();
-    const page = await this.api.get("/api/projects/{project_id}/insights/", {
-      path: { project_id: projectId },
-      query: { short_id: shortId },
-    });
-    const insight = page.results[0];
-    if (!insight) return null;
-    return {
-      name: insight.name || insight.derived_name || null,
-      description: insight.description || null,
-      query: insight.query ?? null,
-    };
+    try {
+      const insight = await this.api.get(
+        "/api/projects/{project_id}/insights/{id}/",
+        {
+          path: { project_id: projectId, id: shortId },
+          query: { refresh: "blocking" },
+        },
+      );
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+        query: insight.query ?? null,
+        response:
+          insight.result === null || insight.result === undefined
+            ? null
+            : {
+                results: insight.result,
+                columns: insight.columns ?? [],
+              },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
   }
 
   /**
@@ -6200,11 +6214,26 @@ export class PostHogAPIClient {
         return shapeTicketPreview(ticket);
       }
       case "person": {
+        if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {
+          const person = await this.api
+            .get("/api/projects/{project_id}/persons/{id}/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch((error) => {
+              if (requestErrorStatus(error) === 404) return null;
+              throw error;
+            });
+          return person ? shapePersonPreview(person) : null;
+        }
         const page = await this.api.get("/api/projects/{project_id}/persons/", {
           path: { project_id: projectId },
           query: { search: id },
         });
-        const person = page.results?.[0];
+        const person = page.results?.find(
+          (candidate) =>
+            candidate.uuid === id || candidate.distinct_ids?.includes(id),
+        );
         return person ? shapePersonPreview(person) : null;
       }
       case "replay": {

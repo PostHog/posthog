@@ -28,6 +28,15 @@ const trendsNode = (display?: string) => ({
   },
 });
 
+const stickinessNode = (display?: string) => ({
+  kind: "InsightVizNode",
+  source: {
+    kind: "StickinessQuery",
+    series: [{ event: "$pageview" }],
+    ...(display ? { stickinessFilter: { display } } : {}),
+  },
+});
+
 const runPlan = (query: unknown) => {
   const plan = planReportChart(query);
   if (plan.kind !== "run")
@@ -50,6 +59,8 @@ describe("reportCharts", () => {
       "open-only",
     ],
     [trendsNode(), "run"],
+    [trendsNode("WorldMap"), "run"],
+    [trendsNode("BoxPlot"), "open-only"],
     [
       { kind: "DataVisualizationNode", source: { kind: "EventsQuery" } },
       "open-only",
@@ -65,13 +76,19 @@ describe("reportCharts", () => {
 
   it.each([
     [trendsNode(), "line"],
+    [stickinessNode(), "bar"],
     [trendsNode("ActionsBar"), "bar"],
+    [trendsNode("ActionsStackedBar"), "bar"],
+    [trendsNode("ActionsLineGraphCumulative"), "line"],
+    [trendsNode("ActionsTable"), "table"],
+    [trendsNode("WorldMap"), "table"],
     [trendsNode("BoldNumber"), "number"],
+    [trendsNode("Metric"), "number"],
     [hogqlNode(), "auto"],
     [hogqlNode({ display: "ActionsLineGraph" }), "line"],
     [hogqlNode({ display: "ActionsBar" }), "bar"],
     [hogqlNode({ display: "BoldNumber" }), "number"],
-    [hogqlNode({ display: "ActionsTable" }), "auto"],
+    [hogqlNode({ display: "ActionsTable" }), "table"],
   ])("planReportChart(%j) picks render %s", (query, render) => {
     expect(runPlan(query).render).toBe(render);
   });
@@ -105,6 +122,79 @@ describe("reportCharts", () => {
       runPlan(trendsNode("BoldNumber")),
     );
     expect(data).toEqual({ type: "number", value: 42 });
+  });
+
+  it.each([
+    [
+      "table",
+      "ActionsTable",
+      {
+        type: "table",
+        columns: ["Breakdown", "Total"],
+        rows: [
+          ["true", 2],
+          ["No value", 4],
+        ],
+      },
+    ],
+    [
+      "categorical bar",
+      "ActionsBarValue",
+      {
+        type: "series",
+        render: "bar",
+        labels: ["true", "No value"],
+        series: [{ label: "Total", data: [2, 4] }],
+      },
+    ],
+  ])(
+    "keeps aggregate-only Trends results visible as a %s",
+    (_name, display, expected) => {
+      const data = shapeReportChartData(
+        {
+          results: [
+            {
+              label: "$feature_flag_called - true",
+              breakdown_value: "true",
+              aggregated_value: 2,
+              data: [],
+              days: ["2026-08-01"],
+            },
+            {
+              label: "$feature_flag_called - None",
+              breakdown_value: null,
+              aggregated_value: 4,
+              data: [],
+              days: ["2026-08-01"],
+            },
+          ],
+        },
+        runPlan(trendsNode(display)),
+      );
+      expect(data).toMatchObject(expected);
+    },
+  );
+
+  it("uses stickiness bucket labels instead of numeric day indexes", () => {
+    const data = shapeReportChartData(
+      {
+        results: [
+          {
+            label: "$pageview",
+            data: [10, 5],
+            labels: ["1 day", "2 days"],
+            days: [1, 2],
+          },
+        ],
+      },
+      runPlan(stickinessNode()),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      render: "bar",
+      labels: ["1 day", "2 days"],
+      isTimeSeries: false,
+    });
   });
 
   it("normalizes midnight-stamped day buckets to plain dates", () => {

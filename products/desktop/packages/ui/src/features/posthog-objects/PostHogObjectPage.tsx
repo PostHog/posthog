@@ -11,65 +11,48 @@ import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { getObjectKind } from "@posthog/ui/utils/objectKinds";
+import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
-function ObjectContent({
-  metadata,
-  preview,
-}: {
-  metadata: PostHogObjectArtifactMetadata;
-  preview: EvidenceCardData | null;
-}) {
-  if (metadata.object_kind === "insight") {
-    return (
-      <MessageChartCard
-        spec={{ mode: "insight", shortId: metadata.object_id }}
-        blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
-      />
-    );
-  }
-  if (metadata.object_kind === "hogql") {
-    return (
-      <MessageChartCard
-        spec={{ mode: "hogql", query: metadata.object_id }}
-        blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
-      />
-    );
-  }
-  if (metadata.object_kind === "replay") {
-    return (
-      <MessageChartCard
-        spec={{ mode: "replay", sessionId: metadata.object_id }}
-        blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
-      />
-    );
-  }
-  if (!preview) {
-    return (
-      <div className="rounded-md border border-border bg-muted p-4">
-        <Text>This object is not available in the current project.</Text>
-        <Text className="mt-1 text-muted-foreground text-sm">
-          Check the identifier or open PostHog to review access.
-        </Text>
-      </div>
-    );
-  }
+function ObjectContent({ preview }: { preview: EvidenceCardData }) {
   return (
-    <div className="rounded-md border border-border bg-card p-4">
-      {preview.detail && (
-        <Text className="text-muted-foreground">{preview.detail}</Text>
-      )}
-      {preview.facts && preview.facts.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {preview.facts.map((fact) => (
-            <span
-              key={fact}
-              className="rounded-sm bg-muted px-2 py-1 text-muted-foreground text-xs"
-            >
-              {fact}
-            </span>
-          ))}
+    <div className="flex flex-col gap-3">
+      {(preview.detail || (preview.facts?.length ?? 0) > 0) && (
+        <div className="rounded-md border border-border bg-card p-4">
+          {preview.detail && (
+            <Text className="text-muted-foreground">{preview.detail}</Text>
+          )}
+          {preview.facts && preview.facts.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {preview.facts.map((fact) => (
+                <span
+                  key={fact}
+                  className="rounded-sm bg-muted px-2 py-1 text-muted-foreground text-xs"
+                >
+                  {fact}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
+      <PostHogObjectDetails preview={preview} />
+    </div>
+  );
+}
+
+function UnavailableObject({ isError }: { isError: boolean }) {
+  return (
+    <div className="rounded-md border border-border bg-muted p-4">
+      <Text>
+        {isError
+          ? "Couldn't load this object."
+          : "This object is not available in the current project."}
+      </Text>
+      <Text className="mt-1 text-muted-foreground text-sm">
+        {isError
+          ? "Try again, or open PostHog to review it."
+          : "Check the identifier or open PostHog to review access."}
+      </Text>
     </div>
   );
 }
@@ -84,10 +67,8 @@ export function PostHogObjectPage({
   const object = getObjectKind(metadata.object_kind);
   const ObjectIcon = object.icon;
   const { copied, copy } = useCopy();
-  const usesBlockRenderer =
-    metadata.object_kind === "insight" ||
-    metadata.object_kind === "hogql" ||
-    metadata.object_kind === "replay";
+  const usesChartRenderer =
+    metadata.object_kind === "insight" || metadata.object_kind === "hogql";
   const query = useAuthenticatedQuery(
     ["evidence-preview", metadata.object_kind, metadata.object_id],
     (client) =>
@@ -96,7 +77,7 @@ export function PostHogObjectPage({
         id: metadata.object_id,
       }),
     {
-      enabled: !usesBlockRenderer,
+      enabled: !usesChartRenderer,
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
       retry: 1,
@@ -109,6 +90,10 @@ export function PostHogObjectPage({
     query.data?.resolvedId ?? metadata.object_id,
   );
   const title = query.data?.title ?? fallbackName;
+  const url = useEvidenceUrl(
+    metadata.object_kind,
+    query.data?.resolvedId ?? metadata.object_id,
+  );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -148,17 +133,24 @@ export function PostHogObjectPage({
           )}
         </header>
 
-        {usesBlockRenderer ? (
-          <ObjectContent metadata={metadata} preview={null} />
+        {usesChartRenderer ? (
+          <MessageChartCard
+            spec={
+              metadata.object_kind === "insight"
+                ? { mode: "insight", shortId: metadata.object_id }
+                : { mode: "hogql", query: metadata.object_id }
+            }
+            blockKey={`artifact:${metadata.object_kind}:${metadata.object_id}`}
+          />
         ) : query.isPending ? (
           <div className="space-y-3">
             <Skeleton className="h-44 w-full" />
             <Skeleton className="h-16 w-full" />
           </div>
-        ) : query.isError ? (
-          <ObjectContent metadata={metadata} preview={null} />
+        ) : query.data ? (
+          <ObjectContent preview={query.data} />
         ) : (
-          <ObjectContent metadata={metadata} preview={query.data ?? null} />
+          <UnavailableObject isError={query.isError} />
         )}
 
         <div className="border-border border-t pt-4 text-muted-foreground text-xs">

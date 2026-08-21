@@ -55,7 +55,7 @@ const SPARK_PAD = 2;
 const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
-function Sparkline({
+export function EvidenceSparkline({
   points,
   render,
 }: {
@@ -220,7 +220,7 @@ export function EvidenceHoverCard({
           </div>
           {preview.spark && preview.spark.points.length > 1 && (
             <div className="mt-2.5">
-              <Sparkline
+              <EvidenceSparkline
                 points={preview.spark.points}
                 render={preview.spark.render}
               />

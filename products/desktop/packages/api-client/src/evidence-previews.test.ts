@@ -7,6 +7,7 @@ import {
   exposureFact,
   gridRows,
   hogqlEscape,
+  shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
@@ -36,11 +37,51 @@ describe("evidence preview shaping", () => {
       },
       experiment_set: [7],
     } as unknown as Schemas.FeatureFlag);
-    expect(preview).toEqual({
+    expect(preview).toMatchObject({
       title: "new-checkout-flow",
       detail: "Enabled · New checkout rollout",
       facts: ["25% rollout", "2 variants", "Used by 1 experiment"],
       resolvedId: "42",
+    });
+    expect(preview.sections).toContainEqual({
+      title: "Configuration",
+      fields: expect.arrayContaining([
+        { label: "Type", value: "Multivariate" },
+        { label: "Release conditions", value: "1 condition" },
+      ]),
+    });
+  });
+
+  it("summarizes flag release conditions without exposing raw filter JSON", () => {
+    const preview = shapeFlagPreview({
+      id: 42,
+      key: "new-checkout-flow",
+      active: true,
+      filters: {
+        groups: [
+          {
+            properties: [
+              {
+                key: "plan",
+                operator: "exact",
+                value: "pro",
+              },
+            ],
+            rollout_percentage: 25,
+            variant: "test",
+          },
+        ],
+      },
+    } as unknown as Schemas.FeatureFlag);
+
+    expect(preview.sections).toContainEqual({
+      title: "Release conditions",
+      fields: [
+        {
+          label: "Set 1",
+          value: "plan exact pro · 25% rollout · Variant: test",
+        },
+      ],
     });
   });
 
@@ -125,7 +166,7 @@ describe("evidence preview shaping", () => {
         status_reason: "Provider key expired",
         evaluation_type: "llm_judge",
       } as unknown as Schemas.Evaluation),
-    ).toEqual({
+    ).toMatchObject({
       title: "Faithfulness eval",
       detail: "Enabled · Provider key expired",
       facts: ["LLM judge"],
@@ -193,6 +234,36 @@ describe("evidence preview shaping", () => {
         description: "Weekly active users",
       } as Schemas.Cohort).detail,
     ).toBe("Weekly active users");
+  });
+
+  it("describes action match groups in its details", () => {
+    const preview = shapeActionPreview({
+      id: 42,
+      name: "Checkout click",
+      description: "Tracks checkout clicks",
+      steps: [
+        {
+          event: "$autocapture",
+          url: "/checkout",
+          selector: "button[data-attr=checkout]",
+          properties: [{ key: "$current_url", value: "/checkout" }],
+        },
+      ],
+      is_calculating: false,
+      last_calculated_at: "2024-01-03T10:00:00Z",
+      created_at: "2024-01-02T10:00:00Z",
+    } as unknown as Schemas.Action);
+
+    expect(preview.sections).toContainEqual({
+      title: "Match groups",
+      fields: [
+        {
+          label: "Group 1",
+          value:
+            "Event: $autocapture · URL: /checkout · Selector: button[data-attr=checkout] · 1 property",
+        },
+      ],
+    });
   });
 
   it("summarizes a ticket with its snippet, state line, and traffic", () => {
@@ -337,7 +408,7 @@ describe("evidence preview shaping", () => {
   it("rolls a trace up to generations, cost, latency, and errors", () => {
     expect(
       shapeTracePreview([7, 0.42, 18.3, ["gpt-5", "claude-4"], 2]),
-    ).toEqual({
+    ).toMatchObject({
       title: "7 generations",
       facts: ["$0.42", "18.3s", "2 models", "2 errors"],
     });
@@ -381,6 +452,15 @@ describe("evidence preview shaping", () => {
       id: "srv-11",
       name: "Checkout survey",
     } as Schemas.Survey);
-    expect(preview).toEqual({ title: "Checkout survey", detail: "Draft" });
+    expect(preview).toMatchObject({
+      title: "Checkout survey",
+      detail: "Draft",
+      sections: [
+        {
+          title: "Survey",
+          fields: expect.arrayContaining([{ label: "State", value: "Draft" }]),
+        },
+      ],
+    });
   });
 });

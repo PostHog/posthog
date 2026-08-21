@@ -1,3 +1,4 @@
+import type { EvidenceDetailSection } from "@posthog/api-client/evidence-previews";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   type ChartHeadlineStat,
@@ -23,6 +24,7 @@ export interface EvidenceCardData {
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series. */
   spark?: { points: number[]; render: "line" | "bar" };
+  sections?: EvidenceDetailSection[];
   /** Canonical id when it differs from the cited one (a flag cited by key). */
   resolvedId?: string;
 }
@@ -94,7 +96,7 @@ async function insightPreview(
   };
   const plan = planReportChart(insight.query);
   if (plan.kind !== "run") return base;
-  const response = await client.runQuery(plan.source);
+  const response = insight.response ?? (await client.runQuery(plan.source));
   const chart = fromChartData(shapeReportChartData(response, plan), base.title);
   return { ...chart, title: base.title, detail: chart.detail ?? base.detail };
 }
