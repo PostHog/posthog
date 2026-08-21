@@ -500,18 +500,35 @@ const MAX_CHART_SERIES = 6;
 
 /**
  * (day, group, count) rows -> one series per group, zero-filled across the
- * days that appear anywhere in the grid. Days arrive in query order; groups
- * keep first-seen order.
+ * days that appear anywhere in the grid. Days are sorted ascending. Groups are
+ * ranked by total count (descending, then by name) and capped at
+ * MAX_CHART_SERIES, so the highest-volume groups survive and the cut is
+ * deterministic rather than dependent on row order. `omittedGroups` reports how
+ * many were dropped, so the caller can say a chart is partial instead of hiding
+ * groups silently.
  */
 export function pivotDailyGroups(rows: unknown[][]): {
   labels: string[];
   series: Array<{ label: string; data: number[] }>;
+  omittedGroups: number;
 } | null {
   const labels = [...new Set(rows.map((row) => String(row[0])))].sort();
-  const groups = [...new Set(rows.map((row) => String(row[1])))];
-  if (labels.length < 2 || groups.length === 0) return null;
+  const groupTotals = new Map<string, number>();
+  for (const row of rows) {
+    const group = String(row[1]);
+    groupTotals.set(
+      group,
+      (groupTotals.get(group) ?? 0) + (cellNumber(row[2]) ?? 0),
+    );
+  }
+  if (labels.length < 2 || groupTotals.size === 0) return null;
+  const rankedGroups = [...groupTotals.keys()].sort((a, b) => {
+    const byTotal = (groupTotals.get(b) ?? 0) - (groupTotals.get(a) ?? 0);
+    return byTotal !== 0 ? byTotal : a < b ? -1 : a > b ? 1 : 0;
+  });
+  const shownGroups = rankedGroups.slice(0, MAX_CHART_SERIES);
   const labelIndex = new Map(labels.map((label, i) => [label, i]));
-  const series = groups.slice(0, MAX_CHART_SERIES).map((label) => ({
+  const series = shownGroups.map((label) => ({
     label,
     data: labels.map(() => 0),
   }));
@@ -523,7 +540,11 @@ export function pivotDailyGroups(rows: unknown[][]): {
       target.data[position] = cellNumber(row[2]) ?? 0;
     }
   }
-  return { labels, series };
+  return {
+    labels,
+    series,
+    omittedGroups: rankedGroups.length - shownGroups.length,
+  };
 }
 
 /** (variant, unique persons) rows -> "control 12.4K · test 12.1K". */

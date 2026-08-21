@@ -447,8 +447,36 @@ describe("evidence preview shaping", () => {
         { label: "control", data: [2, 4] },
         { label: "test", data: [3, 0] },
       ],
+      omittedGroups: 0,
     });
     expect(pivotDailyGroups([["2026-08-01", "control", 2]])).toBeNull();
+  });
+
+  it("keeps the highest-volume groups and counts the omitted ones", () => {
+    // 7 variants over 2 days; "control" has the largest total but appears last
+    // in row order, so first-seen slicing would have dropped it.
+    const variants: Array<[string, number]> = [
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+      ["d", 4],
+      ["e", 5],
+      ["f", 6],
+      ["control", 100],
+    ];
+    const rows = ["2026-08-01", "2026-08-02"].flatMap((day) =>
+      variants.map(([variant, count]) => [day, variant, count]),
+    );
+    const pivot = pivotDailyGroups(rows);
+    expect(pivot?.omittedGroups).toBe(1);
+    expect(pivot?.series.map((entry) => entry.label)).toEqual([
+      "control",
+      "f",
+      "e",
+      "d",
+      "c",
+      "b",
+    ]);
   });
 
   it("describes action match groups in its details", () => {

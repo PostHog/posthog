@@ -6169,8 +6169,14 @@ export class PostHogAPIClient {
           stats: [...(preview.stats ?? []), ...variantStats],
           chart: pivot
             ? {
-                title: "Daily exposed users by variant",
-                ...pivot,
+                title:
+                  pivot.omittedGroups > 0
+                    ? `Daily exposed users by variant (top ${pivot.series.length} of ${
+                        pivot.series.length + pivot.omittedGroups
+                      })`
+                    : "Daily exposed users by variant",
+                labels: pivot.labels,
+                series: pivot.series,
                 render: "line" as const,
               }
             : undefined,
