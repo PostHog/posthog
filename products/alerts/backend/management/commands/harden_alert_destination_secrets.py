@@ -11,8 +11,10 @@ Dry run by default; pass --live to apply.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 import structlog
 
@@ -46,6 +48,22 @@ def _is_alert_owned(hog_function: HogFunction) -> bool:
     return any(is_managed_alert_internal_event(event.get("id")) for event in events if isinstance(event, dict))
 
 
+def _plan_hardening(hog_function: HogFunction) -> tuple[list[dict], str, bool, bool]:
+    """Compute the hardened inputs_schema and name for a row, and whether either changed."""
+    secret_keys = _TEMPLATE_ID_TO_SECRET_KEYS.get(hog_function.template_id or "", ())
+    new_schema = []
+    schema_changed = False
+    for schema in hog_function.inputs_schema or []:
+        if schema.get("key") in secret_keys and not schema.get("secret"):
+            schema = {**schema, "secret": True}
+            schema_changed = True
+        new_schema.append(schema)
+
+    new_name = _host_only_destination_segment(hog_function.name or "")
+    name_changed = new_name != (hog_function.name or "")
+    return new_schema, new_name, schema_changed, name_changed
+
+
 class Command(BaseCommand):
     help = "Move alert-owned webhook URLs into encrypted inputs and strip them from function names"
 
@@ -55,9 +73,11 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         live: bool = options["live"]
         scanned = 0
-        changed = 0
+        to_harden: list[UUID] = []
 
         # Cross-team by design: a one-off backfill over every alert-owned destination row.
+        # Scan without a lock first so the read cursor never spans a write transaction, then
+        # apply each change under its own row lock below.
         candidates = HogFunction.objects.filter(
             type="internal_destination",
             deleted=False,
@@ -69,21 +89,10 @@ class Command(BaseCommand):
                 continue
             scanned += 1
 
-            secret_keys = _TEMPLATE_ID_TO_SECRET_KEYS.get(hog_function.template_id or "", ())
-            new_schema = []
-            schema_changed = False
-            for schema in hog_function.inputs_schema or []:
-                if schema.get("key") in secret_keys and not schema.get("secret"):
-                    schema = {**schema, "secret": True}
-                    schema_changed = True
-                new_schema.append(schema)
-
-            new_name = _host_only_destination_segment(hog_function.name or "")
-            name_changed = new_name != (hog_function.name or "")
-
+            _, _, schema_changed, name_changed = _plan_hardening(hog_function)
             if not schema_changed and not name_changed:
                 continue
-            changed += 1
+            to_harden.append(hog_function.id)
 
             if not live:
                 logger.info(
@@ -93,7 +102,38 @@ class Command(BaseCommand):
                     rename=name_changed,
                     secret_inputs=schema_changed,
                 )
-                continue
+
+        hardened = 0
+        if live:
+            for hog_function_id in to_harden:
+                if self._harden_locked(hog_function_id):
+                    hardened += 1
+
+        if live:
+            self.stdout.write(
+                f"Scanned {scanned} alert-owned destinations, hardened {hardened} of {len(to_harden)} candidates (applied)"
+            )
+        else:
+            self.stdout.write(
+                f"Scanned {scanned} alert-owned destinations, {len(to_harden)} need hardening "
+                "(dry run - re-run with --live to apply)"
+            )
+
+    def _harden_locked(self, hog_function_id: UUID) -> bool:
+        """Lock the row, re-check it after the lock, and save the hardened fields from the
+        locked copy. Locking closes the window in which a concurrent soft-delete could be
+        reverted by a stale full-row save, and recomputing from the locked row preserves any
+        edit that landed between the scan and now."""
+        with transaction.atomic():
+            hog_function = HogFunction.objects.select_for_update().filter(id=hog_function_id, deleted=False).first()
+            if hog_function is None:
+                # Deleted (or already hardened away) since the scan; do not resurrect it.
+                logger.info("skipped alert destination gone since scan", hog_function_id=str(hog_function_id))
+                return False
+
+            new_schema, new_name, schema_changed, name_changed = _plan_hardening(hog_function)
+            if not schema_changed and not name_changed:
+                return False
 
             hog_function.inputs_schema = new_schema
             hog_function.name = new_name
@@ -105,6 +145,4 @@ class Command(BaseCommand):
                 hog_function_id=str(hog_function.id),
                 team_id=hog_function.team_id,
             )
-
-        mode = "applied" if live else "dry run - re-run with --live to apply"
-        self.stdout.write(f"Scanned {scanned} alert-owned destinations, {changed} needed hardening ({mode})")
+            return True
