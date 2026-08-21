@@ -61,6 +61,20 @@ class TestCheckCountLimit(BaseTest):
             )
         report.assert_not_called()
 
+    def test_includes_resource_properties(self) -> None:
+        with patch("posthog.resource_limits.evaluator.report_user_action") as report:
+            check_count_limit(
+                team=self.team,
+                key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+                current_count=4999,
+                user=self.user,
+                resource_properties={"dashboard_id": 42, "dashboard_name": "Example dashboard"},
+            )
+
+        properties = report.call_args.args[2]
+        assert properties["dashboard_id"] == 42
+        assert properties["dashboard_name"] == "Example dashboard"
+
 
 class TestGetOrganizationLimit(BaseTest):
     @parameterized.expand(

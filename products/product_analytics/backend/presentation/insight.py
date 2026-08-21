@@ -165,6 +165,7 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import map_stale_to_latest, plan_test_account_filter_update
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
 from products.product_analytics.backend.presentation.insight_metadata import (
@@ -726,6 +727,9 @@ class InsightSerializer(InsightBasicSerializer):
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
             team = self.context["get_team"]()
+            dashboard_names = dict(
+                Dashboard.objects.filter(team=team, id__in=new_dashboard_ids).values_list("id", "name")
+            )
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
                 existing_dashboard_ids = set(
@@ -739,6 +743,10 @@ class InsightSerializer(InsightBasicSerializer):
                     key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
                     current_count=active_tile_count(dashboard_id),
                     user=self.context["request"].user,
+                    resource_properties={
+                        "dashboard_id": dashboard_id,
+                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
+                    },
                 )
 
         return super().validate(attrs)
