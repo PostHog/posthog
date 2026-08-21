@@ -135,7 +135,7 @@ export function ExperimentsSettings(): JSX.Element {
                 <SettingsSection title="Flag cleanup">
                     <SettingsItem
                         label="Default repository for flag cleanup PRs"
-                        description="Used when an experiment doesn't have its own repository. Must be connected to this project's GitHub integration."
+                        description="Used when an experiment doesn't have its own repository."
                     >
                         <FlagCleanupRepository />
                     </SettingsItem>

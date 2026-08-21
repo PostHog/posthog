@@ -628,6 +628,23 @@ depends_on = [
 ]
 layer = "modules"
 
+# product_analytics — external consumers go through the facade: facade.api for data
+# capabilities, facade.queries for the QueryRunner wiring core dispatches on, and
+# facade.models for the watched-models allowance crossings (Insight, InsightVariable,
+# InsightViewed — see MODEL_CROSSINGS and architecture.md § Wiring couplings).
+# presentation.* carries the DRF serializers sharing, dashboards and alerts use to
+# render insights in-process — facades must not import DRF, so presentation exposure
+# is the sanctioned channel (products.metrics precedent).
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.product_analytics",
+]
+
 [[modules]]
 path = "products.product_tours"
 depends_on = [

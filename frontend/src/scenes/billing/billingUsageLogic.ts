@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
@@ -105,7 +106,7 @@ export interface BillingUsageLogicProps {
 export interface billingUsageLogicValues {
     billing: BillingType | null // billingLogic
     billingPeriodUTC: BillingPeriod // billingLogic
-    canAccessBilling: boolean // billingLogic
+    canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -277,7 +278,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canAccessBilling', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
         ],
@@ -304,7 +305,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    if (!values.canAccessBilling || values.isHobby) {
+                    if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
@@ -651,6 +652,18 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             await breakpoint(200)
             actions.reportBillingUsageInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingUsage()
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
+            if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadBillingUsage()
+            }
+        },
+        isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
+            if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingUsage()
+            }
         },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {

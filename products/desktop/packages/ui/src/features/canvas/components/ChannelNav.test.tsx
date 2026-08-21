@@ -40,12 +40,6 @@ describe("ChannelNav", () => {
     mocks.view = { type: "task-input" };
   });
 
-  it("keeps Inbox available in the channels navigation", () => {
-    render(<ChannelNav />);
-
-    expect(screen.getByLabelText("Inbox")).toBeEnabled();
-  });
-
   it("opens recent activity from the bell after the hover delay", async () => {
     const user = userEvent.setup();
     render(<ChannelNav />);

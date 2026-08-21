@@ -23,10 +23,12 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
     CodeInvite,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskOwnershipChangedError,
     TaskRun,
     TaskThreadMessage,
     bump_task_activity,
@@ -758,6 +760,48 @@ class TestTaskRun(TestCase):
         run = self.task.create_run(mode="interactive")
 
         self.assertNotIn("initial_permission_mode", run.state)
+
+    def test_create_run_snapshots_task_ownership_version(self):
+        ownership_version = str(uuid.uuid4())
+        self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}
+        self.task.save(update_fields=["state", "updated_at"])
+
+        run = self.task.create_run()
+
+        self.assertEqual(run.ownership_version, ownership_version)
+        self.assertTrue(run.matches_task_ownership(self.task))
+
+    def test_create_run_rejects_stale_task_ownership(self):
+        original_owner = User.objects.create_user(
+            email="original@example.com", first_name="Original", password="password"
+        )
+        new_owner = User.objects.create_user(email="new@example.com", first_name="New", password="password")
+        task = Task.objects.create(
+            team=self.team,
+            title="Owned task",
+            created_by=original_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "old-version"},
+        )
+        Task.objects.filter(id=task.id).update(
+            created_by=new_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-version"},
+        )
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run()
+
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    def test_create_run_rejects_resume_from_previous_owner(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"},
+        )
+        previous_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):

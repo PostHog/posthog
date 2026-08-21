@@ -545,6 +545,15 @@ def app_home_url(integration: Integration) -> str | None:
     return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
 
 
+def personal_integrations_url(team_id: int) -> str:
+    """Where someone connects their own GitHub, so @PostHog opens pull requests as them.
+
+    Connecting requires an authenticated PostHog session, so every surface that asks for it
+    deep-links to this settings page instead of starting an OAuth flow from Slack.
+    """
+    return _public_url(f"/project/{team_id}/settings/user-personal-integrations")
+
+
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.

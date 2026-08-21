@@ -104,6 +104,12 @@ export interface stepDelayLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -197,6 +203,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -349,6 +358,12 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
+                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
@@ -468,6 +483,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
