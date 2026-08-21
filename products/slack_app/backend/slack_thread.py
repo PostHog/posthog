@@ -582,14 +582,15 @@ class SlackThreadHandler:
         # No footer means no blocks at all, so an ordinary message stays the plain-text
         # post it has always been. `expand` keeps the answer fully visible: a section
         # collapses behind "Show more", which plain text never did.
-        blocks: list[dict[str, Any]] | None = (
-            [
+        blocks: list[dict[str, Any]] | None = None
+        if footer:
+            blocks = [
                 {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}},
                 footer,
             ]
-            if footer
-            else None
-        )
+            menu = self._fork_menu()
+            if menu:
+                blocks.append(menu)
         try:
             self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
@@ -726,7 +727,8 @@ class SlackThreadHandler:
         if with_footer:
             footer = self._footer_block(include_task_url=False)
             if footer:
-                blocks = [*blocks, footer]
+                menu = self._fork_menu()
+                blocks = [*blocks, footer, *([menu] if menu else [])]
         try:
             self.delete_progress()
             self._post_in_thread(text=text, blocks=blocks)

@@ -559,3 +559,53 @@ class TestDeletedTriggerMessage(SimpleTestCase):
         assert self._handler().start_status_stream(first_markdown_text="thinking") is None
 
         mock_client.chat_startStream.assert_not_called()
+
+
+class TestForkMenuOnReplies(SimpleTestCase):
+    """The menu has to ride the non-streamed answer too. It first shipped only on the
+    streamed path and on the chart-delivery footer, so a workspace on the plain-post
+    path saw no affordance at all."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_non_streamed_answer_carries_the_menu_after_the_footer(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[-2]["type"] == "context"
+        assert blocks[-1]["elements"][0]["type"] == "overflow"
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_outside_the_rollout_the_footer_closes_the_message(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[-1]["type"] == "context"
