@@ -2163,14 +2163,20 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
-    def test_hog_flow_data_warehouse_table_trigger_valid(self):
+    @parameterized.expand(
+        [
+            ("data-warehouse-table", "postgres.table_1"),
+            ("data-warehouse-view", "daily_revenue"),
+        ]
+    )
+    def test_hog_flow_data_warehouse_trigger_valid(self, trigger_type, table_name):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "data-warehouse-table",
-                "table_name": "postgres.table_1",
+                "type": trigger_type,
+                "table_name": table_name,
                 "filters": {"properties": []},
             },
         }
@@ -2184,11 +2190,13 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
         trigger = response.json()["trigger"]
-        assert trigger["type"] == "data-warehouse-table"
-        assert trigger["table_name"] == "postgres.table_1"
-        # Filters should be compiled to bytecode with the data-warehouse-table source
-        assert trigger["filters"]["source"] == "data-warehouse-table"
+        assert trigger["type"] == trigger_type
+        assert trigger["table_name"] == table_name
+        # Filters should be compiled to bytecode against the trigger's own warehouse source
+        assert trigger["filters"]["source"] == trigger_type
         assert "bytecode" in trigger["filters"]
+        # Row-scoped runs have no person, so the other exit conditions can't be evaluated.
+        assert response.json()["exit_condition"] == "exit_only_at_end"
 
     def test_hog_flow_data_warehouse_table_trigger_without_table_name(self):
         trigger_action = {
@@ -2265,18 +2273,24 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wait_until_condition", {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"}),
-            ("random_cohort_branch", {"cohorts": [{"percentage": 50}]}),
+            ("data-warehouse-table", "wait_until_condition"),
+            ("data-warehouse-table", "random_cohort_branch"),
+            ("data-warehouse-view", "wait_until_condition"),
+            ("data-warehouse-view", "random_cohort_branch"),
         ]
     )
-    def test_hog_flow_data_warehouse_table_trigger_rejects_person_dependent_steps(self, action_type, action_config):
+    def test_hog_flow_data_warehouse_trigger_rejects_person_dependent_steps(self, trigger_type, action_type):
+        action_config = {
+            "wait_until_condition": {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"},
+            "random_cohort_branch": {"cohorts": [{"percentage": 50}]},
+        }[action_type]
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "data-warehouse-table",
-                "table_name": "postgres.table_1",
+                "type": trigger_type,
+                "table_name": "some_table",
                 "filters": {"properties": []},
             },
         }

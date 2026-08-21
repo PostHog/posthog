@@ -23,6 +23,8 @@ DASHBOARD_GRID_SPACING_GAPS = {
     "wide": 48,
 }
 
+DASHBOARD_GRID_COMPACTION_MODES = ("vertical", "horizontal", "stable")
+
 
 class DashboardManager(RootTeamManager):
     def get_queryset(self):

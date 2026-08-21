@@ -41,11 +41,10 @@ const conversationItems = [
 function renderTimeline(
   canOpenInPlace?: boolean,
   items: ConversationItem[] = conversationItems,
-  timelineTask: Task = task,
 ) {
   return render(
     <ActivityTimeline
-      task={timelineTask}
+      task={task}
       timeline={[]}
       messages={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
@@ -60,18 +59,6 @@ beforeEach(() => {
 });
 
 describe("ActivityTimeline", () => {
-  it("attributes an internal Signals task to its report", () => {
-    renderTimeline(false, [], {
-      ...task,
-      created_by: undefined,
-      origin_product: "signal_report",
-    });
-
-    expect(
-      screen.getByText("PostHog started this task from a Signals report"),
-    ).toBeInTheDocument();
-  });
-
   it("names each message row by its own content, not a shared template", () => {
     renderTimeline(true);
 

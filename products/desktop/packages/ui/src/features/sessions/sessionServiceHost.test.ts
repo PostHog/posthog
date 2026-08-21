@@ -134,6 +134,7 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   finalizeTaskRunArtifactUploads: vi.fn(),
   prepareTaskStagedArtifactUploads: vi.fn(),
   finalizeTaskStagedArtifactUploads: vi.fn(),
+  registerTaskRunPostHogReferences: vi.fn(),
   presignTaskRunArtifact: vi.fn(),
   startGithubUserIntegrationConnect: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
@@ -560,6 +561,9 @@ describe("SessionService", () => {
       [],
     );
     mockAuthenticatedClient.finalizeTaskStagedArtifactUploads.mockResolvedValue(
+      [],
+    );
+    mockAuthenticatedClient.registerTaskRunPostHogReferences.mockResolvedValue(
       [],
     );
     mockAuthenticatedClient.startGithubUserIntegrationConnect.mockResolvedValue(
@@ -2968,6 +2972,130 @@ describe("SessionService", () => {
             null,
       );
       expect(disarmed).toBe(false);
+    });
+
+    it("registers object references from a completed hydrated turn", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskRunId: "run-123",
+        taskId: "task-123",
+        isCloud: true,
+        currentPromptId: 42,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
+      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
+      mockConvertStoredEntriesToEvents.mockReturnValueOnce([
+        {
+          type: "acp_message",
+          ts: 1700000000,
+          message: {
+            jsonrpc: "2.0",
+            id: 42,
+            method: "session/prompt",
+            params: { prompt: [{ type: "text", text: "check the funnel" }] },
+          },
+        },
+        {
+          type: "acp_message",
+          ts: 1700000001,
+          message: {
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: {
+                  type: "text",
+                  text: '<insight id="9pQx3">Checkout funnel</insight>',
+                },
+              },
+            },
+          },
+        },
+        {
+          type: "acp_message",
+          ts: 1700000002,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/turn_complete",
+            params: { sessionId: "acp-session", stopReason: "end_turn" },
+          },
+        },
+      ] as AcpMessage[]);
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://logs.example.com/run-123",
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          mockAuthenticatedClient.registerTaskRunPostHogReferences,
+        ).toHaveBeenCalledWith("task-123", "run-123", [
+          {
+            name: "Checkout funnel",
+            object_kind: "insight",
+            object_id: "9pQx3",
+            source_message_id: "turn-1700000000",
+          },
+        ]);
+      });
+    });
+
+    it("retries a failed registration batch on the next flush", async () => {
+      const service = getSessionService() as unknown as {
+        registerPostHogReferences(
+          taskId: string,
+          taskRunId: string,
+          references: Array<Record<string, string>>,
+        ): void;
+      };
+      mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
+      mockAuthenticatedClient.registerTaskRunPostHogReferences
+        .mockRejectedValueOnce(new Error("endpoint missing"))
+        .mockResolvedValue([]);
+      const reference = (id: string) => ({
+        name: id,
+        object_kind: "insight",
+        object_id: id,
+        source_message_id: "turn-1",
+      });
+
+      service.registerPostHogReferences("task-retry", "run-retry", [
+        reference("9pQx3"),
+      ]);
+      await vi.waitFor(() => {
+        expect(
+          mockAuthenticatedClient.registerTaskRunPostHogReferences,
+        ).toHaveBeenCalledTimes(1);
+      });
+      service.registerPostHogReferences("task-retry", "run-retry", [
+        reference("new-flow"),
+      ]);
+
+      await vi.waitFor(() => {
+        expect(
+          mockAuthenticatedClient.registerTaskRunPostHogReferences,
+        ).toHaveBeenCalledTimes(2);
+      });
+      expect(
+        mockAuthenticatedClient.registerTaskRunPostHogReferences.mock
+          .calls[1][2],
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ object_id: "9pQx3" }),
+          expect.objectContaining({ object_id: "new-flow" }),
+        ]),
+      );
     });
 
     it("flushes queued cloud messages on _posthog/turn_complete", async () => {

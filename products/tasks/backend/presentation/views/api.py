@@ -153,6 +153,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
+    TaskRunPostHogReferencesRequestSerializer,
+    TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -1795,6 +1797,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         _uploaded, manifest = result
         serializer = TaskRunArtifactsUploadResponseSerializer({"artifacts": manifest})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunPostHogReferencesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPostHogReferencesResponseSerializer,
+                description="Run with updated reference artifacts",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Register PostHog object references for a task run",
+        description="Attach live PostHog object references to the run artifact manifest without uploading files.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/references",
+        required_scopes=["task:write"],
+    )
+    def artifacts_references(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest = tasks_facade.register_task_run_posthog_references(
+            pk,
+            task_id,
+            self.team_id,
+            references=request.validated_data["references"],
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
+            acting_user_id=self._user_id(),
+        )
+        if manifest is None:
+            raise NotFound()
+        serializer = TaskRunPostHogReferencesResponseSerializer({"artifacts": manifest})
         return Response(serializer.data)
 
     @validated_request(

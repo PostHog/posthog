@@ -13,7 +13,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 
 import { IconDrag, IconFilter, IconGlobe, IconPencil, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Popover, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FilterBar } from 'lib/components/FilterBar'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
@@ -97,6 +97,7 @@ const LiveDashboardFilterRow = ({
     const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
     const { clearFilters } = useActions(webAnalyticsFilterLogic)
+    const { isRefreshing } = useValues(liveWebAnalyticsMetricsLogic)
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
@@ -168,6 +169,11 @@ const LiveDashboardFilterRow = ({
             }
             right={
                 <>
+                    {isRefreshing && (
+                        <Tooltip title="Refreshing live data">
+                            <Spinner className="text-lg text-muted" />
+                        </Tooltip>
+                    )}
                     {isEditing ? (
                         <>
                             <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
