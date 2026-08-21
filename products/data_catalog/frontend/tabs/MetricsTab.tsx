@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -67,7 +68,7 @@ export function MetricsTab(): JSX.Element {
     // State, not a ref, so the table re-renders once the slot mounts and the bar can portal into it.
     // The bar portals below the table instead of above it, so selecting a row never shifts the rows.
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight } =
+    const { metrics, allMetrics, allMetricsLoading, metricsError, filters, actionsInFlight, bulkActionInFlight } =
         useValues(metricsLogic)
     const {
         setFilters,
@@ -137,7 +138,7 @@ export function MetricsTab(): JSX.Element {
         })
     }
 
-    if (!allMetricsLoading && allMetrics.length === 0) {
+    if (!allMetricsLoading && !metricsError && allMetrics.length === 0) {
         return (
             <ProductIntroduction
                 productName="Data catalog"
@@ -244,6 +245,14 @@ export function MetricsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {metricsError && (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Reload', onClick: () => loadMetrics(), disabledReason: reloadDisabledReason }}
+                >
+                    {metricsError}
+                </LemonBanner>
+            )}
             <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"

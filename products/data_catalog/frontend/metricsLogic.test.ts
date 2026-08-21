@@ -80,6 +80,16 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
     })
 
+    it('surfaces a load failure in the tab and keeps the prior metrics', async () => {
+        ;(dataCatalogMetricsList as jest.Mock).mockRejectedValue(new TypeError('Failed to fetch'))
+
+        logic.actions.loadMetrics()
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+
+        expect(logic.values.metricsError).toEqual('Could not load metrics. Reload to try again.')
+        expect(logic.values.allMetrics.map((metric) => metric.name)).toEqual(['weekly_active_users'])
+    })
+
     it('replaces the row with the response when approve succeeds', async () => {
         ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
 
