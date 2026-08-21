@@ -637,6 +637,14 @@ class ExperimentService:
         return rendered
 
     @classmethod
+    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
+        """Drop unknown top-level keys from stored criteria (writes accepted them before
+        the unknown-key rejection below existed)."""
+        if not isinstance(exposure_criteria, dict):
+            return exposure_criteria
+        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
+
+    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -4115,7 +4123,10 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        # Stored criteria can carry unknown top-level keys accepted before writes rejected
+        # them — strip those instead of failing the clone on data the user didn't write.
+        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
@@ -4164,7 +4175,7 @@ class ExperimentService:
             metrics_secondary=cloned_metrics_secondary,
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
-            exposure_criteria=source_experiment.exposure_criteria,
+            exposure_criteria=cloned_exposure_criteria,
             saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=cloned_primary_ordering,
             secondary_metrics_ordered_uuids=cloned_secondary_ordering,
