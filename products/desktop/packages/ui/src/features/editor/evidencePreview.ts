@@ -18,6 +18,11 @@ import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 export interface EvidenceCardData {
   title: string;
   detail?: string;
+  /** Lifecycle state as a badge label + tone, kept out of `detail`. */
+  status?: {
+    label: string;
+    tone: "positive" | "neutral" | "caution" | "critical";
+  };
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
   /** Headline numbers for the full page's stat strip; chips use `facts`. */

@@ -41,7 +41,8 @@ describe("evidence preview shaping", () => {
     } as unknown as Schemas.FeatureFlag);
     expect(preview).toMatchObject({
       title: "new-checkout-flow",
-      detail: "Enabled · New checkout rollout",
+      detail: "New checkout rollout",
+      status: { label: "Enabled", tone: "positive" },
       facts: ["25% rollout", "2 variants", "Used by 1 experiment"],
       resolvedId: "42",
     });
@@ -93,30 +94,41 @@ describe("evidence preview shaping", () => {
       key: "old-flag",
       active: false,
     } as Schemas.FeatureFlag);
-    expect(preview.detail).toBe("Disabled");
+    expect(preview.detail).toBeUndefined();
+    expect(preview.status).toEqual({ label: "Disabled", tone: "neutral" });
   });
 
   it.each([
-    ["draft", {}, "Draft"],
-    ["running", { start_date: "2024-01-03T10:00:00Z" }, /^Running since Jan 3/],
+    ["draft", {}, "Draft", undefined],
+    [
+      "running",
+      { start_date: "2024-01-03T10:00:00Z" },
+      "Running",
+      /· Started Jan 3/,
+    ],
     [
       "ended",
       { start_date: "2024-01-03T10:00:00Z", end_date: "2024-02-02T10:00:00Z" },
-      /^Ended Feb 2/,
+      "Ended",
+      /^Jan 3(, \d{4})? to Feb 2/,
     ],
-  ])("describes a %s experiment", (_state, dates, expected) => {
-    const preview = shapeExperimentPreview({
-      id: 7,
-      name: "Reminder timing",
-      ...dates,
-    } as Schemas.Experiment);
-    expect(preview.title).toBe("Reminder timing");
-    if (typeof expected === "string") {
-      expect(preview.detail).toBe(expected);
-    } else {
-      expect(preview.detail).toMatch(expected);
-    }
-  });
+  ] as const)(
+    "describes a %s experiment",
+    (_state, dates, statusLabel, detail) => {
+      const preview = shapeExperimentPreview({
+        id: 7,
+        name: "Reminder timing",
+        ...dates,
+      } as Schemas.Experiment);
+      expect(preview.title).toBe("Reminder timing");
+      expect(preview.status?.label).toBe(statusLabel);
+      if (detail) {
+        expect(preview.detail).toMatch(detail);
+      } else {
+        expect(preview.detail).toBeUndefined();
+      }
+    },
+  );
 
   it("humanizes the error issue status", () => {
     const preview = shapeErrorIssuePreview({
@@ -125,7 +137,11 @@ describe("evidence preview shaping", () => {
       status: "pending_release",
       first_seen: "2024-01-03T10:00:00Z",
     } as Schemas.ErrorTrackingIssueFull);
-    expect(preview.detail).toMatch(/^Pending release · First seen Jan 3/);
+    expect(preview.detail).toMatch(/^First seen Jan 3/);
+    expect(preview.status).toEqual({
+      label: "Pending release",
+      tone: "neutral",
+    });
   });
 
   it.each([
@@ -539,7 +555,7 @@ describe("evidence preview shaping", () => {
         ],
       },
     } as unknown as Schemas.Experiment);
-    expect(preview.detail).toMatch(/· Day 12$/);
+    expect(preview.detail).toMatch(/^Day 12 ·/);
     expect(preview.facts).toEqual([
       "2 variants (50/50)",
       "Flag: reminder-timing",
@@ -553,7 +569,7 @@ describe("evidence preview shaping", () => {
     } as Schemas.Survey);
     expect(preview).toMatchObject({
       title: "Checkout survey",
-      detail: "Draft",
+      status: { label: "Draft", tone: "neutral" },
       sections: [
         {
           title: "Survey",

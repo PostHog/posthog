@@ -21,8 +21,16 @@ export interface EvidenceDetailSection {
 export interface EvidencePreview {
   /** The object's name in PostHog. */
   title: string;
-  /** One line of status or context, e.g. "Enabled" or "Running since Jan 3". */
+  /** One line of context, e.g. the object's description or timeline. */
   detail?: string;
+  /**
+   * The object's lifecycle state as a badge: label plus a tone the UI maps to
+   * a color. Kept out of `detail` so surfaces can style it.
+   */
+  status?: {
+    label: string;
+    tone: "positive" | "neutral" | "caution" | "critical";
+  };
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
   /**
@@ -243,7 +251,6 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
       ? groups[0].rollout_percentage
       : null;
   const stats: Array<{ label: string; value: string }> = [
-    { label: "State", value: state },
     ...(typeof singleRollout === "number"
       ? [{ label: "Rollout", value: `${singleRollout}%` }]
       : groups.length > 1
@@ -254,7 +261,10 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
   ];
   return {
     title: flag.key,
-    detail: name ? `${state} · ${name}` : state,
+    detail: name || undefined,
+    status: flag.active
+      ? { label: "Enabled", tone: "positive" }
+      : { label: "Disabled", tone: "neutral" },
     facts,
     stats,
     sections: [
@@ -295,19 +305,24 @@ export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
 export function shapeExperimentPreview(
   experiment: Schemas.Experiment,
 ): EvidencePreview {
-  let detail: string;
+  let detail: string | undefined;
+  let status: EvidencePreview["status"];
   if (experiment.end_date) {
-    detail = `Ended ${formatDay(experiment.end_date)}`;
+    status = { label: "Ended", tone: "neutral" };
+    detail = experiment.start_date
+      ? `${formatDay(experiment.start_date)} to ${formatDay(experiment.end_date)}`
+      : `Ended ${formatDay(experiment.end_date)}`;
   } else if (experiment.start_date) {
+    status = { label: "Running", tone: "positive" };
     const days = Math.max(
       1,
       Math.ceil(
         (Date.now() - new Date(experiment.start_date).getTime()) / 86_400_000,
       ),
     );
-    detail = `Running since ${formatDay(experiment.start_date)} · Day ${days}`;
+    detail = `Day ${days} · Started ${formatDay(experiment.start_date)}`;
   } else {
-    detail = "Draft";
+    status = { label: "Draft", tone: "neutral" };
   }
 
   const facts: string[] = [];
@@ -375,6 +390,7 @@ export function shapeExperimentPreview(
   return {
     title: experiment.name,
     detail,
+    status,
     facts,
     stats,
     sections: [
@@ -511,8 +527,10 @@ export function decorateFlagPreview(
 ): EvidencePreview {
   const facts = [...(preview.facts ?? [])];
   let detail = preview.detail;
+  let state = preview.status;
   if (status?.status?.toLowerCase() === "stale") {
     facts.unshift("Stale");
+    state = { label: "Stale", tone: "caution" };
     if (status.reason) detail = status.reason;
   }
   const points = dailySparkPoints(volumeRows);
@@ -527,6 +545,7 @@ export function decorateFlagPreview(
   return {
     ...preview,
     detail,
+    status: state,
     facts,
     stats,
     spark:
@@ -619,9 +638,13 @@ export function shapeErrorIssuePreview(
     : null;
   return {
     title: issue.name || "Untitled issue",
-    detail: issue.status
-      ? `${humanizeStatus(issue.status)} · ${firstSeen}`
-      : firstSeen,
+    detail: firstSeen,
+    status: issue.status
+      ? {
+          label: humanizeStatus(issue.status),
+          tone: issue.status === "active" ? "caution" : "neutral",
+        }
+      : undefined,
     sections: detailSection("Issue", [
       ["Status", issue.status ? humanizeStatus(issue.status) : null],
       ["First seen", formatDay(issue.first_seen)],
@@ -1122,13 +1145,16 @@ export function shapeEventDefinitionPreview(
 }
 
 export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
-  let detail: string;
+  let detail: string | undefined;
+  let status: EvidencePreview["status"];
   if (survey.end_date) {
+    status = { label: "Ended", tone: "neutral" };
     detail = `Ended ${formatDay(survey.end_date)}`;
   } else if (survey.start_date) {
-    detail = `Running since ${formatDay(survey.start_date)}`;
+    status = { label: "Running", tone: "positive" };
+    detail = `Since ${formatDay(survey.start_date)}`;
   } else {
-    detail = "Draft";
+    status = { label: "Draft", tone: "neutral" };
   }
   const questions = Array.isArray(survey.questions)
     ? survey.questions.length
@@ -1136,9 +1162,10 @@ export function shapeSurveyPreview(survey: Schemas.Survey): EvidencePreview {
   return {
     title: survey.name,
     detail,
+    status,
     sections: [
       ...detailSection("Survey", [
-        ["State", survey.archived ? "Archived" : detail],
+        ["State", survey.archived ? "Archived" : status.label],
         [
           "Type",
           typeof survey.type === "string" ? humanizeStatus(survey.type) : null,

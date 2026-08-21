@@ -1,6 +1,6 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import type { PostHogObjectArtifactMetadata } from "@posthog/core/canvas/runArtifactSchemas";
-import { Button, Heading, Skeleton, Text } from "@posthog/quill";
+import { Badge, Button, Heading, Skeleton, Text } from "@posthog/quill";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
@@ -65,6 +65,13 @@ function IdChip({ id }: { id: string }) {
     </Button>
   );
 }
+
+const STATUS_BADGE_VARIANT = {
+  positive: "success",
+  neutral: "default",
+  caution: "warning",
+  critical: "destructive",
+} as const;
 
 function FactChips({ facts }: { facts: string[] }) {
   return (
@@ -172,51 +179,60 @@ export function PostHogObjectPage({
     .toLowerCase()
     .startsWith(object.kindLabel.toLowerCase());
 
+  const status = query.data?.status;
+  const metaLine = [
+    object.kindLabel,
+    showSource ? object.source : null,
+    query.data?.detail,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-4xl flex-col px-8 py-8">
-        <header>
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 text-muted-foreground text-xs uppercase tracking-wide">
-              <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />
-              <span>{object.kindLabel}</span>
-              {showSource && (
-                <>
-                  <span>·</span>
-                  <span>{object.source}</span>
-                </>
-              )}
+        <header className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-card">
+              <ObjectIcon size={22} color={POSTHOG_OBJECT_ICON_COLOR} />
             </div>
-            <div className="flex items-center gap-2">
-              {/* A hogql reference's id is the SQL itself, not an identifier
-                  worth copying; the chart card already shows the query. */}
-              {metadata.object_kind !== "hogql" && (
-                <IdChip id={metadata.object_id} />
-              )}
-              {url && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  data-attr="posthog-object-open-in-posthog"
-                  onClick={() => openExternalUrl(url)}
-                >
-                  Open in PostHog ↗
-                </Button>
-              )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <Heading size="lg" className="truncate tracking-tight">
+                  {title}
+                </Heading>
+                {status && (
+                  <Badge variant={STATUS_BADGE_VARIANT[status.tone]}>
+                    {status.label}
+                  </Badge>
+                )}
+              </div>
+              <Text
+                size="sm"
+                variant="muted"
+                className="mt-0.5 block truncate leading-relaxed"
+              >
+                {metaLine}
+              </Text>
             </div>
           </div>
-          <Heading size="xl" className="mt-2 truncate">
-            {title}
-          </Heading>
-          {query.data?.detail && (
-            <Text
-              size="sm"
-              variant="muted"
-              className="mt-1.5 block leading-relaxed"
-            >
-              {query.data.detail}
-            </Text>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {/* A hogql reference's id is the SQL itself, not an identifier
+                worth copying; the chart card already shows the query. */}
+            {metadata.object_kind !== "hogql" && (
+              <IdChip id={metadata.object_id} />
+            )}
+            {url && (
+              <Button
+                variant="outline"
+                size="sm"
+                data-attr="posthog-object-open-in-posthog"
+                onClick={() => openExternalUrl(url)}
+              >
+                Open in PostHog ↗
+              </Button>
+            )}
+          </div>
         </header>
 
         <div className="mt-6">

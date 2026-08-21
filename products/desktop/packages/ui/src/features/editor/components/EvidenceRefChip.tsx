@@ -227,9 +227,11 @@ export function EvidenceHoverCard({
               />
             </div>
           )}
-          {preview.detail && (
+          {(preview.status || preview.detail) && (
             <div className="mt-1.5 text-(--gray-10) text-[11.5px] leading-snug">
-              {preview.detail}
+              {[preview.status?.label, preview.detail]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           )}
           {preview.facts && preview.facts.length > 0 && (
