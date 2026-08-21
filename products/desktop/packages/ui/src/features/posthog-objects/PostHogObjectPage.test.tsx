@@ -74,11 +74,11 @@ describe("PostHogObjectPage", () => {
     ).toBeInTheDocument();
     // A flag cited by key still links out, via the resolved numeric id.
     expect(screen.getByText(/Open in PostHog/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Copy reference" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
     expect(writeText).toHaveBeenCalledWith("new-checkout-flow");
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Reference copied" }),
+        screen.getByRole("button", { name: "ID copied" }),
       ).toBeInTheDocument(),
     );
   });

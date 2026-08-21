@@ -41,6 +41,26 @@ function StatStrip({
   );
 }
 
+/** The object's identifier as a labeled chip; clicking copies it. */
+function IdChip({ id }: { id: string }) {
+  const { copied, copy } = useCopy();
+  return (
+    <button
+      type="button"
+      data-attr="posthog-object-copy-reference"
+      aria-label={copied ? "ID copied" : "Copy ID"}
+      onClick={() => copy(id)}
+      className="flex h-7 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-muted px-2 text-muted-foreground text-xs hover:text-foreground"
+    >
+      <span className="font-medium text-[10px] uppercase tracking-wide">
+        ID
+      </span>
+      <span className="truncate font-mono">{id}</span>
+      {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+    </button>
+  );
+}
+
 function FactChips({ facts }: { facts: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -113,7 +133,6 @@ export function PostHogObjectPage({
 }) {
   const object = getObjectKind(metadata.object_kind);
   const ObjectIcon = object.icon;
-  const { copied, copy } = useCopy();
   const usesChartRenderer =
     metadata.object_kind === "insight" || metadata.object_kind === "hogql";
   const query = useAuthenticatedQuery(
@@ -163,16 +182,23 @@ export function PostHogObjectPage({
                 </>
               )}
             </div>
-            {url && (
-              <Button
-                variant="outline"
-                size="sm"
-                data-attr="posthog-object-open-in-posthog"
-                onClick={() => openExternalUrl(url)}
-              >
-                Open in PostHog ↗
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* A hogql reference's id is the SQL itself, not an identifier
+                  worth copying; the chart card already shows the query. */}
+              {metadata.object_kind !== "hogql" && (
+                <IdChip id={metadata.object_id} />
+              )}
+              {url && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-attr="posthog-object-open-in-posthog"
+                  onClick={() => openExternalUrl(url)}
+                >
+                  Open in PostHog ↗
+                </Button>
+              )}
+            </div>
           </div>
           <Heading size="xl" className="mt-2 truncate">
             {title}
@@ -186,18 +212,6 @@ export function PostHogObjectPage({
               {query.data.detail}
             </Text>
           )}
-          <div className="mt-2.5 flex items-center gap-1 font-mono text-muted-foreground text-xs">
-            <span className="max-w-xl truncate">{metadata.object_id}</span>
-            <button
-              type="button"
-              data-attr="posthog-object-copy-reference"
-              aria-label={copied ? "Reference copied" : "Copy reference"}
-              onClick={() => copy(metadata.object_id)}
-              className="inline-flex size-6 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent hover:bg-fill-hover hover:text-foreground"
-            >
-              {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-            </button>
-          </div>
         </header>
 
         <div className="mt-6">
