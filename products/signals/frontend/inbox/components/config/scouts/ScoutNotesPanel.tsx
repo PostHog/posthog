@@ -23,6 +23,9 @@ import {
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
 const NOTE_MAX_CHARS = 10000
 
+/** Notes run to hundreds of words, and the panel sits in a narrow sidebar next to the reports. */
+const NOTE_PREVIEW_CHARS = 280
+
 /**
  * Controlled so LemonTextArea's counter has a value to count; an uncontrolled textarea reports
  * 0 / max no matter what is typed.
@@ -198,6 +201,36 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
     )
 }
 
+/** Cutting mid-word reads like a typo, so back up to the last space before the limit. */
+function previewOf(content: string): string {
+    if (content.length <= NOTE_PREVIEW_CHARS) {
+        return content
+    }
+    const head = content.slice(0, NOTE_PREVIEW_CHARS)
+    const lastSpace = head.lastIndexOf(' ')
+    return `${(lastSpace === -1 ? head : head.slice(0, lastSpace)).trimEnd()}…`
+}
+
+/** The opening of a note is enough to recognize it; the rest is one click away. */
+function ScoutNoteContent({ content }: { content: string }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const preview = previewOf(content)
+    const truncated = preview !== content
+
+    return (
+        <div className="flex flex-col items-start gap-1">
+            <LemonMarkdown className="text-xs text-secondary" disableImages>
+                {expanded ? content : preview}
+            </LemonMarkdown>
+            {truncated && (
+                <LemonButton size="xsmall" type="tertiary" onClick={() => setExpanded(!expanded)}>
+                    {expanded ? 'Show less' : 'Show more'}
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => void }): JSX.Element {
     const direct = isDirectScoutNote(note)
     const disabledReason = noteWriteDisabledReason()
@@ -222,9 +255,7 @@ function ScoutNoteRow({ note, onDelete }: { note: ScoutNoteApi; onDelete: () => 
                         </Tooltip>
                     )}
                 </div>
-                <LemonMarkdown className="text-xs text-secondary" disableImages>
-                    {note.content}
-                </LemonMarkdown>
+                <ScoutNoteContent content={note.content} />
             </div>
             {/* Only a note someone left here is retired here. A derived one is a record of what
                 happened in the inbox, and deleting it would rewrite that. */}
