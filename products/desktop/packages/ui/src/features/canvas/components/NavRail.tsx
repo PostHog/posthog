@@ -40,6 +40,7 @@ import {
   type ReactElement,
   type ReactNode,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -218,9 +219,12 @@ export function NavRail() {
   // Activity. Not keyed on every render either, or picking Spaces or Activity
   // would snap straight back to the screen behind them.
   const routePane = paneForView(view.type);
+  const lastPathRef = useRef<string | null>(null);
   useEffect(() => {
+    if (lastPathRef.current === pathname) return;
+    lastPathRef.current = pathname;
     setRailPane(routePane);
-  }, [routePane, setRailPane]);
+  }, [pathname, routePane, setRailPane]);
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider
