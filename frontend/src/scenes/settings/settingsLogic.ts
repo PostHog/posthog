@@ -696,8 +696,11 @@ export const settingsLogic = kea<settingsLogicType>([
                             continue
                         }
 
+                        // A setting that renders its own heading has no title here, so fall back to
+                        // its search term before the id, which reads as slug text in results
                         const settingTitle =
-                            typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' ')
+                            setting.searchTerm ??
+                            (typeof setting.title === 'string' ? setting.title : setting.id.replace(/[-]/g, ' '))
 
                         entries.push({
                             settingId: setting.id,

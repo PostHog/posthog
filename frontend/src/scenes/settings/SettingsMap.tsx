@@ -1425,9 +1425,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'environment-access-control-terraform',
-                title: 'Terraform-managed rules',
-                description: 'Choose whether access control rules that Terraform manages can be changed in PostHog.',
-                docsUrl: 'https://posthog.com/docs/settings/access-control',
+                // The component carries the heading, so nothing renders until Terraform manages a rule
+                title: null,
+                searchTerm: 'Terraform-managed rules',
+                searchDescription:
+                    'Choose whether access control rules that Terraform manages can be changed in PostHog.',
                 component: <TerraformAccessControl />,
                 keywords: ['permission', 'access', 'rbac', 'terraform', 'iac'],
             },
