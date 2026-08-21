@@ -18,7 +18,10 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import transaction
+from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -33,6 +36,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -101,6 +105,12 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+# The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
+# Django's validator enforces real hostname grammar (label lengths, total length cap, no
+# schemes/paths/query junk), so the endpoint can't be steered off the logo host and callers
+# can't mint oversized cache keys.
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
 # The warehouse resources a person/group-property source can bind to: the import source behind a
@@ -1593,6 +1603,27 @@ class AccountViewSet(
         if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
+
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, required_scopes=["account:read"])
+    def icon(self, request: Request, *args, **kwargs) -> HttpResponse:
+        # Canonicalized before validation so case variants share one cache entry downstream.
+        domain = request.query_params.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
+            raise ValidationError("domain must be a bare hostname, e.g. posthog.com")
+        theme = request.query_params.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # The theme is part of the icon cache key, so only known values pass through —
+            # arbitrary strings would let one caller mint unbounded cache entries.
+            theme=theme if theme in ("light", "dark") else None,
+            # AccountLogo renders its own lettermark on 404 instead of logo.dev's monogram.
+            fallback="404",
+            team_id=self.team_id,
+        )
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)

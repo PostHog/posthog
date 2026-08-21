@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -23,9 +24,10 @@ const FEATURE_REQUESTS_ENDPOINT = 'api/projects/:team_id/feature_requests/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
+const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
-type AccountNameCell = { name: string; external_id: string | null; id: string }
+type AccountNameCell = { name: string; external_id: string | null; id: string; logo_domain: string | null }
 // Active assignee user ids from the relationships lazy join. Ids 178 and 202 match
 // the default org-members mock so the cells resolve to john.doe / jane.mcdoe.
 type AccountRelationshipCell = number[]
@@ -71,6 +73,7 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
             id: account.id,
             name: account.name,
             externalId: account.external_id,
+            logoDomain: account.logo_domain,
             accountFields: { name: account.name },
             tags,
             noteCount,
@@ -88,14 +91,29 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
     }
 }
 
+// Hooli has no domain, so the table renders its lettermark next to the other rows' logos.
 const SAMPLE_ROWS: AccountRow[] = [
-    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 0, [178], [202], []],
-    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, [], [], []],
-    [{ name: 'Hooli', external_id: null, id: 'acc-3' }, ['scaleup'], 0, [178], [], [202]],
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1', logo_domain: 'acme.example' },
+        ['enterprise', 'priority'],
+        0,
+        [178],
+        [202],
+        [],
+    ],
+    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2', logo_domain: 'globex.example' }, [], 0, [], [], []],
+    [{ name: 'Hooli', external_id: null, id: 'acc-3', logo_domain: null }, ['scaleup'], 0, [178], [], [202]],
 ]
 
 const SINGLE_ROW: AccountRow[] = [
-    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 1, [178], [202], []],
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1', logo_domain: 'acme.example' },
+        ['enterprise', 'priority'],
+        1,
+        [178],
+        [202],
+        [],
+    ],
 ]
 
 const ACCOUNT_WITH_LINKS = {
@@ -274,6 +292,25 @@ function mockAccountsTableQuery(
     }
 }
 
+// Stands in for the logo.dev proxy, which streams real brand images — a story must not reach a
+// third party, and snapshots need the same bytes every run. Unknown domains 404 like the real
+// endpoint does, so the lettermark fallback stays reachable from a story.
+const LOGO_SWATCHES: Record<string, string> = {
+    'acme.example': '#8f68d4',
+    'globex.example': '#dc9300',
+}
+
+function mockAccountIcon({ request }: MockResolverInfo): Response {
+    const fill = LOGO_SWATCHES[new URL(request.url).searchParams.get('domain') ?? '']
+    if (!fill) {
+        return new HttpResponse(null, { status: 404 })
+    }
+    return new HttpResponse(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="${fill}"/></svg>`,
+        { headers: { 'Content-Type': 'image/svg+xml' } }
+    )
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Customer Analytics/Accounts',
@@ -296,6 +333,7 @@ const meta: Meta = {
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [RELATIONSHIP_DEFINITIONS_ENDPOINT]: RELATIONSHIP_DEFINITIONS,
+                [ACCOUNT_ICON_ENDPOINT]: mockAccountIcon,
             },
         }),
     ],

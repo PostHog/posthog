@@ -33,6 +33,7 @@ import type {
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
+import { AccountLogo } from './AccountLogo'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
@@ -41,10 +42,11 @@ import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { AccountsEvents } from './constants'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
-type AccountNameCell = { name: string; external_id: string | null; id: string }
+type AccountNameCell = { name: string; external_id: string | null; id: string; logo_domain: string | null }
 
 const COLUMN_WIDTHS = {
-    name: '240px',
+    // Widened over the text-only cell to seat the logo without squeezing longer account names.
+    name: '280px',
     tag_names: '280px',
     notebook_count: '80px',
     relationship: '220px',
@@ -60,7 +62,12 @@ function getNameCell(record: unknown): AccountNameCell | undefined {
     if (!isAccountsTableRow(record)) {
         return undefined
     }
-    return { id: record.id, name: record.name, external_id: record.externalId ?? null }
+    return {
+        id: record.id,
+        name: record.name,
+        external_id: record.externalId ?? null,
+        logo_domain: record.logoDomain ?? null,
+    }
 }
 
 // Relationship cells carry active assignee user ids and use an empty array when unassigned.
@@ -79,41 +86,44 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     const externalId = cell?.external_id ?? ''
     const accountId = cell?.id
     return (
-        <div className="flex flex-col min-w-40" data-account-id={accountId}>
-            {accountId ? (
-                <Link
-                    // Plain click opens the account details inline (keeping the list mounted); the href
-                    // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
-                    to={urls.customerAnalyticsAccount(accountId)}
-                    className="font-semibold"
-                    onClick={(event) => {
-                        if (event.metaKey || event.ctrlKey || event.shiftKey) {
-                            return
-                        }
-                        event.preventDefault()
-                        event.stopPropagation()
-                        if (!isAccountExpanded(accountId)) {
-                            posthog.capture(AccountsEvents.AccountOpened)
-                        }
-                        toggleAccountExpanded(accountId)
-                    }}
-                >
-                    {name}
-                </Link>
-            ) : (
-                <span className="font-semibold">{name}</span>
-            )}
-            {externalId ? (
-                <CopyToClipboardInline
-                    explicitValue={externalId}
-                    iconStyle={{ color: 'var(--color-accent)' }}
-                    iconSize="xsmall"
-                    description="account ID"
-                    className="text-xs text-muted"
-                >
-                    {externalId}
-                </CopyToClipboardInline>
-            ) : null}
+        <div className="flex items-center gap-2 min-w-40" data-account-id={accountId}>
+            <AccountLogo domain={cell?.logo_domain} name={name} />
+            <div className="flex flex-col min-w-0">
+                {accountId ? (
+                    <Link
+                        // Plain click opens the account details inline (keeping the list mounted); the href
+                        // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
+                        to={urls.customerAnalyticsAccount(accountId)}
+                        className="font-semibold"
+                        onClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                                return
+                            }
+                            event.preventDefault()
+                            event.stopPropagation()
+                            if (!isAccountExpanded(accountId)) {
+                                posthog.capture(AccountsEvents.AccountOpened)
+                            }
+                            toggleAccountExpanded(accountId)
+                        }}
+                    >
+                        {name}
+                    </Link>
+                ) : (
+                    <span className="font-semibold">{name}</span>
+                )}
+                {externalId ? (
+                    <CopyToClipboardInline
+                        explicitValue={externalId}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        iconSize="xsmall"
+                        description="account ID"
+                        className="text-xs text-muted"
+                    >
+                        {externalId}
+                    </CopyToClipboardInline>
+                ) : null}
+            </div>
         </div>
     )
 }

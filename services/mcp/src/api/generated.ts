@@ -1201,6 +1201,8 @@ export namespace Schemas {
       customPropertyHistory: AccountsTableRowCustomPropertyHistory;
       externalId?: string | null;
       id: string;
+      /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+      logoDomain?: string | null;
       name: string;
       /** Number of linked internal notes. Omitted when the request does not select the note count. */
       noteCount?: number | null;

@@ -319,7 +319,9 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(7):
+        # Two of these hydrate the logo domain (its value lookup plus the manager's team scoping).
+        # What matters is that the total stays flat as rows are added, not the exact number.
+        with self.assertNumQueries(9):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
@@ -333,6 +335,38 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+
+    def test_resolves_the_logo_domain_without_selecting_the_domain_column(self) -> None:
+        definition = create_custom_property_definition(team_id=self.team.id, name="Domain")
+        from_property = create_account(team_id=self.team.id, name="From property")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=from_property,
+            definition=definition,
+            value_str="https://www.acme.example/about",
+        )
+        from_email_domains = create_account(
+            team_id=self.team.id,
+            name="From email domains",
+            _properties={"email_domains": ["globex.example"]},
+        )
+        unresolved = create_account(team_id=self.team.id, name="Unresolved", external_id="not-a-domain")
+
+        page = api.query_accounts_table(
+            team_id=self.team.id,
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+            # Nothing selected: the logo must not depend on the team putting Domain on screen.
+            selection=contracts.AccountTableColumnSelection(),
+            filters=(),
+            sort=None,
+            offset=0,
+            limit=100,
+        )
+
+        logo_domains = {row.id: row.logo_domain for row in page.rows}
+        assert logo_domains[from_property.id] == "acme.example"
+        assert logo_domains[from_email_domains.id] == "globex.example"
+        assert logo_domains[unresolved.id] is None
 
     def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):

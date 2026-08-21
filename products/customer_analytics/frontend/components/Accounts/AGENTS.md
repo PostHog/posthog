@@ -68,8 +68,29 @@ Ignored accounts (`ignored_at IS NOT NULL`) are excluded from list rows and over
 
 Overview tiles run as a separate metrics-only `AccountsTableQuery` (`metrics` set and `columns: []`; `null` when there are no tiles or while definitions are loading). Count, sum, average, minimum, maximum, median, scaling, and threshold counts execute in Postgres. The "My accounts" checkbox resolves to the current user's explicit ID before either query is built, so shared URLs remain viewer-independent. Two cell shapes matter:
 
-- **`name` column** (mandatory, `ACCOUNTS_NAME_COLUMN`) — read directly from the keyed row's `id`, `name`, and `externalId`. This is the row's identity: `id` (the account PK) drives expansion/scroll/role updates; `externalId` is the copy-able group key. `getNameCell()` in `AccountsTable.tsx` is the canonical accessor. In `NameCell` the name renders as the prominent (`font-semibold`) primary label: a plain click opens the account details inline (toggles the row's expansion via `accountsExpansionLogic`, firing `AccountOpened` on open), while the `<Link>` href points at `urls.customerAnalyticsAccount(id)` so cmd/ctrl-click opens the account's deep-link page in a new tab. The `external_id` sits beneath it as de-emphasized (`text-xs text-muted`) copy-to-clipboard text.
+- **`name` column** (mandatory, `ACCOUNTS_NAME_COLUMN`) — read directly from the keyed row's `id`, `name`, `externalId`, and `logoDomain`. This is the row's identity: `id` (the account PK) drives expansion/scroll/role updates; `externalId` is the copy-able group key. `getNameCell()` in `AccountsTable.tsx` is the canonical accessor. In `NameCell` an `AccountLogo` leads the cell, followed by the name as the prominent (`font-semibold`) primary label: a plain click opens the account details inline (toggles the row's expansion via `accountsExpansionLogic`, firing `AccountOpened` on open), while the `<Link>` href points at `urls.customerAnalyticsAccount(id)` so cmd/ctrl-click opens the account's deep-link page in a new tab. The `external_id` sits beneath it as de-emphasized (`text-xs text-muted`) copy-to-clipboard text.
 - **relationship columns** — returned in `AccountsTableRow.relationships` as arrays of active assignee user ids keyed by definition id (`[]` when unassigned). The legacy names `csm`/`account_executive`/`account_owner` remain stored in defaults, saved views, and URL state, then translate into typed relationship columns matched by seeded definition name (`LEGACY_ROLE_COLUMNS`); a legacy column with no matching definition is dropped from the query. Other definitions are pickable from the "Relationships" column group with opaque `rel_<id>` aliases, resolved back via `aliasToRelationshipDefinition`. Cells render `RelationshipCell`: single-holder definitions get an editable `MemberSelect` (writes via the relationships assign/end endpoints — assign auto-ends the previous holder server-side); multi-holder definitions render read-only. User ids resolve to members via `membersLogic` (loaded up front in `accountsLogic.afterMount`). Sorting uses the alias directly (arrays of ids — deterministic but not email order).
+
+### Account logos
+
+`AccountLogo` renders the company's logo at the head of the name cell, falling back to a `Lettermark` of the account's initial.
+Most accounts resolve no domain, and plenty of domains have no logo on file, so **the lettermark is the common case, not an error state** — it holds the same 24px box either way, so rows never go ragged.
+
+The domain is resolved server-side, in `backend/logic/account_logo.py`, from the first source that yields a bare hostname:
+
+1. an account custom property named **`Domain`** (`LOGO_DOMAIN_PROPERTY_NAME`, matched case-insensitively) — the high-coverage path, since a team can point the existing warehouse property sync at whichever CRM column already holds a website;
+2. the account's `properties.email_domains`, curated for meeting and email attribution;
+3. `external_id`, for teams whose group key is already a hostname.
+
+That property is deliberately **not** registered as canonical.
+`is_canonical` means PostHog writes the value and owns the definition, so it locks the property against rename and retype and labels its sync "Auto" — all wrong for a property the team populates itself.
+Reading it by name leaves the definition entirely theirs; renaming it away just drops back to the next source.
+
+`normalize_logo_domain` accepts what teams actually store (full URLs, `@domain` suffixes, ports, `www.`) and rejects anything that isn't a company hostname — free text, UUID group keys, and mailbox providers like `gmail.com`, which would otherwise put a webmail logo on a customer's row.
+The resolved value rides on `AccountsTableRow.logoDomain` and is read on **every** row, whether or not the team put the `Domain` column on screen.
+
+Image bytes come from `GET /api/projects/@current/accounts/icon/?domain=…&theme=…`, an `AccountViewSet` action that proxies logo.dev through the shared `CDPIconsService` (per-team and instance egress budgets, 24h miss caching, `fallback="404"` so the lettermark wins rather than logo.dev's monogram).
+**The browser never loads logo.dev directly** — keep it that way, or every render leaks customer domains to a third party from the user's own machine, and the CSP `img-src` allowlist has no entry for it.
 
 The `tag_names` cell is editable in place: `TagsCell` renders the editable `ObjectTags` variant (available tags from `tagsModel`), saving through the account PATCH via `accountsLogic.updateAccountTags` — optimistic per-account override (`tagOverrides`, masking the stale fetched cell like `relationshipOverrides`), debounced full-list PATCH (`TAGS_SAVE_DEBOUNCE_MS`, since `ObjectTags` fires per added/removed tag), `savingTags` guard, revert + toast + captured exception on failure. Clicking a tag in the cell adds it to the tags filter, compounding with tags already filtered (`addTagToFilter` — dedupes, and reports through `reportFilterChange('tag')` like the filter control).
 
