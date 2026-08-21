@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -27,6 +28,39 @@ def _sessions(count: int, prefix: str = "s") -> list[CandidateSession]:
     return [
         CandidateSession(session_id=f"{prefix}-{i}", session_end=_T0 + dt.timedelta(seconds=i)) for i in range(count)
     ]
+
+
+def _group_column_bounds(node: ast.Expr | ast.SelectQuery | None) -> list[str] | None:
+    """The key list an `$group_N IN (...)` predicate pins, wherever it sits in the query."""
+    if node is None:
+        return None
+    if (
+        isinstance(node, ast.CompareOperation)
+        and node.op == ast.CompareOperationOp.In
+        and isinstance(node.left, ast.Field)
+        and str(node.left.chain[-1]).startswith("$group_")
+        and isinstance(node.right, ast.Constant)
+    ):
+        return list(node.right.value)
+    for child in _children(node):
+        found = _group_column_bounds(child)
+        if found is not None:
+            return found
+    return None
+
+
+def _children(node: ast.Expr | ast.SelectQuery) -> list:
+    if isinstance(node, ast.SelectQuery):
+        return [node.where, node.having, node.select_from, *(node.select or [])]
+    if isinstance(node, ast.JoinExpr):
+        return [node.table, node.constraint, node.next_join]
+    if isinstance(node, ast.JoinConstraint):
+        return [node.expr]
+    if isinstance(node, ast.CompareOperation):
+        return [node.left, node.right]
+    if isinstance(node, ast.Call):
+        return list(node.args or [])
+    return list(getattr(node, "exprs", None) or [])
 
 
 def _bounds_sessions(node: ast.Expr | None) -> bool:
@@ -88,7 +122,12 @@ class TestBuildCandidateBatch:
 @pytest.mark.django_db
 class TestSessionInPredicates:
     def _query(
-        self, *, filter_test_accounts: bool, with_event_filter: bool, operand: str = "AND"
+        self,
+        *,
+        filter_test_accounts: bool,
+        with_event_filter: bool,
+        operand: str = "AND",
+        group_filter: bool = False,
     ) -> ScannerCandidateQuery:
         org = Organization.objects.create(name="predicate-test-org")
         team = Team.objects.create(
@@ -99,8 +138,21 @@ class TestSessionInPredicates:
             ],
         )
         query: dict = {"kind": "RecordingsQuery", "filter_test_accounts": filter_test_accounts, "operand": operand}
+        properties: list[dict] = []
         if with_event_filter:
-            query["properties"] = [{"key": "plan", "type": "event", "value": "pro", "operator": "exact"}]
+            properties.append({"key": "plan", "type": "event", "value": "pro", "operator": "exact"})
+        if group_filter:
+            properties.append(
+                {
+                    "key": "owner",
+                    "type": "group",
+                    "value": ["a@example.com"],
+                    "operator": "exact",
+                    "group_type_index": 0,
+                }
+            )
+        if properties:
+            query["properties"] = properties
         return ScannerCandidateQuery(
             team=team,
             query=RecordingsQuery.model_validate(query),
@@ -162,6 +214,19 @@ class TestSessionInPredicates:
         )
 
         assert _bounds_sessions(executed[1].where)
+
+    def test_a_group_filter_is_resolved_to_the_group_column(self) -> None:
+        # Joining the groups table makes every ClickHouse shard scan it independently, so a sweep
+        # tick pays that scan once per shard. Filtering on the resolved keys instead is the whole
+        # point of the opt-in, and losing it anywhere in the plumbing is invisible without this.
+        query = self._query(filter_test_accounts=False, with_event_filter=False, group_filter=True)
+        with patch(
+            "posthog.session_recordings.queries.sub_queries.group_key_resolver._query_group_keys",
+            return_value=["org-1"],
+        ):
+            built = query.get_query()
+
+        assert _group_column_bounds(built) == ["org-1"]
 
     def test_a_scanner_without_event_filters_has_nothing_to_correlate(self) -> None:
         predicates = session_in_predicates(self._query(filter_test_accounts=False, with_event_filter=False).get_query())

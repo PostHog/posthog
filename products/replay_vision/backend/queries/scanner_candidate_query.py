@@ -22,6 +22,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     UNSCORED_SURFACING_SCORE,
     SessionRecordingListFromQuery,
 )
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.session_limits import (
@@ -59,6 +60,7 @@ FAST_SWEEP_QUERY_TYPES = [
     SWEEP_CANDIDATE_QUERY_TYPE,
     SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
     EXCLUDED_SESSIONS_QUERY_TYPE,
+    GROUP_KEY_RESOLUTION_QUERY_TYPE,
 ]
 
 SAMPLE_RATE_PRECISION = 10_000
@@ -239,6 +241,7 @@ class ScannerCandidateQuery:
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
+            resolve_group_properties=True,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -595,6 +598,7 @@ class WindowedCandidateQuery:
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
+            resolve_group_properties=True,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:

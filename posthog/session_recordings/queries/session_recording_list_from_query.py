@@ -143,6 +143,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         user: User | None = None,
         events_sample_factor: float | None = None,
         events_timestamp_floor: datetime | None = None,
+        # Opt-in: resolve group property filters to group keys instead of joining the groups table.
+        resolve_group_properties: bool = False,
         **_,
     ):
         self._user = user
@@ -151,6 +153,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
         # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
+        self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
@@ -527,6 +530,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._allow_event_property_expansion,
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
+            resolve_group_properties=self._resolve_group_properties,
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
@@ -653,6 +657,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 self._allow_event_property_expansion,
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
+                resolve_group_properties=self._resolve_group_properties,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

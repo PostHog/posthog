@@ -24,6 +24,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvail
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
     NEGATIVE_OPERATORS,
@@ -96,6 +97,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
         sample_factor: Optional[float] = None,
         events_timestamp_floor: Optional[datetime] = None,
+        resolve_group_properties: bool = False,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
@@ -105,6 +107,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # callers that re-run often over a wide session window. Exclusion blocklists never apply it,
         # since a truncated blocklist would under-exclude.
         self._events_timestamp_floor = events_timestamp_floor
+        self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
 
     def _events_join(self, sample: bool = True) -> ast.JoinExpr:
@@ -491,7 +494,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         for p in self.group_properties:
             if skip_negative_properties and is_negative_prop(p):
                 continue
-            gathered_exprs.append(property_to_expr(p, team=self._team))
+            resolved = resolved_group_key_expr(self._team, p) if self._resolve_group_properties else None
+            gathered_exprs.append(resolved if resolved is not None else property_to_expr(p, team=self._team))
 
         # Handle person properties with hybrid query mode if enabled and appropriate
         hybrid_query: Optional[ast.SelectQuery] = None
