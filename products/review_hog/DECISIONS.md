@@ -198,6 +198,25 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
+
+- **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
+  unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
+  and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
+  through a shared plain function; the only new gate is that the payload's `installation.id` must map
+  to the configured team's GitHub integration. Same `start_review_pr_workflow(trigger_source="label")`.
+- **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
+  is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
+  label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
+  already publishes through the PostHog GitHub App installation token, so that App's inlet is the
+  right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
+- **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
+  handler does none of that. `USE_EXISTING` on the deterministic workflow id makes Action + webhook
+  firing together harmless, so the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler** (same
+  dispatcher bucket, same gates); they do not open a second inlet, and `signal-with-start` / per-PR
+  Schedules wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+
 ### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
 
 Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
@@ -2093,6 +2112,8 @@ is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`sync
 `start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
 `X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
 `webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+_(2026-08-21: the label-add signal lands as a handler in the unified dispatcher; the other two signals extend that
+handler when the loop exists, per the scope fence in the "✅ DECIDED 2026-08-21" entry.)_
 Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
 `get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
 maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
@@ -2319,7 +2340,8 @@ Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a Git
 does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
 workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
 **Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
-Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+Stamphog model; _superseded 2026-08-21, Stamphog is hosted now — see "✅ DECIDED 2026-08-21 — label trigger moves
+onto the GitHub App webhook"_) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
 pipeline just built + hardened).
 
 ```text
