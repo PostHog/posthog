@@ -22,7 +22,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import TestCase
+from django.core.exceptions import ImproperlyConfigured
+from django.test import SimpleTestCase, TestCase
 from django.utils.timezone import now
 
 import structlog
@@ -57,9 +58,12 @@ from posthog.tasks.usage_report import (
     _get_full_org_usage_report_as_dict,
     _get_team_report,
     _get_teams_for_usage_reports,
+    _get_teams_with_ai_credits_for_products,
     capture_event,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_ai_credits_used_in_period,
+    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     has_non_zero_usage,
     send_all_org_usage_reports,
@@ -3282,6 +3286,31 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
 
 
+class TestAICreditsRegionHandling(SimpleTestCase):
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_dev_region_returns_empty(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "DEV"
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        assert get_teams_with_ai_credits_used_in_period(period.start, period.end) == []
+        assert get_teams_with_posthog_code_credits_used_in_period(period.start, period.end) == []
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_on_unexpected_region_raises(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "APAC"
+        period_end = now()
+        period_start = period_end - timedelta(days=1)
+
+        with self.assertRaisesRegex(ImproperlyConfigured, "APAC"):
+            _get_teams_with_ai_credits_for_products(
+                period_start,
+                period_end,
+                ai_products=[],
+                usage_report_tag="test",
+            )
+
+
 @freeze_time("2022-01-10T10:00:00Z")
 class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
@@ -3390,30 +3419,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["ai_event_count_in_period"] == 7
         assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
-
-    @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_on_unmapped_region_returns_empty(self, mock_region: MagicMock) -> None:
-        """A region with no internal team mapping (e.g. the hosted DEV environment)
-        returns no credits rather than raising.
-
-        These queries read events from PostHog's *own* internal project, which only
-        exists on the US and EU clouds; any other region has nothing to aggregate.
-        Raising takes down the entire usage report - Celery task and Temporal
-        workflow alike - for every other metric too.
-        """
-        from posthog.tasks.usage_report import (
-            get_teams_with_ai_credits_used_in_period,
-            get_teams_with_posthog_code_credits_used_in_period,
-        )
-
-        mock_region.return_value = "DEV"
-        self._setup_teams()
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        assert get_teams_with_ai_credits_used_in_period(period_start, period_end) == []
-        assert get_teams_with_posthog_code_credits_used_in_period(period_start, period_end) == []
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_billable_tools(self, mock_region: MagicMock) -> None:

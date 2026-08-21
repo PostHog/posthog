@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -1357,13 +1358,12 @@ def _get_teams_with_ai_credits_for_products(
             assert region is not None, "Region must be set in production infrastructure"
         return []
 
-    if region not in CLOUD_REGION_TO_TEAM_ID:
-        # A region with no internal team - the hosted DEV environment is "DEV".
-        # These events live in PostHog's own project on the US/EU clouds only, so
-        # there is nothing to aggregate elsewhere. Return empty rather than raise:
-        # this runs inline in the usage report, so an exception here takes down
-        # every other metric with it.
+    if region == "DEV":
+        # Hosted DEV has no internal team containing AI billing events.
         return []
+
+    if region not in CLOUD_REGION_TO_TEAM_ID or region not in CLOUD_REGION_TO_URL:
+        raise ImproperlyConfigured(f"AI credit usage reporting is not configured for CLOUD_DEPLOYMENT={region!r}")
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
     region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
