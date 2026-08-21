@@ -1026,6 +1026,29 @@ class TestGitHubIntegrationModel(BaseTest):
         assert GitHubIntegration(integration).ensure_account_name() is False
         mock_client_request.assert_not_called()
 
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_ensure_account_name_keeps_config_written_during_the_github_call(self, mock_client_request):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"type": None, "name": "INSTALL"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        def _client_request(*_args, **_kwargs):
+            # Stands in for a token refresh or installation webhook committing config mid-request.
+            stored = Integration.objects.get(id=integration.id)
+            Integration.objects.filter(id=integration.id).update(
+                config={**stored.config, "repository_selection": "selected"}
+            )
+            return MagicMock(status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}})
+
+        mock_client_request.side_effect = _client_request
+
+        assert GitHubIntegration(integration).ensure_account_name() is True
+
+        integration.refresh_from_db()
+        assert integration.config["account"]["name"] == "PostHog"
+        assert integration.config["repository_selection"] == "selected"
+
     @patch("posthog.models.integration.github.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):

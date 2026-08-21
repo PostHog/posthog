@@ -2047,9 +2047,19 @@ class IntegrationViewSet(
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
         # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
         # everywhere the row is listed, including surfaces that never open the repository picker.
-        for instance in self.filter_queryset(self.get_queryset()).filter(kind="github"):
-            GitHubIntegration(instance).ensure_account_name()
-        return super().list(request, *args, **kwargs)
+        # Inlined from ListModelMixin so the heal runs over the page being returned rather than the
+        # whole queryset — each heal can spend a GitHub round trip, so rows nobody asked for mustn't
+        # pay for one.
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        instances = page if page is not None else list(queryset)
+        for instance in instances:
+            if instance.kind == "github":
+                GitHubIntegration(instance).ensure_account_name()
+        serializer = self.get_serializer(instances, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

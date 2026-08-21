@@ -587,25 +587,33 @@ class GitHubIntegrationBase:
         if isinstance(last_attempt, int | float) and now - last_attempt < GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS:
             return False
 
-        config = {**self.integration.config, ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
-        healed = False
+        healed_account: dict[str, Any] | None = None
         try:
             response = self.client_request(f"installations/{installation_id}")
             if response.status_code == 200:
                 account = response.json().get("account") or {}
                 login = account.get("login")
                 if login:
-                    config["account"] = {"type": account.get("type"), "name": login}
-                    healed = True
+                    healed_account = {"type": account.get("type"), "name": login}
         except Exception:
             logger.warning(
                 "GitHubIntegration: ensure_account_name failed",
                 installation_id=installation_id,
                 exc_info=True,
             )
+        # `config` is one JSON column, so writing a snapshot taken before the request above would drop
+        # anything a concurrent token refresh or installation webhook committed during it. Re-read the
+        # stored config and lay only the two keys this method owns on top.
+        try:
+            self.integration.refresh_from_db(fields=["config"])
+        except self.integration.DoesNotExist:
+            return False
+        config = {**self.integration.config, ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY: now}
+        if healed_account is not None:
+            config["account"] = healed_account
         self.integration.config = config
         self.integration.save(update_fields=["config"])
-        return healed
+        return healed_account is not None
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
