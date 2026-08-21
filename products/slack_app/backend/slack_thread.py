@@ -18,7 +18,7 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
-    fork_button_block,
+    fork_menu_block,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -220,8 +220,8 @@ class SlackThreadHandler:
             configure_url = None
         return reply_footer_block(footer, configure_url)
 
-    def _fork_button(self) -> dict[str, Any] | None:
-        """The "Fork to DM" button for this reply, or `None` outside the rollout.
+    def _fork_menu(self) -> dict[str, Any] | None:
+        """The overflow menu for this reply, or `None` outside the rollout.
 
         Only ever asked for once a footer exists, which is what keeps a reply with
         nothing to describe off the integration lookup behind the flag — the same
@@ -230,22 +230,22 @@ class SlackThreadHandler:
         integration = self._get_integration()
         if not is_slack_app_forking_enabled(integration):
             return None
-        return fork_button_block(integration.id)
+        return fork_menu_block(integration.id)
 
-    def _append_fork_button(self, ts: str) -> None:
-        """Add the fork button to a streamed reply. Best-effort by design: losing the
-        button costs a convenience, and the caller keeps it off the answer's own flush."""
-        button = self._fork_button()
-        if not button:
+    def _append_fork_menu(self, ts: str) -> None:
+        """Add the fork menu to a streamed reply. Best-effort by design: losing the menu
+        costs a convenience, and the caller keeps it off the answer's own flush."""
+        menu = self._fork_menu()
+        if not menu:
             return
         try:
             self._get_client().chat_appendStream(
                 channel=self.context.channel,
                 ts=ts,
-                chunks=[{"type": "blocks", "blocks": [button]}],
+                chunks=[{"type": "blocks", "blocks": [menu]}],
             )
         except Exception as e:
-            logger.warning("slack_app_fork_button_append_failed", error=str(e))
+            logger.warning("slack_app_fork_menu_append_failed", error=str(e))
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -420,7 +420,7 @@ class SlackThreadHandler:
         # either, and the append above carries the answer itself — bundling an
         # unproven block with it would risk losing the reply to a rejected request.
         if footer:
-            self._append_fork_button(ts)
+            self._append_fork_menu(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -560,9 +560,9 @@ class SlackThreadHandler:
         if not footer:
             return
         blocks = [footer]
-        button = self._fork_button()
-        if button:
-            blocks.append(button)
+        menu = self._fork_menu()
+        if menu:
+            blocks.append(menu)
         try:
             self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:

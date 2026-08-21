@@ -521,28 +521,39 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
 
 
 FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
+FORK_TO_DM_OPTION = "fork_to_dm"
 
 
-def fork_button_block(integration_id: int) -> dict[str, Any]:
-    """The "Fork to DM" affordance that sits under a finished reply.
+def fork_menu_block(integration_id: int) -> dict[str, Any]:
+    """The overflow menu that sits under a finished reply.
 
-    An `actions` block rather than a link in the footer's `context` line: Block Kit
-    context blocks hold only text and images, and a `<url|label>` link navigates
-    rather than calling back, so a button is the only way to reach our interactivity
-    endpoint from a message.
+    An overflow renders as a bare "…" with no label, which is as close to invisible
+    as an interactive element gets — the answer above it is what the reader came for.
+    It also has somewhere to put the next destination ("fork to a channel") without
+    growing a second control.
 
-    The value carries the integration so the cross-region interactivity router can
-    tell whose click this is. Everything else the fork needs — the channel and the
-    thread the reply is sitting in — rides on the `block_actions` payload itself.
+    It lives in its own `actions` block rather than in the footer: Block Kit context
+    blocks hold only text and images, and a `<url|label>` navigates instead of calling
+    back, so neither can reach our interactivity endpoint. A `section` accessory would
+    put it on the footer's own line, at the cost of the muted styling that makes a
+    footer read as one.
+
+    The option value carries the integration so the cross-region interactivity router
+    can tell whose click this is. Everything else the fork needs — the channel, and
+    the thread the reply is sitting in — rides on the `block_actions` payload.
     """
     return {
         "type": "actions",
         "elements": [
             {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                "type": "overflow",
                 "action_id": FORK_THREAD_ACTION_ID,
-                "value": json.dumps({"integration_id": integration_id}),
+                "options": [
+                    {
+                        "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
+                        "value": json.dumps({"integration_id": integration_id, "option": FORK_TO_DM_OPTION}),
+                    }
+                ],
             }
         ],
     }

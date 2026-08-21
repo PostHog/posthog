@@ -3682,13 +3682,18 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
 
 
 def _extract_action_value_hints(payload: dict, action_id: str) -> tuple[int | None, str | None]:
-    """Pull (integration_id, mentioning_slack_user_id) from a block action's JSON value, or (None, None)."""
+    """Pull (integration_id, mentioning_slack_user_id) from a block action's JSON value, or (None, None).
+
+    A button carries its payload in ``value``; an overflow menu carries the chosen
+    entry's under ``selected_option.value`` instead. Reading both lets one extractor
+    serve either element.
+    """
     actions = payload.get("actions", [])
     action = next((a for a in actions if a.get("action_id") == action_id), None)
     if not action:
         return None, None
 
-    value_raw = action.get("value", "")
+    value_raw = action.get("value") or (action.get("selected_option") or {}).get("value", "")
     if not value_raw:
         return None, None
 
@@ -4661,7 +4666,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
-    fork_button_integration_id, _ = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)
+    fork_menu_integration_id, _ = _extract_action_value_hints(payload, FORK_THREAD_ACTION_ID)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -4718,12 +4723,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and fork_button_integration_id:
-        # The fork button rides on a bot reply anyone in the thread can see, so any
-        # reader may click it. Routing only claims the workspace; who the fork runs as,
+    elif slack_team_id and fork_menu_integration_id:
+        # The fork menu rides on a bot reply anyone in the thread can see, so any
+        # reader may use it. Routing only claims the workspace; who the fork runs as,
         # and whether they may, is settled in the fork activity.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=fork_button_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            id=fork_menu_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()

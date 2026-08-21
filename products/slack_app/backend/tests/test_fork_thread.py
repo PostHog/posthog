@@ -339,8 +339,13 @@ class TestForkButtonDispatch(TestCase):
             "response_url": "https://hooks.slack.test/resp",
             "actions": [
                 {
+                    "type": "overflow",
                     "action_id": FORK_THREAD_ACTION_ID,
-                    "value": json.dumps({"integration_id": integration_id}),
+                    # An overflow reports the chosen entry under `selected_option`, not `value`.
+                    "selected_option": {
+                        "text": {"type": "plain_text", "text": "Fork to DM"},
+                        "value": json.dumps({"integration_id": integration_id, "option": "fork_to_dm"}),
+                    },
                 }
             ],
         }
@@ -378,3 +383,21 @@ class TestForkButtonDispatch(TestCase):
 
         assert response.status_code == 200
         mock_connect.assert_not_called()
+
+
+class TestForkMenuBlock(TestCase):
+    def test_menu_is_an_overflow_carrying_the_integration(self):
+        # An overflow renders as a bare "…"; a button would put a label under every
+        # reply. The integration in the option value is what lets the cross-region
+        # interactivity router claim the click.
+        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, fork_menu_block
+
+        block = fork_menu_block(42)
+
+        assert block["type"] == "actions"
+        element = block["elements"][0]
+        assert element["type"] == "overflow"
+        assert element["action_id"] == FORK_THREAD_ACTION_ID
+        assert len(element["options"]) == 1
+        assert element["options"][0]["text"]["text"] == "Fork to DM"
+        assert json.loads(element["options"][0]["value"])["integration_id"] == 42
