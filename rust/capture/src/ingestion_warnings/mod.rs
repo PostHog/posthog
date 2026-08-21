@@ -143,6 +143,44 @@ pub fn emit_rate_limit_warning(
     );
 }
 
+/// Emit the `illegal_distinct_id` warning for one batch's events kept but
+/// stripped of person processing because their distinct_id is a known
+/// placeholder (`anonymous`, `null`, …). Nothing else tells customers about
+/// this, so a misconfigured sender otherwise stays silent.
+///
+/// Details mirror [`emit_rate_limit_warning`] on purpose — both name a set of
+/// distinct_ids that went personless — so a reader of the v2 table sees the
+/// same shape regardless of which condition caused it. `distinct_id` is
+/// included only when the batch had exactly one placeholder value; with several
+/// it would be an arbitrary pick, and `distinctIdCount` already says how many
+/// there were. The value is at most the distinct_id size cap (validation dropped
+/// larger ones), so it needs no bounding.
+pub fn emit_illegal_distinct_id_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    source: WarningSource,
+    illegal_distinct_ids: &HashSet<&str>,
+    illegal_event_count: u64,
+) {
+    let mut details = Map::new();
+    details.insert(
+        "distinctIdCount".to_string(),
+        json!(illegal_distinct_ids.len()),
+    );
+    if let [distinct_id] = illegal_distinct_ids.iter().copied().collect::<Vec<_>>()[..] {
+        details.insert("distinctId".to_string(), json!(distinct_id));
+    }
+
+    emit_request_warning(
+        emitter,
+        request,
+        source,
+        WarningType::IllegalDistinctId,
+        details,
+        illegal_event_count,
+    );
+}
+
 /// Emit the `distinct_id_truncated` warning for one batch's events whose
 /// distinct_id was cut down to the 200-char cap at extraction. The events were
 /// ingested (modified, not dropped), which is why v1 has no counterpart: it

@@ -46,6 +46,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_distinct_id: 'Discarded event with no distinct ID',
     distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
     distinct_id_truncated: 'Ingested event after shortening its distinct ID to the 200 character limit',
+    illegal_distinct_id: 'Skipped person profile processing for a placeholder distinct ID (anonymous, null, …)',
     invalid_event_timestamp: 'Discarded event with an invalid timestamp',
     malformed_event_properties: 'Discarded event with malformed properties',
     invalid_options: 'Discarded event with invalid capture options',

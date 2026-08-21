@@ -25,7 +25,7 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
-use crate::ingestion_warnings::emit_rate_limit_warning;
+use crate::ingestion_warnings::{emit_illegal_distinct_id_warning, emit_rate_limit_warning};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -82,6 +82,11 @@ pub async fn process_batch(
     // Best-effort v2 ingestion warnings for validation drops, emitted before
     // the all-dropped early return so those batches are covered too.
     emit_validation_drop_warnings(state, context, &events);
+
+    // Illegal distinct_ids are ingested but with person processing forced off.
+    // Emit here, before the rate limiter reuses the same person-off marker, so
+    // this scan sees only the placeholder-id events.
+    emit_illegal_distinct_id_warnings(state, context, &events);
 
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
@@ -429,6 +434,43 @@ fn emit_validation_drop_warnings(
             count,
         );
     }
+}
+
+/// Best-effort v2 ingestion warning for events kept but stripped of person
+/// processing because their distinct_id is a known placeholder (`anonymous`,
+/// `null`, …). The batch is scanned here, before the rate limiter sets the same
+/// person-off marker, so only placeholder-id events match. Skips entirely when
+/// the emitter is off.
+fn emit_illegal_distinct_id_warnings(
+    state: &router::State,
+    context: &Context,
+    events: &[WrappedEvent],
+) {
+    let emitter = state.ingestion_warning_emitter.as_deref();
+    if emitter.is_none() {
+        return;
+    }
+
+    let mut illegal_ids: HashSet<&str> = HashSet::new();
+    let mut illegal_count: u64 = 0;
+    for ev in events {
+        if ev.result == EventResult::Ok && is_distinct_id_illegal(&ev.event.distinct_id) {
+            illegal_ids.insert(ev.event.distinct_id.as_str());
+            illegal_count += 1;
+        }
+    }
+
+    if illegal_count == 0 {
+        return;
+    }
+
+    emit_illegal_distinct_id_warning(
+        emitter,
+        &context.warning_context(),
+        CAPTURE_V1_ANALYTICS,
+        &illegal_ids,
+        illegal_count,
+    );
 }
 
 /// Records a whole-batch validation abort. These errors reject the batch as a
@@ -4545,6 +4587,59 @@ mod tests {
         assert_eq!(
             emitted[0].count, 1,
             "an empty-batch abort is one occurrence, never zero"
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_single_illegal_distinct_id_names_the_placeholder() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let anon = || Event {
+            distinct_id: "anonymous".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![anon(), anon(), valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::IllegalDistinctId);
+        assert_eq!(emitted[0].count, 2, "both placeholder events are charged");
+        assert_eq!(
+            emitted[0].extra_details.get("distinctId"),
+            Some(&serde_json::json!("anonymous")),
+            "one placeholder value names it for the customer"
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("distinctIdCount"),
+            Some(&serde_json::json!(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn warnings_multiple_illegal_distinct_ids_omit_the_ambiguous_value() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let with_id = |id: &str| Event {
+            distinct_id: id.to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![with_id("anonymous"), with_id("null"), valid_event()]);
+
+        process_batch(&state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::IllegalDistinctId);
+        assert_eq!(emitted[0].count, 2);
+        assert!(
+            !emitted[0].extra_details.contains_key("distinctId"),
+            "with several placeholders the value would be an arbitrary pick"
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("distinctIdCount"),
+            Some(&serde_json::json!(2))
         );
     }
 

@@ -56,6 +56,10 @@ export const INGESTION_WARNING_TYPES = {
     // Legacy capture ingests the event after cutting the distinct_id down to
     // the 200-char cap (v1 drops it instead, as distinct_id_too_large above).
     distinct_id_truncated: { category: 'event', severity: 'warning', captureProduced: true },
+    // Capture ingested the event but forced person processing off because the
+    // distinct_id is a known placeholder (`anonymous`, `null`, `undefined`, …).
+    // Severity is 'warning', not 'error': the event is kept, only modified.
+    illegal_distinct_id: { category: 'event', severity: 'warning', captureProduced: true },
     invalid_event_timestamp: { category: 'event', severity: 'error', captureProduced: true },
     malformed_event_properties: { category: 'event', severity: 'error', captureProduced: true },
     invalid_options: { category: 'event', severity: 'error', captureProduced: true },

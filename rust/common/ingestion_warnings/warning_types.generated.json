@@ -122,6 +122,12 @@
       "captureProduced": false
     },
     {
+      "type": "illegal_distinct_id",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": true
+    },
+    {
       "type": "invalid_ai_event",
       "category": "event",
       "severity": "error",
