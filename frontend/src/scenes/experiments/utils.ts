@@ -144,7 +144,7 @@ export function ensureIsPercent(value: string | number | undefined): number {
 
 export function percentageDistribution(variantCount: number): number[] {
     const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
+    const percentages = Array.from<number>({ length: variantCount }).fill(basePercentage)
     let remaining = 100 - basePercentage * variantCount
     for (let i = 0; remaining > 0; i++, remaining--) {
         // try to equally distribute `remaining` across variants
@@ -1202,6 +1202,9 @@ export function getOrderedMetricsWithResults(
             breakdownFilter: {
                 ...sharedMetric.query?.breakdownFilter,
                 breakdowns: sharedMetric.metadata?.breakdowns || [],
+                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                }),
             },
         })) as ExperimentMetric[]
 
@@ -1408,6 +1411,9 @@ export const metricResults =
                 breakdownFilter: {
                     ...sharedMetric.query?.breakdownFilter,
                     breakdowns: sharedMetric.metadata?.breakdowns || [],
+                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                    }),
                 },
             })) as ExperimentMetric[]
 

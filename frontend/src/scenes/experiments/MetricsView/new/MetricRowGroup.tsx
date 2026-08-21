@@ -87,6 +87,7 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
@@ -106,6 +107,7 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onBreakdownLimitChange,
     onRetry,
     query,
     handleTooltipMouseEnter,
@@ -170,7 +172,7 @@ function CollapsibleBreakdownSection({
                                         metric={metric}
                                         onRemoveBreakdown={onRemoveBreakdown}
                                         onAttributionChange={() => {}}
-                                        onBreakdownLimitChange={() => {}}
+                                        onBreakdownLimitChange={onBreakdownLimitChange}
                                     />
                                 </div>
                             ),
@@ -525,6 +527,7 @@ interface MetricRowGroupProps {
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
+    onBreakdownLimitChange: (breakdownLimit: number) => void
     error?: any
     isLoading?: boolean
     exposuresLoading?: boolean
@@ -548,6 +551,7 @@ export function MetricRowGroup({
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
+    onBreakdownLimitChange,
     error,
     isLoading,
     exposuresLoading = false,
@@ -899,7 +903,7 @@ export function MetricRowGroup({
                         isAlternatingRow={isAlternatingRow}
                         onRemoveBreakdown={onRemoveBreakdown}
                         onAttributionChange={() => {}}
-                        onBreakdownLimitChange={() => {}}
+                        onBreakdownLimitChange={onBreakdownLimitChange}
                     />
                 )}
             </>
@@ -1232,6 +1236,7 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onBreakdownLimitChange={onBreakdownLimitChange}
                     onRetry={handleRetry}
                     query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
