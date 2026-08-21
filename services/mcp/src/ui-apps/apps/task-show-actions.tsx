@@ -8,7 +8,34 @@ import { z } from 'zod'
 import { Button, Card, CardContent } from '@posthog/quill'
 
 import { AppWrapper } from '../components/AppWrapper'
-import type { ShowAction, ShowActionsData } from './task-show-actions-links'
+
+// Mirrors the tool's own schema in tools/desktop/taskShowActions.ts. The two cannot share a type:
+// this app is bundled for the browser and the tool runs on the server.
+interface ComposeAction {
+    kind: 'compose'
+    label: string
+    prompt: string
+    repo?: string
+}
+
+interface OpenSpaceAction {
+    kind: 'open_space'
+    label: string
+    channel_id: string
+}
+
+interface OpenCanvasAction {
+    kind: 'open_canvas'
+    label: string
+    channel_id: string
+    canvas_id: string
+}
+
+type ShowAction = ComposeAction | OpenSpaceAction | OpenCanvasAction
+
+interface ShowActionsData {
+    actions: ShowAction[]
+}
 
 /**
  * A PostHog extension, not in the MCP Apps spec. The spec's `ui/open-link` would
