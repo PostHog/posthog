@@ -1,4 +1,10 @@
-from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseDestroyTablesMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from posthog.schema import (
     CompareFilter,
@@ -40,6 +46,16 @@ class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):
         values = toolkit._retrieve_property_values("$browser", PropertyType.EVENT)
 
         assert set(values) == {"Chrome", "Firefox"}
+
+    def test_retrieve_person_property_values_returns_plain_names(self):
+        _create_person(distinct_ids=["u1"], team=self.team, properties={"country": "US"})
+        _create_person(distinct_ids=["u2"], team=self.team, properties={"country": "UK"})
+        flush_persons_and_events()
+
+        toolkit = WebAnalyticsFilterOptionsToolkit(self.team, self.user)
+        values = toolkit._retrieve_property_values("country", PropertyType.PERSON)
+
+        assert set(values) == {"US", "UK"}
 
 
 class TestWebAnalyticsAssistantFilters(APIBaseTest):

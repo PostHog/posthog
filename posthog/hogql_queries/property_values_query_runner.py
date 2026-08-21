@@ -7,6 +7,7 @@ from typing import Optional, cast
 from django.utils import timezone
 
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedPropertyValuesQueryResponse,
@@ -25,6 +26,8 @@ from posthog.caching.utils import (
     ThresholdMode,
     cache_target_age as _cache_target_age,
 )
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -142,21 +145,52 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _calculate_person(self) -> PropertyValuesQueryResponse:
-        result = execute_hogql_query(
-            self.to_query(),
-            team=self.team,
-            user=self.user,
-            context=HogQLContext(team_id=self.team.pk, user=self.user),
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-        )
+        # HogQL masking covers properties-blob reads only; distinct_id is a plain
+        # column on the mapping table, so its restriction is enforced here.
+        if self.query.property_key == "distinct_id" and self._is_restricted_person_property_key:
+            return PropertyValuesQueryResponse(
+                results=[],
+                timings=self.timings.to_list(),
+                modifiers=self.modifiers,
+            )
+        if self.query.property_key == "distinct_id":
+            tag_queries(query_type="get_person_distinct_id_values")
+        elif self.query.search_value:
+            tag_queries(query_type="get_person_property_values_with_value")
+        else:
+            tag_queries(query_type="get_person_property_values")
+        try:
+            result = execute_hogql_query(
+                self.to_query(),
+                team=self.team,
+                user=self.user,
+                context=HogQLContext(team_id=self.team.pk, user=self.user),
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+        except ExposedCHQueryError as e:
+            raise ValidationError(str(e), e.code_name)
         return PropertyValuesQueryResponse(
             results=self._format_person_results(result.results),
             timings=self.timings.to_list(),
             hogql=result.hogql,
             modifiers=self.modifiers,
         )
+
+    @cached_property
+    def _is_restricted_person_property_key(self) -> bool:
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.PERSON
+        )
+        return self.query.property_key in restricted
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Person values cached before the HogQL port were computed without property
+        # masking; the version marker keeps them from being served.
+        payload["property_values_version"] = 2
+        return payload
 
     def _person_query(self) -> ast.SelectQuery:
         # `persons` resolves every person to its latest version first, far too slow
@@ -197,27 +231,25 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # distinct_id lives in the distinct_id-to-person mapping table, not in person
         # properties, so the generic person query would return nothing. c is always 1
         # because the GROUP BY already deduplicates.
-        where: ast.Expr = ast.Constant(value=True)
-        if self.query.search_value:
-            where = parse_expr(
-                "distinct_id ILIKE {pattern}",
-                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
-            )
-        return cast(
+        query = cast(
             ast.SelectQuery,
             parse_select(
                 """
                 SELECT distinct_id AS value, 1 AS c
                 FROM raw_person_distinct_ids
-                WHERE {where}
                 GROUP BY distinct_id
                 HAVING argMax(is_deleted, version) = 0
                 ORDER BY value ASC
                 LIMIT 20
-                """,
-                placeholders={"where": where},
+                """
             ),
         )
+        if self.query.search_value:
+            query.where = parse_expr(
+                "distinct_id ILIKE {pattern}",
+                {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
+            )
+        return query
 
     @staticmethod
     def _ilike_pattern(search_value: str) -> str:
