@@ -6,7 +6,7 @@ import products.warehouse_sources.backend.facade.types
 
 
 class Migration(migrations.Migration):
-    dependencies = [("warehouse_sources", "0146_add_polymarket_source")]
+    dependencies = [("warehouse_sources", "0147_add_kalshi_source")]
 
     operations = [
         migrations.AlterField(

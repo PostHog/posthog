@@ -25931,7 +25931,8 @@
                 "MicrosoftExcel",
                 "Profound",
                 "Airwallex",
-                "Polymarket"
+                "Polymarket",
+                "Kalshi"
             ],
             "type": "string"
         },

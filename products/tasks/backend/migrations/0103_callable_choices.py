@@ -6,7 +6,7 @@ import products.tasks.backend.models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("tasks", "0101_agentpeermessage")]
+    dependencies = [("tasks", "0102_channel_system_role")]
 
     operations = [
         migrations.AlterField(

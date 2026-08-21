@@ -9048,6 +9048,7 @@ export const externalDataSources = [
     'Profound',
     'Airwallex',
     'Polymarket',
+    'Kalshi',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
