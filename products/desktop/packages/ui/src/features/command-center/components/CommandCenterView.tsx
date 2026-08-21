@@ -20,7 +20,10 @@ export function CommandCenterView() {
   const occupiedCellIndices = useMemo(
     () =>
       cells
-        .filter((cell) => cell.task || cell.terminalId || cell.isBrainrot)
+        .filter(
+          (cell) =>
+            cell.task || cell.canvasId || cell.terminalId || cell.isBrainrot,
+        )
         .map((cell) => cell.cellIndex),
     [cells],
   );
