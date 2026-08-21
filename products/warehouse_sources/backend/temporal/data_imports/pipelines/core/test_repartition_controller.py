@@ -22,7 +22,10 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    save_repartition_checkpoint_if_claimed,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports import workload_report
@@ -817,6 +820,35 @@ class TestRepartitionActivity:
         schema.refresh_from_db()
         pending = schema.repartition_pending
         assert pending is not None and pending["attempts"] == 2
+
+    def test_a_checkpoint_from_a_superseded_attempt_is_dropped(self, team):
+        # The write carries the whole sync_type_config, so a stale worker saving here would restore
+        # its own repartition_claim and un-fence itself.
+        schema = _make_schema(team, {})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+
+        wrote = save_repartition_checkpoint_if_claimed(
+            schema, claim_token="stale-claim", checkpoint={"temp_uri": "s3://t", "rows_written": 5}
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.repartition_rewrite is None
+        claim = schema.repartition_claim
+        assert claim is not None and claim["token"] == "newer-claim"
+
+    def test_a_checkpoint_from_the_live_claim_is_written(self, team):
+        schema = _make_schema(team, {})
+        schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+
+        wrote = save_repartition_checkpoint_if_claimed(
+            schema, claim_token="live-claim", checkpoint={"temp_uri": "s3://t", "rows_written": 5}
+        )
+
+        schema.refresh_from_db()
+        assert wrote is True
+        rewrite = schema.repartition_rewrite
+        assert rewrite is not None and rewrite["rows_written"] == 5
 
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving

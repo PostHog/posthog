@@ -33,7 +33,10 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    save_repartition_checkpoint_if_claimed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     normalize_column_name,
@@ -1095,14 +1098,20 @@ async def repartition_table_in_place(
                 await _purge_stale_temp_tables(s3, live_uri)
 
         async def save_checkpoint(rows_so_far: int, resolved_target: RepartitionTarget) -> None:
-            # Same payload and same claim fence as the deadline handler below, written on committed
-            # progress instead. A zombie must not clobber a newer claimant's state, so the claim check
-            # comes first and its RepartitionSupersededError propagates.
-            await ensure_claim()
+            # Same payload as the deadline handler below, written on committed progress instead. The
+            # claim is re-checked under the row lock inside the write rather than before it: checking
+            # first would leave a window where a superseded worker still saves, and that save carries
+            # its whole stale `sync_type_config` — including its own `repartition_claim`, which would
+            # un-fence the zombie. A checkpoint skipped because we lost the claim is correct; the new
+            # claimant owns the rewrite now.
+            if claim_token is None:
+                return
             checkpoint_version = await asyncio.to_thread(old_delta.version)
             await asyncio.to_thread(
-                schema.set_repartition_rewrite,
-                {
+                save_repartition_checkpoint_if_claimed,
+                schema,
+                claim_token=claim_token,
+                checkpoint={
                     "temp_uri": temp_uri,
                     "rows_written": rows_so_far,
                     "target": resolved_target.to_dict(),
