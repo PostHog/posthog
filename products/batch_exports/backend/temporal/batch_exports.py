@@ -21,11 +21,11 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
-from posthog.usage_ingestion.client import UsageRecord, report_usage
 from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_batch_export_run_failure
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
