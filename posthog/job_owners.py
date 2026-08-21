@@ -2,6 +2,12 @@ from enum import Enum
 
 
 class JobOwners(str, Enum):
+    """Team that owns a scheduled job, used for alert routing.
+
+    Lives outside `posthog.dags` because Temporal and product code tag jobs with it too, and
+    importing anything under `posthog.dags` runs that package's Django bootstrap.
+    """
+
     TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
     TEAM_BILLING = "team-billing"
     TEAM_CLICKHOUSE = "team-clickhouse"
@@ -9,7 +15,6 @@ class JobOwners(str, Enum):
     TEAM_DATA_STACK = "team-data-stack"
     TEAM_DATA_TOOLS = "team-data-tools"
     TEAM_ERROR_TRACKING = "team-error-tracking"
-
     TEAM_GROWTH = "team-growth"
     TEAM_INGESTION = "team-ingestion"
     TEAM_LOGS = "team-logs"
