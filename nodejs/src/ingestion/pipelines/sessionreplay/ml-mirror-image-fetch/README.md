@@ -214,6 +214,31 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | Origins tracked                         | pod                                               | 20000      |
 | Crawl history entry                     | one URL                                           | 30 days    |
 
+**5.11** State is stored as follows:
+
+| State                                                                                                  | Key                     | Location                                                        |
+|--------------------------------------------------------------------------------------------------------|-------------------------|-----------------------------------------------------------------|
+| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin                  | Memory on the pod that owns the origin's Kafka partition        |
+| robots.txt and tdmrep.json results                                                                    | Origin and file type    | DynamoDB, with an optional hot cache in pod memory               |
+| URL crawl history and HTTP cache metadata                                                              | Global canonical URL    | DynamoDB                                                        |
+| Original ref, current URL, remaining image hops, and earliest retry time                               | One URL job             | Kafka record                                                    |
+| Top-N metric labels                                                                                    | Registrable/root domain | Bounded pod memory                                              |
+
+**5.12** No request-control state uses the registrable domain or root domain as its key.
+
+**5.13** The pod limits its origin runtime map to 20,000 entries because the number of origins is unbounded.
+
+**5.14** The pod can evict an origin entry only when all these conditions apply:
+
+- The origin has no active request.
+- The origin has no configuration request in progress.
+- The origin has no active delay or breaker.
+- The origin's token bucket is full.
+
+Removing an eligible entry cannot permit an earlier request.
+
+**5.15** If the map is full and has no eligible entry, the pod does not contact an untracked origin. It sends the job to the 1-minute delay topic.
+
 ### 6. Smokescreen
 
 **6.1** Smokescreen is the authoritative network boundary for outbound requests in production. It must refuse a connection to an IP address that is not globally routable.
@@ -234,7 +259,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **7.3** Repeated network failures cause an exponential back-off per origin.
 
-**7.4** Per-origin delays and back-off state are stored in memory on the pod.
+**7.4** Per-origin delays and back-off state use the pod memory described in requirement 5.11.
 
 **7.5** We respect `Crawl-delay` in robots.txt, which sets a minimum interval between two requests to an origin.
 
@@ -252,7 +277,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 ### 8. Hop budget
 
-**8.1** Every retry or redirect for an image URL costs one hop. This includes network failures, rate limiting such as HTTP 429, and a redirect to the same or a different origin.
+**8.1** Every HTTP retry or redirect for an image URL costs one hop. This includes network failures, rate limiting such as HTTP 429, and a redirect to the same or a different origin.
 
 **8.2** Every URL starts with the default hop budget
 
@@ -266,6 +291,8 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **8.7** The image hop budget does not apply to robots.txt or tdmrep.json. Each configuration-file request has its own budget of 5 redirects.
 
+**8.8** A scheduling deferral before a network request does not cost a hop. This includes a deferral caused by the pass deadline or a full origin runtime map.
+
 ### 9. Redirects
 
 **9.1** When following a redirect to another origin, send the URL back to the frontier so that the new origin's limits can be applied.
@@ -278,6 +305,10 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **9.5** A republished message carries the original ref. The ref is a hash of the original URL. A ref
 built from a redirect target matches no recording.
+
+**9.6** The lane follows no more than 3 same-origin redirects while it processes one frontier record. If the next redirect is also same-origin, the lane republishes its target to the frontier instead of recording a terminal failure.
+
+**9.7** The republished target carries the original ref, remaining image-hop budget, and earliest retry time. Republishing resets the 3-redirect local count. It does not reset the total image-hop budget.
 
 ### 10. Kafka mechanics
 
@@ -399,7 +430,9 @@ that scenario.
 
 **14.16** Other 4xx responses and all remaining status codes are terminal failures for that URL.
 
-**14.17** The lane processes every field line when a response repeats a field. It combines field lines in their received order when the field permits a comma-separated value. A refusal in any repeated opt-out field refuses the URL.
+**14.17** The HTTP helper preserves every response field line in received order, including repeated fields.
+
+**14.18** The policy parser processes every repeated field line. It combines the lines in received order when the field permits a comma-separated value. A refusal in any repeated opt-out field refuses the URL.
 
 ### 15. Crawl history store
 

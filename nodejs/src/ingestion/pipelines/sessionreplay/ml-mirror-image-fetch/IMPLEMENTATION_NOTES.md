@@ -62,14 +62,12 @@ The current fetch pass limits how many shed URLs it republishes. Remove this lim
 
 The current streamed-request helper keeps only the first value of a repeated response header. Change it to expose every field line in received order. Apply requirement 14.17 before parsing response-header opt-outs. Keeping only the first value can miss a later `X-Robots-Tag: noai` refusal.
 
-## Open redirect decision
+## Same-origin redirect continuation
 
-The current fetcher treats a fourth same-origin redirect as a terminal `too_many_redirects` result. The specification calls 3 the number of redirects followed without republishing. This phrase can also mean that the lane republishes the fourth target to the frontier and continues with the remaining image-hop budget.
-
-Choose one behavior. Republishing the target makes the 3-hop local limit and the 10-hop total limit serve separate purposes. A terminal refusal makes the total hop budget irrelevant for a long same-origin redirect chain.
+The current fetcher treats a fourth same-origin redirect as a terminal `too_many_redirects` result. Change it to republish the target with the original ref and remaining image-hop budget. Requirements 9.6 and 9.7 specify this behavior.
 
 ## Bounded origin state
 
-The current budget map holds 20,000 entries. When it is full, it can evict an origin while that origin is blocked. A later request creates a new entry with a full burst and can contact the origin before its `Retry-After` or breaker delay ends.
+The current budget map holds 20,000 entries. It can evict an origin while that origin is blocked. A later request creates a new entry with a full burst. That request can contact the origin before its `Retry-After` or breaker delay ends.
 
-The fail-closed option is to evict only inactive, unblocked entries. If all entries are active or blocked, the lane must delay a request for a new origin without sending it. Confirm this behavior before changing the budget map.
+Change the map to evict only entries that meet requirement 5.14. If no entry is eligible, send the job for the untracked origin to the 1-minute delay topic without making a network request.
