@@ -13,6 +13,9 @@ rather than sharing these — see `.context/usage-ingestion-implementation-plan.
 The RPC acknowledges only after Kafka confirms every record. Producers must call
 it asynchronously, outside request-critical paths, and retry an unavailable response
 with the same record identity and event timestamp.
+The service validates the complete batch before producing, so validation failure accepts
+no records. Kafka may have delivered part of a batch before an unavailable response, but
+retrying the complete batch is safe because records are idempotent.
 
 Run it in the local Docker stack with:
 
