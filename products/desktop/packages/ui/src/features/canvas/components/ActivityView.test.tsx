@@ -16,7 +16,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { ActivityRow, activityHeadline } from "./ActivityView";
+import { ActivityRow } from "./ActivityView";
+import { activityHeadline } from "./activityHeadline";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
   return {
