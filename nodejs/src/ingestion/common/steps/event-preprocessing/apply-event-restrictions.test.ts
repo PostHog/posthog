@@ -20,12 +20,12 @@ describe('createApplyEventRestrictionsStep', () => {
             getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
         } as unknown as EventIngestionRestrictionManager
 
-        // personProcessingWritesPersons is left unset so the shared config
-        // exercises the default (true) that the person-writing pipelines rely on.
-        // The locality table sets it per case.
+        // The shared config mirrors a person-writing pipeline like analytics.
+        // The locality table overrides both fields per case.
         routingConfig = {
             preservePartitionLocality: true,
             overflowMode: 'redirect',
+            pipelineWritesPersons: true,
         }
 
         step = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, routingConfig)
@@ -197,10 +197,10 @@ describe('createApplyEventRestrictionsStep', () => {
         // only case where a spread key could put two writers on one person row.
         // Every other case follows preservePartitionLocality.
         it.each([
-            { config: true, skipPerson: false, writesPersons: undefined, expected: true },
-            { config: false, skipPerson: false, writesPersons: undefined, expected: true },
-            { config: true, skipPerson: true, writesPersons: undefined, expected: true },
-            { config: false, skipPerson: true, writesPersons: undefined, expected: false },
+            { config: true, skipPerson: false, writesPersons: true, expected: true },
+            { config: false, skipPerson: false, writesPersons: true, expected: true },
+            { config: true, skipPerson: true, writesPersons: true, expected: true },
+            { config: false, skipPerson: true, writesPersons: true, expected: false },
             { config: true, skipPerson: false, writesPersons: false, expected: true },
             { config: false, skipPerson: false, writesPersons: false, expected: false },
         ])(
@@ -209,7 +209,7 @@ describe('createApplyEventRestrictionsStep', () => {
                 const localityStep = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     ...routingConfig,
                     preservePartitionLocality: config,
-                    personProcessingWritesPersons: writesPersons,
+                    pipelineWritesPersons: writesPersons,
                 })
 
                 jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(

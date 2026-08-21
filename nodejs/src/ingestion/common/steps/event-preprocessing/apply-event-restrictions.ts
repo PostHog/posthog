@@ -17,15 +17,20 @@ export type RoutingConfig = {
     preservePartitionLocality: boolean
     /**
      * Whether this pipeline writes persons (creates or updates rows), as
-     * opposed to only reading them or not touching persons at all. Defaults
-     * to true, which keeps the partition key on a force-overflow redirect
-     * while person processing is on, because the overflow consumer would
-     * otherwise write the same person row from several partitions at once.
-     * Set false for a pipeline that never writes persons, so its redirects
-     * follow `preservePartitionLocality` instead of being pinned to the
-     * original partition.
+     * opposed to only reading them or not touching persons at all.
+     *
+     * True keeps the partition key on a force-overflow redirect while person
+     * processing is on, because the overflow consumer would otherwise write
+     * the same person row from several partitions at once. False lets those
+     * redirects follow `preservePartitionLocality`, so the overflow lane can
+     * spread the load.
+     *
+     * Required, so that a new pipeline has to answer it rather than inherit
+     * a default. The answer is the repository the pipeline holds: a
+     * `PersonRepository` writes, a `PersonReadRepository` does not, and a
+     * pipeline that takes neither does not touch persons at all.
      */
-    personProcessingWritesPersons?: boolean
+    pipelineWritesPersons: boolean
 }
 
 /**
@@ -81,9 +86,10 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
         if (routingConfig.overflowMode === 'redirect' && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
             ingestionOverflowingMessagesTotal.inc()
             const shouldProcessPerson = !restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
-            const writesPersons = routingConfig.personProcessingWritesPersons ?? true
             const preservePartitionLocality =
-                shouldProcessPerson && writesPersons ? true : routingConfig.preservePartitionLocality
+                shouldProcessPerson && routingConfig.pipelineWritesPersons
+                    ? true
+                    : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
                 OVERFLOW_OUTPUT,
