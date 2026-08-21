@@ -1,7 +1,7 @@
 """DRF enforcement point for the access-control policies this product owns.
 
 `TeamAndOrgViewSetMixin.get_permissions` puts `WithinSurfaceLimits` into every viewset's stack.
-A new endpoint gets surface-limit enforcement without knowledge that limits exist. DRF combines
+A new endpoint gets surface-limit enforcement automatically. DRF combines
 permission classes with AND semantics, so this class is an independent vote. Another class's
 internal early return cannot bypass it: a `*`-scoped token that passes `APIScopePermission` is
 still limited here.

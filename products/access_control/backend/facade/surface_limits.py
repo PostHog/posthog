@@ -1,10 +1,15 @@
-"""Per-surface access limits: org-wide caps on what any principal can do through one access
-surface (the MCP server today; personal API keys, share links and impersonation later).
+"""Per-surface access limits.
 
-The first consumer is `WithinSurfaceLimits` in facade/permissions.py, which denies write-scoped
-actions when the request's surface is limited below editor. When the access-control facade's `decide()` lands, it composes the same limit into
-object-level decisions; both read this module, so enforcement points cannot disagree about what
-the organization configured.
+An access surface is a path that requests use to reach PostHog. Examples: the MCP server,
+a personal API key, a public share link, an impersonated session. A surface limit is an
+organization-wide cap on what any principal can do through one surface. The MCP server is
+the only surface with limits today.
+
+The class `WithinSurfaceLimits` in facade/permissions.py is the first consumer. It denies
+write actions when the organization limits the request's surface below editor. The
+access-control facade's `decide()` will also read this module later, to apply the same
+limit to object-level decisions. All enforcement points read one module, so they cannot
+disagree about the configured limits.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -17,17 +22,18 @@ from products.access_control.backend.models.surface_access_limit import SurfaceA
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
-# The outbound identity of services/mcp (see its oauth-constants.ts). Surface classification
-# governs the pathway. It is not a defense against a hostile key holder: the same credential
-# keeps its own scopes outside MCP. A later change can reduce the credential's scopes at mint
-# time.
+# The outbound identity of services/mcp (see its oauth-constants.ts). Surface
+# classification controls the pathway. It is not a defense against a hostile key holder.
+# The same credential keeps its full scopes outside MCP. A future change can reduce the
+# credential's scopes when the token is created.
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 WRITE_LIMITED_LEVELS = {SurfaceAccessLimit.MaxLevel.NONE, SurfaceAccessLimit.MaxLevel.VIEWER}
 
 
 def classify_surface(request: Any) -> str | None:
-    """The access surface of this request, or None for surfaces without policies."""
+    """Returns the access surface of this request. Returns None for paths that have no
+    surface policies."""
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
         user_agent = request.headers.get("User-Agent") or ""
@@ -37,12 +43,13 @@ def classify_surface(request: Any) -> str | None:
 
 
 def limit_denial_for_request(request: Any, organization: "Organization", resource: str, writes: bool) -> str | None:
-    """The complete surface-limit decision. Returns a user-facing denial message when the
-    request's surface is limited below what the action needs. Returns None to allow.
+    """Makes the full surface-limit decision for one request. Returns a denial message for
+    the user when the organization limits the request's surface below what the action needs.
+    Returns None to allow the request.
 
-    This function owns classification, the entitlement gate, the row lookup and the copy.
-    Enforcement points (`WithinSurfaceLimits` today, the facade's `decide()` later) contain
-    no policy of their own."""
+    This function contains all the policy: surface classification, the feature-entitlement
+    check, the row lookup, and the message text. Enforcement points (`WithinSurfaceLimits`
+    today, the facade's `decide()` later) apply the result and add no policy of their own."""
     if not writes:
         return None
     surface = classify_surface(request)
@@ -62,8 +69,8 @@ def limit_denial_for_request(request: Any, organization: "Organization", resourc
 def surface_limit(
     organization: "Organization", surface: str, resource: str = SurfaceAccessLimit.ALL_RESOURCES
 ) -> SurfaceAccessLimit.MaxLevel | None:
-    """The max level this organization allows through `surface`, or None when the surface has
-    no limit.
+    """Returns the max level this organization allows through `surface`. Returns None when
+    the surface has no limit.
 
     A row that names `resource` overrides the `"*"` wildcard row. Each call makes one query.
     """
