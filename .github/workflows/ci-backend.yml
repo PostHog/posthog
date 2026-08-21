@@ -579,11 +579,15 @@ jobs:
         # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
+        # run_legacy=false means the django job below is skipped outright, so there
+        # is no matrix left to narrow — only the exact string skips, which keeps an
+        # empty output (turbo-discover skipped or failed) on the selecting path.
         if: |
             github.event_name == 'pull_request' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
+            needs.changes.outputs.backend == 'true' &&
+            needs.turbo-discover.outputs.run_legacy != 'false'
         # Depot, like every other pre-job this one shares the Django critical path with.
         # It gates every PR now, not just drafts, so its checkout speed is on the wall.
         runs-on: depot-ubuntu-24.04

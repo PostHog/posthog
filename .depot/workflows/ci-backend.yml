@@ -649,11 +649,15 @@ jobs:
         # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
+        # run_legacy=false means the django job below is skipped outright, so there
+        # is no matrix left to narrow — only the exact string skips, which keeps an
+        # empty output (turbo-discover skipped or failed) on the selecting path.
         if: |
             github.event_name == 'pull_request' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
+            needs.changes.outputs.backend == 'true' &&
+            needs.turbo-discover.outputs.run_legacy != 'false'
         runs-on: depot-ubuntu-24.04
         # Headroom over checkout + uv + the selector's whole-tree parse. A timeout here
         # leaves MODE empty, which on a ready PR means the full matrix — the worst case.
