@@ -69,6 +69,16 @@ describe('LemonToast', () => {
         expect(container).toHaveTextContent('Visit https://posthog.com/docs to fix this, then retry.')
     })
 
+    // Error details can carry attacker-influenced text, so a non-posthog.com destination must stay
+    // visible as the link text instead of hiding behind the "Learn more" label.
+    it('keeps a trailing URL outside posthog.com visible as the link text', () => {
+        const { container } = render(<>{withClickableUrls('More info: https://example.com/details')}</>)
+
+        const link = container.querySelector('a')!
+        expect(link).toHaveAttribute('href', 'https://example.com/details')
+        expect(link).toHaveTextContent('https://example.com/details')
+    })
+
     it('returns a message without URLs unchanged', () => {
         expect(withClickableUrls('Load experiment failed')).toBe('Load experiment failed')
     })

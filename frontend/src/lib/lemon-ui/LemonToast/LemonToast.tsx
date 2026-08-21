@@ -194,10 +194,22 @@ function linkifyInline(text: string): (string | JSX.Element)[] {
     return nodes
 }
 
+// Only posthog.com destinations may hide behind the generic "Learn more" label. Error details can
+// carry attacker-influenced text (e.g. relayed from an integration), and a label conceals where an
+// untrusted link leads, so any other URL must stay visible as the link text.
+function isTrustedUrl(url: string): boolean {
+    try {
+        const { hostname } = new URL(url)
+        return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
+    } catch {
+        return false
+    }
+}
+
 /**
  * Backend error details often end in a raw docs URL ("... see our docs: https://posthog.com/docs/..."),
- * which as plain toast text is unclickable and wraps over several lines. A URL ending the message is
- * folded into a "Learn more" link, and a URL mid-message becomes a link in place.
+ * which as plain toast text is unclickable and wraps over several lines. A posthog.com URL ending the
+ * message is folded into a "Learn more" link; any other URL becomes a link in place.
  */
 export function withClickableUrls(message: string | JSX.Element): string | JSX.Element {
     if (typeof message !== 'string') {
@@ -213,6 +225,9 @@ export function withClickableUrls(message: string | JSX.Element): string | JSX.E
         return <>{linkifyInline(trimmed)}</>
     }
     const { url } = splitUrlMatch(last[0])
+    if (!isTrustedUrl(url)) {
+        return <>{linkifyInline(trimmed)}</>
+    }
     // The lead-in separator (": " or a space) reads as dangling once the URL moves into the link label,
     // so it is dropped and the sentence closed with a period instead.
     let lead = trimmed.slice(0, last.index).replace(/[\s:]+$/, '')
