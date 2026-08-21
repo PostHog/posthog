@@ -107,13 +107,13 @@ These constraints live in validation code.
 
 ## Key files
 
-| Component          | Path                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| Python model       | `products/feature_flags/backend/models/feature_flag.py` (`has_feature_enrollment`)  |
-| Filters transform  | `products/feature_flags/backend/facade/filters.py` (`set_feature_enrollment`)       |
-| Filters validation | `products/feature_flags/backend/api/filters_schema.py`                              |
-| Rust evaluation    | `rust/feature-flags/src/flags/flag_matching.rs` (`get_match`)                       |
-| Rust helpers       | `rust/feature-flags/src/flags/flag_filters.rs` (`enrollment_key`, `is_enrolled`)    |
-| Rust model         | `rust/feature-flags/src/flags/flag_models.rs` (`FlagFilters.feature_enrollment`)    |
-| Early access API   | `products/early_access_features/backend/api.py`                                     |
-| Frontend types     | `frontend/src/types.ts` (`FeatureFlagFilters.feature_enrollment`)                   |
+| Component          | Path                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| Python model       | `products/feature_flags/backend/models/feature_flag.py` (`has_feature_enrollment`) |
+| Filters transform  | `products/feature_flags/backend/facade/filters.py` (`set_feature_enrollment`)      |
+| Filters validation | `products/feature_flags/backend/api/filters_schema.py`                             |
+| Rust evaluation    | `rust/feature-flags/src/flags/flag_matching.rs` (`get_match`)                      |
+| Rust helpers       | `rust/feature-flags/src/flags/flag_filters.rs` (`enrollment_key`, `is_enrolled`)   |
+| Rust model         | `rust/feature-flags/src/flags/flag_models.rs` (`FlagFilters.feature_enrollment`)   |
+| Early access API   | `products/early_access_features/backend/api.py`                                    |
+| Frontend types     | `frontend/src/types.ts` (`FeatureFlagFilters.feature_enrollment`)                  |
