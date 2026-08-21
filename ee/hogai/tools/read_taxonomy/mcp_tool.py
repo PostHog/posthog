@@ -1,8 +1,10 @@
+from django.db import OperationalError
+
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 
 from .core import ReadTaxonomyToolArgs, execute_taxonomy_query
 
@@ -32,3 +34,8 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             return await _execute_query()
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
+        except OperationalError as e:
+            raise MaxToolTransientError(
+                f"Reading the taxonomy timed out against the database: {e}. This can happen on large projects. "
+                "You may retry, or read a narrower part of the taxonomy."
+            )

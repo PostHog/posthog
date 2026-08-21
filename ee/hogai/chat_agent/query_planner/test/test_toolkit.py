@@ -357,6 +357,19 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             # Virtual properties are surfaced even though they never appear in stored event data.
             self.assertIn("- $virt_is_bot", prompt)
 
+    def test_fetch_event_property_types_resolves_all_names_across_chunks(self):
+        names = [f"prop_{i}" for i in range(5)]
+        for name in names:
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.EVENT, name=name, property_type=PropertyType.String
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        with patch.object(DummyToolkit, "PROPERTY_TYPE_CHUNK_SIZE", 2):
+            resolved = dict(toolkit._fetch_event_property_types(names))
+
+        self.assertEqual(resolved, dict.fromkeys(names, PropertyType.String))
+
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team, self.user)

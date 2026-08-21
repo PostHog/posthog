@@ -107,6 +107,10 @@ class TaxonomyAgentToolkit:
     _team: Team
     _user: User
 
+    # Cap on the size of each `name__in` batch, so a wide event's property list does not build one
+    # unbounded Postgres query that crosses the statement timeout on large teams.
+    PROPERTY_TYPE_CHUNK_SIZE = 500
+
     def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
         self._user = user
@@ -287,6 +291,24 @@ class TaxonomyAgentToolkit:
             )
         return response, verbose_name
 
+    def _fetch_event_property_types(self, names: list[str]) -> list[tuple[str, str | None]]:
+        """
+        Fetch the stored type for each event property name.
+
+        The names come from ClickHouse and can number in the hundreds for a wide event. A single
+        unbounded `IN` list crosses the Postgres statement timeout on large teams, so the names are
+        queried in chunks. Only `name` and `property_type` are selected to keep the query cheap.
+        """
+        results: list[tuple[str, str | None]] = []
+        for start in range(0, len(names), self.PROPERTY_TYPE_CHUNK_SIZE):
+            chunk = names[start : start + self.PROPERTY_TYPE_CHUNK_SIZE]
+            results.extend(
+                PropertyDefinition.objects.filter(
+                    team=self._team, type=PropertyDefinition.Type.EVENT, name__in=chunk
+                ).values_list("name", "property_type")
+            )
+        return results
+
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
@@ -306,13 +328,10 @@ class TaxonomyAgentToolkit:
 
         # Intersect properties with their types.
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
-        )
         property_to_type = {
-            property_definition.name: property_definition.property_type
-            for property_definition in qs
-            if property_definition.name not in restricted
+            name: property_type
+            for name, property_type in self._fetch_event_property_types([item.property for item in response.results])
+            if name not in restricted
         }
         props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))

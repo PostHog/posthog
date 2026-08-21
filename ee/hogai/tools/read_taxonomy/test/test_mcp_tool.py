@@ -1,5 +1,9 @@
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
+from django.db import OperationalError
+
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
@@ -27,6 +31,16 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         )
 
         self.assertIsNotNone(content)
+
+    async def test_database_timeout_raises_transient_error(self):
+        with patch(
+            "ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ):
+            with self.assertRaises(MaxToolTransientError):
+                await self.tool.execute(
+                    ReadTaxonomyToolArgs(query={"kind": "event_properties", "event_name": "$pageview"}),
+                )
 
     async def test_schema_validates_query(self):
         validated = self.tool.args_schema.model_validate({"query": {"kind": "events"}})
