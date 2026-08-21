@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
@@ -707,6 +708,25 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
             filename = self._generate_export_filename(serializable_filters, export_format)
+            authenticator = request.successful_authenticator
+            source_data: dict[str, Any] = {}
+            if isinstance(authenticator, PersonalAPIKeyAuthentication):
+                source_data = {
+                    "source_authentication": ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
+                    "source_personal_api_key_id": authenticator.personal_api_key.id,
+                }
+            elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+                source_data = {
+                    "source_authentication": ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN,
+                    "source_oauth_access_token_id": str(authenticator.access_token.id),
+                }
+            elif isinstance(authenticator, SessionAuthentication):
+                source_data = {"source_authentication": ExportedAsset.SourceAuthentication.SESSION}
+            else:
+                return Response(
+                    {"error": "API path exports do not support this authentication method."},
+                    status=400,
+                )
 
             exported_asset = ExportedAsset.objects.create(
                 team=self.team,
@@ -718,7 +738,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
-                source_authentication=ExportedAsset.SourceAuthentication.TRUSTED_SYSTEM,
+                **source_data,
             )
 
             exporter.export_asset.delay(exported_asset.id)
