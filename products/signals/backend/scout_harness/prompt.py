@@ -1037,6 +1037,8 @@ Pin to v{skill.version} explicitly, since the run row, your tool resolution, and
 
 The body tells you what to investigate, in what order, with what hypotheses. Pull files on demand with `skill-file-get` only when the body references them. Don't start investigating before you've read it.
 
+`skill-get` and `skill-file-get` reach only this team's stored skills — your bound scout skill and its companions (such as `authoring-scouts`). The deep-dive skills your body names with a `posthog:` prefix (for example `posthog:querying-posthog-data`) are not stored skills. The sandbox bakes them in as plugin skills, so `skill-get` cannot resolve them. Open a `posthog:` skill with the native `Skill` tool in its full `posthog:<name>` form, or read the file at `~/.claude/skills/<name>/SKILL.md`. Never call `skill-get` for a `posthog:` name — it returns nothing, and the guidance you want is on disk.
+
 # Then: orient on this project
 
 Once you've read your skill, call:
