@@ -92,6 +92,13 @@ class AlertDestinationRow(NamedTuple):
     inputs: dict[str, Any] | None
 
 
+@dataclass(frozen=True, kw_only=True)
+class AlertDestinationGroup:
+    hog_function_ids: tuple[UUID, ...]
+    data: dict[str, Any]
+    fully_enabled: bool
+
+
 def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
     destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id)
     if destination_type_value is None:
@@ -117,6 +124,36 @@ def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[
         )
         ids_by_group.setdefault(widened_key, set()).add(hog_function_id)
     return ids_by_group
+
+
+def list_alert_destination_groups(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[AlertDestinationGroup]:
+    raw_rows = list(
+        owned_alert_destinations_qs(team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .order_by("created_at", "id")
+        .values_list("id", "template_id", "inputs", "enabled")
+    )
+    rows = [AlertDestinationRow(row_id, template_id, inputs) for row_id, template_id, inputs, _ in raw_rows]
+    grouped_ids = group_alert_destination_rows(rows)
+    enabled_by_id = {row_id: enabled for row_id, _, _, enabled in raw_rows}
+
+    groups: list[AlertDestinationGroup] = []
+    for key, ids in grouped_ids.items():
+        destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(key.template_id)
+        if destination_type_value is None:
+            continue
+        data = {"type": DestinationType(destination_type_value)}
+        if key.config is not None:
+            data.update(dict(key.config))
+        groups.append(
+            AlertDestinationGroup(
+                hog_function_ids=tuple(sorted(ids)),
+                data=data,
+                fully_enabled=all(enabled_by_id[hog_function_id] for hog_function_id in ids),
+            )
+        )
+    return groups
 
 
 def owned_alert_destinations_qs(

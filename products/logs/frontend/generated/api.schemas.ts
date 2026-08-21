@@ -678,6 +678,31 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
+export interface LogsAlertDestinationConfigApi {
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    /** Whether every HogFunction in the destination group is enabled. */
+    enabled: boolean
+    slack_workspace_id?: number
+    slack_channel_id?: string
+    /** Webhook endpoint redacted to scheme and host. */
+    webhook_url?: string
+}
+
+export interface PaginatedLogsAlertDestinationConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertDestinationConfigApi[]
+}
+
 export interface LogsAlertCreateDestinationApi {
     /** Notification destination type.
      *
@@ -2291,6 +2316,17 @@ export type LogsAlertsListParams = {
      * Only return log alerts created by the user with this UUID.
      */
     created_by?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsAlertsDestinationsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -26,6 +26,7 @@ from products.alerts.backend.destination_configs import (
 )
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
@@ -171,6 +172,7 @@ __all__ = [
     "get_alert_team_id",
     "insight_ids_with_alerts",
     "owned_alert_destinations_qs",
+    "list_alert_destination_groups",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",

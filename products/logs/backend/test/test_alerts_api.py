@@ -928,6 +928,27 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_list_destinations_groups_rows_and_redacts_webhook_credentials(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        webhook_url = "https://example.com/hooks/credential"
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": webhook_url},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        destination = response.json()["results"][0]
+        assert set(destination["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
+        assert destination["type"] == "webhook"
+        assert destination["webhook_url"] == "https://example.com/…"
+        assert webhook_url not in response.content.decode()
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),

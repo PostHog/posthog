@@ -45672,6 +45672,22 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    export interface LogsAlertDestinationConfig {
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
+      /** Whether every HogFunction in the destination group is enabled. */
+      enabled: boolean;
+      slack_workspace_id?: number;
+      slack_channel_id?: string;
+      /** Webhook endpoint redacted to scheme and host. */
+      webhook_url?: string;
+    }
+
     export interface LogsAlertDestinationResponse {
       hog_function_ids: string[];
     }
@@ -51689,6 +51705,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertConfiguration[];
+    }
+
+    export interface PaginatedLogsAlertDestinationConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsAlertDestinationConfig[];
     }
 
     export interface PaginatedLogsAlertEventList {
@@ -91586,6 +91611,17 @@ export namespace Schemas {
      * Only return log alerts created by the user with this UUID.
      */
     created_by?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsAlertsDestinationsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -2,6 +2,7 @@ import os
 import datetime as dt
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -36,6 +37,7 @@ from products.alerts.backend.facade.api import (
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -98,6 +100,10 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+_DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
+    "list_destinations": ["logs:read"],
+    "create_destination": ["logs:write"],
+}
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -759,6 +765,23 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
+class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(help_text="Whether every HogFunction in the destination group is enabled.")
+    slack_workspace_id = serializers.IntegerField(required=False)
+    slack_channel_id = serializers.CharField(required=False)
+    webhook_url = serializers.CharField(required=False, help_text="Webhook endpoint redacted to scheme and host.")
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = cast(dict[str, Any], super().to_representation(instance))
+        if data.get("webhook_url"):
+            parsed = urlsplit(data["webhook_url"])
+            data["webhook_url"] = (
+                f"{parsed.scheme}://{parsed.netloc}/…" if parsed.scheme and parsed.netloc else "<redacted>"
+            )
+        return data
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -859,6 +882,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        return _DESTINATIONS_URL_REQUIRED_SCOPES.get(view.action)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
@@ -945,7 +971,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
+    @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -979,6 +1005,29 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertDestinationConfigSerializer(many=True)},
+        description="List this alert's notification destinations with credential-bearing URLs redacted.",
+    )
+    @create_destination.mapping.get
+    def list_destinations(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        groups = list_alert_destination_groups(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+        )
+        destinations = [
+            {"hog_function_ids": list(group.hog_function_ids), "enabled": group.fully_enabled, **group.data}
+            for group in groups
+        ]
+        page = self.paginate_queryset(destinations)
+        serializer = LogsAlertDestinationConfigSerializer(page if page is not None else destinations, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,
