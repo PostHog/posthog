@@ -51,7 +51,9 @@ class TestForkThreadPayload(TestCase):
         slack = MagicMock()
         slack.client.conversations_info.return_value = {"channel": {"is_ext_shared": ext_shared}}
         if readable:
-            slack.client.conversations_replies.return_value = {"messages": [{"ts": "111.1"}]}
+            slack.client.conversations_replies.return_value = {
+                "messages": [{"ts": "111.1", "text": "The retry loop double-counts on 429s\nmore detail here"}]
+            }
         else:
             slack.client.conversations_replies.side_effect = Exception("not_in_channel")
         slack.client.chat_postMessage.return_value = {"channel": "D_ALICE", "ts": "999.1"}
@@ -94,14 +96,31 @@ class TestForkThreadPayload(TestCase):
         assert "What do you want to dig into?" in seed.kwargs["text"]
         ephemeral.assert_called_once()
 
-    def test_the_seed_links_back_to_the_forked_thread(self):
+    def test_the_seed_is_titled_after_the_thread_and_links_back_to_it(self):
         slack = self._slack_mock()
 
         self._run(self._payload(), slack)
 
-        text = slack.client.chat_postMessage.call_args.kwargs["text"]
-        assert "https://slack.test/archives/C_SOURCE/p111" in text
-        assert text.startswith("Fork of")
+        blocks = slack.client.chat_postMessage.call_args.kwargs["blocks"]
+        # No task exists yet — the run waits for the user's answer — so the title comes
+        # from the message that opened the forked thread, first line only.
+        assert ":thread: *The retry loop double-counts on 429s*" in blocks[0]["text"]["text"]
+        assert "more detail here" not in blocks[0]["text"]["text"]
+        # The origin is muted, under the title, the way a footer reads.
+        assert blocks[1]["type"] == "context"
+        origin = blocks[1]["elements"][0]["text"]
+        assert "Fork of <https://slack.test/archives/C_SOURCE/p111|this thread>" in origin
+        assert "<#C_SOURCE>" in origin
+
+    def test_a_thread_opening_with_no_text_still_gets_a_title(self):
+        # Threads that open with a file or an image have nothing to name them after.
+        slack = self._slack_mock()
+        slack.client.conversations_replies.return_value = {"messages": [{"ts": "111.1"}]}
+
+        self._run(self._payload(), slack)
+
+        blocks = slack.client.chat_postMessage.call_args.kwargs["blocks"]
+        assert ":thread: *Slack thread*" in blocks[0]["text"]["text"]
 
     def test_a_fork_carrying_a_question_runs_against_the_source_thread(self):
         slack = self._slack_mock()

@@ -44,6 +44,9 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_FORK_TIMEOUT_SECONDS = 5 * 60
 
+# Long enough to recognise the thread, short enough to stay one line in a DM.
+_TITLE_LIMIT = 120
+
 FORK_THREAD_CALLBACK_ID = "posthog_fork_thread"
 
 _SEED_UNAVAILABLE = (
@@ -154,6 +157,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.fork_context import PendingFork, store_pending_fork
     from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
+    from products.slack_app.backend.services.slack_messages import context_block
 
     source_channel = payload.get("channel", {}).get("id")
     message = payload.get("message", {}) or {}
@@ -243,7 +247,8 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
 
     # Without the bot in the channel, `conversations.replies` can't read the thread and
     # the fork would silently carry one message of context. Say so instead.
-    if not _bot_can_read_thread(slack, source_channel, source_thread_ts):
+    thread_root = _read_thread_root(slack, source_channel, source_thread_ts)
+    if thread_root is None:
         logger.info("slack_app_fork_refused", reason="bot_not_in_channel", slack_team_id=slack_team_id)
         _ephemeral(
             response_url,
@@ -268,15 +273,26 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     )
 
     permalink = _thread_permalink(slack, source_channel, source_thread_ts)
-    origin = f"Fork of <{permalink}|this thread>" if permalink else f"Fork of a thread in <#{source_channel}>"
-    seed_text = (
-        f"{origin}\n\nI've read it. What do you want to dig into?"
+    title = _fork_title(thread_root)
+    lead = f":thread: *{title}*"
+    body = (
+        "I've read the thread. What do you want to dig into?"
         if fork_prompt is None
-        else f"{origin} — on it :hourglass_flowing_sand:"
+        else "On it :hourglass_flowing_sand:"
     )
+    origin = f"Fork of <{permalink}|this thread>" if permalink else "Fork of a thread"
+    seed_blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"{lead}\n{body}"}},
+        context_block(f"{origin} in <#{source_channel}>"),
+    ]
 
     try:
-        seed = slack.client.chat_postMessage(channel=slack_user_id, text=seed_text, unfurl_links=False)
+        seed = slack.client.chat_postMessage(
+            channel=slack_user_id,
+            text=f"{title} — {body}",
+            blocks=seed_blocks,
+            unfurl_links=False,
+        )
     except Exception:
         logger.exception("slack_app_fork_seed_post_failed", slack_team_id=slack_team_id)
         _ephemeral(
@@ -391,10 +407,43 @@ def _source_channel_is_ext_shared(slack: Any, channel: str) -> bool:
         return True
 
 
-def _bot_can_read_thread(slack: Any, channel: str, thread_ts: str) -> bool:
+def _read_thread_root(slack: Any, channel: str, thread_ts: str) -> dict[str, Any] | None:
+    """The forked thread's opening message, or `None` if we can't read the thread.
+
+    Doubles as the can-we-read-this check: the fork needs an answer to that anyway, and
+    the same call returns the message the DM is titled after.
+    """
     try:
-        slack.client.conversations_replies(channel=channel, ts=thread_ts, limit=1)
-        return True
+        response = slack.client.conversations_replies(channel=channel, ts=thread_ts, limit=1)
     except Exception:
         logger.info("slack_app_fork_thread_unreadable", channel=channel, thread_ts=thread_ts)
-        return False
+        return None
+    messages = response.get("messages") or []
+    return messages[0] if messages else {}
+
+
+def _fork_title(root: dict[str, Any]) -> str:
+    """A one-line name for the thread, taken from the message that opened it.
+
+    The DM needs to say *which* discussion it forked, and at this point no task exists
+    to borrow a title from — the run doesn't start until the user says what they want.
+    The opening message is what a reader would recognise the thread by.
+
+    Falls back to a generic label for a thread that opens with a file, an image, or a
+    bare mention: better an unhelpful title than an empty one.
+    """
+    from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415 — products import, deferred like the rest
+        extract_message_text,
+        labeled_mentions_to_display_names,
+    )
+
+    try:
+        text = extract_message_text(root)
+    except Exception:
+        text = (root.get("text") or "").strip()
+    first_line = next(
+        (line.strip() for line in labeled_mentions_to_display_names(text).splitlines() if line.strip()), ""
+    )
+    if not first_line:
+        return "Slack thread"
+    return first_line if len(first_line) <= _TITLE_LIMIT else first_line[: _TITLE_LIMIT - 1].rstrip() + "…"
