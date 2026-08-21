@@ -6157,7 +6157,7 @@
         "feature": "llm_analytics",
         "summary": "Create evaluation report config",
         "title": "Create evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6171,7 +6171,7 @@
         "feature": "llm_analytics",
         "summary": "Trigger evaluation report generation",
         "title": "Trigger evaluation report generation",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -6185,7 +6185,7 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation report config",
         "title": "Get evaluation report config",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6199,7 +6199,7 @@
         "feature": "llm_analytics",
         "summary": "List evaluation report configs",
         "title": "List evaluation report configs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6213,7 +6213,7 @@
         "feature": "llm_analytics",
         "summary": "List evaluation report runs",
         "title": "List evaluation report runs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["evaluation:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6227,7 +6227,7 @@
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",
         "title": "Update evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["evaluation:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
