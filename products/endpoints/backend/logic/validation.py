@@ -170,14 +170,14 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
     if missing_code_names:
         missing_variables = insight_variables_by_code_names(team.pk, missing_code_names)
 
-        for variable in missing_variables:
-            if not variable.code_name:
+        for definition in missing_variables:
+            if not definition.code_name:
                 continue
-            synced_variables[str(variable.id)] = HogQLVariable(
-                variableId=str(variable.id),
-                code_name=variable.code_name,
-                value=variable.default_value,
-                isNull=variable.default_value is None,
+            synced_variables[str(definition.id)] = HogQLVariable(
+                variableId=str(definition.id),
+                code_name=definition.code_name,
+                value=definition.default_value,
+                isNull=definition.default_value is None,
             )
 
     query.variables = synced_variables or None

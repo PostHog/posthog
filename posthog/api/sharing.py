@@ -1021,7 +1021,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             cast("User | None", SharedLinkUser(resource)) if isinstance(resource, SharingConfiguration) else None
         )
 
-        context = {
+        context: dict[str, Any] = {
             "view": self,
             "request": request,
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),

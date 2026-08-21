@@ -6,10 +6,9 @@ functionality from; ``facade.models`` carries the sanctioned model-class
 crossings. Functions here stay thin and delegate to ``backend.logic``.
 
 Saved query variables and insight-view tracking cross as data: callers pass a team id and get
-``InsightVariableDefinition`` contracts back, so the ``InsightVariable`` and ``InsightViewed``
-model classes stay inside the product. Every read scopes to the team by ``team_id=``, which the
-models' ``RootTeamMixin`` widens to the project's root team — the team rows are actually written
-against.
+``InsightVariableDefinition`` contracts back, so no caller has to hold ``InsightVariable`` or
+``InsightViewed``. Variable reads scope by ``team_id=``, which ``RootTeamMixin`` widens to the
+project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
 from collections.abc import Collection, Mapping
@@ -183,6 +182,8 @@ def recent_viewers_by_insight(
 
     viewers_by_insight: dict[int, list[User]] = {}
     for view in views:
+        if view.user is None:
+            continue
         bucket = viewers_by_insight.setdefault(view.insight_id, [])
         if len(bucket) < max_per_insight:
             bucket.append(view.user)

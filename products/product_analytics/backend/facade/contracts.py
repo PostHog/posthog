@@ -8,8 +8,8 @@ These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — 
 ``is_dataclass()`` compatibility, but with runtime validation on construction, so a mapper that
 loses a field surfaces at the facade boundary instead of further down the caller's stack.
 
-``Insight`` and the QueryRunner wiring still cross as classes (``facade.models``,
-``facade.queries``); as they convert, their contracts land here too.
+``Insight``, ``InsightVariable`` and the QueryRunner wiring still cross as classes
+(``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
 from typing import Any
