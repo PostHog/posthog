@@ -106,11 +106,11 @@ def forward_pending_user_message(run_id: str) -> None:
 
         if state.get("await_user_message"):
             from products.tasks.backend.exceptions import ComputeBillingLimitError
-            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
+            from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 
-            if is_compute_quota_exhausted(task_run.task):
+            if reason := get_compute_quota_denial_reason(task_run.task):
                 raise ComputeBillingLimitError(
-                    {"team_id": task_run.team_id, "task_id": str(task_run.task_id), "run_id": run_id}
+                    {"team_id": task_run.team_id, "task_id": str(task_run.task_id), "run_id": run_id}, reason
                 )
 
         pending_message_id = state.get("pending_user_message_id")

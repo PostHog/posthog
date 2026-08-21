@@ -5,7 +5,6 @@ import uuid
 import hashlib
 from collections.abc import Iterator
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -46,6 +45,7 @@ from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -102,7 +102,7 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -186,7 +186,7 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, [str(e)]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CohortFilterBytecodeResult:
     bytecode: list[Any] | None = None
     error: str | None = None
@@ -648,6 +648,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -668,6 +670,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
         ]

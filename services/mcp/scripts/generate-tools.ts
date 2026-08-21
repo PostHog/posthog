@@ -623,6 +623,13 @@ function composeToolSchema(
                 // mapping is tracked in renamedFields for body-building.
                 const alias = renameMap.get(name)
                 const fieldKey = alias ?? name
+                // A body field that shares a path param's name (e.g. PATCH /metrics/{name}/
+                // with a writable `name`) collapses into one input, because the body part is
+                // merged over the path part. Renaming it separates the two, but only if the
+                // body copy is dropped here — otherwise it still overwrites the path param.
+                if (alias && pathParamNames.includes(name)) {
+                    bodyOmitFields.add(name)
+                }
                 bodyFieldNames.push(fieldKey)
                 if (bodyVariantSpecific.has(name)) {
                     variantSpecificBodyFieldNames.add(fieldKey)
@@ -776,7 +783,12 @@ function composeToolSchema(
         const bodyImport = `${pascal}Body`
         for (const [original, alias] of renameMap) {
             renamedFields[alias] = original
-            schemaExpr += `\n    .omit({ '${original}': true })`
+            // When the original is also a path param, the body copy was already dropped above
+            // and the surviving key addresses the resource, so omitting it here would leave the
+            // handler with no value for the URL.
+            if (!pathParamNames.includes(original)) {
+                schemaExpr += `\n    .omit({ '${original}': true })`
+            }
             schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
         }
     }

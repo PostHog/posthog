@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from google.genai.errors import APIError
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _run_mission,
     _run_mission_attempts,
     _run_pass,
     _run_steps,
@@ -77,6 +79,51 @@ async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = la
         metric_labels=_LABELS,
         trace_id="trace-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_scanner_generations_include_team_attribution() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.genai.AsyncClient"
+        ) as client_cls,
+        patch("products.replay_vision.backend.temporal.activities.call_scanner_provider.GoogleGenAIClient"),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission_attempts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.build_events_index",
+            return_value={},
+        ),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    assert client_cls.call_args.kwargs["posthog_properties"] == {
+        "ai_product": "replay_vision",
+        "feature": "scanner",
+        "scanner_type": "monitor",
+        "team_id": 42,
+    }
 
 
 @pytest.mark.asyncio

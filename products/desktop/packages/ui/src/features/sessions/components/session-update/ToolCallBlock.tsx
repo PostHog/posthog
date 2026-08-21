@@ -17,10 +17,12 @@ import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { isPlanApprovalTool, isSubagentSpawnTool } from "./collaborationTools";
+import { CreatedPrCard, UploadedArtifactCard } from "./InlineArtifactCard";
 import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
 } from "./identifiers";
+import { isUploadArtifactCall, readCreatedPrUrl } from "./inlineArtifacts";
 import { SubagentToolView } from "./SubagentToolView";
 
 interface ToolCallBlockProps extends ToolViewProps {
@@ -47,6 +49,18 @@ export function ToolCallBlock({
   }
 
   const props = { toolCall, turnCancelled, turnComplete };
+
+  // An artifact is a deliverable, not a step: it takes the row rather than the
+  // tool's own header, from the moment the agent starts handing it over.
+  if (isUploadArtifactCall(toolCall._meta)) {
+    return (
+      <Box className={chatChrome ? "" : "pl-3"}>
+        <UploadedArtifactCard {...props} />
+      </Box>
+    );
+  }
+
+  const createdPrUrl = readCreatedPrUrl(toolCall);
 
   if (isSubagentSpawnTool(toolName)) {
     const subagentChildItems = childItems ?? [];
@@ -75,6 +89,7 @@ export function ToolCallBlock({
         ) : (
           <ToolCallView {...props} agentToolName={mcpToolName} />
         )}
+        {createdPrUrl && <CreatedPrCard url={createdPrUrl} />}
       </Box>
     );
   }
@@ -114,7 +129,12 @@ export function ToolCallBlock({
     }
   })();
 
-  return <Box>{content}</Box>;
+  return (
+    <Box>
+      {content}
+      {createdPrUrl && <CreatedPrCard url={createdPrUrl} />}
+    </Box>
+  );
 }
 
 function buildChildToolCallsMap(

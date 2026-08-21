@@ -34,6 +34,7 @@ from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
 from .airtable.source import AirtableSource
+from .airwallex.source import AirwallexSource
 from .aiven.source import AivenSource
 from .akamai_reporting.source import AkamaiReportingSource
 from .akeneo.source import AkeneoSource
@@ -333,6 +334,7 @@ from .dbt.source import DbtSource
 from .debugbear.source import DebugbearSource
 from .decagon.source import DecagonSource
 from .deel.source import DeelSource
+from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
 from .deno_deploy.source import DenoDeploySource
@@ -569,6 +571,7 @@ from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
 from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
+from .hootsuite.source import HootsuiteSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
 from .hubplanner.source import HubplannerSource
@@ -605,6 +608,7 @@ from .intruder.source import IntruderSource
 from .invoiced.source import InvoicedSource
 from .invoiceninja.source import InvoiceninjaSource
 from .ip2whois.source import IP2WhoisSource
+from .ironsource_ads.source import IronSourceAdsSource
 from .iterable.source import IterableSource
 from .iyzico.source import IyzicoSource
 from .jamf_pro.source import JamfProSource
@@ -623,6 +627,7 @@ from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
 from .kajabi.source import KajabiSource
+from .kalshi.source import KalshiSource
 from .kameleoon.source import KameleoonSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
@@ -734,6 +739,7 @@ from .microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSour
 from .microsoft_defender_endpoint.source import MicrosoftDefenderEndpointSource
 from .microsoft_defender_for_cloud.source import MicrosoftDefenderForCloudSource
 from .microsoft_entra_id.source import MicrosoftEntraIdSource
+from .microsoft_excel.source import MicrosoftExcelSource
 from .microsoft_intune.source import MicrosoftIntuneSource
 from .microsoft_lists.source import MicrosoftListsSource
 from .microsoft_purview.source import MicrosoftPurviewSource
@@ -907,6 +913,7 @@ from .podbean.source import PodbeanSource
 from .podium.source import PodiumSource
 from .polar.source import PolarSource
 from .polygon.source import PolygonSource
+from .polymarket.source import PolymarketSource
 from .poplar.source import PoplarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -924,6 +931,7 @@ from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
 from .productiv.source import ProductivSource
 from .productive.source import ProductiveSource
+from .profound.source import ProfoundSource
 from .prompting_company.source import PromptingCompanySource
 from .promptwatch.source import PromptWatchSource
 from .proofpoint_tap.source import ProofpointTapSource
@@ -943,6 +951,7 @@ from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource
 from .raken.source import RakenSource
+from .rakuten_advertising.source import RakutenAdvertisingSource
 from .ramp.source import RampSource
 from .rapid7_insightvm.source import Rapid7InsightvmSource
 from .raygun.source import RaygunSource
@@ -995,6 +1004,7 @@ from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
 from .salestrics.source import SalestricsSource
+from .samcart.source import SamCartSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
@@ -1242,6 +1252,7 @@ from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
+from .wisprflow.source import WisprFlowSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
@@ -1283,6 +1294,7 @@ from .zenefits.source import ZenefitsSource
 from .zenloop.source import ZenloopSource
 from .zep.source import ZepSource
 from .zero.source import ZeroSource
+from .zitadel.source import ZitadelSource
 from .zluri.source import ZluriSource
 from .zoho_analytics.source import ZohoAnalyticsSource
 from .zoho_bigin.source import ZohoBiginSource

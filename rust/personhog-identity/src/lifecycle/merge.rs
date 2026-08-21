@@ -232,7 +232,7 @@ struct ClaimRecord {
 
 /// The fence snapshot persisted per source row (`sealed`), and the exact
 /// inputs the fold and the committed release replay from. `created_at` is
-/// in the unit `Person.created_at` carries (epoch seconds today).
+/// in the unit `Person.created_at` carries (epoch milliseconds).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedSnapshot {
     version: i64,
@@ -309,6 +309,18 @@ impl MergeOpExecutor {
             .execute(&self.driver, op_id, team_id, frozen)
             .await
             .map_err(|err| {
+                // The entrance only reaches this create path after finding
+                // no op row, so an engine-level mismatch means the row
+                // appeared in the race window since — a transient loss,
+                // not op_id misuse (which the entrance's attach-first
+                // comparison answers). Both client stacks treat
+                // FAILED_PRECONDITION as terminal, so surfacing the race
+                // as one would fail a request whose retry attaches fine.
+                if matches!(err, SagaError::RequestMismatch(_)) {
+                    return Status::unavailable(format!(
+                        "another call is initializing op {op_id}; retry with the same op_id"
+                    ));
+                }
                 if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
                     tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
                 }

@@ -14,6 +14,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_schemas import RelatedTo
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.temporal.grouping import (
@@ -700,3 +701,76 @@ async def test_quota_gate_emits_no_event_when_signal_would_not_promote(ateam, pa
 
     events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
     assert "signal_report_quota_paused" not in events
+
+
+# ---------------------------------------------------------------------------
+# Daily report limit gate: promotion withheld once the team's day is spent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_daily_limit_gate_withholds_promotion(ateam, patch_side_effects):
+    with patch(
+        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
+        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+    ):
+        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
+
+    # The signal is still assigned, weighted, and emitted; only the summary spawn is withheld,
+    # with the status untouched so the first post-limit signal re-evaluates promotion.
+    assert result.promoted is False
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.status == SignalReport.Status.POTENTIAL
+    assert report.signal_count == 1
+    assert report.total_weight == pytest.approx(WEIGHT_THRESHOLD)
+
+    daily_events = [
+        call
+        for call in patch_side_effects["capture"].call_args_list
+        if call.kwargs.get("event") == "signal_report_daily_limit_paused"
+    ]
+    assert len(daily_events) == 1
+    properties = daily_events[0].kwargs["properties"]
+    assert properties["stage"] == "promotion"
+    assert properties["limit"] == 2
+    assert properties["reports_today"] == 2
+    # The org's billing quota is clear, so its event stream must stay silent.
+    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
+    assert "signal_report_quota_paused" not in events
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_both_limits_emit_both_events(ateam, patch_side_effects):
+    # Each event stream must stay complete for its own gate's dashboards; neither suppresses
+    # the other when both limits are hit at once.
+    with (
+        patch(
+            f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        ),
+        patch(
+            f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+        ),
+    ):
+        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
+
+    assert result.promoted is False
+    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
+    assert "signal_report_quota_paused" in events
+    assert "signal_report_daily_limit_paused" in events
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
+    with patch(
+        f"{GROUPING_MODULE_PATH}.daily_report_limit_gate",
+        return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+    ):
+        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
+
+    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
+    assert "signal_report_daily_limit_paused" not in events

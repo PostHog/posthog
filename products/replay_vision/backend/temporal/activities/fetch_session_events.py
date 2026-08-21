@@ -14,6 +14,7 @@ from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.queries.session_group_keys import fetch_session_group_keys
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -108,7 +109,28 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         distinct_id=payload.distinct_id,
         recording_subject_email=email,
         session_started_at=payload.metadata.start_time,
+        session_group_keys=_resolve_group_keys(observation_id, payload),
     )
+
+
+def _resolve_group_keys(observation_id: Any, payload: ScannerLlmInputs) -> dict[int, str] | None:
+    """Group keys for the recorded session, or None when they can't be read.
+
+    Best-effort: a scan that produced a real observation must not fail over missing group attribution.
+    """
+    try:
+        team = Team.objects.get(pk=payload.team_id)
+        return fetch_session_group_keys(
+            team=team,
+            session_id=payload.session_id,
+            start=payload.metadata.start_time,
+            end=payload.metadata.end_time,
+        )
+    except Exception:
+        logger.warning(
+            "replay_vision.fetch.group_keys_lookup_failed", observation_id=str(observation_id), exc_info=True
+        )
+        return None
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:

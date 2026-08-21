@@ -110,6 +110,10 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         ## Test Accounts
         - **filter_test_accounts**: true (recommended, exclude test accounts), false/null (include all)
 
+        ## Specific Recordings
+        - **session_ids**: array of session ids, to pin the result to exactly those recordings. Use it to show the sessions you are already talking about, for example the ones you just summarized.
+        - `$session_id` is not a session property, so never filter on it in `filter_group` — pass the ids in `session_ids` instead.
+
         # Operators by Data Type
         **String**: "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "is_set", "is_not_set"
         **Numeric**: "exact", "is_not", "gt", "gte", "lt", "lte", "is_set", "is_not_set"

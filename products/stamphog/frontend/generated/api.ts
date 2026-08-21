@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DigestChannelApi,
+    DigestChannelWriteApi,
     DigestRunApi,
     PaginatedDigestChannelListApi,
     PaginatedDigestRunListApi,
@@ -17,7 +18,7 @@ import type {
     PaginatedStamphogPullRequestListApi,
     PaginatedStamphogRepoConfigListApi,
     PatchedDigestChannelApi,
-    PatchedStamphogRepoConfigApi,
+    PatchedStamphogRepoConfigWriteApi,
     ReviewRunApi,
     StamphogDigestChannelsListParams,
     StamphogDigestRunsListParams,
@@ -25,6 +26,7 @@ import type {
     StamphogPullRequestApi,
     StamphogPullRequestsListParams,
     StamphogRepoConfigApi,
+    StamphogRepoConfigWriteApi,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
     StamphogSyncInstallationRequestApi,
@@ -87,14 +89,14 @@ export const getStamphogDigestChannelsCreateUrl = (projectId: string) => {
  */
 export const stamphogDigestChannelsCreate = async (
     projectId: string,
-    digestChannelApi: NonReadonly<DigestChannelApi>,
+    digestChannelWriteApi: DigestChannelWriteApi,
     options?: RequestInit
 ): Promise<DigestChannelApi> => {
     return apiMutator<DigestChannelApi>(getStamphogDigestChannelsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelApi),
+        body: JSON.stringify(digestChannelWriteApi),
     })
 }
 
@@ -126,14 +128,14 @@ export const getStamphogDigestChannelsUpdateUrl = (projectId: string, id: string
 export const stamphogDigestChannelsUpdate = async (
     projectId: string,
     id: string,
-    digestChannelApi: NonReadonly<DigestChannelApi>,
+    digestChannelWriteApi: DigestChannelWriteApi,
     options?: RequestInit
 ): Promise<DigestChannelApi> => {
     return apiMutator<DigestChannelApi>(getStamphogDigestChannelsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelApi),
+        body: JSON.stringify(digestChannelWriteApi),
     })
 }
 
@@ -311,14 +313,14 @@ export const getStamphogRepoConfigsCreateUrl = (projectId: string) => {
  */
 export const stamphogRepoConfigsCreate = async (
     projectId: string,
-    stamphogRepoConfigApi: NonReadonly<StamphogRepoConfigApi>,
+    stamphogRepoConfigWriteApi: StamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(stamphogRepoConfigApi),
+        body: JSON.stringify(stamphogRepoConfigWriteApi),
     })
 }
 
@@ -350,14 +352,14 @@ export const getStamphogRepoConfigsUpdateUrl = (projectId: string, id: string) =
 export const stamphogRepoConfigsUpdate = async (
     projectId: string,
     id: string,
-    stamphogRepoConfigApi: NonReadonly<StamphogRepoConfigApi>,
+    stamphogRepoConfigWriteApi: StamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(stamphogRepoConfigApi),
+        body: JSON.stringify(stamphogRepoConfigWriteApi),
     })
 }
 
@@ -371,14 +373,14 @@ export const getStamphogRepoConfigsPartialUpdateUrl = (projectId: string, id: st
 export const stamphogRepoConfigsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedStamphogRepoConfigApi?: NonReadonly<PatchedStamphogRepoConfigApi>,
+    patchedStamphogRepoConfigWriteApi?: PatchedStamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedStamphogRepoConfigApi),
+        body: JSON.stringify(patchedStamphogRepoConfigWriteApi),
     })
 }
 

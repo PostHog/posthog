@@ -21,7 +21,7 @@ from products.alerts.backend.models.alert import (
     InvestigationStatus,
     InvestigationVerdict,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestInvestigationVerdictPersistence(NonAtomicBaseTest):

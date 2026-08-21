@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostHogAPIClient } from "../../../posthog-api";
+import { createNotification } from "../../../sagas/test-fixtures";
 import type { StoredEntry } from "../../../types";
 import {
   conversationTurnsToJsonlEntries,
@@ -115,6 +116,47 @@ describe("rebuildConversation", () => {
       },
     ];
     expect(rebuildConversation(entries)).toEqual([]);
+  });
+
+  it.each([
+    { method: "_posthog/conversation_cleared" },
+    { method: "__posthog/conversation_cleared" },
+  ])("drops turns before a $method marker (/clear boundary)", ({ method }) => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "old reply" },
+      }),
+      createNotification(method, { sessionId: "sdk-new" }),
+      entry("user_message", { content: { type: "text", text: "new" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "new reply" },
+      }),
+    ]);
+
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "new" }],
+    });
+    expect(turns[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "new reply" }],
+    });
+  });
+
+  it("drops an in-progress assistant turn at a clear marker", () => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message_chunk", {
+        content: { type: "text", text: "partial" },
+      }),
+      createNotification("_posthog/conversation_cleared", {
+        sessionId: "sdk-new",
+      }),
+    ]);
+
+    expect(turns).toEqual([]);
   });
 
   it("produces a single user turn from user_message", () => {
@@ -480,6 +522,32 @@ describe("conversationTurnsToJsonlEntries", () => {
     expect(parsed.permissionMode).toBe("default");
     expect(parsed.gitBranch).toBeDefined();
     expect(parsed.slug).toBeDefined();
+  });
+
+  it("derives a stable slug from the session id across rehydrations", () => {
+    const turns = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+    ];
+    const slugOf = (lines: string[]) =>
+      parseConversationEntries(lines).find((e: { slug?: string }) => e.slug)
+        ?.slug;
+
+    const slugFor = (sessionId: string) =>
+      slugOf(conversationTurnsToJsonlEntries(turns, { ...config, sessionId }));
+
+    const first = slugOf(conversationTurnsToJsonlEntries(turns, config));
+
+    expect(first).toBeDefined();
+    expect(slugOf(conversationTurnsToJsonlEntries(turns, config))).toBe(first);
+    expect(slugFor("sess-2")).not.toBe(first);
+
+    const sameMillisecondA = "01a011f5-c8f3-73d9-a32e-ff7eee2a8793";
+    const sameMillisecondB = "01a011f5-c8f3-7b41-9c05-1122334455aa";
+
+    expect(slugFor(sameMillisecondA)).not.toBe(slugFor(sameMillisecondB));
   });
 
   it("chains parentUuid across conversation entries", () => {

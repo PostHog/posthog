@@ -43,7 +43,7 @@ import {
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
-type FetchLike = (
+export type FetchLike = (
   input: string | Request,
   init?: RequestInit,
 ) => Promise<Response>;

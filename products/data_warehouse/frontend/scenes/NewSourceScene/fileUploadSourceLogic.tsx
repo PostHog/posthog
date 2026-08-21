@@ -148,10 +148,12 @@ export interface fileUploadSourceLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     resetFileUpload: (values?: FileUploadForm) => {
         values?: FileUploadForm

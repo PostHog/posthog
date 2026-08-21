@@ -91,6 +91,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+    // When enabled, the email queue dequeues by priority class before the
+    // per-team fair ordering, so transactional-class sends aren't stuck behind
+    // a broadcast backlog. Requires idx_cyclotron_jobs_email_priority_fair_dequeue.
+    CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -120,7 +124,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_TRACKING_URL: string
 
     // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
@@ -176,6 +179,9 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
+    // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
+    TASKS_CREATE_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -252,6 +258,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+        CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -287,9 +294,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -334,6 +338,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // mass wake, so wakes are trickled (500k parked @ 200/s ≈ 42 min spread).
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_RESCHEDULE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-reschedule-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

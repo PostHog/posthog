@@ -10,6 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -122,12 +123,15 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        memory_error = ClickHouseQueryMemoryLimitExceeded()
         # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
-        # "(for user)", or a future rewording - counts as transient cluster pressure.
-        memory_error.is_per_query_limit = "(for query)" in err.message or "Query memory limit exceeded" in err.message
-        return memory_error
+        # "(for user)", or a future rewording - counts as transient cluster pressure, which gets
+        # its own class so the CH_TRANSIENT_ERRORS retry paths cover it.
+        if "(for query)" in err.message or "Query memory limit exceeded" in err.message:
+            memory_error = ClickHouseQueryMemoryLimitExceeded()
+            memory_error.is_per_query_limit = True
+            return memory_error
+        return ClickHouseClusterMemoryLimitExceeded()
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
@@ -210,7 +214,9 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
-    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+    # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
+    # so it classifies with the other rate-limited capacity errors. Checked before its parent below.
+    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
     if isinstance(
@@ -1027,4 +1033,5 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
 )

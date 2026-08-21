@@ -1,11 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { linkedReportsLogic } from './linkedReportsLogic'
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
     { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
@@ -46,7 +48,10 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
         // Letting the loader reject would toast an error on every issue page during a signals outage.
-        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+        const reportsLogic = linkedReportsLogic({ issueId: 'issue-1' })
+        await expectLogic(reportsLogic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({
+            linkedReports: [],
+        })
     })
 
     it('changes the events query key when the search query changes', () => {
@@ -63,6 +68,14 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('allows the event selection to close', () => {
+        const event = { uuid: 'event-1' } as ErrorEventType
+        logic.actions.selectEvent(event)
+        logic.actions.selectEvent(null)
+
+        expect(logic.values.selectedEvent).toBeNull()
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

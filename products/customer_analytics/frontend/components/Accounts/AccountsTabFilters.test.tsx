@@ -10,19 +10,26 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+
+import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { accountsLogic } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
 
 describe('AccountsTabFilters', () => {
     let logic: ReturnType<typeof accountsLogic.build>
+    let savedViews: ColumnConfigurationApi[]
 
     beforeEach(() => {
+        savedViews = []
         useMocks({
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
-                '/api/environments/:team_id/column_configurations': () => [200, { results: [] }],
+                '/api/environments/:team_id/column_configurations': () => [
+                    200,
+                    { count: savedViews.length, results: savedViews },
+                ],
             },
         })
         initKeaTests()
@@ -44,7 +51,7 @@ describe('AccountsTabFilters', () => {
             <Provider>
                 <BindLogic
                     logic={dataNodeLogic}
-                    props={{ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {}, autoLoad: false }}
+                    props={{ key: ACCOUNTS_TABLE_DATA_NODE_KEY, query: {}, autoLoad: false }}
                 >
                     <AccountsTabFilters />
                 </BindLogic>
@@ -55,6 +62,29 @@ describe('AccountsTabFilters', () => {
     function myAccountsCheckbox(): HTMLInputElement {
         return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
     }
+
+    it('offers shared saved views when none is selected', async () => {
+        savedViews = [
+            {
+                id: 'shared-view',
+                context_key: 'customer_analytics_accounts_columns',
+                columns: ['name'],
+                name: 'Shared accounts',
+                filters: {},
+                order_by: [],
+                properties: {},
+                visibility: 'shared',
+                created_by: 999,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            },
+        ]
+        renderFilters()
+
+        fireEvent.click(await screen.findByText('Select view'))
+
+        expect(await screen.findByText('Shared accounts')).toBeInTheDocument()
+    })
 
     it('renders the "My accounts" checkbox', () => {
         renderFilters()

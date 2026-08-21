@@ -231,6 +231,7 @@ export interface funnelDataLogicValues {
     exclusionDefaultStepRange: FunnelExclusionSteps
     exclusionFilters: FilterType
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
+    funnelVizType: FunnelVizType
     getFunnelsColor: (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
     getFunnelsColorToken: (
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
@@ -358,6 +359,7 @@ export interface funnelDataLogicMeta {
         isTimeToConvertFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isTrendsFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isEmptyFunnel: (querySource: FunnelsQuery | null) => boolean | null
+        funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
@@ -639,9 +641,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter: FunnelsFilter | null | undefined): boolean | null => {
                 return funnelsFilter === null
                     ? null
-                    : funnelsFilter === undefined
-                      ? true
-                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                    : (funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
@@ -665,6 +665,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                           .length === 0
                     : null
             },
+        ],
+
+        // Saved funnels can lack a viz type entirely: the backend relies on a schema default that never
+        // reaches the stored JSON the frontend reads. Resolve it once so every consumer agrees.
+        funnelVizType: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter | null | undefined): FunnelVizType =>
+                funnelsFilter?.funnelVizType ?? FunnelVizType.Steps,
         ],
 
         aggregationTargetLabel: [

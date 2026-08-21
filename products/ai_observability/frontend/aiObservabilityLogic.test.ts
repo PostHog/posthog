@@ -84,6 +84,7 @@ describe('aiObservabilitySharedLogic', () => {
     let logic: ReturnType<typeof aiObservabilitySharedLogic.build>
 
     beforeEach(() => {
+        window.localStorage.clear()
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.aiObservabilityTraces())
@@ -158,8 +159,7 @@ describe('aiObservabilitySharedLogic', () => {
         expect(router.values.searchParams).toEqual({ review_search: 'abc' })
     })
 
-    it('should reset filters when switching tabs without params', () => {
-        // Set some filters first
+    it('should reset non-date filters when switching tabs without params', () => {
         logic.actions.setPropertyFilters([
             {
                 type: PropertyFilterType.Event,
@@ -172,15 +172,13 @@ describe('aiObservabilitySharedLogic', () => {
         logic.actions.setShouldFilterTestAccounts(true)
         logic.actions.setSearchQuery('walrus')
 
-        // Navigate to another tab without params
         router.actions.push(urls.aiObservabilityGenerations())
 
-        // Should reset to defaults
         expectLogic(logic).toMatchValues({
             propertyFilters: [],
             dateFilter: {
-                dateFrom: '-1h',
-                dateTo: null,
+                dateFrom: '-30d',
+                dateTo: '-1d',
             },
             shouldFilterTestAccounts: false,
             searchQuery: '',
@@ -222,6 +220,44 @@ describe('aiObservabilitySharedLogic', () => {
             dashboardDateFilter: { dateFrom: '-30d', dateTo: null },
             dashboardDateOverride: false,
             dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+    })
+
+    it('does not move the dashboard date range when the events tabs change dates', () => {
+        logic.actions.setDates('-30d', '-1d')
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-30d', dateTo: '-1d' },
+            dashboardDateFilter: { dateFrom: '-7d', dateTo: null },
+            dashboardDateOverride: false,
+            dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+    })
+
+    it('keeps dashboard dates while restoring shared filters from the URL', () => {
+        router.actions.push(urls.aiObservabilityDashboard(), {
+            date_from: '-30d',
+            filters: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$ai_model',
+                    value: 'example-model',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+
+        expect(router.values.searchParams.date_from).toBe('-30d')
+        expectLogic(logic).toMatchValues({
+            dashboardDateFilter: { dateFrom: '-30d', dateTo: null },
+            propertyFilters: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$ai_model',
+                    value: 'example-model',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
         })
     })
 
@@ -572,6 +608,57 @@ describe('AI observability persisted preferences', () => {
         expect(secondLogic.values.showInputOutputColumns).toBe(false)
 
         secondLogic.unmount()
+    })
+
+    it('restores persisted event dates on clean tabs and lets URL dates override them', () => {
+        router.actions.push(urls.aiObservabilityTraces())
+        const firstLogic = aiObservabilitySharedLogic()
+        firstLogic.mount()
+        firstLogic.actions.setDates('-30d', '-1d')
+        firstLogic.unmount()
+
+        router.actions.push(urls.aiObservabilityGenerations())
+        const secondLogic = aiObservabilitySharedLogic()
+        secondLogic.mount()
+
+        expect(secondLogic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: '-1d' })
+
+        router.actions.push(urls.aiObservabilityTraces(), { date_from: '-7d' })
+
+        expect(secondLogic.values.dateFilter).toEqual({ dateFrom: '-7d', dateTo: null })
+
+        secondLogic.unmount()
+    })
+
+    it('keeps notebook date filters separate from the saved scene timeframe', () => {
+        const savedSceneLogic = aiObservabilitySharedLogic()
+        savedSceneLogic.mount()
+        savedSceneLogic.actions.setDates('-30d', null)
+        savedSceneLogic.unmount()
+
+        const notebookLogic = aiObservabilitySharedLogic({ logicKey: 'notebook-node' })
+        notebookLogic.mount()
+        expect(notebookLogic.values.dateFilter).toEqual({ dateFrom: '-1h', dateTo: null })
+        notebookLogic.actions.setDates('-7d', null)
+        notebookLogic.unmount()
+
+        const remountedSceneLogic = aiObservabilitySharedLogic()
+        remountedSceneLogic.mount()
+        expect(remountedSceneLogic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+        remountedSceneLogic.unmount()
+    })
+
+    it('drops invalid URL dates without replacing the saved scene timeframe', () => {
+        router.actions.push(urls.aiObservabilityTraces())
+        const logic = aiObservabilitySharedLogic()
+        logic.mount()
+        logic.actions.setDates('-30d', null)
+
+        router.actions.push(urls.aiObservabilityTraces(), { date_from: 'not-a-date' })
+
+        expect(logic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+        expect(router.values.searchParams.date_from).toBe('-30d')
+        logic.unmount()
     })
 
     it('persists selected dashboard across remount', () => {

@@ -21,6 +21,9 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         status_changed_at: null,
         auto_pause_exempt: false,
         tags: [],
+        mcp_gateway_server_ids: [],
+        source_product: null,
+        source_id: null,
         created_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }

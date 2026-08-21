@@ -18,7 +18,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight, generate_insight_filters_hash
+from products.product_analytics.backend.facade.models import Insight, generate_insight_filters_hash
 
 if TYPE_CHECKING:
     from posthog.caching.insight_result import InsightResult
@@ -109,9 +109,9 @@ def calculate_for_query_based_insight(
     if query_json is None:
         raise ValueError("Insight has no query and no query_override was provided")
 
-    query_json, dashboard_filters_json = resolve_effective_dashboard_filters(
-        query_json, dashboard_filters_json, tile_filters_override
-    )
+    effective = resolve_effective_dashboard_filters(query_json, dashboard_filters_json, tile_filters_override)
+    query_json = effective.query
+    dashboard_filters_json = effective.filters
 
     process_response = process_query_dict(
         team,

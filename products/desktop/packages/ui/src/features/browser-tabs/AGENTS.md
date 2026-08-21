@@ -12,17 +12,17 @@ the label resolves from the canvas name or the task title, and switching back
 returns to whichever the tab points at. `setTabTarget` is the in-tab-nav
 primitive for both.
 
-Channel sub-sections are tabs too: the header nav (`Inbox`, `Artifacts`,
-`Recents`, `CONTEXT.md` — see `canvas/channelSections.ts`) routes to
+Channel sub-sections are tabs too: the header nav (`Loops`, `Recents`,
+`CONTEXT.md` — see `canvas/channelSections.ts`) routes to
 `/website/$channelId/<section>`, which is identified by `channelId` +
-`channelSection`. The tab labels by the section (`Inbox`) with a `#` icon; the
+`channelSection`. The tab labels by the section (`Recents`) with a `#` icon; the
 channel home (`/website/$channelId`, no section) labels by the channel name.
 Every channel tab's hover leads with `#<channel>` then the page name (the home
 tab, whose label already is the channel, shows just the one line). Switching
 sections is an in-tab replace — one channel tab, the section is sub-navigation
 within it — because the identity differs only by `channelSection`.
-Dedup/identity keys on all four fields, so two channels' inboxes (or one
-channel's inbox vs artifacts) are distinct tabs.
+Dedup/identity keys on all four fields, so two channels' sub-sections are
+distinct tabs.
 
 ## Components & styling
 

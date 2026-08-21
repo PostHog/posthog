@@ -1,9 +1,9 @@
 # Canvas (Website space) — patterns
 
 Conventions for the channel-scoped Website space: channels and canvases. A canvas
-is an agent-authored single-file React app rendered in a sandboxed iframe. Read
-this before changing breadcrumbs, canvas naming, or the canvas generation harness.
-The root `AGENTS.md` architecture rules still apply.
+is an agent-authored browser app rendered in a sandboxed iframe. Read this before
+changing breadcrumbs, canvas naming, or the canvas generation harness. The root
+`AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
@@ -51,11 +51,29 @@ The root `AGENTS.md` architecture rules still apply.
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
   accumulated per gesture and locked until the wheel goes quiet).
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
-  private "me" row leads the Starred section and takes the same inset as the
-  spaces beside it. No row carries a glyph: "me" drops its lock here so every
-  name starts in the same column, and it still marks the space everywhere it is
-  named on its own (the back row, the breadcrumb). The alpha's more deeply
-  indented Channels tree and hash glyphs are unchanged.
+  private "personal" row leads the Starred section and takes the same inset as the
+  spaces beside it. It is the one row that carries a glyph: the lock is the only
+  thing saying nobody else can see this space, which is worth its name starting a
+  glyph's width right of the others. The alpha's more deeply indented Channels
+  tree and hash glyphs are unchanged.
+- **The private space reads as "personal" without a hash, and only on screen.** The row is `me`
+  on the backend; `channelDisplayName` (core) swaps it on the way to a reader.
+  `channelDisplayLabel` adds a hash to shared spaces but leaves personal bare.
+  Four routes carry a channel's name — the channel list, an activity row, a
+  mention row, and remote search — and each calls it, because only the first
+  goes through `useTaskChannels`.
+  Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
+  (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
+  `channel_type`/name for a server that predates the field — never the name alone.
+- **The lock follows what a space is, not what it is called.** `channelGlyph`
+  takes a `personal` flag; a caller holding the channel object should pass
+  `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
+  name match behind it is a fallback for surfaces that hold only a bare name.
+  A public space named `personal` used to wear the lock while the real private
+  space showed none, which is a space impersonating yours.
+  `validateChannelName` reserves `personal` and `me` so the create and rename
+  forms refuse them — client-side only, so it neither binds the API nor renames
+  a space that already took one.
 - **The list is a tree.** Each space has a disclosure caret that opens it onto
   its most recent sessions (`useRecentSpaceTasks` — one task query per open
   space, polling slower than the channel feed; expansion lives in
@@ -77,7 +95,8 @@ The root `AGENTS.md` architecture rules still apply.
   `TaskRowMenuProps`, so the facts and the actions can't drift.
   Rename is the one item the tree drops, because it edits in place and there is
   no inline editor on a row the keyboard is walking.
-  The card also opens on the keyboard's highlight, 350ms after it lands.
+  The card also opens on the keyboard's highlight, 350ms after it lands — on a space row as well as a session one, so walking the tree shows the same card whichever kind of row the highlight lands on.
+  The row that opened it is the only one that may take it away (`openFromKeyboard` / `closeFromKeyboard` on the provider, released the moment a pointer enters any row): the pointer moves the same popup between rows without telling the row that opened it, so an unconditional close on the next keypress reached across and shut a card the pointer was on.
   Rows read that highlight from `spaceTreeStore` as a boolean
   (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
   list still writes it to a ref as well, because the arrow handlers read the
@@ -89,6 +108,45 @@ The root `AGENTS.md` architecture rules still apply.
   whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
   and one archive mutation for the tree instead of one per row and keeps them
   out of the memo comparisons.
+- **There is one card, not one per row.** `ChannelItemPreviewCardProvider`,
+  mounted once around the whole sidebar, owns the popup; a row is only a
+  `PreviewCard.Trigger` on its handle, carrying what the card should say as the
+  trigger's payload.
+  So the card's queries and derivations run for the row being pointed at rather
+  than once per row in the list, and Base UI skips the open delay when the
+  pointer crosses to another trigger of a card that is already open — which is
+  the point: sliding down the list moves one card instead of re-waiting 400ms
+  on every row.
+  Two things keep that working: a row's payload has to stay referentially stable
+  (memoize the `menu`), and a surface that lists rows has to sit under the
+  provider, or its rows get no card at all.
+- **A space has a card too, on the same handle.** `SpaceHoverCard` is a trigger on the one popup the session rows use, so crossing from a space to a session under it swaps the card's contents instead of closing one popup and opening another. The payload is a discriminated union (`ChannelPreviewPayload`), and `kind` picks `SpacePreview` or `ChannelItemPreview`.
+  It shows who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
+  The people are not a membership list — the backend has none. They come from `useSpaceOverview`, off the same `space-tree-tasks` page the tree's rows are built from, which the row's own hover prefetch has already warmed, so the card costs no request.
+  The group is `reverse`d, so each face tucks behind the one after it — which puts the creator's right corner under its neighbour, so the crown goes on its left corner instead.
+  `useChannelActions` memoizes its action list, and `ChannelSection` memoizes the payload, because both travel to the card's store on every identity change. Its memo comparator also compares `repositories` by content — the channel list is polled and hands out a new array each time.
+- **The card names the row's marks rather than inventing a second scale.**
+  It spells out the dot's own label and the badges' (`taskDot`, `taskBadges`),
+  and shows the last thing the agent said.
+  It used to show the run's raw status ("Ready", "In progress"), a vocabulary
+  the rows dropped when the dot took over, which left a quiet row sitting under
+  a green "Ready".
+  The message comes from `useLatestTurnMessage`: the live session's events where
+  this window has the session, otherwise the closing prose a cloud run persists
+  to `latest_run.output.final_message`.
+  Neither costs a request.
+- **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
+  Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
+  So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.
+- **After the title they are controls, not an avatar stack.** The header is one line about one session, sitting beside a live copy-link button, so what it can act on it draws as quill icon buttons: the pin toggles (always shown, filled when pinned), and a badge carrying a `url` opens it.
+  Badges with nothing to go to — `Local`, a plain origin — stay marks with a tooltip, sized to the button box so the row doesn't step as badges come and go.
+  The PR badge is dropped here: `TaskActionsMenu` sits at the end of the same row and already draws the PR in its lifecycle colour with its actions behind it.
+- **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
+  `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
+  A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
+- **The card's `Item`s are `flex-nowrap`, and neither card has a gutter.** quill's `Item` wraps, and a message with a url in it has a min-content wider than the card, which dropped the whole text column onto a line of its own and out past the card's edge.
+  `min-w-0` on the `ItemContent` and `break-words` on the message keep it inside. The `Crowded` story is that case.
+  A row's mark rides beside the title rather than in an `ItemMedia` column: one glyph on one line does not earn an indent down the whole height of the card.
 - **A row's own colour utilities outrank quill's highlight styling.** quill
   brings a highlighted option's contents to `--foreground` with
   `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the
@@ -128,9 +186,9 @@ The root `AGENTS.md` architecture rules still apply.
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
-- One `ChannelsFab` serves both panes: given a `channelId` it creates inside
-  that channel (task, canvas); from the list, where nothing else offers it, it
-  creates a space instead. Off the layout it keeps its original two-item menu.
+- One `ChannelsFab` serves both panes: given a `channelId` it creates a task in
+  that channel; from the list, where nothing else offers it, it creates a space
+  instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
@@ -141,7 +199,8 @@ The root `AGENTS.md` architecture rules still apply.
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 
@@ -163,9 +222,8 @@ The root `AGENTS.md` architecture rules still apply.
 ## Canvas naming
 
 - **A canvas's name is its own field on the record**, set at creation
-  (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
-  drive it). It is independent of any heading the agent renders inside the
-  React app.
+  (`Untitled canvas` by default; `useCreateAndOpenDashboard` drives it). It is
+  independent of any heading the agent renders inside the React app.
 
 ## Storage
 
@@ -177,6 +235,19 @@ The root `AGENTS.md` architecture rules still apply.
   output is the published build's artifact, served from the isolated artifact
   origin. See `@posthog/core/canvas/dashboardsService.ts` and
   `dashboardSchemas.ts` for the record/source/version shapes.
+- **Two components render a canvas, and `FreeformCanvasView` picks between
+  them.** A build's artifact renders in `BuiltCanvas`; a canvas with no
+  successful build yet falls back to the head project's single
+  `CANVAS_COMPONENT_PATH` file in the `FreeformCanvas` srcDoc sandbox (which
+  transpiles in-browser and resolves imports off esm.sh). Both go through the
+  same `canvasHostMessageRouter`, so protocol and guard changes belong there
+  rather than in either host.
+- **Capabilities gate viewers, not authors.** `assertCanvasCapability` runs only
+  in `BuiltCanvas`, against the manifest frozen into that build. The edit path is
+  deliberately full-access — the author is running their own code against their
+  own session — so the asymmetry is the design, not a gap to close. See the
+  two-tier security model in `docs/CANVAS-FREEFORM-REACT-PLAN.md` before changing
+  what either tier may reach.
 
 ## Channel sidebar preloading
 

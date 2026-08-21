@@ -8,6 +8,7 @@ from unittest import mock
 from django.db import OperationalError
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.models.integration import Integration
 
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _initial_start_date,
     _is_quota_error,
     _is_retryable_server_error,
+    _is_transient_refresh_error,
     _iter_chunks,
     _parse_ga4_date,
     _resolve_window,
@@ -401,6 +403,75 @@ def test_run_report_raises_http_error_for_non_quota_failures(status_code):
     session.post.return_value = _fake_response(status_code)
 
     with pytest.raises(requests.HTTPError):
+        _run_report(
+            session=session,
+            property_id="123",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            dimensions=["date"],
+            metrics=["totalUsers"],
+            offset=0,
+        )
+
+    assert session.post.call_count == 1
+
+
+# A Bad Gateway from Google's OAuth token endpoint arrives as an HTML page, not JSON.
+_HTML_502_BODY = (
+    "<!DOCTYPE html>\n<html lang=en>\n  <title>Error 502 (Server Error)!!1</title>\n"
+    "  <p><b>502.</b> That's an error.\n  <p>The server encountered a temporary error "
+    "and could not complete your request."
+)
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        # 502 gateway page: google-auth omits 502 from its retryable status codes, but it's transient.
+        (RefreshError(_HTML_502_BODY), True),
+        # google-auth flags 500/503/504/408/429 (and JSON server errors) retryable itself.
+        (RefreshError("temporarily_unavailable: try again later", retryable=True), True),
+        # Revoked/expired refresh token — permanent, must not be retried inline.
+        (RefreshError("invalid_grant: Token has been expired or revoked."), False),
+        (RefreshError("invalid_scope: Bad Request"), False),
+    ],
+)
+def test_is_transient_refresh_error(error, expected):
+    assert _is_transient_refresh_error(error) is expected
+
+
+def test_run_report_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    payload = {"rows": [], "rowCount": 0}
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        # AuthorizedSession raises RefreshError from post() when the token endpoint 502s mid-refresh.
+        RefreshError(_HTML_502_BODY),
+        _fake_response(200, payload),
+    ]
+
+    result = _run_report(
+        session=session,
+        property_id="123",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        dimensions=["date"],
+        metrics=["totalUsers"],
+        offset=0,
+    )
+
+    assert result == payload
+    assert session.post.call_count == 2
+
+
+def test_run_report_permanent_token_refresh_error_bubbles_without_retry(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    session = mock.MagicMock()
+    session.post.side_effect = RefreshError("invalid_grant: Token has been expired or revoked.")
+
+    # A revoked/expired refresh token never recovers, so it must bubble on the first attempt
+    # (matching get_non_retryable_errors' "invalid_grant") rather than burning the inline budget.
+    with pytest.raises(RefreshError, match="invalid_grant"):
         _run_report(
             session=session,
             property_id="123",

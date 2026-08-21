@@ -417,7 +417,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your AI usage, costs, and performance metrics.',
-    'self-driving': 'Create and manage scouts that monitor your AI observability data.',
+    'self-driving': 'Manage scouts, eval reports, and anomaly alert investigations for your AI observability data.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
     reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
     generations: 'View individual AI generations and their details.',

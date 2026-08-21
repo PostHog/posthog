@@ -12,7 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
+    is_public_host, politeness_key, snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy,
+    PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
@@ -237,9 +238,25 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
+/// The registrable domain of a host. It needs no initialized state, so a lane that only fetches
+/// never calls `initAnonymizer`.
+fn politeness_key_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.string(politeness_key(&host)))
+}
+
+/// Whether the fetch lane may send a request to a host. It needs no initialized state, so a lane
+/// that only fetches never calls `initAnonymizer`.
+fn is_public_host_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.boolean(is_public_host(&host)))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
     cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
+    cx.export_function("politenessKey", politeness_key_ffi)?;
+    cx.export_function("isPublicHost", is_public_host_ffi)?;
     Ok(())
 }
