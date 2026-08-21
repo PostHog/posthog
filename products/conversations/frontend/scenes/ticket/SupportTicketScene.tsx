@@ -33,6 +33,7 @@ import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
+import { GithubLinksPanel } from './GithubLinksPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { RelatedGroupsPanel } from './RelatedGroupsPanel'
@@ -608,6 +609,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
                     {/* Activity History Panel */}
                     {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+
+                    {/* Linked GitHub issues and PRs */}
+                    {ticket?.id && <GithubLinksPanel ticketId={ticket.id} disabledReason={sendDisabledReason} />}
                 </div>
             </div>
         </SceneContent>

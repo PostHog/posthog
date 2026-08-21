@@ -887,6 +887,15 @@ class GitHubIntegrationBase:
             return None
         return PullRequestRef(owner=owner, repo=repo, number=pr_number)
 
+    def get_issue(self, repository: str, issue_number: int) -> dict[str, Any]:
+        """Fetch an issue (or a pull request, which GitHub also serves here) by ``owner/repo`` and number.
+
+        Dict-or-raise: non-2xx becomes :class:`GitHubIntegrationError`."""
+        return self._gh_api_get(
+            f"/repos/{repository}/issues/{issue_number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        )
+
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"

@@ -253,6 +253,20 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
 /**
+ * Link a GitHub issue or pull request to a ticket by URL.
+ */
+export const conversationsTicketsGithubLinksCreateBodyUrlMax = 2048
+
+export const ConversationsTicketsGithubLinksCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .max(conversationsTicketsGithubLinksCreateBodyUrlMax)
+        .describe(
+            'A GitHub issue or pull request, as a URL (https:\/\/github.com\/owner\/repo\/issues\/123) or shorthand (owner\/repo#123).'
+        ),
+})
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be

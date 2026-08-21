@@ -128,6 +128,35 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    github_link: function onGithubLink(change) {
+        const url = (change?.after || change?.before) as string
+        const reference = url.replace(/^https:\/\/github\.com\//, '').replace(/\/(issues|pull)\//, '#')
+        if (change?.action === 'created') {
+            return {
+                description: [
+                    <>
+                        linked GitHub{' '}
+                        <Link to={url} target="_blank">
+                            {reference}
+                        </Link>
+                    </>,
+                ],
+            }
+        }
+        if (change?.action === 'deleted') {
+            return {
+                description: [
+                    <>
+                        unlinked GitHub{' '}
+                        <Link to={url} target="_blank">
+                            {reference}
+                        </Link>
+                    </>,
+                ],
+            }
+        }
+        return null
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {

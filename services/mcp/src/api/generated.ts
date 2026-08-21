@@ -45455,6 +45455,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged
+     */
+    export type LinkStateEnum = typeof LinkStateEnum[keyof typeof LinkStateEnum];
+
+
+    export const LinkStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    /**
+     * * `issue` - Issue
+     * * `pull_request` - Pull request
+     */
+    export type LinkTypeEnum = typeof LinkTypeEnum[keyof typeof LinkTypeEnum];
+
+
+    export const LinkTypeEnum = {
+      Issue: 'issue',
+      PullRequest: 'pull_request',
+    } as const;
+
+    /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
      * the full report itself.
@@ -81752,6 +81778,42 @@ export namespace Schemas {
     export interface TicketError {
       detail: string;
       error_type?: string;
+    }
+
+    export interface TicketGithubLink {
+      readonly id: string;
+      /** Repository in owner/name form. */
+      readonly repo: string;
+      /** Issue or pull request number within the repository. */
+      readonly number: number;
+      /** Whether the link points at an issue or a pull request.
+       *
+       * * `issue` - Issue
+       * * `pull_request` - Pull request */
+      readonly link_type: LinkTypeEnum;
+      /** Canonical https://github.com URL of the issue or pull request. */
+      readonly url: string;
+      /**
+         * Issue or PR title from GitHub. Null when no GitHub integration in the project can see the repository.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** open, closed, or merged (pull requests only). Null when not fetched from GitHub.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      readonly link_state: LinkStateEnum | null;
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+    }
+
+    export interface TicketGithubLinkCreate {
+      /**
+         * A GitHub issue or pull request, as a URL (https://github.com/owner/repo/issues/123) or shorthand (owner/repo#123).
+         * @maxLength 2048
+         */
+      url: string;
     }
 
     /**
