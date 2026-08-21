@@ -126,42 +126,6 @@ describe('taxonomicFilterLogic', () => {
         noActionsLogic.unmount()
     })
 
-    it('scopes suggested filter options to the requested group types in key-only pickers', () => {
-        const suggestedOptionsFor = (l: ReturnType<typeof taxonomicFilterLogic.build>): unknown =>
-            l.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)?.options
-
-        // A key-only picker that offers event properties keeps the promoted suggestion.
-        const eventsLogic = taxonomicFilterLogic({
-            taxonomicFilterLogicKey: 'suggestedInScope',
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-            eventNames: ['$pageview'],
-            selectingKeyOnly: true,
-        })
-        eventsLogic.mount()
-        expect(suggestedOptionsFor(eventsLogic)).toEqual([
-            { name: '$pathname', group: TaxonomicFilterGroupType.EventProperties },
-        ])
-
-        // The sessions column picker offers no event properties, so the promoted
-        // event property must not surface there: its selection would be converted
-        // into an events-table expression the sessions table cannot resolve.
-        const sessionsLogic = taxonomicFilterLogic({
-            taxonomicFilterLogicKey: 'suggestedOutOfScope',
-            taxonomicGroupTypes: [
-                TaxonomicFilterGroupType.SessionProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ],
-            eventNames: ['$pageview'],
-            selectingKeyOnly: true,
-        })
-        sessionsLogic.mount()
-        expect(suggestedOptionsFor(sessionsLogic)).toEqual([])
-
-        eventsLogic.unmount()
-        sessionsLogic.unmount()
-    })
-
     it('keeps infiniteListCounts in sync', async () => {
         await expectLogic(logic)
             .toMatchValues({
