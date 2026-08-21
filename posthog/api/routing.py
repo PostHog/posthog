@@ -42,7 +42,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.permissions import WithinSurfaceLimits
+from products.access_control.backend.facade.permissions import SurfaceAccessLimitPermission
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -256,7 +256,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         else:
             # Domain enforcement and surface limits are tenant boundaries, not authorization
             # levels. Views that shape their own permission chain cannot remove them.
-            return [*dangerously_defined, WithinSurfaceLimits(), VerifiedDomainEnforcementPermission()]
+            return [*dangerously_defined, SurfaceAccessLimitPermission(), VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -272,7 +272,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes: list = [
             IsAuthenticated,
             APIScopePermission,
-            WithinSurfaceLimits,
+            SurfaceAccessLimitPermission,
             AccessControlPermission,
         ]
 

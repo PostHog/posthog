@@ -5,7 +5,7 @@ a personal API key, a public share link, an impersonated session. A surface limi
 organization-wide cap on what any principal can do through one surface. The MCP server is
 the only surface with limits today.
 
-The class `WithinSurfaceLimits` in facade/permissions.py is the first consumer. It denies
+The class `SurfaceAccessLimitPermission` in facade/permissions.py is the first consumer. It denies
 write actions when the organization limits the request's surface below editor. The
 access-control facade's `decide()` will also read this module later, to apply the same
 limit to object-level decisions. All enforcement points read one module, so they cannot
@@ -48,7 +48,7 @@ def limit_denial_for_request(request: Any, organization: "Organization", resourc
     Returns None to allow the request.
 
     This function contains all the policy: surface classification, the feature-entitlement
-    check, the row lookup, and the message text. Enforcement points (`WithinSurfaceLimits`
+    check, the row lookup, and the message text. Enforcement points (`SurfaceAccessLimitPermission`
     today, the facade's `decide()` later) apply the result and add no policy of their own."""
     if not writes:
         return None

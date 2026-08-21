@@ -1,6 +1,6 @@
 """DRF enforcement point for the access-control policies this product owns.
 
-`TeamAndOrgViewSetMixin.get_permissions` puts `WithinSurfaceLimits` into every viewset's stack.
+`TeamAndOrgViewSetMixin.get_permissions` puts `SurfaceAccessLimitPermission` into every viewset's stack.
 A new endpoint gets surface-limit enforcement automatically. DRF combines
 permission classes with AND semantics, so this class is an independent vote. Another class's
 internal early return cannot bypass it: a `*`-scoped token that passes `APIScopePermission` is
@@ -15,7 +15,7 @@ from products.access_control.backend.facade.surface_limits import classify_surfa
 from products.access_control.backend.models import SurfaceAccessLimit
 
 
-class WithinSurfaceLimits(ScopeBasePermission):
+class SurfaceAccessLimitPermission(ScopeBasePermission):
     """Denies actions that exceed the organization's limit for the request's access surface.
 
     This class subclasses ScopeBasePermission only for `_get_required_scopes`. It derives an
