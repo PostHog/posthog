@@ -380,8 +380,11 @@ describe('projectNoticeLogic', () => {
             billingLogic.unmount()
         })
 
-        it('hides generic billing alert CTAs on the billing page with checkout query params', () => {
-            router.actions.push(urls.organizationBilling(), { success: 'true' })
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides generic billing alert CTAs on the %s page with checkout query params', (_, billingPath) => {
+            router.actions.push(billingPath, { success: 'true' })
             billingLogic.mount()
             const logic = projectNoticeLogic()
             logic.mount()
@@ -399,8 +402,11 @@ describe('projectNoticeLogic', () => {
             billingLogic.unmount()
         })
 
-        it('hides single-product billing alert CTAs when the current billing URL targets that product', () => {
-            router.actions.push(urls.organizationBilling(), {
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])('hides single-product billing alert CTAs when the current %s URL targets that product', (_, billingPath) => {
+            router.actions.push(billingPath, {
                 products: ProductKey.PRODUCT_ANALYTICS,
                 success: 'true',
             })
@@ -422,29 +428,35 @@ describe('projectNoticeLogic', () => {
             billingLogic.unmount()
         })
 
-        it('keeps single-product billing alert CTAs when the current billing URL does not target that product', () => {
-            router.actions.push(urls.organizationBilling(), { success: 'true' })
-            billingLogic.mount()
-            const logic = projectNoticeLogic()
-            logic.mount()
+        it.each([
+            ['billing root', urls.organizationBilling()],
+            ['billing overview', urls.organizationBillingSection('overview')],
+        ])(
+            'keeps single-product billing alert CTAs when the current %s URL does not target that product',
+            (_, billingPath) => {
+                router.actions.push(billingPath, { success: 'true' })
+                billingLogic.mount()
+                const logic = projectNoticeLogic()
+                logic.mount()
 
-            billingLogic.actions.setBillingAlert({
-                status: 'error',
-                title: 'Usage limit reached',
-                message: 'You have reached the usage limit for Product analytics.',
-                productKey: ProductKey.PRODUCT_ANALYTICS,
-            })
-
-            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
-            expect(logic.values.projectNotice?.action).toEqual(
-                expect.objectContaining({
-                    to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
-                    children: 'Manage billing',
+                billingLogic.actions.setBillingAlert({
+                    status: 'error',
+                    title: 'Usage limit reached',
+                    message: 'You have reached the usage limit for Product analytics.',
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
                 })
-            )
 
-            logic.unmount()
-            billingLogic.unmount()
-        })
+                expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+                expect(logic.values.projectNotice?.action).toEqual(
+                    expect.objectContaining({
+                        to: urls.organizationBilling([ProductKey.PRODUCT_ANALYTICS]),
+                        children: 'Manage billing',
+                    })
+                )
+
+                logic.unmount()
+                billingLogic.unmount()
+            }
+        )
     })
 })

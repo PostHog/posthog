@@ -157,11 +157,17 @@ function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
     return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
 }
 
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
 function isCurrentBillingAlertBillingUrl(
     billingAlert: BillingAlertConfig,
     currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): boolean {
-    if (currentLocation.pathname !== urls.organizationBilling()) {
+    if (!isBillingPathname(currentLocation.pathname)) {
         return false
     }
 
