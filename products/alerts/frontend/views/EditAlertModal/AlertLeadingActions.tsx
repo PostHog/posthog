@@ -38,6 +38,8 @@ export function AlertLeadingActions({
     testDeliveryDisabledReason,
     showTestDelivery,
 }: AlertLeadingActionsProps): JSX.Element {
+    const isSnoozed = alert?.state === AlertState.SNOOZED
+
     return (
         <div className="flex flex-wrap items-center gap-2">
             {alert ? (
@@ -62,7 +64,7 @@ export function AlertLeadingActions({
                     Delete alert
                 </LemonButton>
             ) : null}
-            {alert?.state !== AlertState.SNOOZED ? (
+            {!isSnoozed ? (
                 <SnoozeButton
                     onChange={onSnoozeAlert}
                     disabledReason={
@@ -80,7 +82,7 @@ export function AlertLeadingActions({
                     Test delivery
                 </LemonButton>
             ) : null}
-            {alert?.state === AlertState.SNOOZED ? (
+            {isSnoozed ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-alt">
                     <IconClock className="size-4" />
                     <span>
