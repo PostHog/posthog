@@ -55,6 +55,9 @@ SCALAR_TERMINALS: frozenset[str] = frozenset({"values", "values_list", "count", 
 # `_meta` attributes that lead back to a manager, so a chain through them is a queryset again.
 META_MANAGERS: frozenset[str] = frozenset({"default_manager", "base_manager"})
 
+# `_meta` attributes that hand the model class back, so the chain after them starts over.
+META_CLASS_ATTRS: frozenset[str] = frozenset({"model", "concrete_model", "proxy_for_model"})
+
 # Queryset terminals that return exactly one model instance.
 SINGLE_TERMINALS: frozenset[str] = frozenset({"get", "first", "last", "earliest", "latest"})
 
@@ -467,24 +470,33 @@ def _manager_chain_kind(methods: list[str], outer: ast.AST, parents: dict[int, a
     return f"instance-many({terminal})"
 
 
+def _attribute_chain_kind(methods: list[str], outer: ast.AST, parents: dict[int, ast.AST]) -> str:
+    """Classify an attribute chain hanging off the class; `methods` is non-empty."""
+    head = methods[0]
+    if head == "DoesNotExist":
+        return "exception"
+    if head == "_meta":
+        if len(methods) == 1:
+            return "_meta"
+        if methods[1] in META_MANAGERS:
+            return _manager_chain_kind(methods[2:], outer, parents)
+        if methods[1] in META_CLASS_ATTRS:
+            return _attribute_chain_kind(methods[2:], outer, parents) if len(methods) > 2 else "_meta"
+        return "_meta" if methods[1] != "managers" else "other(Attribute:_meta.managers)"
+    if head in MANAGERS:
+        return _manager_chain_kind(methods[1:], outer, parents)
+    if head[:1].isupper():
+        return f"nested-class-attr({head})"
+    return f"other(Attribute:{head})"
+
+
 def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
     """The kind of one name-level use of a crossing class."""
     if _in_annotation(node, parents):
         return "annotation"
     methods, outer = _chain(node, parents)
     if methods:
-        head = methods[0]
-        if head == "DoesNotExist":
-            return "exception"
-        if head == "_meta":
-            if len(methods) > 1 and methods[1] in META_MANAGERS:
-                return _manager_chain_kind(methods[2:], outer, parents)
-            return "_meta" if len(methods) == 1 or methods[1] != "managers" else "other(Attribute:_meta.managers)"
-        if head in MANAGERS:
-            return _manager_chain_kind(methods[1:], outer, parents)
-        if head[:1].isupper():
-            return f"nested-class-attr({head})"
-        return f"other(Attribute:{head})"
+        return _attribute_chain_kind(methods, outer, parents)
     parent = parents.get(id(node))
     if isinstance(parent, ast.Call):
         if parent.func is node:
@@ -502,8 +514,11 @@ def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
 
 
 def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], labels: set[str]) -> Counter[str]:
-    """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals."""
+    """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals.
+
+    Django matches the model name case-insensitively, so the comparison does too."""
     found: Counter[str] = Counter()
+    label_by_lower = {label.lower(): label for label in labels}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or getattr(node.func, "attr", None) != "get_model":
             continue
@@ -522,8 +537,9 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], labels: 
         if app_label is None or class_name is None:
             continue
         product = product_by_label.get(app_label)
-        if product is not None and f"{product}.{class_name}" in labels:
-            found[f"{product}.{class_name}"] += 1
+        label = label_by_lower.get(f"{product}.{class_name}".lower()) if product is not None else None
+        if label is not None:
+            found[label] += 1
     return found
 
 

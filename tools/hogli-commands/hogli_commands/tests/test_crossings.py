@@ -56,6 +56,10 @@ class TestClassifyUse:
             # Disallowed: each of these puts a model instance, a write, or a lock in the consumer.
             ("a = AlertConfiguration.objects.get(pk=1)", ["instance-single"]),
             ("a = AlertConfiguration._meta.default_manager.get(pk=1)", ["instance-single"]),
+            ("a = AlertConfiguration._meta.model.objects.get(pk=1)", ["instance-single"]),
+            ("a = AlertConfiguration._meta.concrete_model._meta.model.objects.create(team=t)", ["write(create)"]),
+            ("m = AlertConfiguration._meta.model", ["_meta"]),
+            ("s = AlertConfiguration._meta.model.Status.FIRING", ["nested-class-attr(Status)"]),
             ("m = AlertConfiguration._meta.managers", ["other(Attribute:_meta.managers)"]),
             ("by_id = AlertConfiguration.objects.in_bulk(ids)", ["instance-many(in_bulk)"]),
             ("a = AlertConfiguration.objects.filter(team=t).first()", ["instance-single"]),
@@ -143,6 +147,8 @@ class TestGetModelStrings:
             "apps.get_model('alerts', model_name='AlertConfiguration')",
             "apps.get_model(app_label='alerts', model_name='AlertConfiguration')",
             "apps.get_model(model_name='AlertConfiguration', app_label='alerts')",
+            "apps.get_model('alerts', 'alertconfiguration')",
+            "apps.get_model('alerts.ALERTCONFIGURATION')",
         ],
     )
     def test_every_string_form_is_counted(self, call: str) -> None:
