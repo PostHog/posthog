@@ -1,21 +1,32 @@
-"""The "Fork to DM" message shortcut.
+"""Forking a channel thread into a DM.
 
-Someone reading a channel thread wants to dig into it — understand the code, ask
-the obvious question — without turning the thread into their own tutorial. The
-shortcut opens a private DM thread that already knows what the channel thread
-said, and answers there.
+Someone reading a thread wants to dig into it — understand the code, ask the
+obvious question — without turning the thread into their own tutorial. Forking
+opens a private DM that has already read the thread, and carries on there.
 
-The fork itself creates no new agent machinery. It starts the ordinary mention
+Reached three ways: the overflow menu under a reply, ``@PostHog fork [question]``
+in the thread, and a message shortcut for anyone who registers one. All three
+land here with the same payload shape.
+
+Whether the run starts now turns on one thing — did the user say what they want?
+
+- No question (the menu has nowhere to type one): the DM asks, and the run waits
+  for the answer. The thread being forked is parked in ``fork_context`` so that
+  answer can be resolved back to it, since a plain DM reply says nothing about
+  where it came from.
+- A question (``@PostHog fork why is this slow?``): there is nothing to wait for,
+  so the run starts against it immediately.
+
+The fork itself creates no agent machinery. It starts the ordinary mention
 workflow against a DM thread, with ``fork_source_channel`` / ``fork_source_thread_ts``
 telling that workflow to build its ``<slack_thread_context>`` from the channel
 thread instead of the one it is answering in. Everything downstream — repo
 selection, task creation, the thread mapping, streaming, follow-ups — is the
 mention path untouched.
 
-Two things live here rather than inside ``PostHogCodeSlackMentionWorkflow``:
-posting the seed DM and dispatching. That workflow has live executions, so
-adding commands to it would need a ``workflow.patched()`` gate; this module is
-new, so its history is unconstrained.
+Posting the seed DM and dispatching live here rather than inside
+``PostHogCodeSlackMentionWorkflow``: that workflow has live executions, so adding
+commands to it would need a ``workflow.patched()`` gate, and this module is new.
 """
 
 import json
@@ -34,13 +45,6 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_FORK_TIMEOUT_SECONDS = 5 * 60
 
 FORK_THREAD_CALLBACK_ID = "posthog_fork_thread"
-
-# A fork carries no typed question in v0, so the run needs a default ask. This is
-# the one people actually described wanting: catch me up, I'm rusty here.
-FORK_DEFAULT_PROMPT = (
-    "Catch me up on this thread: what is being discussed, what has been decided, and what is the "
-    "relevant code? Explain it like I am rusty on this area of the codebase."
-)
 
 _SEED_UNAVAILABLE = (
     "I couldn't set that up — you don't seem to have a PostHog account matching your Slack email, "
@@ -86,9 +90,9 @@ def build_fork_payload(
     rather than teach it a second one. Mirrors what the slash-command view does
     for the mention pipeline.
 
-    ``prompt`` is the trailing text of ``fork <question>``. The shortcut surface
-    has nowhere to type one, so it stays ``None`` and the run opens with the
-    default ask.
+    ``prompt`` is the trailing text of ``fork <question>``. The menu and shortcut
+    surfaces have nowhere to type one, so it stays ``None`` there and the DM asks
+    for it instead of the run starting on a guess.
     """
     return {
         "channel": {"id": channel},
@@ -107,30 +111,38 @@ def _ephemeral(response_url: str | None, text: str, *, slack: Any = None, **targ
     a question you would rather not ask in front of everyone, so every outcome,
     including refusals, goes through here.
 
-    ``response_url`` is the private reply channel the shortcut and slash surfaces
-    hand us, and it works even where the bot isn't a member. A bare ``@PostHog
-    fork`` mention has none, so those callers pass a Slack client plus
-    ``channel``/``thread_ts``/``user`` and get an ephemeral post instead.
-    """
-    if response_url:
-        import requests  # noqa: PLC0415 — keeps the HTTP dep off the module import path
+    ``chat.postEphemeral`` is preferred where we have a channel: it lands in the thread
+    the fork came from, which is where the reader is looking, and it cannot disturb the
+    message the menu is attached to.
 
+    ``response_url`` is the fallback — it reaches surfaces the bot isn't a member of.
+    ``replace_original`` is pinned false there because a response to an interactive
+    message otherwise overwrites the message that carried the control, which for us is
+    the agent's own answer.
+    """
+    if slack is not None and target.get("channel"):
         try:
-            requests.post(response_url, json={"response_type": "ephemeral", "text": text}, timeout=5)
-        except requests.RequestException:
-            logger.warning("slack_app_fork_ephemeral_failed")
+            slack.client.chat_postEphemeral(
+                channel=target["channel"],
+                user=target.get("user", ""),
+                thread_ts=target.get("thread_ts", ""),
+                text=text,
+            )
+            return
+        except Exception:
+            logger.warning("slack_app_fork_ephemeral_post_failed")
+    if not response_url:
         return
-    if slack is None or not target.get("channel"):
-        return
+    import requests  # noqa: PLC0415 — keeps the HTTP dep off the module import path
+
     try:
-        slack.client.chat_postEphemeral(
-            channel=target["channel"],
-            user=target.get("user", ""),
-            thread_ts=target.get("thread_ts", ""),
-            text=text,
+        requests.post(
+            response_url,
+            json={"response_type": "ephemeral", "replace_original": False, "text": text},
+            timeout=5,
         )
-    except Exception:
-        logger.warning("slack_app_fork_ephemeral_post_failed")
+    except requests.RequestException:
+        logger.warning("slack_app_fork_ephemeral_failed")
 
 
 def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
@@ -140,6 +152,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _channel_is_approved, _start_mention_workflow
     from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.fork_context import PendingFork, store_pending_fork
     from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
 
     source_channel = payload.get("channel", {}).get("id")
@@ -150,7 +163,9 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     slack_user_id = payload.get("user", {}).get("id")
     slack_team_id = payload.get("team", {}).get("id")
     response_url = payload.get("response_url")
-    fork_prompt = (payload.get("fork_prompt") or "").strip() or FORK_DEFAULT_PROMPT
+    # `None` means nobody typed a question — the menu has nowhere to type one — which
+    # is what makes the DM ask instead of guessing at an ask and running with it.
+    fork_prompt = (payload.get("fork_prompt") or "").strip() or None
 
     if not (source_channel and source_thread_ts and slack_user_id and slack_team_id):
         logger.warning(
@@ -252,11 +267,16 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         .first()
     )
 
+    permalink = _thread_permalink(slack, source_channel, source_thread_ts)
+    origin = f"Fork of <{permalink}|this thread>" if permalink else f"Fork of a thread in <#{source_channel}>"
+    seed_text = (
+        f"{origin}\n\nI've read it. What do you want to dig into?"
+        if fork_prompt is None
+        else f"{origin} — on it :hourglass_flowing_sand:"
+    )
+
     try:
-        seed = slack.client.chat_postMessage(
-            channel=slack_user_id,
-            text=f"Forked from <#{source_channel}> — working on it :hourglass_flowing_sand:",
-        )
+        seed = slack.client.chat_postMessage(channel=slack_user_id, text=seed_text, unfurl_links=False)
     except Exception:
         logger.exception("slack_app_fork_seed_post_failed", slack_team_id=slack_team_id)
         _ephemeral(
@@ -273,30 +293,44 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         logger.warning("slack_app_fork_seed_missing_ids", slack_team_id=slack_team_id)
         return
 
-    # Mention-shaped so the existing pipeline takes it without special-casing — the
-    # same trick the slash-command surface uses. The text is whatever the user typed
-    # after `fork`, which becomes the run's actual request; without one they get the
-    # default "catch me up" ask.
-    event = {
-        "type": "message",
-        "channel": dm_channel,
-        "ts": seed_ts,
-        "thread_ts": seed_ts,
-        "user": slack_user_id,
-        "text": fork_prompt,
-    }
-
-    _start_mention_workflow(
-        event,
-        integration,
-        slack_team_id,
-        None,
-        posthog_user=resolution.user,
-        is_ext_shared_channel=is_ext_shared,
-        fork_source_channel=source_channel,
-        fork_source_thread_ts=source_thread_ts,
-        fork_repository=fork_repository,
-    )
+    if fork_prompt is None:
+        # No question was typed — the menu has nowhere to type one — so the DM asks
+        # rather than guessing, and the run waits for the answer. Park the pointer to
+        # the forked thread so that answer can be resolved back to it; nothing else on
+        # a plain DM reply says where it came from.
+        store_pending_fork(
+            integration.id,
+            dm_channel,
+            seed_ts,
+            PendingFork(
+                source_channel=source_channel,
+                source_thread_ts=source_thread_ts,
+                repository=fork_repository,
+                is_ext_shared=is_ext_shared,
+            ),
+        )
+    else:
+        # `@PostHog fork <question>` already carries the ask, so there is nothing to
+        # wait for. Mention-shaped so the existing pipeline takes it without
+        # special-casing — the same trick the slash-command surface uses.
+        _start_mention_workflow(
+            {
+                "type": "message",
+                "channel": dm_channel,
+                "ts": seed_ts,
+                "thread_ts": seed_ts,
+                "user": slack_user_id,
+                "text": fork_prompt,
+            },
+            integration,
+            slack_team_id,
+            None,
+            posthog_user=resolution.user,
+            is_ext_shared_channel=is_ext_shared,
+            fork_source_channel=source_channel,
+            fork_source_thread_ts=source_thread_ts,
+            fork_repository=fork_repository,
+        )
 
     logger.info(
         "slack_app_fork_created",
@@ -308,7 +342,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     )
     _ephemeral(
         response_url,
-        "Forked to our DM — I'm reading the thread now. Only you can see this.",
+        ":envelope_with_arrow: Forked to your DMs — check your messages with PostHog. Only you can see this.",
         slack=slack,
         **reply_to,
     )
@@ -323,6 +357,21 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         is_ext_shared_channel=is_ext_shared,
         inherited_repository=bool(fork_repository),
     )
+
+
+def _thread_permalink(slack: Any, channel: str, thread_ts: str) -> str | None:
+    """Link back to the forked thread, or `None` if Slack won't give one.
+
+    Best-effort: the fork works without it, the seed message just names the channel
+    instead of linking it.
+    """
+    try:
+        resp = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts)
+        if resp.get("ok"):
+            return resp["permalink"]
+    except Exception:
+        logger.warning("slack_app_fork_permalink_failed", channel=channel, thread_ts=thread_ts)
+    return None
 
 
 def _source_channel_is_ext_shared(slack: Any, channel: str) -> bool:

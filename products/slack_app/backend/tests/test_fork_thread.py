@@ -2,6 +2,7 @@ import json
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -11,13 +12,10 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.slack_app_fork import (
-    FORK_DEFAULT_PROMPT,
-    FORK_THREAD_CALLBACK_ID,
-    process_slack_app_fork_thread_payload,
-)
+from posthog.temporal.ai.slack_app.slack_app_fork import FORK_THREAD_CALLBACK_ID, process_slack_app_fork_thread_payload
 
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
+from products.slack_app.backend.services.fork_context import PendingFork, get_pending_fork, store_pending_fork
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 _FORK_MODULE = "posthog.temporal.ai.slack_app.slack_app_fork"
@@ -57,6 +55,10 @@ class TestForkThreadPayload(TestCase):
         else:
             slack.client.conversations_replies.side_effect = Exception("not_in_channel")
         slack.client.chat_postMessage.return_value = {"channel": "D_ALICE", "ts": "999.1"}
+        slack.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.test/archives/C_SOURCE/p111",
+        }
         return slack
 
     def _run(self, payload: dict, slack: MagicMock, *, flag: bool = True):
@@ -79,39 +81,56 @@ class TestForkThreadPayload(TestCase):
             process_slack_app_fork_thread_payload(payload)
         return start, ephemeral
 
-    def test_forks_to_dm_with_source_thread_as_context(self):
+    def test_a_fork_with_no_question_asks_instead_of_running(self):
+        # The menu has nowhere to type a question, so guessing at one would spend a
+        # sandbox run on an ask the user never made.
         slack = self._slack_mock()
 
         start, ephemeral = self._run(self._payload(), slack)
 
+        start.assert_not_called()
+        seed = slack.client.chat_postMessage.call_args
+        assert seed.kwargs["channel"] == "U_ALICE"
+        assert "What do you want to dig into?" in seed.kwargs["text"]
+        ephemeral.assert_called_once()
+
+    def test_the_seed_links_back_to_the_forked_thread(self):
+        slack = self._slack_mock()
+
+        self._run(self._payload(), slack)
+
+        text = slack.client.chat_postMessage.call_args.kwargs["text"]
+        assert "https://slack.test/archives/C_SOURCE/p111" in text
+        assert text.startswith("Fork of")
+
+    def test_a_fork_carrying_a_question_runs_against_the_source_thread(self):
+        slack = self._slack_mock()
+
+        start, _ = self._run(self._payload(fork_prompt="why is the retry loop double-counting?"), slack)
+
         start.assert_called_once()
-        event, integration, slack_team_id, event_id = start.call_args.args
+        event, integration, slack_team_id, _event_id = start.call_args.args
         kwargs = start.call_args.kwargs
         # The run answers in the DM…
         assert event["channel"] == "D_ALICE"
         assert event["thread_ts"] == "999.1"
-        assert event["text"] == FORK_DEFAULT_PROMPT
+        assert event["text"] == "why is the retry loop double-counting?"
         # …while reading its context from the channel thread that was forked. The
-        # message's own ts is ignored in favour of its thread root.
+        # clicked message's own ts is ignored in favour of its thread root.
         assert kwargs["fork_source_channel"] == "C_SOURCE"
         assert kwargs["fork_source_thread_ts"] == "111.1"
         assert integration == self.integration
         assert slack_team_id == "T_SLACK"
 
-        # Nothing may be posted into the source channel — the whole point is privacy.
-        posted_channels = [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list]
-        assert posted_channels == ["U_ALICE"]
-        ephemeral.assert_called_once()
+    def test_nothing_is_posted_into_the_source_channel(self):
+        # The whole point is asking without an audience. Only the DM may be posted to;
+        # the acknowledgement in the thread is ephemeral.
+        slack = self._slack_mock()
 
-    def test_typed_question_becomes_the_runs_request(self):
-        start, _ = self._run(self._payload(fork_prompt="why is the retry loop double-counting?"), self._slack_mock())
+        self._run(self._payload(), slack)
 
-        assert start.call_args.args[0]["text"] == "why is the retry loop double-counting?"
-
-    def test_without_a_question_the_run_opens_with_the_default_ask(self):
-        start, _ = self._run(self._payload(), self._slack_mock())
-
-        assert start.call_args.args[0]["text"] == FORK_DEFAULT_PROMPT
+        posted = [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list]
+        assert posted == ["U_ALICE"]
 
     def test_inherits_repository_from_forked_threads_task(self):
         from django.apps import apps
@@ -140,12 +159,12 @@ class TestForkThreadPayload(TestCase):
             mentioning_slack_user_id="U_BOB",
         )
 
-        start, _ = self._run(self._payload(), self._slack_mock())
+        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock())
 
         assert start.call_args.kwargs["fork_repository"] == "posthog/posthog"
 
     def test_no_mapping_leaves_repository_to_the_cascade(self):
-        start, _ = self._run(self._payload(), self._slack_mock())
+        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock())
 
         assert start.call_args.kwargs["fork_repository"] is None
 
@@ -160,7 +179,7 @@ class TestForkThreadPayload(TestCase):
             approved_at="2026-01-01T00:00:00Z",
         )
 
-        start, _ = self._run(self._payload(), self._slack_mock(ext_shared=True))
+        start, _ = self._run(self._payload(fork_prompt="what changed?"), self._slack_mock(ext_shared=True))
 
         assert start.call_args.kwargs["is_ext_shared_channel"] is True
 
@@ -399,3 +418,73 @@ class TestForkMenuBlock(TestCase):
         assert len(element["options"]) == 1
         assert element["options"][0]["text"]["text"] == "Fork to DM"
         assert json.loads(element["options"][0]["value"])["integration_id"] == 42
+
+
+class TestPendingForkHandoff(TestCase):
+    """The reply to "what do you want to dig into?" is an ordinary DM message. Only the
+    parked pointer says it belongs to a fork, so losing this handoff would quietly answer
+    without the thread the user forked — the failure looks like a bad answer, not a bug."""
+
+    def setUp(self):
+        cache.clear()
+        self.org = Organization.objects.create(name="TestOrg")
+        self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.user = User.objects.create(email="alice@test.com")
+        OrganizationMembership.objects.create(organization=self.org, user=self.user)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SLACK",
+            config={"scope": ",".join(sorted(ASSISTANT_REQUIRED_SCOPES))},
+        )
+
+    def _reply_in_dm(self):
+        from products.slack_app.backend.api import _handle_assistant_dm_message
+
+        event = {"type": "message", "channel": "D_ALICE", "ts": "999.2", "thread_ts": "999.1", "user": "U_ALICE"}
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration") as slack_cls,
+            patch("products.slack_app.backend.api._start_mention_workflow") as start,
+        ):
+            slack_cls.return_value.missing_scopes.return_value = set()
+            _handle_assistant_dm_message(
+                event,
+                self.integration,
+                "T_SLACK",
+                None,
+                "D_ALICE",
+                "999.1",
+                posthog_user=self.user,
+            )
+        return start
+
+    def test_the_reply_runs_against_the_forked_thread_then_forgets_it(self):
+        store_pending_fork(
+            self.integration.id,
+            "D_ALICE",
+            "999.1",
+            PendingFork(
+                source_channel="C_SOURCE",
+                source_thread_ts="111.1",
+                repository="posthog/posthog",
+                is_ext_shared=True,
+            ),
+        )
+
+        start = self._reply_in_dm()
+
+        kwargs = start.call_args.kwargs
+        assert kwargs["fork_source_channel"] == "C_SOURCE"
+        assert kwargs["fork_source_thread_ts"] == "111.1"
+        assert kwargs["fork_repository"] == "posthog/posthog"
+        # Carried across the handoff, so a fork out of a Slack Connect channel keeps its
+        # posture even though the DM it lands in is never externally shared.
+        assert kwargs["is_ext_shared_channel"] is True
+        # Consumed: the run this starts writes a thread mapping, and every later message
+        # is a follow-up against that. Re-applying the forked thread would double it up.
+        assert get_pending_fork(self.integration.id, "D_ALICE", "999.1") is None
+
+    def test_an_ordinary_dm_carries_no_fork(self):
+        start = self._reply_in_dm()
+
+        assert "fork_source_channel" not in start.call_args.kwargs

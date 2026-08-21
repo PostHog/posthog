@@ -71,6 +71,7 @@ from products.slack_app.backend.feature_flags import (
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import inbox_interactivity
+from products.slack_app.backend.services.fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -1802,6 +1803,25 @@ def _handle_assistant_dm_message(
     # can ground a "look into this" DM in that channel's context.
     viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
     agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
+
+    # A fork parks the thread it came from and then asks what the user wants to know.
+    # This is that answer: it reads as an ordinary DM, so the pointer is the only thing
+    # that says otherwise. Consumed once — the run it starts writes a thread mapping,
+    # and every later message is a follow-up against that.
+    pending = get_pending_fork(integration.id, channel_id, thread_ts)
+    if pending:
+        clear_pending_fork(integration.id, channel_id, thread_ts)
+        return _start_mention_workflow(
+            agent_event,
+            integration,
+            slack_team_id,
+            event_id,
+            posthog_user=posthog_user,
+            is_ext_shared_channel=pending.is_ext_shared,
+            fork_source_channel=pending.source_channel,
+            fork_source_thread_ts=pending.source_thread_ts,
+            fork_repository=pending.repository,
+        )
     return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
 
 
