@@ -22,7 +22,14 @@ export function IdentityBadge({ verified, iconOnly = false }: IdentityBadgeProps
     // verified → shield+tick, unverified → shield+exclamation, unknown → empty shield
     const icon = verified ? <IconShield /> : verified === false ? <IconShieldExclamation /> : <IconShieldEmpty />
     // verified → green, unverified → amber, unknown → muted grayscale
-    const iconColor = verified ? 'text-success' : verified === false ? 'text-warning' : 'text-muted-alt'
+    // The green is a shade darker than text-success in light mode: that token only reaches 3:1 on a
+    // light surface, too faint for a glyph this thin, and green-700 puts it level with the amber.
+    // Dark mode keeps the green text-success already resolves to.
+    const iconColor = verified
+        ? 'text-[var(--color-green-700)] dark:text-[var(--color-green-400)]'
+        : verified === false
+          ? 'text-warning'
+          : 'text-muted-alt'
     const tagType = verified ? 'success' : verified === false ? 'warning' : 'muted'
 
     if (iconOnly) {
