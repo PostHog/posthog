@@ -274,7 +274,12 @@ async def run_scout(
     run_id = result.run_id
     task_run_id = result.task_run_id
     task_id = await asyncio.to_thread(
-        lambda: str(TaskRun.objects.values_list("task_id", flat=True).get(id=task_run_id))
+        lambda: str(
+            TaskRun.objects.values_list("task_id", flat=True).get(
+                id=task_run_id,
+                team_id=sandbox_context.team_id,
+            )
+        )
     )
     emitted_reports, edited_reports, emitted_findings, scratchpad_keys, summary = await asyncio.to_thread(
         _read_scout_output,

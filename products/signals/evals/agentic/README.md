@@ -72,6 +72,17 @@ project events and objects.
 Repository-selection cases use deterministic metadata for public repositories and do not depend on
 an engineer's GitHub account.
 
+## Adding cases
+
+Use the PostHog MCP to study the shape of representative production research or implementation runs,
+then recreate the scenario with synthetic signals, project data, and public repository state. Do not
+copy customer content or identifiers into a fixture.
+
+Keep each case on the production workflow and prompts. Seed only the data the workflow would normally
+discover, pin public repositories to a commit, and prefer cases where weaker models fail for a meaningful
+reason. Add deterministic expectations only for unambiguous outcomes; use the quality judge for research
+reasoning and implementation diffs.
+
 ## Architecture
 
 The shared `WorkflowPublicEval` owns setup, concurrency, cleanup, logs, trials, and reporting. This
