@@ -4491,6 +4491,7 @@ export type TasksListParams = {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
+     * * `canvas` - Canvas
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -4618,6 +4619,7 @@ export const TasksListExcludeOriginProduct = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
+    Canvas: 'canvas',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
