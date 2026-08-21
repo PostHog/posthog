@@ -60,7 +60,6 @@ notebooks
 notifications
 platform_features
 posthog_ai
-product_analytics
 product_tours
 pulse
 reminders
