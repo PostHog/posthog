@@ -113,3 +113,13 @@ type Story = StoryObj<{}>
 export const Configured: Story = {
     render: () => <App />,
 }
+
+export const FeatureGateOff: Story = {
+    render: () => <App />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
+        testOptions: {
+            waitForSelector: '[data-attr="settings-menu-item-customer-analytics-accounts"]',
+        },
+    },
+}
