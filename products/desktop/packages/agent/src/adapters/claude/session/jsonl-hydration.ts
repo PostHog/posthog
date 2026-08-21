@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -367,64 +367,10 @@ function generateMessageId(): string {
   return id;
 }
 
-const ADJECTIVES = [
-  "bright",
-  "calm",
-  "daring",
-  "eager",
-  "fair",
-  "gentle",
-  "happy",
-  "keen",
-  "lively",
-  "merry",
-  "noble",
-  "polite",
-  "quick",
-  "sharp",
-  "warm",
-  "witty",
-];
-const VERBS = [
-  "blazing",
-  "crafting",
-  "dashing",
-  "flowing",
-  "gliding",
-  "humming",
-  "jumping",
-  "linking",
-  "melting",
-  "nesting",
-  "pacing",
-  "roaming",
-  "sailing",
-  "turning",
-  "waving",
-  "zoning",
-];
-const NOUNS = [
-  "aurora",
-  "breeze",
-  "cedar",
-  "delta",
-  "ember",
-  "frost",
-  "grove",
-  "haven",
-  "inlet",
-  "jewel",
-  "knoll",
-  "lotus",
-  "maple",
-  "nexus",
-  "oasis",
-  "prism",
-];
+function sessionSlug(sessionId: string): string {
+  const digest = createHash("sha256").update(sessionId).digest("hex");
 
-function generateSlug(): string {
-  const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
-  return `${pick(ADJECTIVES)}-${pick(VERBS)}-${pick(NOUNS)}`;
+  return `session-${digest.slice(0, 12)}`;
 }
 
 export function conversationTurnsToJsonlEntries(
@@ -436,7 +382,7 @@ export function conversationTurnsToJsonlEntries(
   const model = config.model ?? DEFAULT_GATEWAY_MODEL;
   const version = config.version ?? "2.1.63";
   const gitBranch = config.gitBranch ?? "";
-  const slug = config.slug ?? generateSlug();
+  const slug = config.slug ?? sessionSlug(config.sessionId);
   const permissionMode = config.permissionMode ?? "default";
   const baseTime = Date.now() - turns.length * 3000;
   let turnIndex = 0;
