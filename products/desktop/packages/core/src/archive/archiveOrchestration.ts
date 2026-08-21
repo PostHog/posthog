@@ -171,7 +171,10 @@ export async function archiveTasks(
     taskIds.map((id) => archiveTask(id, deps, { skipNavigate: true })),
   );
   const archived = results.filter((result) => result.status === "fulfilled");
-  return { archived: archived.length, failed: results.length - archived.length };
+  return {
+    archived: archived.length,
+    failed: results.length - archived.length,
+  };
 }
 
 export function shouldNavigateAwayForBulkArchive(
