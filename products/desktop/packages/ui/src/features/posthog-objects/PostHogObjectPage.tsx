@@ -41,23 +41,28 @@ function StatStrip({
   );
 }
 
-/** The object's identifier as a labeled chip; clicking copies it. */
+/**
+ * The object's identifier as a labeled chip; clicking copies it. A quill
+ * Button in the same variant and size as "Open in PostHog" beside it, so the
+ * two read as one control row.
+ */
 function IdChip({ id }: { id: string }) {
   const { copied, copy } = useCopy();
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="sm"
       data-attr="posthog-object-copy-reference"
       aria-label={copied ? "ID copied" : "Copy ID"}
       onClick={() => copy(id)}
-      className="flex h-7 max-w-56 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-muted px-2 text-muted-foreground text-xs hover:text-foreground"
+      className="max-w-56"
     >
-      <span className="font-medium text-[10px] uppercase tracking-wide">
+      <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
         ID
       </span>
       <span className="truncate font-mono">{id}</span>
       {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-    </button>
+    </Button>
   );
 }
 
