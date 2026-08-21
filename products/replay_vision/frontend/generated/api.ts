@@ -18,6 +18,8 @@ import type {
     BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
     CurrentPromptSuggestionApi,
+    DraftScannerRequestApi,
+    DraftScannerResponseApi,
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
@@ -44,7 +46,11 @@ import type {
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerScoutCreateApi,
+    ScannerScoutCreateResponseApi,
+    ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
+    ScoutReportApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionActionApi,
@@ -616,6 +622,24 @@ export const visionScannersObserveCreate = async (
     })
 }
 
+export const getVisionScannersSelfDrivingStatsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/self_driving_stats/`
+}
+
+/**
+ * What self-driving did with this scanner's signals: reports contributed to and PRs opened.
+ */
+export const visionScannersSelfDrivingStatsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScannerSelfDrivingStatsApi> => {
+    return apiMutator<ScannerSelfDrivingStatsApi>(getVisionScannersSelfDrivingStatsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersBackfillsListUrl = (
     projectId: string,
     scannerId: string,
@@ -1124,6 +1148,64 @@ export const visionScannersPromptSuggestionsGenerateCreate = async (
     )
 }
 
+export const getVisionScannersScoutReportsListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/`
+}
+
+/**
+ * Reports filed by this scanner's scouts, newest first.
+ */
+export const visionScannersScoutReportsList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScoutReportApi[]> => {
+    return apiMutator<ScoutReportApi[]>(getVisionScannersScoutReportsListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutReportsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/${id}/`
+}
+
+/**
+ * One report filed by this scanner's scouts.
+ */
+export const visionScannersScoutReportsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutReportApi> => {
+    return apiMutator<ScoutReportApi>(getVisionScannersScoutReportsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/`
+}
+
+/**
+ * Create a scout that watches this scanner, recorded as belonging to it.
+ */
+export const visionScannersScoutsCreate = async (
+    projectId: string,
+    scannerId: string,
+    scannerScoutCreateApi: ScannerScoutCreateApi,
+    options?: RequestInit
+): Promise<ScannerScoutCreateResponseApi> => {
+    return apiMutator<ScannerScoutCreateResponseApi>(getVisionScannersScoutsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scannerScoutCreateApi),
+    })
+}
+
 export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/vision/scanners/creators/`
 }
@@ -1138,6 +1220,26 @@ export const visionScannersCreatorsRetrieve = async (
     return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersDraftCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/draft/`
+}
+
+/**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreate = async (
+    projectId: string,
+    draftScannerRequestApi: DraftScannerRequestApi,
+    options?: RequestInit
+): Promise<DraftScannerResponseApi> => {
+    return apiMutator<DraftScannerResponseApi>(getVisionScannersDraftCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftScannerRequestApi),
     })
 }
 

@@ -79,6 +79,7 @@ import {
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
+    ReplayVisionScanWidget,
     ResourcesBar,
     ThreadView,
 } from 'products/posthog_ai/frontend/api/primitives'
@@ -206,18 +207,20 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
  */
 function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, canCreateTicket } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
+    // Gated on eligibility so the create-ticket affordance never renders for orgs the support
+    // panel would turn away — e.g. from an old conversation that contains a past /ticket summary.
     const ticketPromptData = useMemo(
-        () => getTicketPromptData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketPromptData(threadGrouped, streamingActive) : { needed: false }),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     const ticketSummaryData = useMemo(
-        () => getTicketSummaryData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketSummaryData(threadGrouped, streamingActive) : null),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
@@ -1464,6 +1467,14 @@ function renderToolCallWidget(
                     filters={widgetDef.args}
                     embedded
                     onAcceptFilters={onAcceptSessionFilters}
+                />
+            )
+        case 'replay_vision_scan':
+            return (
+                <ReplayVisionScanWidget
+                    scanId={widgetDef.args.scanId}
+                    sessionIds={widgetDef.args.sessionIds}
+                    skipped={widgetDef.args.skipped}
                 />
             )
         default:

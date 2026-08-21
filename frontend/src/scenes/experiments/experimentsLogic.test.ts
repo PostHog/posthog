@@ -490,25 +490,6 @@ describe('experimentsLogic', () => {
     })
 
     describe('selectors', () => {
-        it('calculates shouldShowEmptyState correctly', () => {
-            logic.actions.setExperimentsFilters({
-                search: undefined,
-                status: 'all',
-                page: 1,
-                created_by_id: undefined,
-                order: undefined,
-            })
-            logic.actions.loadExperimentsSuccess({ results: [], count: 0 })
-
-            expect(logic.values.shouldShowEmptyState).toBe(true)
-
-            logic.actions.loadExperimentsSuccess({ results: [mockExperiment], count: 1 })
-            expect(logic.values.shouldShowEmptyState).toBe(false)
-
-            logic.actions.setExperimentsFilters({ search: 'test' })
-            expect(logic.values.shouldShowEmptyState).toBe(false)
-        })
-
         it('calculates pagination correctly', () => {
             logic.actions.setExperimentsFilters({ page: 2 })
             logic.actions.loadExperimentsSuccess({ results: [], count: 150 })

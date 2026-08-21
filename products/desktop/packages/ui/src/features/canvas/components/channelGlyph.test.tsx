@@ -40,8 +40,8 @@ describe("channelGlyph", () => {
     expect(channelGlyph("engineering", { space: true })).toBeNull();
   });
 
-  // The flag beats the name in both directions. Without it, a public space
-  // called "personal" wore the lock and the real private space showed none.
+  // The channel type beats the fallback name in both directions so public
+  // name collisions stay unmarked and the private space always has a lock.
   it("locks the private space whatever it is called", () => {
     const glyph = channelGlyph("anything", {
       personal: true,

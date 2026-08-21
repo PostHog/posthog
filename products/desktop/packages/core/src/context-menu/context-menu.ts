@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   formatBulkArchiveWarning,
   sessionsLabel,
@@ -122,6 +123,7 @@ export class ContextMenuService {
       isInCommandCenter,
       hasEmptyCommandCenterCell,
       showArchivePrior = true,
+      canHandoff,
       channels,
     } = input;
     const { apps, lastUsedAppId } = await this.getExternalAppsData();
@@ -134,9 +136,7 @@ export class ContextMenuService {
               type: "submenu",
               label: "File to…",
               items: this.starredFirst(channels).map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -177,6 +177,12 @@ export class ContextMenuService {
           ]
         : []),
       ...fileToItems,
+      ...(canHandoff
+        ? [
+            this.separator(),
+            this.item("Hand off…", { type: "handoff" as const }),
+          ]
+        : []),
       this.separator(),
       this.item("Archive", { type: "archive" }),
       ...(showArchivePrior
@@ -227,9 +233,7 @@ export class ContextMenuService {
               type: "submenu" as const,
               label: "File to…",
               items: this.starredFirst(channels).map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,

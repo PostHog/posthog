@@ -35,9 +35,11 @@ from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
-from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
-from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.facade.queries import (
+    PathsQueryRunner,
+    PathsV2QueryRunner,
+    StickinessQueryRunner,
+)
 
 
 class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):

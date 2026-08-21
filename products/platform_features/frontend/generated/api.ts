@@ -30,6 +30,7 @@ import type {
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
@@ -163,6 +164,31 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
+}
+
+/**
+ * Remove the members whose email domain is outside the organization's verified domains and turn
+ * `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+ * access and can disable the setting themselves. Admin only.
+ *
+ * Use this only when the caller has confirmed the removals. To turn the setting on without
+ * touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+ */
+export const removeBlockedMembersAndEnforceVerifiedDomainsCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationRemoveBlockedMembersResponseApi> => {
+    return apiMutator<OrganizationRemoveBlockedMembersResponseApi>(
+        getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl(id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getRequestAiAccessCreateUrl = (id: string) => {

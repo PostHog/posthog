@@ -3,6 +3,8 @@
 from collections.abc import Iterable
 from uuid import UUID
 
+from django.conf import settings
+
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
@@ -25,6 +27,21 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         name=saved_query.name,
         last_run_at=saved_query.last_run_at,
     )
+
+
+def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str | None:
+    """The S3 Delta table a materialized view's rows live in, for a consumer that reads them directly.
+
+    None when the view no longer resolves or was never materialized — either way there is no Delta
+    table to read. The path is built from the same two model properties the materialization activity
+    writes to (``_build_model_table_uri``), so a reader lands on the table that run produced.
+    """
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+    )
+    if saved_query is None or not saved_query.is_materialized:
+        return None
+    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
 
 
 def get_saved_query_ids_for_nodes(team_id: int, node_ids: Iterable[UUID | str]) -> list[str]:

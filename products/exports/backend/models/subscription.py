@@ -88,7 +88,7 @@ WEEKDAY_SET = {"monday", "tuesday", "wednesday", "thursday", "friday"}
 
 
 @dataclass
-class SubscriptionResourceInfo:
+class SubscriptionResource:
     kind: str
     name: str
     url: str
@@ -416,21 +416,21 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
-    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+    def resource_info(self) -> Optional[SubscriptionResource]:
         if not self._has_resource:
             return None
         match self.resource_type:
             case self.ResourceType.INSIGHT if self.insight:
-                return SubscriptionResourceInfo(
+                return SubscriptionResource(
                     "Insight",
                     f"{self.insight.name or self.insight.derived_name}",
                     self.insight.url,
                 )
             case self.ResourceType.DASHBOARD if self.dashboard:
-                return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
+                return SubscriptionResource("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
-                return SubscriptionResourceInfo("AI", ai_name, self.url or "")
+                return SubscriptionResource("AI", ai_name, self.url or "")
         return None
 
     @property

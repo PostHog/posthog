@@ -23,8 +23,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
+import { MetricTypeTag } from '../MetricsView/shared/MetricTypeTag'
 import { isLegacySharedMetric } from '../utils'
 import { InlineTagEditor } from './InlineTagEditor'
 import { SharedMetric } from './sharedMetricLogic'
@@ -93,12 +94,11 @@ export function SharedMetrics(): JSX.Element {
         {
             title: 'Type',
             key: 'type',
-            render: (_, metric: SharedMetric) => {
-                if (metric.query.kind === NodeKind.ExperimentMetric) {
-                    return metric.query.metric_type
-                }
-                return metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel'
-            },
+            render: (_, metric: SharedMetric) => (
+                <MetricTypeTag
+                    metric={metric.query as ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery}
+                />
+            ),
         },
         createdByColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         createdAtColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,

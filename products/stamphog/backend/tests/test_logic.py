@@ -2,16 +2,31 @@ import json
 from collections.abc import Callable
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 import jwt
 from parameterized import parameterized
 
-from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
-from products.stamphog.backend.logic.digest_config import load_repo_digest_config
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError, _build_app_jwt
+from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
+from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
+from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
+    DigestPRSummary,
+    DigestSummary,
+    _capped_summary,
+    pr_key,
+)
+from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.github_client import (
+    MAX_COMPARE_DIFF_BYTES,
+    StamphogGitHubClient,
+    StamphogGitHubError,
+    _build_app_jwt,
+)
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -20,10 +35,10 @@ from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import _generate_app_private_key
 
-# The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
-# own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
-# server-side, so there is no ported copy to test here. What remains server-side is
-# the defensive parsing of the engine's stdout contract.
+# The gate/policy engine lives in packages/pr-approval-agent, and its own suite covers it
+# (test_gates.py, test_policy.py). It runs inside the sandbox rather than server-side, so there is
+# no ported copy to test here. Only the defensive parsing of the engine's stdout contract remains
+# server-side.
 
 
 class ParseReviewerOutputTests(SimpleTestCase):
@@ -112,6 +127,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
             check_runs=[],
             pr_reactions=[],
             author_pr_numbers=[],
+            author_team_slugs=[],
             base_sha="base",
             head_sha="head",
             repo="owner/repo",
@@ -122,39 +138,159 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         assert context["reviews"] == reviews
         assert context["review_threads"] == review_threads
 
+    def test_review_trigger_reaches_the_sandbox_context(self) -> None:
+        # The reviewer cannot derive why it was asked; dropping the key silently returns it to a
+        # prompt that reads a requested review and an automatic one the same way.
+        def context_for(**kwargs: object) -> dict:
+            invocation = build_reviewer_invocation(
+                pr={"number": 1},
+                files=[],
+                reviews=[],
+                discussion=[],
+                review_threads=[],
+                check_runs=[],
+                pr_reactions=[],
+                author_pr_numbers=[],
+                author_team_slugs=[],
+                base_sha="base",
+                head_sha="head",
+                repo="owner/repo",
+                engine_dir="/engine",
+                context_path="/ctx.json",
+                **kwargs,  # type: ignore[arg-type]
+            )
+            return json.loads(invocation.context_json)
+
+        assert context_for(review_trigger="label")["review_trigger"] == "label"
+        # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
+        assert context_for()["review_trigger"] == ""
+        assert context_for()["self_driving_review"] is False
+
+
+class ReviewTriggerTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Inbox provenance outranks the repo mode, so a self-driving PR in an ALL-mode repo is
+            # still reported as self-driving rather than as an ambient review.
+            ("inbox_beats_all_mode", True, ReviewMode.ALL, ReviewTrigger.SELF_DRIVING),
+            ("inbox_beats_label_mode", True, ReviewMode.LABEL, ReviewTrigger.SELF_DRIVING),
+            ("label_mode_is_a_request", False, ReviewMode.LABEL, ReviewTrigger.LABEL),
+            ("all_mode_is_ambient", False, ReviewMode.ALL, ReviewTrigger.ALL),
+        ]
+    )
+    def test_precedence(self, _name: str, has_inbox: bool, mode: ReviewMode, expected: ReviewTrigger) -> None:
+        assert derive_review_trigger(has_inbox_review=has_inbox, review_mode=mode) == expected
+
+    def test_a_stamped_trigger_survives_a_mode_change(self) -> None:
+        # The reviewer reads this as fact. An admin switching the repo to LABEL while the run sat in
+        # the queue must not make it claim a request label the PR never carried.
+        stamped = {"review_trigger": ReviewTrigger.ALL.value}
+        assert trigger_for_run(output=stamped, review_mode=ReviewMode.LABEL) == "all"
+
+    @parameterized.expand(
+        [
+            ("no_output", None, ReviewMode.ALL, "all"),
+            ("empty_output", {}, ReviewMode.LABEL, "label"),
+            ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+        ]
+    )
+    def test_an_unstamped_run_derives_live(
+        self, _name: str, output: dict | None, mode: ReviewMode, expected: str
+    ) -> None:
+        # Runs queued before the stamp existed still have to answer, or their reviewer loses the slot.
+        assert trigger_for_run(output=output, review_mode=mode) == expected
+
+
+class DigestCapTests(SimpleTestCase):
+    def test_the_cap_names_what_it_removed(self) -> None:
+        # The claim marks every PR in a run as handled once it posts, so a PR the cap removes is
+        # gone rather than delayed unless the summary reports it. Dropping deferred_urls here would
+        # lose the overflow of any digest that exceeds the cap.
+        prs = [
+            DigestPRSummary(
+                pr_number=n,
+                title=f"t{n}",
+                url=f"https://github.com/o/r/pull/{n}",
+                author_login="dev",
+                summary=f"Something changed, number {n}.",
+                repository="o/r",
+            )
+            for n in range(MAX_DIGEST_PRS + 3)
+        ]
+
+        summary = _capped_summary(considered=100, prs=prs)
+
+        assert len(summary.prs) == MAX_DIGEST_PRS
+        assert summary.deferred_prs == [pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]]
+        # Keyed on repo and number, so a blank or repeated URL cannot match a PR that was shown.
+        assert not set(summary.deferred_prs) & {pr_key(p.repository, p.pr_number) for p in summary.prs}
+
+    def test_a_digest_under_the_cap_defers_nothing(self) -> None:
+        summary = _capped_summary(considered=9, prs=[])
+        assert summary.deferred_prs == []
+
 
 class SlackDigestEscapingTests(SimpleTestCase):
-    def _summary(self, *, title: str, author: str, body: str, intro: str = "") -> DigestSummary:
+    def _summary(self, *, author: str, body: str, considered: int = 1) -> DigestSummary:
         pr = DigestPRSummary(
-            pr_number=7, title=title, url="https://github.com/o/r/pull/7", author_login=author, summary=body
+            pr_number=7,
+            title="Ship it",
+            url="https://github.com/o/r/pull/7",
+            author_login=author,
+            summary=body,
+            repository="o/r",
         )
-        return DigestSummary(intro=intro, prs=[pr])
+        return DigestSummary(considered=considered, prs=[pr])
 
     def test_mention_tokens_in_pr_fields_are_defanged(self) -> None:
-        # A merged PR's title/summary/author are attacker-controlled; a raw `<!channel>` would ping the
-        # whole digest channel. Escaping must neutralize the mention while keeping the trusted PR link.
-        blocks = _build_blocks(self._summary(title="<!channel> ship", author="<!here>", body="see <x|y>"))
+        # A summary is model output written over attacker-controlled PR text; a raw `<!channel>`
+        # would ping the whole digest channel. Escaping must neutralize the mention while keeping
+        # the trusted PR link, which the summary now doubles as the label for.
+        blocks = _build_blocks(self._summary(author="dev", body="<!channel> see <x|y>"))
         section = next(b for b in blocks if b.get("type") == "section" and "pull/7" in b["text"]["text"])
         text = section["text"]["text"]
         assert "<!channel>" not in text
-        assert "<!here>" not in text
         assert "&lt;!channel&gt;" in text
         assert "<https://github.com/o/r/pull/7|" in text
 
     def test_fallback_text_defangs_mentions(self) -> None:
-        text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
-        assert "<!channel>" not in text
+        text = _build_fallback_text(self._summary(author="a", body="<!everyone> shipped"))
         assert "<!everyone>" not in text
+        assert "&lt;!everyone&gt;" in text
+
+    def test_a_change_line_is_the_summary_sentence_and_nothing_else(self) -> None:
+        # The link label is the summary, not the PR title: linking the title instead reverts every
+        # line to a commit subject, which is the thing this digest exists to translate. The number,
+        # author and repo stay on DigestPRSummary for the runs API, so rendering one is a live
+        # possibility rather than a hypothetical.
+        summary = self._summary(author="dev", body="The widget opens on the first click.")
+        sections = [b["text"]["text"] for b in _build_blocks(summary) if b.get("type") == "section"]
+        assert sections == ["<https://github.com/o/r/pull/7|The widget opens on the first click.>"]
+
+    def test_the_footer_names_what_was_left_out(self) -> None:
+        # A digest of three lines reads as "three things merged" unless it says otherwise. The
+        # denominator is what tells a reader the rest happened and was approved, so it must come
+        # from the captured rows and survive as long as there is anything to leave out.
+        def _footer(considered: int) -> str:
+            blocks = _build_blocks(self._summary(author="a", body="b", considered=considered))
+            return blocks[-1]["elements"][0]["text"]
+
+        assert _footer(9) == "1 of 9 stamphog-approved merges."
+        # Nothing left out means no denominator to name, and no claim about a day it cannot see.
+        assert _footer(1) == "1 stamphog-approved merge."
 
     def test_section_text_is_capped_below_slack_limit(self) -> None:
         # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the
-        # claimed PRs — an unbounded LLM intro or per-PR summary would make every daily retry fail the
-        # same way forever. The PR link must survive the clip (it sits at the front of the section).
-        blocks = _build_blocks(self._summary(title="t", author="a", body="x" * 10_000, intro="i" * 10_000))
+        # claimed PRs — an unbounded per-PR summary would make every daily retry fail the same way
+        # forever. The PR link must survive the clip (it sits at the front of the section).
+        blocks = _build_blocks(self._summary(author="a", body="x" * 10_000))
         sections = [b for b in blocks if b.get("type") == "section"]
         assert sections and all(len(b["text"]["text"]) <= 3000 for b in sections)
         pr_section = next(b for b in sections if "pull/7" in b["text"]["text"])
-        assert "<https://github.com/o/r/pull/7|" in pr_section["text"]["text"]
+        # The clipped line must still be a link. Trimming the assembled string would drop the
+        # closing bracket and leave Slack printing raw markup at the reader.
+        assert pr_section["text"]["text"].startswith("<https://github.com/o/r/pull/7|")
+        assert pr_section["text"]["text"].endswith(">")
 
 
 class DigestConfigFetchTests(SimpleTestCase):
@@ -392,3 +528,163 @@ class TemporalRegistryTests(SimpleTestCase):
         }
         registered = {fn.__name__ for fn in ACTIVITIES}
         assert defined == registered
+
+
+class ResolveAudiencesTests(SimpleTestCase):
+    @staticmethod
+    def _gate_result(teams: object) -> dict:
+        return {"classification": {"ownership": {"teams": teams}}}
+
+    @parameterized.expand(
+        [
+            (
+                "owning_teams_join_the_author",
+                ["@PostHog/team-replay", "@PostHog/team-surveys"],
+                [
+                    ("team-devex", AudienceReason.AUTHORED),
+                    ("team-replay", AudienceReason.OWNED),
+                    ("team-surveys", AudienceReason.OWNED),
+                ],
+            ),
+            (
+                "author_owning_its_own_code_stays_one_audience",
+                ["@PostHog/team-devex", "@PostHog/team-replay"],
+                [("team-devex", AudienceReason.AUTHORED), ("team-replay", AudienceReason.OWNED)],
+            ),
+            ("individual_owners_are_not_audiences", ["@someone"], [("team-devex", AudienceReason.AUTHORED)]),
+            (
+                "a_crafted_slug_cannot_claim_the_repo_namespace",
+                ["@PostHog/repo:PostHog/posthog", "@PostHog/team with spaces"],
+                [("team-devex", AudienceReason.AUTHORED)],
+            ),
+            ("missing_ownership_section", None, [("team-devex", AudienceReason.AUTHORED)]),
+            ("malformed_ownership_section", "team-replay", [("team-devex", AudienceReason.AUTHORED)]),
+        ]
+    )
+    def test_owner_teams_become_audiences(self, _name: str, teams: object, expected: list) -> None:
+        # Owner audiences are what carry "this changed in your area", and they are read back out of a
+        # blob the sandbox wrote, so a shape the engine never promised must degrade to author-only
+        # rather than dropping the merge. The author winning a collision is what keeps a team that
+        # wrote its own code out of its own "changed in your area" list. Ownership comes from the
+        # PR-head owners.yaml, so a slug is attacker-controlled: one shaped like "repo:owner/name"
+        # would otherwise reach the channel path that auto-enables and skips the shared-channel guard.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        with (
+            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
+            patch(
+                "products.stamphog.backend.logic.audiences._author_team_audience_key",
+                return_value="team-devex",
+            ),
+        ):
+            audiences = resolve_audiences(repo_config, {}, self._gate_result(teams))
+        assert [(a.key, a.reason) for a in audiences] == expected
+
+    def test_repo_declared_channel_still_collects_owner_audiences(self) -> None:
+        # A repo that pins all its merges to one channel still has owning teams, and they should
+        # hear about their area — the declared channel replaces the author cascade, not the fan-out.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        with patch(
+            "products.stamphog.backend.logic.audiences.load_repo_digest_config",
+            return_value=RepoDigestConfig(channel="eng-merges"),
+        ):
+            audiences = resolve_audiences(repo_config, {}, self._gate_result(["@PostHog/team-replay"]))
+        assert [(a.key, a.reason) for a in audiences] == [
+            ("repo:PostHog/posthog", AudienceReason.REPO_DECLARED),
+            ("team-replay", AudienceReason.OWNED),
+        ]
+
+
+class OwnedFileCountTests(SimpleTestCase):
+    def test_true_owned_count_survives_the_capped_sample(self) -> None:
+        # The sample is capped and the count is not. If the prompt reported the sample size, a team
+        # owning most of a large change would look grazed by it and get filtered out of its own digest.
+        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
+        gate_result = {
+            "classification": {
+                "ownership": {
+                    "teams": ["@PostHog/team-replay"],
+                    "team_files": {"@PostHog/team-replay": [f"a{i}.py" for i in range(10)]},
+                    "team_file_counts": {"@PostHog/team-replay": 200},
+                }
+            }
+        }
+        with (
+            patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None),
+            patch("products.stamphog.backend.logic.audiences._author_team_audience_key", return_value="team-devex"),
+        ):
+            owned = next(a for a in resolve_audiences(repo_config, {}, gate_result) if a.key == "team-replay")
+        assert len(owned.owned_files) == 10
+        assert owned.owned_file_count == 200
+
+
+_DIFF = """diff --git a/posthog/api/thing.py b/posthog/api/thing.py
+index aaa..bbb 100644
+--- a/posthog/api/thing.py
++++ b/posthog/api/thing.py
+@@ -1,2 +1,3 @@
+ keep
++added
+"""
+
+_DIFF_MODE_FLIPPED = _DIFF.replace("index aaa..bbb 100644", "old mode 100644\nnew mode 100755\nindex aaa..bbb 100755")
+
+
+class CompareDiffSizeTests(SimpleTestCase):
+    @staticmethod
+    def _streamed(body: bytes) -> MagicMock:
+        response = MagicMock(status_code=200)
+        response.iter_content.return_value = iter([body[i : i + 1024] for i in range(0, len(body), 1024)])
+        return response
+
+    def test_diff_under_the_ceiling_is_returned(self) -> None:
+        response = self._streamed(b"diff --git a/x b/x\n")
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            assert StamphogGitHubClient("42").compare_diff("o/r", "base", "head") == "diff --git a/x b/x\n"
+
+    def test_oversized_diff_raises_instead_of_buffering(self) -> None:
+        # GitHub answers 200 for a diff of any size, and a range that spans thousands of files
+        # returns hundreds of megabytes. This ceiling refuses the cost of reading that into a
+        # worker.
+        response = self._streamed(b"x" * (MAX_COMPARE_DIFF_BYTES + 4096))
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            with pytest.raises(StamphogGitHubError):
+                StamphogGitHubClient("42").compare_diff("o/r", "base", "head")
+
+
+class ApprovalRetentionTests(SimpleTestCase):
+    def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
+        # A merge of the base branch into a PR is the most common push on a long-lived PR. It does
+        # not change the PR's own diff, so there is nothing new to review, and a dismissal would
+        # drop the PR out of merge readiness for no reason.
+        assert approved_diff_unchanged(_DIFF, _DIFF) is True
+
+    def test_content_change_dismisses(self) -> None:
+        assert approved_diff_unchanged(_DIFF, _DIFF.replace("+added", "+something else")) is False
+
+    def test_mode_flip_dismisses(self) -> None:
+        # A blob sha covers a file's contents and not its tree mode, so a per-file sha comparison
+        # missed an executable-bit flip on a file that the PR already edits. The unified diff
+        # carries the mode, and the comparison therefore uses the diff text.
+        assert approved_diff_unchanged(_DIFF, _DIFF_MODE_FLIPPED) is False
+
+    def test_binary_change_fails_closed(self) -> None:
+        # git renders a binary change over an abbreviated blob id and never as content, so two
+        # different binaries whose ids share that prefix produce the same line. An attacker can pad
+        # one binary until its id collides, so a diff that carries this line cannot show whether the
+        # content changed.
+        binary = (
+            "diff --git a/thing.wasm b/thing.wasm\n"
+            "index aaa1234..bbb5678 100644\n"
+            "Binary files a/thing.wasm and b/thing.wasm differ\n"
+        )
+
+        assert approved_diff_unchanged(binary, binary) is False
+        assert approved_diff_unchanged(_DIFF + binary, _DIFF + binary) is False
+
+    @parameterized.expand([("both_empty", "", ""), ("approved_empty", "", _DIFF), ("current_empty", _DIFF, "")])
+    def test_empty_diff_fails_closed(self, _name: str, approved: str, current: str) -> None:
+        # Two blanks compare equal. Retention on that evidence would treat an unreadable answer as
+        # "nothing changed".
+        assert approved_diff_unchanged(approved, current) is False

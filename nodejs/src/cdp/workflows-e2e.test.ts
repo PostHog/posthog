@@ -15,6 +15,7 @@ import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
@@ -22,6 +23,7 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
 import { setupExpressApp } from '~/common/api/router'
 import {
     KAFKA_APP_METRICS_2,
@@ -595,6 +597,17 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
+
+            // The run must terminate through the result pipeline, not a silent queue flip:
+            // a 'canceled' metric lands and the run is not counted as 'succeeded'.
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.app_source_id === hogFlowId)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('canceled')
+                expect(metricNames).not.toContain('succeeded')
+            }, 5000)
         })
     })
 
@@ -2207,6 +2220,117 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
+    describe('create AI task action', () => {
+        let flowId: string
+
+        beforeEach(async () => {
+            // The real template, not a fixture copy: this block exists to prove the shipped hog
+            // compiles and drives the registered async function inside a running workflow, which
+            // is the execution path a template-level test never touches.
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: createTaskTemplate.id,
+                name: createTaskTemplate.name,
+                code: createTaskTemplate.code,
+                inputs_schema: createTaskTemplate.inputs_schema,
+            })
+
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_1: {
+                        type: 'function',
+                        config: {
+                            template_id: createTaskTemplate.id,
+                            inputs: {
+                                prompt: { value: 'Investigate the error spike' },
+                                title: { value: 'Error spike' },
+                                non_failure_status_codes: { value: [409] },
+                            },
+                        },
+                    },
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            flowId = flow.id
+            globals = createGlobals()
+        })
+
+        const runMetricNames = (): string[] =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.app_source_id === flowId)
+                .map((m: any) => m.value.metric_name)
+
+        it('creates the task through the real registered async function', async () => {
+            mockFetch.mockResolvedValue({
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ id: 'task-1', run_id: 'run-1' }),
+                text: () => Promise.resolve(JSON.stringify({ id: 'task-1', run_id: 'run-1' })),
+                dump: () => Promise.resolve(),
+            } as any)
+
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            const [url, options] = mockFetch.mock.calls[0]
+            expect(url).toEqual(`${hub.SITE_URL}/api/projects/${team.id}/workflow_tasks/`)
+            expect(options.method).toEqual('POST')
+
+            // Step-scoped dedupe key: run id + action id, so a second task step in the same run
+            // would not collide with this one.
+            expect(parseJSON(options.body)).toEqual({
+                prompt: 'Investigate the error spike',
+                title: 'Error spike',
+                idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}:function_1$/),
+            })
+
+            // The endpoint trusts these claims to resolve the workflow owner, so the token has to
+            // verify against the shared dev secret with exactly this audience and flow id.
+            const token = (options.headers['Authorization'] as string).replace('Bearer ', '')
+            // The literal pins the cross-language contract: Django's TASKS_CREATE_JWT_SECRET dev default
+            // (posthog/settings/data_stores.py) must match the nodejs one or local runs 401.
+            // nosemgrep: javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret
+            const claims = jsonwebtoken.verify(token, 'local-dev-tasks-create-jwt', {
+                audience: 'posthog:tasks:create',
+                algorithms: ['HS256'],
+            }) as jsonwebtoken.JwtPayload
+            expect(claims.team_id).toEqual(team.id)
+            expect(claims.hog_flow_id).toEqual(flowId)
+
+            await waitForExpect(() => {
+                expect(runMetricNames()).toContain('succeeded')
+            }, 10000)
+            expect(runMetricNames()).not.toContain('failed')
+        })
+
+        it('completes the run without a failure when the task limit replies 409', async () => {
+            mockFetch.mockResolvedValue({
+                status: 409,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ detail: 'This workflow already has 5 tasks running' }),
+                text: () => Promise.resolve(JSON.stringify({ detail: 'This workflow already has 5 tasks running' })),
+                dump: () => Promise.resolve(),
+            } as any)
+
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(runMetricNames()).toContain('succeeded')
+            }, 10000)
+            expect(runMetricNames()).not.toContain('failed')
+            // 409 is terminal for the step: one request, no retry burning the engine's budget.
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('heartbeat during long batches', () => {
         let janitor: CyclotronV2Janitor
 
@@ -3660,6 +3784,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     let api: CdpApi
     let batchResolverProducer: CyclotronV2Manager
     let deps: ReturnType<typeof createCdpConsumerDeps>
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
     // Fresh consumer per test — built in the it() body, stopped in afterEach.
     let resolverWorker: CdpCyclotronWorkerBatchResolve | undefined
 
@@ -3667,14 +3793,21 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
 
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
-        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the resolver produces a
+        // running row per enrolled person there, so the topic has to exist or the produce fails.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
 
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
+        // Lifecycle rows are gated on this flag, which is off by default outside dev — without
+        // it the row assertions below would pass against an empty topic.
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
-        deps = createCdpConsumerDeps(hub)
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
         batchResolverProducer = new CyclotronV2Manager({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 5 },
         })
@@ -3692,6 +3825,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     afterAll(async () => {
         server?.close()
         await batchResolverProducer?.disconnect()
+        await kafkaProducer?.disconnect()
         await closeHub(hub)
         await cyclotronPool.end()
     })
@@ -3701,6 +3835,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
         team = await getFirstTeam(hub.postgres)
         resolverWorker = undefined
+        mockProducerObserver.resetKafkaProducer()
     })
 
     afterEach(async () => {
@@ -3915,6 +4050,40 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(personIds.length)
+
+        // Enrolling a person has to register as a started run at the same time as it enqueues
+        // the work. Both of these used to be skipped here (only the event-triggered path wrote
+        // them), which read on the workflow page as a batch that never started and had no runs
+        // to list — for the whole of any delay the flow was parked on.
+        await waitForExpect(() => {
+            const triggered = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'triggered')
+            // Summed, not counted: the aggregator collapses a flush window's metrics onto one
+            // message per key, so a 3-page resolve produces fewer messages than persons.
+            expect(triggered.reduce((total, m: any) => total + m.value.count, 0)).toBe(personIds.length)
+            for (const metric of triggered) {
+                // Keyed on the batch run, which is what the batch metrics view queries. Keyed on
+                // the workflow id instead, the count is real but the page still reads zero.
+                expect((metric as any).value.app_source_id).toBe(parentRunId)
+                // Run-level, so no step id — the started and in-progress counters filter on the
+                // empty instance and would skip these otherwise.
+                expect((metric as any).value.instance_id).toBe('')
+            }
+
+            const rows = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map((m: any) => m.value)
+            expect(rows).toHaveLength(personIds.length)
+            for (const row of rows) {
+                // hog_flow, not hog_function: the invocations API filters on this, so a
+                // misclassified row is written but never listed.
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.function_id).toBe(flow.id)
+                expect(row.parent_run_id).toBe(parentRunId)
+                expect(row.status).toBe('running')
+            }
+        }, 10000)
     })
 
     // Regression test: batch-resolved invocations used to skip trigger_masking entirely

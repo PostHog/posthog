@@ -744,6 +744,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # A repo-less loop still needs `gh` for evidence gathering (PR digests, commit
+    # history), so provisioning mints the team-scoped read-only GitHub token for it
+    # (see get_readonly_github_token; a team with no usable integration skips the
+    # mint). Repo-pinned loops get the repository integration's token instead.
+    if not loop.repositories:
+        extra_state["github_read_access"] = True
     # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
     # so nothing sends a follow-up. CI-watching loops keep the default window so the
     # sandbox survives the orchestrator's CI follow-up cadence.
@@ -777,18 +783,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
-    team_id = loop.team_id
-    user_id = loop.created_by_id
-    task_id = str(task.id)
-    run_id = str(task_run.id)
-
     transaction.on_commit(
         lambda: _seed_skill_bundles_and_dispatch(
             task_run=task_run,
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            run_id=run_id,
+            team_id=loop.team_id,
+            user_id=loop.created_by_id,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
         )

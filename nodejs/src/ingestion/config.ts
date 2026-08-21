@@ -177,6 +177,12 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose person creation claims an existing unreachable posthog_person row holding
+    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
+    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
+    // for everyone else the probe is wasted load on the hottest write statement.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -322,6 +328,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
