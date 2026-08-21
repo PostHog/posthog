@@ -317,7 +317,7 @@ export interface taskTrackerSceneLogicActions {
 export interface taskTrackerSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        hasDesktopAccess: (desktopAccess: any) => boolean
+        hasDesktopAccess: (desktopAccess: CodeInviteAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
     }
 }
