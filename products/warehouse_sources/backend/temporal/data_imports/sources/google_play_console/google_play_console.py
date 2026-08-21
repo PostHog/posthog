@@ -298,10 +298,12 @@ class GooglePlayConsoleClient:
                 url=url,
                 body=error_body,
             )
-            # Carry Google's error body (e.g. the INVALID_ARGUMENT reason) on the exception, not just
-            # the URL that raise_for_status() would report, so error tracking shows why it failed.
+            # Keep the standard "NNN Client Error"/"NNN Server Error" phrasing that
+            # get_non_retryable_errors matches on, and append Google's body (e.g. the
+            # INVALID_ARGUMENT reason) so error tracking shows why the request failed.
+            error_kind = "Client Error" if response.status_code < 500 else "Server Error"
             raise requests.HTTPError(
-                f"{response.status_code} error for {url}: {error_body}",
+                f"{response.status_code} {error_kind} for url {url}: {error_body}",
                 response=response,
             )
 

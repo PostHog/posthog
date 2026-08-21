@@ -257,6 +257,23 @@ def test_non_2xx_api_responses_raise_with_the_error_body() -> None:
     assert raised.value.response is not None and raised.value.response.status_code == 400
 
 
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_error_messages_stay_matchable_by_the_non_retryable_map(status: int) -> None:
+    # get_non_retryable_errors() keys 401/403 on the "NNN Client Error" substring, so the message
+    # request() raises has to keep carrying it — otherwise the friendly copy and the non-retryable
+    # classification silently stop firing.
+    session = mock.MagicMock()
+    session.post.return_value = _token_response()
+    session.request.return_value = _response(status, text="The caller does not have permission")
+    client = _client(session)
+
+    with pytest.raises(requests.HTTPError) as raised:
+        client.request("GET", "apps/com.example/slowRenderingRateMetricSet")
+
+    assert f"{status} Client Error" in str(raised.value)
+    assert "The caller does not have permission" in str(raised.value)
+
+
 def test_list_apps_follows_pagination() -> None:
     session = mock.MagicMock()
     session.post.return_value = _token_response()
