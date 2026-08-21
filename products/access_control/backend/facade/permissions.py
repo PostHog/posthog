@@ -7,7 +7,10 @@ internal early return cannot bypass it: a `*`-scoped token that passes `APIScope
 still limited here.
 """
 
-from typing import Any
+from django.http import HttpRequest
+
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 from posthog.permissions import ScopeBasePermission, get_organization_from_view
 
@@ -22,7 +25,7 @@ class SurfaceAccessLimitPermission(ScopeBasePermission):
     action's read or write nature the same way `APIScopePermission` does, so the two cannot
     disagree about what counts as a write."""
 
-    def has_permission(self, request: Any, view: Any) -> bool:
+    def has_permission(self, request: HttpRequest | Request, view: APIView) -> bool:
         # Cheap exit first: almost every request has no classified surface. Classification
         # is two isinstance checks and no query.
         if classify_surface(request) is None:

@@ -5,14 +5,18 @@ a personal API key, a public share link, an impersonated session. A surface limi
 organization-wide cap on what any principal can do through one surface. The MCP server is
 the only surface with limits today.
 
-The class `SurfaceAccessLimitPermission` in facade/permissions.py is the first consumer. It denies
-write actions when the organization limits the request's surface below editor. The
+The class `SurfaceAccessLimitPermission` in facade/permissions.py is the first consumer. It
+denies actions that need more than the surface's limit allows. The
 access-control facade's `decide()` will also read this module later, to apply the same
 limit to object-level decisions. All enforcement points read one module, so they cannot
 disagree about the configured limits.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from django.http import HttpRequest
+
+from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
@@ -28,10 +32,8 @@ if TYPE_CHECKING:
 # credential's scopes when the token is created.
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
-WRITE_LIMITED_LEVELS = {SurfaceAccessLimit.MaxLevel.NONE, SurfaceAccessLimit.MaxLevel.VIEWER}
 
-
-def classify_surface(request: Any) -> str | None:
+def classify_surface(request: HttpRequest | Request) -> str | None:
     """Returns the access surface of this request. Returns None for paths that have no
     surface policies."""
     authenticator = getattr(request, "successful_authenticator", None)
@@ -42,23 +44,28 @@ def classify_surface(request: Any) -> str | None:
     return None
 
 
-def limit_denial_for_request(request: Any, organization: "Organization", resource: str, writes: bool) -> str | None:
+def limit_denial_for_request(
+    request: HttpRequest | Request, organization: "Organization", resource: str, writes: bool
+) -> str | None:
     """Makes the full surface-limit decision for one request. Returns a denial message for
     the user when the organization limits the request's surface below what the action needs.
-    Returns None to allow the request.
+    Returns None to allow the request. A `"none"` limit denies reads and writes both.
 
     This function contains all the policy: surface classification, the feature-entitlement
     check, the row lookup, and the message text. Enforcement points (`SurfaceAccessLimitPermission`
     today, the facade's `decide()` later) apply the result and add no policy of their own."""
-    if not writes:
-        return None
     surface = classify_surface(request)
     if surface is None:
         return None
     if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
         return None
     limit = surface_limit(organization, surface, resource)
-    if limit in WRITE_LIMITED_LEVELS:
+    if limit == SurfaceAccessLimit.MaxLevel.NONE:
+        return (
+            "Your organization has disabled MCP access. "
+            "An organization admin can change this in your organization settings."
+        )
+    if writes and limit == SurfaceAccessLimit.MaxLevel.VIEWER:
         return (
             "Your organization restricts MCP access to read-only. "
             "An organization admin can change this in your organization settings."

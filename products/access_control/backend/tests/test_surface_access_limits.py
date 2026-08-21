@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest, BaseTest
 
+from django.http import HttpResponse
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -44,7 +46,7 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         )
         self.client.logout()
 
-    def _request(self, method: str, body: dict | None = None, mcp: bool = True):
+    def _request(self, method: str, body: dict | None = None, mcp: bool = True) -> HttpResponse:
         return getattr(self.client, method)(
             f"/api/projects/{self.team.id}/feature_flags/",
             body or {},
@@ -68,6 +70,14 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
 
         response = self._request("post", {"key": f"flag-{_name}", "name": "flag"}, mcp=mcp)
         assert response.status_code == 201
+
+    def test_disabled_surface_denies_reads_too(self) -> None:
+        SurfaceAccessLimit.objects.create(organization=self.organization, surface="mcp", max_level="none")
+
+        read = self._request("get")
+        assert read.status_code == 403
+        assert "disabled" in read.json()["detail"]
+        assert self._request("post", {"key": "mcp-e2e-disabled", "name": "e2e"}).status_code == 403
 
     def test_resource_exception_lets_that_resource_write(self) -> None:
         SurfaceAccessLimit.objects.create(organization=self.organization, surface="mcp", max_level="viewer")
