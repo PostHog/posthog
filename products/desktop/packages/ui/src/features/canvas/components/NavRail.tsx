@@ -1,11 +1,4 @@
-import {
-  BellIcon,
-  EnvelopeSimple,
-  GearSix,
-  HouseSimple,
-  Lightning,
-  SquaresFourIcon,
-} from "@phosphor-icons/react";
+import { BellIcon, GearSix } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -18,21 +11,16 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
-import {
-  ANALYTICS_EVENTS,
-  type SidebarNavItem,
-} from "@posthog/shared/analytics-events";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
+import {
+  paneForView,
+  RAIL_DESTINATIONS,
+  type RailCounts,
+  type RailDestination,
+} from "@posthog/ui/features/canvas/components/railDestinations";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
-import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import {
-  type NavRailPane,
-  useNavRailStore,
-} from "@posthog/ui/features/canvas/stores/navRailStore";
-import {
-  formatHotkey,
-  SHORTCUTS,
-} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
@@ -40,14 +28,6 @@ import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSetting
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
-import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
-import {
-  navigateToActivity,
-  navigateToHome,
-  navigateToInbox,
-  navigateToLoops,
-  navigateToWebsiteCommandCenter,
-} from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
@@ -178,11 +158,11 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
  */
 function ActivityNavItem({
   isActive,
-  unreadCount,
+  badge,
   onClick,
 }: {
   isActive: boolean;
-  unreadCount: number;
+  badge: ReactNode;
   onClick: () => void;
 }) {
   const bell = (
@@ -191,34 +171,12 @@ function ActivityNavItem({
       label="Activity"
       isActive={isActive}
       onClick={onClick}
-      badge={<CountBadge count={unreadCount} className={ICON_BADGE_CLASS} />}
+      badge={badge}
     />
   );
 
   if (isActive) return bell;
   return <ActivityHoverPopover trigger={bell} />;
-}
-
-/**
- * Which destination a route belongs to, so a deep link, a back button or a
- * ⌘1-9 jump lights the same entry the rail would have. Anything reached through
- * the space tree — a channel, a task, a new-task screen — belongs to Spaces.
- */
-function paneForView(viewType: string): NavRailPane {
-  switch (viewType) {
-    case "home":
-      return "home";
-    case "inbox":
-      return "inbox";
-    case "command-center":
-      return "command-center";
-    case "loops":
-      return "loops";
-    case "activity":
-      return "activity";
-    default:
-      return "spaces";
-  }
 }
 
 /**
@@ -236,26 +194,36 @@ export function NavRail() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
-  const { counts } = useInboxAllReports({
+  const { counts: inboxCounts } = useInboxAllReports({
     ignoreFilters: true,
     refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
   const commandCenterCount = useCommandCenterActiveCount();
+  const counts: RailCounts = {
+    inbox: inboxCounts.pulls,
+    activity: unseenActivity,
+    commandCenter: commandCenterCount,
+  };
   const railPane = useNavRailStore((s) => s.pane);
   const setRailPane = useNavRailStore((s) => s.setPane);
   const inWebsiteTree = useRouterState({
     select: (s) => s.location.pathname.startsWith("/website"),
   });
 
-  const withTrack = (item: SidebarNavItem, action: () => void) => () => {
-    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-      item,
-      in_more: false,
-      layout: "channels",
-    });
-    action();
-  };
+  // Selecting the destination is the whole interaction; what it does beyond
+  // that is the destination's own business.
+  const pick =
+    ({ pane, analyticsId, onPick }: RailDestination) =>
+    () => {
+      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+        item: analyticsId,
+        in_more: false,
+        layout: "channels",
+      });
+      setRailPane(pane);
+      onPick?.({ inWebsiteTree });
+    };
 
   // Follow the route, but only when the route itself changes: Spaces and
   // Activity deliberately leave the URL alone, and re-deriving on every render
@@ -264,22 +232,6 @@ export function NavRail() {
   useEffect(() => {
     setRailPane(routePane);
   }, [routePane, setRailPane]);
-
-  const go = (pane: NavRailPane, navigate?: () => void) => () => {
-    setRailPane(pane);
-    navigate?.();
-  };
-
-  // Spaces and Activity draw into the content pane the /website layout owns, so
-  // they only work from inside that tree. Inbox and Loops still live in /code —
-  // picked from there, Activity would set its pane and then have nowhere to
-  // draw, leaving the reader looking at the inbox with a dead feed beside it.
-  // From inside /website it still navigates nothing, which is what lets Spaces
-  // put you back on the screen Activity was covering.
-  const goActivity = () => {
-    setRailPane("activity");
-    if (!inWebsiteTree) navigateToActivity();
-  };
 
   return (
     // One provider for the rail: once any tooltip is up, moving to its
@@ -292,94 +244,61 @@ export function NavRail() {
         className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
-        <NavIcon
-          icon={
-            <HouseSimple
-              size={16}
-              weight={railPane === "home" ? "fill" : "regular"}
-            />
-          }
-          label="Home"
-          isActive={railPane === "home"}
-          onClick={withTrack("home", go("home", navigateToHome))}
-        />
-        <NavIcon
-          icon={
-            <SquaresFourIcon
-              size={16}
-              weight={railPane === "spaces" ? "fill" : "regular"}
-            />
-          }
-          label="Spaces"
-          isActive={railPane === "spaces"}
-          // Always the list, even from inside a space: this is the entry to the
-          // tree, and the space you were in stays scoped behind it — the route
-          // and the pane beside it don't move, so nothing is lost by looking.
-          onClick={withTrack("spaces", go("spaces", showChannelList))}
-        />
-        <ActivityNavItem
-          isActive={railPane === "activity"}
-          unreadCount={unseenActivity}
-          onClick={withTrack("activity", goActivity)}
-        />
-        <NavIcon
-          icon={
-            <EnvelopeSimple
-              size={16}
-              weight={railPane === "inbox" ? "fill" : "regular"}
-            />
-          }
-          label="Inbox"
-          shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={railPane === "inbox"}
-          onClick={withTrack("inbox", go("inbox", navigateToInbox))}
-          badge={
-            <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
-        />
-        <NavIcon
-          icon={
-            <Lightning
-              size={16}
-              weight={railPane === "command-center" ? "fill" : "regular"}
-            />
-          }
-          label="Command Center"
-          isActive={railPane === "command-center"}
-          onClick={withTrack(
-            "command_center",
-            go("command-center", navigateToWebsiteCommandCenter),
-          )}
-          badge={
+        {RAIL_DESTINATIONS.filter(
+          ({ enabled }) => enabled?.({ loops: loopsEnabled }) ?? true,
+        ).map((destination) => {
+          const { pane, label, Icon, count, countTone } = destination;
+          const isActive = railPane === pane;
+          const badge = (
             <CountBadge
-              count={commandCenterCount}
-              tone="neutral"
+              count={count?.(counts) ?? 0}
+              tone={countTone}
               className={ICON_BADGE_CLASS}
             />
-          }
-        />
-        {loopsEnabled ? (
-          <NavIcon
-            icon={
-              <LoopIcon
-                size={16}
-                weight={railPane === "loops" ? "fill" : "regular"}
+          );
+          const onClick = pick(destination);
+
+          if (pane === "activity") {
+            return (
+              <ActivityNavItem
+                key={pane}
+                isActive={isActive}
+                badge={badge}
+                onClick={onClick}
               />
-            }
-            label="Loops"
-            isActive={railPane === "loops"}
-            onClick={withTrack("loops", go("loops", navigateToLoops))}
+            );
+          }
+          return (
+            <NavIcon
+              key={pane}
+              icon={<Icon size={16} weight={isActive ? "fill" : "regular"} />}
+              label={label}
+              shortcut={destination.shortcut}
+              isActive={isActive}
+              onClick={onClick}
+              badge={badge}
+            />
+          );
+        })}
+        {/* The foot of the rail: what you reach for, rather than where you
+            are. Neither owns a pane, so neither is ever lit. */}
+        <div className="mt-auto flex flex-col items-center gap-1.5">
+          <NavIcon
+            icon={<GearSix size={16} />}
+            label="Settings"
+            isActive={false}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                item: "configure",
+                in_more: false,
+                layout: "channels",
+              });
+              openSettings();
+            }}
           />
-        ) : null}
-        <div className="mt-auto" />
-        <NavIcon
-          icon={<GearSix size={16} />}
-          label="Settings"
-          isActive={false}
-          onClick={withTrack("configure", () => openSettings())}
-        />
-        <div className="my-0.5 w-5 shrink-0 border-border border-t" />
-        <ProjectSwitcher appearance="icon" />
+          <div className="my-0.5 w-5 shrink-0 border-border border-t" />
+          <ProjectSwitcher appearance="icon" />
+        </div>
       </div>
     </TooltipProvider>
   );

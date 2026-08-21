@@ -26,13 +26,12 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
+import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
-import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
@@ -45,11 +44,6 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
-import {
-  navigateToChannelDashboard,
-  navigateToChannelTask,
-  navigateToTaskDetail,
-} from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo } from "react";
@@ -68,8 +62,7 @@ export function ActivityRow({
   currentUser,
   blockedTaskIds,
   surface = "activity",
-  onNavigate,
-  onSelect,
+  onActivate,
   isSelected = false,
   compact = false,
 }: {
@@ -86,12 +79,12 @@ export function ActivityRow({
    */
   blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
-  onNavigate?: () => void;
   /**
-   * Read the row beside the feed instead of navigating to it. Set by the rail's
-   * Activity pane, where routing away would take the feed off the screen.
+   * What opening the row means on this surface. The row marks read, asks for
+   * the comment to be focused, and hands over — where it goes next is the
+   * feed's business, not the row's.
    */
-  onSelect?: (item: TaskActivityItem) => void;
+  onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
   compact?: boolean;
 }) {
@@ -122,26 +115,7 @@ export function ActivityRow({
         .getState()
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
-    onNavigate?.();
-    if (onSelect) {
-      onSelect(item);
-      return;
-    }
-    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
-      useCanvasChatPanelStore.getState().openComments();
-      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
-      return;
-    }
-    // The channel thread route is the deep-link target; unfiled tasks fall
-    // back to the plain task view.
-    if (channelId) {
-      if (item.commentId) {
-        useThreadPanelStore.getState().setCollapsed(false);
-      }
-      navigateToChannelTask(channelId, item.taskId);
-    } else {
-      navigateToTaskDetail(item.taskId);
-    }
+    onActivate(item);
   };
 
   return (
@@ -358,6 +332,7 @@ export function ActivityView() {
               channelId={item.channelId}
               onOpen={markRead}
               onMarkRead={markRead}
+              onActivate={openActivityItem}
               currentUser={currentUser}
               blockedTaskIds={blockedTaskIds}
             />

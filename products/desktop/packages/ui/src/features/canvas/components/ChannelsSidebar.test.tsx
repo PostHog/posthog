@@ -94,11 +94,16 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { ChannelRouteSync } from "./ChannelRouteSync";
 import { ChannelsSidebar } from "./ChannelsSidebar";
 
+// The shell mounts the route-scoping owner beside the column; this harness
+// mounts the same pair, because most of what the column shows is downstream of
+// which space the route scoped.
 function renderSidebar() {
   return render(
     <Theme>
+      <ChannelRouteSync />
       <ChannelsSidebar />
     </Theme>,
   );
@@ -198,6 +203,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ME.id;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -227,6 +233,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = undefined;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -234,6 +241,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ENG.id;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -383,6 +391,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -391,6 +400,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -453,12 +463,14 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );

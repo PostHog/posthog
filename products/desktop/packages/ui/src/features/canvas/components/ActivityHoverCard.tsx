@@ -17,7 +17,7 @@ export function ActivityHoverCard({
       sideOffset={8}
       className="max-h-[520px] w-[380px] gap-0 overflow-hidden p-0"
     >
-      <ActivityFeedList onNavigate={onClose} className="max-h-[520px]" />
+      <ActivityFeedList onOpened={onClose} className="max-h-[520px]" />
     </PopoverContent>
   );
 }

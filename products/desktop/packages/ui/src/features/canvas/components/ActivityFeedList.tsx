@@ -15,6 +15,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
+import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
@@ -29,14 +30,14 @@ import {
 } from "./activityFeed";
 
 interface ActivityFeedListProps {
-  /** Called when a row navigates away — the popover uses it to close itself. */
-  onNavigate?: () => void;
   /**
-   * Read the picked row in the pane beside the feed instead of routing to it.
-   * The rail's Activity pane sets this; the code layout's popover does not,
-   * because it has no pane to render into.
+   * What opening a row does. Defaults to navigating to it; the rail's Activity
+   * pane reads it into the pane beside the feed instead, because routing away
+   * would take the feed off the screen you are reading it from.
    */
-  onSelectItem?: (item: TaskActivityItem) => void;
+  onActivate?: (item: TaskActivityItem) => void;
+  /** Called after a row is opened — the popover uses it to close itself. */
+  onOpened?: () => void;
   selectedId?: string;
   className?: string;
 }
@@ -47,8 +48,8 @@ interface ActivityFeedListProps {
  * mark-all-read affordance and the unreads filter can't drift between them.
  */
 export function ActivityFeedList({
-  onNavigate,
-  onSelectItem,
+  onActivate = openActivityItem,
+  onOpened,
   selectedId,
   className,
 }: ActivityFeedListProps) {
@@ -147,8 +148,10 @@ export function ActivityFeedList({
                 currentUser={currentUser}
                 blockedTaskIds={blockedTaskIds}
                 surface="activity_panel"
-                onNavigate={onNavigate}
-                onSelect={onSelectItem}
+                onActivate={(activated) => {
+                  onActivate(activated);
+                  onOpened?.();
+                }}
                 isSelected={item.id === selectedId}
                 compact
               />

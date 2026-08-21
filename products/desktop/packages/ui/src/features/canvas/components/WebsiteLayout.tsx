@@ -28,6 +28,7 @@ import { ActivityDetailPane } from "@posthog/ui/features/canvas/components/Activ
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
+import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
@@ -41,13 +42,12 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
-import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
 import {
@@ -55,17 +55,16 @@ import {
   SWITCHER_WIDTH_PX,
   useRightPanelOpen,
 } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
-import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import {
@@ -355,26 +354,13 @@ export function WebsiteLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const params = useParams({ strict: false });
 
-  // App pages mirrored into the Channels space (Home, Skills, MCP servers,
-  // Command Center) are channel-less and push their title into the shared
-  // header store. With no code HeaderRow here, surface that title in this bar so
-  // the mirrored pages read the same as in Code.
-  const headerContent = useHeaderStore((s) => s.content);
-
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
 
   // Activity reads a task into this pane without routing to it, so the session
-  // the chrome is about comes from the feed's selection rather than the URL.
-  // Everything downstream — the header's actions, the right panel, which space
-  // the mention rules come from — has to follow that same session.
-  const railPane = useNavRailStore((s) => s.pane);
-  const selectedActivity = useActivityDetailStore((s) => s.selected);
-  const showActivityDetail = spacesLayout && railPane === "activity";
-  const taskId = showActivityDetail ? selectedActivity?.taskId : params.taskId;
-  const taskChannelId = showActivityDetail
-    ? (selectedActivity?.channelId ?? undefined)
-    : channelId;
+  // this chrome is about is not always the one in the URL.
+  const { showsActivityDetail } = useRailSurface();
+  const { taskId, channelId: taskChannelId } = useActiveSession();
 
   const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
@@ -417,17 +403,7 @@ export function WebsiteLayout() {
           Hidden when the canvas toolbar is showing (grid / a single canvas),
           and skipped entirely when there is neither a title nor a session's
           actions to carry. */}
-      {!showToolbar && (headerContent || channelTask) && (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-1">
-          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
-            {headerContent}
-          </div>
-          {/* Rendered without a wrapper: the actions cap themselves at half the
-              bar, and a wrapper that hugs their content resolves that
-              percentage against itself, which clips them. */}
-          {channelTask && <TaskHeaderActions task={channelTask} />}
-        </div>
-      )}
+      {!showToolbar && <SpaceHeaderRow task={channelTask} />}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
@@ -480,12 +456,12 @@ export function WebsiteLayout() {
             it. */}
         <div className="isolate min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-            {showActivityDetail ? <ActivityDetailPane /> : <Outlet />}
+            {showsActivityDetail ? <ActivityDetailPane /> : <Outlet />}
           </MentionAvailabilityProvider>
         </div>
         {/* One panel at a time at the right of the content: the session's
             timeline, artifacts, comments, or changes. */}
-        {spacesLayout && <RightPanel taskId={taskId} />}
+        {spacesLayout && <RightPanel />}
       </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's

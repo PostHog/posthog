@@ -219,14 +219,8 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
         }}
         className={
           isOverlay
-            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${
-                drawEdge
-                  ? isLeft
-                    ? "left-0 border-r"
-                    : "right-0 border-l"
-                  : isLeft
-                    ? "left-0"
-                    : "right-0"
+            ? `absolute inset-y-0 z-50 flex h-full min-w-0 flex-col border-border bg-chrome transition-transform duration-200 ease-out motion-reduce:transition-none ${isLeft ? "left-0" : "right-0"} ${
+                drawEdge ? (isLeft ? "border-r" : "border-l") : ""
               } ${
                 // Shadow only while shown — at translateX(-100%) the panel's
                 // edge sits exactly on x=0 and an always-on shadow would paint

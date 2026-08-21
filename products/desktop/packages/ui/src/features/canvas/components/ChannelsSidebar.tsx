@@ -12,21 +12,17 @@ import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
-  clearKeepListForRoute,
-  shouldKeepListForRoute,
+  selectActivityItem,
+  useActivityDetailStore,
+} from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import {
   showChannelList,
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import {
-  railPaneHasSidebar,
-  showSpacesRailPane,
-  useNavRailStore,
-} from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
@@ -51,7 +47,6 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
 /**
@@ -190,68 +185,18 @@ export function ChannelsSidebar() {
 
   const archivedTaskIds = useArchivedTaskIds();
 
-  const params = useParams({ strict: false });
-  const routeChannelId = params.channelId;
-  const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
-  const { currentChannelId, channels } = useCurrentChannel({
-    enabled: channelsLayout,
-  });
-  useEffect(() => {
-    if (!channelsLayout) return;
-    // A route with no channel ends the navigation the latch was armed for. Left
-    // set, it would hold a later deep link to that channel on the list.
-    if (!routeChannelId) {
-      clearKeepListForRoute();
-      return;
-    }
-    setCurrentChannel(routeChannelId);
-    // Landing on a channel is a request to see the tree it lives in, so the
-    // rail comes back off Activity with it.
-    showSpacesRailPane();
-    // Landing on a channel — a deep link, a mention, ⌘1-9 — is a request to see
-    // it, so the slider follows the route even if the list was being browsed.
-    // Unless the navigation said otherwise: opening a session from the list's
-    // tree loads it without taking the tree off the screen.
-    if (!shouldKeepListForRoute(routeChannelId)) showChannelPane();
-  }, [channelsLayout, routeChannelId, setCurrentChannel]);
+  // Which space is scoped, and the slide that follows a route into it, are
+  // owned by ChannelRouteSync — this column is not always drawn, and the
+  // scoping has to happen either way.
+  const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
 
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
-  const railPane = useNavRailStore((s) => s.pane);
-  const selectActivity = useActivityDetailStore((s) => s.select);
+  const { showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;
-
-  const autoScopedRef = useRef(false);
-  useEffect(() => {
-    if (!channelsLayout) {
-      autoScopedRef.current = false;
-      return;
-    }
-    // A route-scoped channel wins over the default. Both effects run from the
-    // same render on a cold deep link, so without this guard the route effect
-    // writes its channel and this later effect immediately overwrites it with
-    // #me using the stale `currentChannelId` captured by that render.
-    if (routeChannelId || autoScopedRef.current || currentChannelId) return;
-    const me = channels.find((c) => c.channelType === "personal");
-    if (!me) return;
-    autoScopedRef.current = true;
-    setCurrentChannel(me.id);
-  }, [
-    channelsLayout,
-    channels,
-    currentChannelId,
-    routeChannelId,
-    setCurrentChannel,
-  ]);
-
-  // Home, Inbox, Command Center and Loops are whole-screen destinations with no
-  // list of their own. Nothing to dock, so the column goes rather than standing
-  // there empty — and with it the hover-peek strip, which would otherwise slide
-  // out a blank panel.
-  if (channelsLayout && !railPaneHasSidebar(railPane)) return null;
 
   return (
     <ResizableSidebar
@@ -292,11 +237,11 @@ export function ChannelsSidebar() {
           )}
 
           {channelsLayout ? (
-            railPane === "activity" ? (
+            showsActivityDetail ? (
               <ActivityFeedList
-                className="h-full"
+                className="min-h-0 flex-1"
                 selectedId={selectedActivityId}
-                onSelectItem={selectActivity}
+                onActivate={selectActivityItem}
               />
             ) : (
               <ChannelPanes

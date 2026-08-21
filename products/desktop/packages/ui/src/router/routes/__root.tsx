@@ -4,7 +4,7 @@ import {
   CaretRightIcon,
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import { Button, ButtonGroup } from "@posthog/quill";
+import { Button, ButtonGroup, cn } from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
@@ -20,6 +20,7 @@ import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/Browse
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
+import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import {
@@ -30,11 +31,8 @@ import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
-import {
-  railPaneHasSidebar,
-  useNavRailStore,
-} from "@posthog/ui/features/canvas/stores/navRailStore";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
@@ -211,15 +209,19 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
-  const railPane = useNavRailStore((state) => state.pane);
+  const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
   const sidebarOpen = useSidebarStore((s) => s.open);
-  // Whether a sidebar is actually on screen, not whether the user has one
-  // open: under the layout, a destination without a list drops the column
-  // whatever the open flag says, and the frame follows what is drawn.
-  const sidebarDocked =
-    sidebarOpen && (!channelsLayout || railPaneHasSidebar(railPane));
+  // Whether a column is actually on screen, not whether the user has one open:
+  // a destination with no list takes the column away whatever the open flag
+  // says, and the frame follows what is drawn.
+  const sidebarDocked = sidebarOpen && hasSidebar;
+  // The rounded corner belongs to whichever pane starts the framed inset: the
+  // sidebar when it is docked, this pane when it isn't and the rail holds the
+  // window edge. Without a rail there is nothing to inset from until the
+  // sidebar opens, which is the corner this pane kept before.
+  const framesOwnCorner = channelsLayout ? !sidebarDocked : sidebarDocked;
 
   const toggleSidebar = useSidebarStore((s) => s.toggle);
   const sidebarPeek = useSidebarPeekStore((s) => s.peek);
@@ -482,7 +484,7 @@ function RootLayout() {
           {/* Outside the sidebar on purpose: collapsing the sidebar (Cmd+B)
               must not take the destinations with it. */}
           {channelsLayout && <NavRail />}
-          <ChannelsSidebar />
+          {hasSidebar && <ChannelsSidebar />}
           {/* Content sits in a bordered, rounded card inset from the window
               edges — the framed pane from the design. The rounded corner
               belongs to whichever pane starts the inset: the sidebar when it
@@ -491,15 +493,13 @@ function RootLayout() {
               opens, which is the corner this pane kept before. */}
           <Box flexGrow="1" className="overflow-hidden">
             <Box
-              // A docked sidebar already draws this edge, so drawing it again
-              // here stacks two 1px lines into one thick seam.
-              className={`h-full overflow-hidden border-border border-t bg-background ${
-                sidebarDocked ? "" : "border-l"
-              } ${
-                (channelsLayout ? !sidebarDocked : sidebarDocked)
-                  ? "rounded-tl-sm"
-                  : ""
-              }`}
+              className={cn(
+                "h-full overflow-hidden border-border border-t bg-background",
+                // A docked sidebar already draws this edge, so drawing it again
+                // here stacks two 1px lines into one thick seam.
+                !sidebarDocked && "border-l",
+                framesOwnCorner && "rounded-tl-sm",
+              )}
             >
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
@@ -532,6 +532,10 @@ function RootLayout() {
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
         <ChannelHotkeys />
+        {/* Renders nothing — owns which space is scoped. The sidebar used to,
+            but the rail can take that column away and the scoping still has to
+            happen. */}
+        <ChannelRouteSync />
         {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
         <SpaceSwitcher
           tasks={visualTaskOrder}

@@ -26,6 +26,7 @@ import {
   SIDES,
   SWITCHER_WIDTH_PX,
 } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import {
   useSessionArtifactCount,
@@ -36,7 +37,6 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
 import { useParentWidth } from "@posthog/ui/primitives/hooks/useObservedWidth";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
 import {
   memo,
   type ReactNode,
@@ -218,11 +218,8 @@ function useDrawnSide(
 }
 
 /** Every side belongs to a session, so nothing below this runs elsewhere. */
-export function RightPanel({ taskId: override }: { taskId?: string } = {}) {
-  const routeTaskId = useParams({ strict: false }).taskId;
-  // The route names the session on every surface but one: Activity reads a task
-  // into the content pane without routing to it, so it hands the id over.
-  const taskId = override ?? routeTaskId;
+export function RightPanel() {
+  const { taskId } = useActiveSession();
   // Keyed by session: carrying per-session state across a navigation draws the
   // previous session's panel over the new one for a frame.
   return taskId ? <SessionRightPanel key={taskId} taskId={taskId} /> : null;

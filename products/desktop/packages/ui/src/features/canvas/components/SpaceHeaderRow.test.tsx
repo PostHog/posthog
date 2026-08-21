@@ -89,9 +89,10 @@ vi.mock("@posthog/ui/router/routeSkeletons", () => ({
 
 // Stands in for the real task view, which cannot be imported here (its module
 // graph reaches the workspace client). What matters is the shape it shares with
-// the real one: it publishes the layout's title row through the header store,
-// and it derives that row from the task it was handed. The task identity is
-// deliberately unstable, the way a live query's is mid-refetch.
+// the real one: it publishes the title row through the header store, and it
+// derives that row from the task it was handed. The task identity is
+// deliberately unstable, the way a live query's is mid-refetch — which is what
+// turns a subscription in the wrong place into a runaway.
 let taskDetailRenders = 0;
 vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
   TaskDetail: ({
@@ -116,8 +117,8 @@ import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { WebsiteLayout } from "./WebsiteLayout";
 
-describe("ActivityDetailPane", () => {
-  it("does not render itself in a loop with the header store", () => {
+describe("SpaceHeaderRow", () => {
+  it("keeps the header store off the layout that renders its writer", () => {
     useNavRailStore.setState({ pane: "activity" });
     useActivityDetailStore.setState({
       selected: { id: "a1", taskId: "task-1", channelId: "chan-1" } as never,
@@ -130,8 +131,8 @@ describe("ActivityDetailPane", () => {
         <WebsiteLayout />
       </QueryClientProvider>,
     );
-    // Without a render barrier this blows React's update depth: the layout
-    // subscribes to the header store that the task view writes to.
+    // If the layout subscribes to the header store again, every title write
+    // re-renders the screen that wrote it and this blows React's update depth.
     expect(taskDetailRenders).toBeLessThan(20);
   });
 });
