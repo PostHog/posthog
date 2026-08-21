@@ -157,11 +157,9 @@ A full queue drops and counts the drop rather than growing; Redis still holds th
 The service's compose entry sits behind the `ingestion` profile and builds from source, so run it from cargo instead:
 
 ```sh
-docker compose -f docker-compose.dev.yml up -d db redis7 kafka clickhouse objectstorage
+docker compose -f docker-compose.dev.yml up -d db redis7 kafka clickhouse
 DEBUG=1 python manage.py migrate_clickhouse
 cd rust && USAGE_INGESTION_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog \
-  USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL=redis://localhost:6379/2 \
-  OBJECT_STORAGE_BUCKET=posthog OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
   cargo run -p usage-ingestion
 ```
 
@@ -169,7 +167,7 @@ Then point a producer at it and turn its team matcher on:
 
 ```sh
 USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_EVENTS_TEAMS='*' ./bin/start
-FLAGS_USAGE_INGESTION_URL=http://localhost:7143 FLAGS_USAGE_INGESTION_TEAMS=all cargo run -p feature-flags
+FLAGS_USAGE_INGESTION_URL=http://localhost:7143 FLAGS_USAGE_INGESTION_TEAMS='*' cargo run -p feature-flags
 ```
 
 Records land within one flush interval:
