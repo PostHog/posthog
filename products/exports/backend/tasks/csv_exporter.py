@@ -420,19 +420,20 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             has_body=body is not None,
         )
         raise ValueError("This export request is no longer supported. Create a new export and try again.")
-    if exported_asset.source_authentication is None:
+    source_authentication = exported_asset.source_authentication
+    if source_authentication is None:
         _raise_invalid_export_authorization(exported_asset, "missing_authentication_source")
     next_url = None
     token_payload: dict[str, int | str | None] = {"id": exported_asset.created_by_id}
-    if exported_asset.source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
+    if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
         if not exported_asset.source_personal_api_key_id:
             _raise_invalid_export_authorization(exported_asset, "missing_personal_api_key")
         token_payload["personal_api_key_id"] = exported_asset.source_personal_api_key_id
-    elif exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
+    elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
         if not exported_asset.source_oauth_access_token_id:
             _raise_invalid_export_authorization(exported_asset, "missing_oauth_access_token")
         token_payload["oauth_access_token_id"] = exported_asset.source_oauth_access_token_id
-    elif exported_asset.source_authentication != ExportedAsset.SourceAuthentication.SESSION:
+    elif source_authentication != ExportedAsset.SourceAuthentication.SESSION:
         _raise_invalid_export_authorization(exported_asset, "unsupported_authentication_source")
     access_token = encode_jwt(
         token_payload,
