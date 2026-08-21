@@ -5,6 +5,7 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierH
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -61,8 +62,9 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
-        if self._b.breakdown_injector:
+        # Inject breakdown columns into the query AST. The metric-event injector is funnel-only,
+        # so ratio metrics always use the property-from-exposure BreakdownInjector.
+        if isinstance(self._b.breakdown_injector, BreakdownInjector):
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query)
 
         return query
@@ -197,8 +199,9 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
-        if self._b.breakdown_injector:
+        # Inject breakdown columns into the query AST. The metric-event injector is funnel-only,
+        # so ratio metrics always use the property-from-exposure BreakdownInjector.
+        if isinstance(self._b.breakdown_injector, BreakdownInjector):
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query, winsorized=True)
 
         return query
