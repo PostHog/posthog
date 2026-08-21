@@ -1417,6 +1417,12 @@ def _message_tags_bot(event: dict[str, Any], integration: Integration) -> bool:
     text = event.get("text") or ""
     if "<@" not in text:
         return False
+    # Mirror the ``app_mention`` gate: when every mention is glued to a ``/`` the
+    # message names package paths rather than tagging the app, and the
+    # ``app_mention`` copy was dropped as ``path_mention`` — this copy is the
+    # only one left, so it must stay in the untagged pipeline.
+    if _every_mention_is_a_path_segment(event):
+        return False
     bot_user_id = get_cached_bot_user_id(SlackIntegration(integration), integration)
     if not bot_user_id:
         return False
