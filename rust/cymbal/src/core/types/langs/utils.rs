@@ -23,6 +23,21 @@ pub fn is_kotlin_compose_source(source: &str) -> bool {
         || normalized.contains("/kotlin/org/jetbrains/compose/")
 }
 
+// Browser extensions inject scripts under their own URL schemes. Safari masks such scripts as
+// `webkit-masked-url://hidden/`, and Chrome and Firefox use `chrome-extension://` and
+// `moz-extension://`. Frames from these sources are not the page's own code, so we must not
+// mark them `in_app`.
+pub fn is_extension_source(source: &str) -> bool {
+    const EXTENSION_SCHEMES: [&str; 3] = [
+        "webkit-masked-url://",
+        "chrome-extension://",
+        "moz-extension://",
+    ];
+    EXTENSION_SCHEMES
+        .iter()
+        .any(|scheme| source.starts_with(scheme))
+}
+
 pub fn get_token_context(token: &Token<'_>, line: usize, context_lines: usize) -> Option<Context> {
     let src = token.get_source_view()?;
     let lines = src.lines();
