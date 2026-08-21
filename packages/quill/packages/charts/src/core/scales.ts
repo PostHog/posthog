@@ -52,9 +52,12 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
         if (s.visibility?.excluded) {
             continue
         }
+        // `data` is typed `number[]`, but a series can reach here with a null `data` from a query
+        // that returned no points — iterating it directly throws. Treat a missing array as empty.
+        const data = s.data ?? []
         // A confidence ribbon's lower bound (`fill.lowerData`) is part of the data's visible
         // extent, so it must widen the axis too — otherwise the band clips at the top series.
-        for (const v of s.fill?.lowerData ? [...s.data, ...s.fill.lowerData] : s.data) {
+        for (const v of s.fill?.lowerData ? [...data, ...s.fill.lowerData] : data) {
             if (v == null || !isFinite(v)) {
                 continue
             }
