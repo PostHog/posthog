@@ -16,6 +16,38 @@ MENTION_HELP_REDIRECT = (
 )
 
 
+def _reply(
+    slack: SlackIntegration,
+    *,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    text: str,
+    trigger_ts: str = "",
+    command_prefix: str,
+) -> None:
+    """Answer a command on the surface that invoked it.
+
+    A slash command is visible only to the person who ran it, so a public reply would appear in
+    the channel with nothing prompting it. Answering ephemerally keeps the exchange between the
+    bot and the caller. A mention is already public, so its reply threads under the message that
+    asked, where everyone reading the mention can follow it.
+
+    The ``project_*`` handlers below bypass this and stay ephemeral on both surfaces, because
+    they name projects and organizations the rest of the channel has no reason to see.
+    """
+    if command_prefix != MENTION_COMMAND_PREFIX:
+        # A slash command run outside a thread has no anchor, and an empty ``thread_ts`` is not
+        # one. Omitting it places the reply at channel root, matching post_slack_thread_reply.
+        if thread_ts:
+            slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        else:
+            slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, text=text)
+        return
+
+    post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts, text=text)
+
+
 def _handle_help(
     slack: SlackIntegration,
     integration: Integration,
@@ -31,11 +63,13 @@ def _handle_help(
     # The slash command is the help surface, so a mention only points at it. Returning before the
     # admin lookup keeps this reply off the Slack users.info call the listing below needs.
     if command_prefix == MENTION_COMMAND_PREFIX:
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text=MENTION_HELP_REDIRECT,
         )
         return
@@ -62,8 +96,14 @@ def _handle_help(
     lines.append(f"`{command_prefix} help` — Show this message\n")
     lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
 
-    post_slack_thread_reply(
-        slack.client, channel=channel, thread_ts=thread_ts, trigger_ts=trigger_ts, text="\n".join(lines)
+    _reply(
+        slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        trigger_ts=trigger_ts,
+        command_prefix=command_prefix,
+        text="\n".join(lines),
     )
 
 
@@ -72,6 +112,7 @@ def _handle_rules_list(
     integration: Integration,
     channel: str,
     thread_ts: str,
+    slack_user_id: str,
     *,
     trigger_ts: str = "",
     command_prefix: str = MENTION_COMMAND_PREFIX,
@@ -80,11 +121,13 @@ def _handle_rules_list(
 
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     if not rules:
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text=(
                 f'No routing rules configured. Add one with `{command_prefix} rules add "description" '
                 "[org/repo]`. Omit the repo to pick from a list."
@@ -93,11 +136,13 @@ def _handle_rules_list(
         return
 
     lines = [f"{i + 1}. {r.rule_text} → `{r.repository}`" for i, r in enumerate(rules)]
-    post_slack_thread_reply(
-        slack.client,
+    _reply(
+        slack,
         channel=channel,
         thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
         trigger_ts=trigger_ts,
+        command_prefix=command_prefix,
         text="*Routing rules:*\n" + "\n".join(lines),
     )
 
@@ -110,8 +155,10 @@ def _handle_rules_add(
     user_id: int,
     rule_text: str,
     repository: str,
+    slack_user_id: str,
     *,
     trigger_ts: str = "",
+    command_prefix: str = MENTION_COMMAND_PREFIX,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -119,22 +166,26 @@ def _handle_rules_add(
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text="No connected GitHub repositories found for your account.",
         )
         return
 
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text=f"Repository `{repository}` is not connected to this project.",
         )
         return
@@ -153,11 +204,13 @@ def _handle_rules_add(
         priority=max_priority,
         created_by_id=user_id,
     )
-    post_slack_thread_reply(
-        slack.client,
+    _reply(
+        slack,
         channel=channel,
         thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
         trigger_ts=trigger_ts,
+        command_prefix=command_prefix,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
     )
 
@@ -168,6 +221,7 @@ def _handle_rules_remove(
     channel: str,
     thread_ts: str,
     rule_numbers: list[int] | None,
+    slack_user_id: str,
     *,
     trigger_ts: str = "",
     command_prefix: str = MENTION_COMMAND_PREFIX,
@@ -175,11 +229,13 @@ def _handle_rules_remove(
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     if not rule_numbers or any(n < 1 for n in rule_numbers):
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text=f"Please provide valid rule number(s). Use `{command_prefix} rules list` to see current rules.",
         )
         return
@@ -187,11 +243,13 @@ def _handle_rules_remove(
     rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
     invalid = [n for n in rule_numbers if n > len(rules)]
     if invalid:
-        post_slack_thread_reply(
-            slack.client,
+        _reply(
+            slack,
             channel=channel,
             thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
             trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
             text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `{command_prefix} rules list` to see them.",
         )
         return
@@ -204,11 +262,13 @@ def _handle_rules_remove(
         rule.delete()
 
     removed.reverse()
-    post_slack_thread_reply(
-        slack.client,
+    _reply(
+        slack,
         channel=channel,
         thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
         trigger_ts=trigger_ts,
+        command_prefix=command_prefix,
         text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
     )
 
@@ -502,21 +562,32 @@ def dispatch_rules_command(
 
     ``command_prefix`` is the entry-point token surfaced in user-facing help and
     error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
-    surface. Defaults preserve the mention copy for existing callers.
+    surface. Defaults preserve the mention copy for existing callers. It also
+    selects where every reply lands, via ``_reply``.
     """
     if command.action == "help":
         _handle_help(
             slack, integration, channel, thread_ts, slack_user_id, trigger_ts=trigger_ts, command_prefix=command_prefix
         )
     elif command.action == "list":
-        _handle_rules_list(slack, integration, channel, thread_ts, trigger_ts=trigger_ts, command_prefix=command_prefix)
+        _handle_rules_list(
+            slack,
+            integration,
+            channel,
+            thread_ts,
+            slack_user_id,
+            trigger_ts=trigger_ts,
+            command_prefix=command_prefix,
+        )
     elif command.action == "add":
         if not command.repository:
-            post_slack_thread_reply(
-                slack.client,
+            _reply(
+                slack,
                 channel=channel,
                 thread_ts=thread_ts,
+                slack_user_id=slack_user_id,
                 trigger_ts=trigger_ts,
+                command_prefix=command_prefix,
                 text=f'Please specify the repo inline: `{command_prefix} rules add "description" org/repo`.',
             )
         else:
@@ -528,7 +599,9 @@ def dispatch_rules_command(
                 user_id,
                 command.rule_text or "",
                 command.repository,
+                slack_user_id,
                 trigger_ts=trigger_ts,
+                command_prefix=command_prefix,
             )
     elif command.action == "remove":
         _handle_rules_remove(
@@ -537,6 +610,7 @@ def dispatch_rules_command(
             channel,
             thread_ts,
             command.rule_numbers,
+            slack_user_id,
             trigger_ts=trigger_ts,
             command_prefix=command_prefix,
         )
