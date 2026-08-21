@@ -1,7 +1,7 @@
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 
-def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:
+def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
     # Keep the variables in an insight up to date based on variable code names that exist
     current_variables = stale_variables
     insight_variables = latest_variables

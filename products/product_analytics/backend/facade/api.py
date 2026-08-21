@@ -4,17 +4,113 @@ Facade for product_analytics.
 The public entry point core and other products import product-analytics
 functionality from; ``facade.models`` carries the sanctioned model-class
 crossings. Functions here stay thin and delegate to ``backend.logic``.
+
+Saved query variables and insight-view tracking cross as data: callers pass a team id and get
+``InsightVariableDefinition`` contracts back, so the ``InsightVariable`` and ``InsightViewed``
+model classes stay inside the product. Every read scopes to the team by ``team_id=``, which the
+models' ``RootTeamMixin`` widens to the project's root team — the team rows are actually written
+against.
 """
 
+from collections.abc import Collection, Mapping
+from datetime import datetime
 from typing import Any
+from uuid import UUID
+
+from django.utils.timezone import now
 
 from products.product_analytics.backend import insight_test_account_filters, logic
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 from products.product_analytics.backend.insight_test_account_filters import TestAccountFilterUpdate
+from products.product_analytics.backend.models.insight import InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
-def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariable]) -> dict:
-    """Refresh an insight's stored variables against the team's latest ``InsightVariable`` rows."""
+def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinition:
+    return InsightVariableDefinition(
+        id=variable.id,
+        name=variable.name,
+        code_name=variable.code_name,
+        type=variable.type,
+        default_value=variable.default_value,
+        is_multi=variable.is_multi,
+    )
+
+
+def insight_variables_for_team(team_id: int) -> list[InsightVariableDefinition]:
+    """Every saved query variable on the team's project, ordered by name."""
+    variables = InsightVariable.objects.filter(team_id=team_id).order_by("name")
+    return [_to_variable_definition(variable) for variable in variables]
+
+
+def insight_variables_by_ids(team_id: int, ids: Collection[str | UUID]) -> list[InsightVariableDefinition]:
+    """The team's saved query variables with these ids.
+
+    Ids reach the query as given: a value that is not a UUID raises, rather than being dropped,
+    so a caller that accepts unvalidated ids keeps whatever error it raises today.
+    """
+    if not ids:
+        return []
+    variables = InsightVariable.objects.filter(team_id=team_id, id__in=ids)
+    return [_to_variable_definition(variable) for variable in variables]
+
+
+def insight_variables_by_code_names(team_id: int, code_names: Collection[str]) -> list[InsightVariableDefinition]:
+    """The team's saved query variables with these code names."""
+    if not code_names:
+        return []
+    variables = InsightVariable.objects.filter(team_id=team_id, code_name__in=code_names)
+    return [_to_variable_definition(variable) for variable in variables]
+
+
+def create_insight_variable(
+    *,
+    team_id: int,
+    name: str,
+    type: str,
+    code_name: str | None = None,
+    default_value: Any = None,
+    is_multi: bool = False,
+) -> InsightVariableDefinition:
+    """Add a saved query variable to the team. Runs in the caller's transaction."""
+    variable = InsightVariable.objects.create(
+        team_id=team_id,
+        name=name,
+        type=type,
+        code_name=code_name,
+        default_value=default_value,
+        is_multi=is_multi,
+    )
+    return _to_variable_definition(variable)
+
+
+def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
+    """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
+
+    Shared and embedded renders have no viewer, so ``team_id`` and ``user_id`` are both optional:
+    left out, the view is recorded against the anonymous row for the insight.
+    """
+    InsightViewed.objects.update_or_create(
+        insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
+    )
+
+
+def record_insight_views(
+    *, team_id: int | None, user_id: int | None, last_viewed_at_by_insight_id: Mapping[int, datetime]
+) -> None:
+    """Record one view per insight in a single insert. Runs in the caller's transaction.
+
+    No conflict handling: a viewer that already has a row for one of these insights makes the
+    whole insert fail, which is the caller's to catch.
+    """
+    InsightViewed.objects.bulk_create(
+        InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=last_viewed_at)
+        for insight_id, last_viewed_at in last_viewed_at_by_insight_id.items()
+    )
+
+
+def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
+    """Refresh an insight's stored variables against the team's latest variable definitions."""
     return logic.map_stale_to_latest(stale_variables, latest_variables)
 
 
