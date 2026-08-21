@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Literal
 from django.conf import settings
 from django.db import transaction
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.credentials import AWSKeyPair
@@ -19,6 +20,8 @@ from posthog.security.url_validation import is_url_allowed
 from . import common, model
 
 _AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
+
+LOGGER = structlog.get_logger(__name__)
 
 
 def _read_aws_credentials(integration: model.Integration) -> AWSKeyPair:
@@ -164,8 +167,9 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
                 }
             ),
         )
-    except (ClientError, BotoCoreError) as e:
-        raise common.IntegrationError(f"Could not validate AWS role ARN: {e}")
+    except (ClientError, BotoCoreError):
+        LOGGER.exception("Assume role failed")
+        raise common.IntegrationError("Could not validate AWS role ARN due to an internal error. Try again later.")
 
     external_session = boto3.Session(
         aws_access_key_id=first_response["Credentials"]["AccessKeyId"],
