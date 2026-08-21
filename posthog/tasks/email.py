@@ -581,11 +581,12 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
     )
     message.add_user_recipient(user, email_override=target_email)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification code sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="verification code sent",
+            groups={"organization": str(user.current_organization.id)},  # type: ignore
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
