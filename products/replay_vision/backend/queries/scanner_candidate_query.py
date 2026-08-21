@@ -17,11 +17,12 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     UNSCORED_SURFACING_SCORE,
     SessionRecordingListFromQuery,
 )
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.session_limits import (
@@ -59,18 +60,19 @@ FAST_SWEEP_QUERY_TYPES = [
     SWEEP_CANDIDATE_QUERY_TYPE,
     SWEEP_CANDIDATE_SCAN_QUERY_TYPE,
     EXCLUDED_SESSIONS_QUERY_TYPE,
+    GROUP_KEY_RESOLUTION_QUERY_TYPE,
 ]
 
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
-# How many sessions one tick pulls from the replay table before asking the events table about them.
-# The `$session_id` bloom filter stops discriminating once the list gets long: measured against
-# production scanners, a few hundred to a couple of thousand ids prune 4-15x, while ~8k ids prune
-# under 2x. Sized at the top of that band, since a page that is too small pays the events scan's
-# fixed cost again for no extra reach.
-CANDIDATE_SCAN_LIMIT = 2_000
+# Correlating only pays while the id list stays short. A bloom filter answers "might this granule
+# hold any of these values", so with N probes a granule survives with probability ~1-(1-p)^N and
+# pruning decays exponentially. Measured against a production 4h window: 1 id prunes 98.5% of
+# granules, 20 prunes 49%, 50 prunes 24%, and 300 prunes 0.2%. Past this many candidates the second
+# query reads what the single query would have read, on top of it, so the tick takes the plain path.
+CORRELATION_MAX_SESSIONS = 100
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
 # Emitted by `emit_observation_event_activity` once an observation succeeds.
@@ -178,6 +180,10 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
+        # The principal the recordings query runs as, for the experiment_exposure filter's access
+        # check. The sweep passes the scanner's creator; a None principal makes that check refuse a
+        # query carrying an exposure filter. A query without one is unaffected either way.
+        user: User | None = None,
         # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
@@ -236,9 +242,11 @@ class ScannerCandidateQuery:
         self._inner = SessionRecordingListFromQuery(
             team=team,
             query=inner_query,
+            user=user,
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
             skip_negative_blocklists=skip_negative_blocklists,
+            resolve_group_properties=ClickHouseUser.REPLAY_VISION,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -274,6 +282,12 @@ class ScannerCandidateQuery:
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
     def get_query(self) -> ast.SelectQuery:
+        # Building resolves group filters, which runs its own ClickHouse query. Tagging the build too
+        # keeps that read attributable, so the throttle charges the sweep for it.
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=self._scanner_id):
+            return self._build_query()
+
+    def _build_query(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
         inner = self._inner.get_query()
         inner.order_by = None
@@ -326,20 +340,31 @@ def run_correlated_batch(
     sessions the tick can dispatch. Listing the sessions up front lets the `$session_id` bloom filter
     prune the scan, which is where the saving comes from.
     """
+
+    def single_query() -> CandidateBatch:
+        plain = build()
+        plain.limit = ast.Constant(value=dispatch_limit)
+        rows = execute(plain, match_query_type)
+        return build_candidate_batch(rows, rows, dispatch_limit, dispatch_limit)
+
     query = build()
     predicates = session_in_predicates(query)
     if not predicates:
         # No events subquery to correlate against, so splitting would only cost a second round trip.
-        query.limit = ast.Constant(value=dispatch_limit)
-        considered = execute(query, match_query_type)
-        return build_candidate_batch(considered, considered, dispatch_limit, dispatch_limit)
+        return single_query()
 
     for predicate in predicates:
         _drop_event_filter(predicate)
-    query.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    # One over the ceiling, so a window that holds too many to correlate is recognised without
+    # reading the rest of them.
+    query.limit = ast.Constant(value=CORRELATION_MAX_SESSIONS + 1)
     considered = execute(query, scan_query_type)
     if not considered:
         return CandidateBatch(matched=[])
+    if len(considered) > CORRELATION_MAX_SESSIONS:
+        # Too many ids for the bloom filter to prune on, so correlating would read the whole window
+        # again. The scan above is the only cost of finding that out.
+        return single_query()
 
     matching = build()
     session_ids = [c.session_id for c in considered]
@@ -349,9 +374,9 @@ def run_correlated_batch(
     # through a non-event branch, which the subquery restriction never sees; without this the match
     # set could run past the page the keyset is computed from.
     _restrict_outer_to_sessions(matching, session_ids)
-    matching.limit = ast.Constant(value=CANDIDATE_SCAN_LIMIT)
+    matching.limit = ast.Constant(value=CORRELATION_MAX_SESSIONS)
     matched = execute(matching, match_query_type)
-    return build_candidate_batch(considered, matched, dispatch_limit, CANDIDATE_SCAN_LIMIT)
+    return build_candidate_batch(considered, matched, dispatch_limit, CORRELATION_MAX_SESSIONS + 1)
 
 
 def session_in_predicates(query: ast.SelectQuery) -> list[ast.CompareOperation]:
@@ -521,6 +546,10 @@ class WindowedCandidateQuery:
         # Tags this caller's reads in `system.query_log`; required so a new caller names itself.
         query_type: str,
         sampling_rate: float,
+        # The principal the recordings query runs as, for the experiment_exposure filter's access
+        # check. The backfill passes whoever launched it; a None principal makes that check refuse a
+        # query carrying an exposure filter. A query without one is unaffected either way.
+        user: User | None = None,
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
@@ -581,9 +610,11 @@ class WindowedCandidateQuery:
         self._inner = SessionRecordingListFromQuery(
             team=team,
             query=inner_query,
+            user=user,
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
             skip_negative_blocklists=skip_negative_blocklists,
+            resolve_group_properties=ClickHouseUser.REPLAY_VISION,
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
@@ -630,6 +661,12 @@ class WindowedCandidateQuery:
 
     def _windowed_candidates(self) -> ast.SelectQuery:
         """Window and eligibility predicates shared by the batch walk and the exact count."""
+        # Tagged for the same reason as `ScannerCandidateQuery.get_query`: building resolves group
+        # filters, and that read has to stay attributable to this scanner.
+        with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=self._scanner_id):
+            return self._build_windowed_candidates()
+
+    def _build_windowed_candidates(self) -> ast.SelectQuery:
         # `_inner.get_query()` re-parses every call, so in-place mutation is safe.
         inner = self._inner.get_query()
         inner.order_by = None
