@@ -849,13 +849,13 @@ describe('Tool Filtering - Feature Flags', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
             expect.arrayContaining([
-                'logs-alerting',
                 'logs-anomalies',
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
                 'user-interviews',
                 'customer-analytics-csp',
+                'customer-analytics-feature-requests',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'tasks',

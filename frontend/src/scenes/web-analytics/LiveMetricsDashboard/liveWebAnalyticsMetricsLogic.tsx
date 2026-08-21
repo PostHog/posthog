@@ -60,7 +60,6 @@ import {
 } from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
-const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
@@ -73,6 +72,7 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
+const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
@@ -141,6 +141,7 @@ export interface liveWebAnalyticsMetricsLogicValues {
     geoVersion: number
     hasActiveFilters: boolean
     isLoading: boolean
+    isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
     liveUserCount: number
     recentEvents: LiveEvent[]
@@ -179,8 +180,8 @@ export interface liveWebAnalyticsMetricsLogicActions {
     clearRecentEvents: () => {
         value: true
     }
-    loadInitialData: () => {
-        value: true
+    loadInitialData: (isBackground?: boolean) => {
+        isBackground: boolean
     }
     pauseStream: () => {
         value: true
@@ -206,6 +207,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     }
     setIsLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setIsRefreshing: (refreshing: boolean) => {
+        refreshing: boolean
     }
     tickCurrentMinute: () => {
         value: true
@@ -288,7 +292,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             recentUsersByLastSeen: [string, number][]
         ) => ({ buckets, recentUsersByLastSeen }),
         setIsLoading: (loading: boolean) => ({ loading }),
-        loadInitialData: true,
+        setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
+        loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
         updateConnection: true,
         updateGeoConnection: true,
@@ -425,6 +430,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             true,
             {
                 setIsLoading: (_, { loading }) => loading,
+            },
+        ],
+        isRefreshing: [
+            false,
+            {
+                setIsRefreshing: (_, { refreshing }) => refreshing,
             },
         ],
         recentEvents: [
@@ -592,33 +603,46 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
     listeners(({ actions, values, cache }) => ({
         pauseStream: () => {
             cache.isPaused = true
-            cache.loadAbortController?.abort()
-            cache.eventsConnection?.abort()
-            cache.geoConnection?.abort()
-            cache.batch = []
-            cache.geoBatch = []
-            stopFlushInterval(cache as FlushCache)
-            cache.disposables.dispose('liveUserCountInterval')
+            cache.disposables.add(
+                () => {
+                    const timeoutId = setTimeout(() => {
+                        cache.loadAbortController?.abort()
+                        cache.eventsConnection?.abort()
+                        cache.geoConnection?.abort()
+                        cache.batch = []
+                        cache.geoBatch = []
+                        stopFlushInterval(cache as FlushCache)
+                        cache.disposables.dispose('liveUserCountInterval')
+                        cache.isTornDown = true
+                    }, PAUSE_GRACE_MS)
+                    return () => clearTimeout(timeoutId)
+                },
+                'pauseGrace',
+                { pauseOnPageHidden: false }
+            )
         },
         resumeStream: () => {
             cache.isPaused = false
-            if (cache.hasInitialized) {
-                lemonToast.info('Refreshing live data...', {
-                    toastId: RECONNECT_TOAST_ID,
-                    autoClose: 2000,
-                })
+            cache.disposables.dispose('pauseGrace')
+            if (!cache.isTornDown) {
+                return
             }
+            cache.isTornDown = false
             startFlushInterval(cache as FlushCache, actions as FlushActions)
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
-            actions.loadInitialData()
+            actions.loadInitialData(true)
         },
-        loadInitialData: async () => {
+        loadInitialData: async ({ isBackground }) => {
             cache.loadAbortController?.abort()
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
 
-            actions.setIsLoading(true)
+            if (!cache.hasLoadedData || !isBackground) {
+                actions.setIsLoading(true)
+            } else {
+                actions.setIsRefreshing(true)
+            }
 
             try {
                 const now = Date.now()
@@ -666,6 +690,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
+                cache.hasLoadedData = true
 
                 if (data.failedQueries.length > 0) {
                     lemonToast.warning(`Some live metrics failed to load: ${data.failedQueries.join(', ')}`, {
@@ -683,6 +708,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }
                 if (!signal.aborted) {
                     actions.setIsLoading(false)
+                    actions.setIsRefreshing(false)
                 }
                 cache.hasInitialized = true
             }
@@ -825,6 +851,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             startLiveUserCountInterval(cache as FlushCache, actions as FlushActions)
         },
         beforeUnmount: () => {
+            cache.disposables.dispose('pauseGrace')
             cache.loadAbortController?.abort()
             cache.eventsConnection?.abort()
             cache.geoConnection?.abort()

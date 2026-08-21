@@ -207,7 +207,20 @@ class SharedTouchpointsPrecompute:
             return self._result
 
 
-@dataclass
+def goal_sums_a_property(goal: Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]) -> bool:
+    """Whether a goal's column holds a summed property value rather than a conversion count.
+
+    Everything that divides by a goal's column — the ROAS numerator, the CAC denominator, and the
+    processor-selection guards that decide which goals to build — needs the same answer, so they
+    all route through here rather than each re-deriving it from `math` and drifting apart.
+    """
+    math_type = goal.math
+    return math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum")
+
+
+# Mutable by design: `precompute_stale` is set while building the query, and each
+# processor owns a `timings` clone the runner merges back after the pool joins.
+@dataclass(frozen=False)
 class ConversionGoalProcessor:
     """
     Processes conversion goals for marketing analytics queries.
@@ -274,13 +287,37 @@ class ConversionGoalProcessor:
             return self.goal.schema_map.get(field.schema_map_key, field.event_property)
         return field.event_property
 
+    def sums_a_property(self) -> bool:
+        """Whether this goal's column holds a summed property value rather than a conversion count.
+
+        Shares the branch with `get_select_field` via `goal_sums_a_property` rather than re-deriving
+        it from `math`.
+        """
+        return goal_sums_a_property(self.goal)
+
+    def get_count_field(self) -> ast.Expr:
+        """Conversions counted, whatever the goal's own math is.
+
+        A summing goal's column holds money, so anything needing "how many" — cost per
+        customer, say — can't divide by it.
+
+        Branches on attribution mode for the same reason `_get_aggregation_expr` does: multi-touch
+        explodes one conversion into a row per touchpoint, so counting rows would report a purchase
+        with three touchpoints as three customers. The weights sum to 1.0 per conversion, so summing
+        them recovers the count with each touchpoint credited its share. A goal that scans directly
+        never explodes and has no weight column to read.
+        """
+        if self.config.is_multi_touch and self.uses_attribution_pipeline:
+            return ast.Call(name="sum", args=[ast.Field(chain=["attribution_weight"])])
+        return ast.Call(name="count", args=[ast.Constant(value="*")])
+
     def get_select_field(self) -> ast.Expr:
         """Build select field expression based on math aggregation type"""
         math_type = self.goal.math
 
         if math_type in [BaseMathType.DAU, "dau"]:
             return self._build_dau_select()
-        elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
+        elif self.sums_a_property():
             return self._build_sum_select()
         else:
             return ast.Call(name="count", args=[ast.Constant(value="*")])
@@ -385,9 +422,19 @@ class ConversionGoalProcessor:
         `touchpoints` lets callers running several goals share one touchpoints materialization. When
         omitted the goal materializes its own, so standalone callers keep working unchanged.
         """
-        if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions, date_from, date_to, touchpoints)
+        if self.uses_attribution_pipeline:
+            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
+
+    @property
+    def uses_attribution_pipeline(self) -> bool:
+        """Whether this goal's rows come from the attribution pipeline rather than a direct scan.
+
+        Only the pipeline emits the columns attribution adds — `attribution_weight` above all — so
+        anything reading one has to ask first. Warehouse goals and a zero-length window both scan
+        directly.
+        """
+        return self.goal.kind in ["EventsNode", "ActionsNode"] and self.config.attribution_window_days > 0
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
         """Build the per-person array-collection subquery.
@@ -415,18 +462,6 @@ class ConversionGoalProcessor:
             attribution = self._build_single_touch_attribution_subquery(array_join)
 
         return self._build_final_aggregation_query(attribution)
-
-    def _generate_array_based_query(
-        self,
-        additional_conditions: Sequence[ast.Expr],
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
-    ) -> ast.SelectQuery:
-        """Generate array-based query with attribution logic for Events/Actions"""
-        if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
-        return self._generate_direct_query(additional_conditions)
 
     def _generate_funnel_query(
         self,
@@ -846,16 +881,14 @@ class ConversionGoalProcessor:
             ),
         ]
         for field in TRACKED_FIELDS:
+            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
+            # positionally against it, and a stored row can legitimately carry an empty value for any
+            # field except campaign and source (which the precompute WHERE requires). Filtering the
+            # empties out here shifted every later element onto the wrong touchpoint.
             select_columns.append(
                 ast.Alias(
                     alias=field.utm_array,
-                    expr=ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            ast.Lambda(args=["x"], expr=ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])),
-                            ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                        ],
-                    ),
+                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
                 )
             )
 
@@ -1307,7 +1340,17 @@ class ConversionGoalProcessor:
     def _build_utm_pageview_array(
         self, alias: str, utm_campaign_field: str, utm_source_field: str, return_field: str
     ) -> ast.Alias:
-        """Build array for UTM pageview data"""
+        """Build array for UTM pageview data.
+
+        Every array this builds is read positionally against `utm_timestamps`
+        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
+        keep exactly one element per UTM pageview, in the same order. That means **every** array is
+        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
+        never by whether its own value happens to be set. `utm_campaign` and `utm_source` are the
+        touchpoint qualifier, but the other seven tracked fields are routinely empty on a qualifying
+        pageview, and dropping those positions used to shift every later element: touchpoint i's
+        timestamp paired with touchpoint j's value.
+        """
         pageview_with_utm = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -1319,42 +1362,75 @@ class ConversionGoalProcessor:
                 self._build_utm_not_empty_condition(utm_source_field),
             ]
         )
-        return_expr: ast.Expr
-        false_value: ast.Expr
-        filter_expr: ast.Expr
-        if return_field == "timestamp":
-            return_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-            false_value = ast.Constant(value=0)
-            filter_expr = ast.CompareOperation(
-                left=ast.Field(chain=["x"]),
+        timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
+        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
+        qualified = ast.Lambda(
+            args=["_tp"],
+            expr=ast.CompareOperation(
+                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
                 op=ast.CompareOperationOp.Gt,
                 right=ast.Constant(value=0),
-            )
-        else:
-            return_expr = ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Field(chain=["events", "properties", return_field]),
-                            ast.Constant(value=""),
-                        ],
-                    )
-                ],
-            )
-            false_value = ast.Constant(value="")
-            filter_expr = ast.Call(name="notEmpty", args=[ast.Field(chain=["x"])])
+            ),
+        )
 
+        if return_field == "timestamp":
+            return ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(
+                            args=["x"],
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["x"]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                        ),
+                        ast.Call(name="groupArray", args=[qualified_timestamp]),
+                    ],
+                ),
+            )
+
+        value_expr = ast.Call(
+            name="toString",
+            args=[
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Field(chain=["events", "properties", return_field]),
+                        ast.Constant(value=""),
+                    ],
+                )
+            ],
+        )
+        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
+        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
         return ast.Alias(
             alias=alias,
             expr=ast.Call(
-                name="arrayFilter",
+                name="arrayMap",
                 args=[
-                    ast.Lambda(args=["x"], expr=filter_expr),
+                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
                     ast.Call(
-                        name="groupArray",
-                        args=[ast.Call(name="if", args=[pageview_with_utm, return_expr, false_value])],
+                        name="arrayFilter",
+                        args=[
+                            qualified,
+                            ast.Call(
+                                name="groupArray",
+                                args=[
+                                    ast.Tuple(
+                                        exprs=[
+                                            qualified_timestamp,
+                                            ast.Call(
+                                                name="if",
+                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
+                                            ),
+                                        ]
+                                    )
+                                ],
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -1740,6 +1816,9 @@ class ConversionGoalProcessor:
                         right=ast.Field(chain=["attribution_weight"]),
                     ),
                 ),
+                # Carried out of the subquery so a consumer can count conversions rather than
+                # rows: these sum to 1.0 per conversion, so summing them undoes the explode.
+                ast.Field(chain=["attribution_weight"]),
             ]
         )
 

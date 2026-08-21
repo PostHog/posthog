@@ -373,23 +373,6 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         purchase_rate=0.01,
         scenario="Reddit: micros + cents formats",
     ),
-    # --- Pinterest Ads (total_impression / spend_in_dollar columns) ---
-    DemoCampaign(
-        platform="PinterestAds",
-        campaign_id="2001",
-        name="pin_inspiration",
-        daily_cost=22.0,
-        daily_impressions=8800,
-        daily_clicks=95,
-        daily_sessions=14,
-        utm_source="pinterest",
-        utm_campaign="pin_inspiration",
-        utm_medium="paid-social",
-        referring_domain="pinterest.com",
-        signup_rate=0.04,
-        purchase_rate=0.012,
-        scenario="Pinterest: dollar spend + micro-dollar checkout value",
-    ),
     # --- Snapchat Ads (swipes as clicks, spend in micros; source in error state) ---
     DemoCampaign(
         platform="SnapchatAds",
@@ -657,6 +640,20 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         purchase_rate=0.005,
         scenario="Organic page posts under an alias of Meta Ads",
     ),
+    # Pinterest is unconnected and its traffic is entirely organic, so the paid gate has
+    # positive evidence and connect_source stays silent. Reddit is the mirror: also
+    # unconnected, but its campaign is paid, so there the suggestion is right.
+    DemoFreeChannel(
+        key="pinterest_organic",
+        daily_sessions=14,
+        referring_domain="pinterest.com",
+        utm_source="pinterest",
+        utm_medium="social",
+        utm_campaign="pin_inspiration",
+        signup_rate=0.04,
+        purchase_rate=0.012,
+        scenario="Unconnected platform with organic-only traffic: connect_source suppressed",
+    ),
     DemoFreeChannel(
         key="youtube_kol",
         daily_sessions=10,
@@ -683,17 +680,6 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
 )
 
 # Sources with cost rows written to the warehouse (must stay in sync with health.py).
-NATIVE_PLATFORMS_WITH_DATA: tuple[str, ...] = (
-    "GoogleAds",
-    "MetaAds",
-    "BingAds",
-    "LinkedinAds",
-    "RedditAds",
-    "PinterestAds",
-    "SnapchatAds",
-    "TikTokAds",
-)
-
 BIGQUERY_SOURCE_LABEL = "demo_partner"
 
 EVENT_SIGNUP = "user signed up"
