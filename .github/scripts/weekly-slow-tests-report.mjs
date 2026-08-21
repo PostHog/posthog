@@ -321,6 +321,31 @@ function buildBlocks(now, rows) {
     return blocks
 }
 
+// Per-item recent-editor lookup for the table. Editors come from GitHub commits per file,
+// then get Slack ids where the workspace directory maps the GitHub login. Every failure
+// degrades to fewer mentions, never to a skipped post.
+async function resolveEditorsFor(candidates) {
+    if (!GITHUB_TOKEN) {
+        console.warn('GITHUB_TOKEN not set - editor mentions degrade to "unknown".')
+        return () => []
+    }
+    const editorIndex = await buildEditorIndex(candidates)
+    const editors = [...new Map([...editorIndex.values()].flat().map((e) => [e.login.toLowerCase(), e])).values()]
+    let slackEditors = editors
+    if (SLACK_BOT_TOKEN) {
+        try {
+            slackEditors = await resolveSlackUsers(editors)
+        } catch (err) {
+            console.warn(`Slack user resolution failed - keeping GitHub links: ${err.message}`)
+        }
+    }
+    const slackByLogin = new Map(slackEditors.map((e) => [e.login.toLowerCase(), e]))
+    return (item) =>
+        item.repoPaths?.length === 1
+            ? (editorIndex.get(item.repoPaths[0]) || []).map((e) => slackByLogin.get(e.login.toLowerCase()))
+            : []
+}
+
 async function main() {
     if (!process.env.POSTHOG_PROJECT_ID || !process.env.POSTHOG_API_KEY) {
         console.warn('POSTHOG_PROJECT_ID / POSTHOG_API_KEY not set - skipping report. Wire them to enable.')
@@ -336,26 +361,7 @@ async function main() {
         return
     }
     const ownerFor = resolveOwners(top, toRepoPaths)
-    let editorsFor = () => []
-    if (!GITHUB_TOKEN) {
-        console.warn('GITHUB_TOKEN not set - editor mentions degrade to "unknown".')
-    } else {
-        const editorIndex = await buildEditorIndex(top)
-        const editors = [...new Map([...editorIndex.values()].flat().map((e) => [e.login.toLowerCase(), e])).values()]
-        let slackEditors = editors
-        if (SLACK_BOT_TOKEN) {
-            try {
-                slackEditors = await resolveSlackUsers(editors)
-            } catch (err) {
-                console.warn(`Slack user resolution failed - keeping GitHub links: ${err.message}`)
-            }
-        }
-        const slackByLogin = new Map(slackEditors.map((e) => [e.login.toLowerCase(), e]))
-        editorsFor = (item) =>
-            item.repoPaths?.length === 1
-                ? (editorIndex.get(item.repoPaths[0]) || []).map((e) => slackByLogin.get(e.login.toLowerCase()) || e)
-                : []
-    }
+    const editorsFor = await resolveEditorsFor(top)
     const rows = tableRows(top, ownerFor, editorsFor)
     const blocks = buildBlocks(now, rows)
     if (DRY_RUN) {
@@ -384,6 +390,7 @@ export {
     fetchSlowTests,
     formatDurationSeconds,
     rankReportCandidates,
+    resolveEditorsFor,
     resolveSlackUsers,
     selectReportCandidates,
     SLOW_TEST_VALUES,
