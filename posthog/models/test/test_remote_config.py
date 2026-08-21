@@ -6,20 +6,76 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    RemoteConfig,
+    project_trigger_groups_to_v1_fields,
+)
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
+
+
+class TestProjectTriggerGroupsToV1Fields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "union_of_conditions_across_groups",
+                [
+                    {"sampleRate": 1, "conditions": {"matchType": "any", "events": ["a"]}},
+                    {"sampleRate": 1, "conditions": {"matchType": "any", "urls": [{"url": "/x", "matching": "regex"}]}},
+                ],
+                {
+                    "eventTriggers": ["a"],
+                    "urlTriggers": [{"url": "/x", "matching": "regex"}],
+                    "triggerMatchType": "any",
+                },
+            ),
+            (
+                "conflicting_match_types_fall_back_to_any",
+                [
+                    {"sampleRate": 1, "conditions": {"matchType": "all", "events": ["a"]}},
+                    {"sampleRate": 1, "conditions": {"matchType": "any", "events": ["b"]}},
+                ],
+                {"eventTriggers": ["a", "b"], "triggerMatchType": "any"},
+            ),
+            (
+                "event_objects_project_by_name",
+                [{"sampleRate": 1, "conditions": {"matchType": "all", "events": [{"name": "signed_up"}]}}],
+                {"eventTriggers": ["signed_up"], "triggerMatchType": "all"},
+            ),
+            (
+                "sampling_group_projects_highest_rate",
+                [
+                    {"sampleRate": 0.2, "conditions": {"matchType": "all", "events": ["a"]}},
+                    {"sampleRate": 0.5, "conditions": {"matchType": "all", "events": ["b"]}},
+                ],
+                {"eventTriggers": ["a", "b"], "triggerMatchType": "all", "sampleRate": "0.5"},
+            ),
+            (
+                "flag_condition_projects_linked_flag",
+                [{"sampleRate": 1, "conditions": {"matchType": "all", "flag": "my-flag"}}],
+                {"linkedFlag": "my-flag", "triggerMatchType": "all"},
+            ),
+            (
+                "record_everything_group_projects_nothing",
+                [{"sampleRate": 1, "conditions": {"matchType": "all"}}],
+                {},
+            ),
+        ]
+    )
+    def test_projection(self, _name: str, groups: list[dict], expected: dict) -> None:
+        assert project_trigger_groups_to_v1_fields(groups) == expected
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -254,6 +310,60 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert config is not None
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
+
+    def test_v2_trigger_groups_project_into_v1_fields_when_legacy_empty(self) -> None:
+        # A team that only used the V2 editor never populated the legacy columns; without the
+        # projection an old SDK gets an empty V1 config and records every session.
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [
+                {
+                    "id": "g1",
+                    "sampleRate": 1,
+                    "conditions": {
+                        "matchType": "any",
+                        "events": ["user_created"],
+                        "urls": [{"url": "^/account/sign-up$", "matching": "regex"}],
+                    },
+                }
+            ],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        assert session_recording["version"] == 2
+        assert session_recording["eventTriggers"] == ["user_created"]
+        assert session_recording["urlTriggers"] == [{"url": "^/account/sign-up$", "matching": "regex"}]
+        assert session_recording["triggerMatchType"] == "any"
+
+    def test_v2_record_everything_group_leaves_v1_fields_empty(self) -> None:
+        # A conditionless full-rate group means "record everything", which an empty V1 config
+        # already does, so projecting nothing is correct here.
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [{"id": "g1", "sampleRate": 1, "conditions": {"matchType": "all"}}],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        assert session_recording["eventTriggers"] == []
+        assert session_recording["urlTriggers"] == []
+        assert session_recording["triggerMatchType"] is None
+
+    def test_v2_projection_does_not_override_populated_legacy_fields(self) -> None:
+        # Legacy columns win when a team has both, so the projection must not clobber them.
+        self.team.session_recording_opt_in = True
+        self.team.session_recording_event_trigger_config = ["legacy_event"]
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [{"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["v2_event"]}}],
+        }
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        assert session_recording["eventTriggers"] == ["legacy_event"]
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True

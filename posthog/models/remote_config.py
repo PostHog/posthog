@@ -1,5 +1,6 @@
 import os
 import json
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -42,6 +43,70 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
     "Number of times the remote config CDN purge task has been run",
     labelnames=["result"],
 )
+
+
+def project_trigger_groups_to_v1_fields(groups: list[dict]) -> dict[str, Any]:
+    """Approximate V2 trigger groups as flat V1 trigger fields for posthog-js older than 1.369.0.
+
+    Old SDKs do not read ``triggerGroups``. They read the flat V1 fields. An empty V1 config tells
+    an old SDK to record every session. So a team that sets only a V2 group sends a blank config to
+    old SDKs, and those SDKs record every session. This is the opposite of the group's intent. To
+    prevent this, union the groups' URL and event conditions into the V1 fields.
+
+    Return an empty dict when a group means "record everything": no conditions at full sample rate.
+    An empty V1 config already records every session, so it matches that intent.
+    """
+    url_triggers: list[Any] = []
+    event_triggers: list[str] = []
+    linked_flag: Any = None
+    match_types: set[str] = set()
+    sample_rates: list[float] = []
+
+    for group in groups:
+        conditions = group.get("conditions") or {}
+        urls = conditions.get("urls") or []
+        events = conditions.get("events") or []
+        flag = conditions.get("flag")
+        sample_rate = group.get("sampleRate")
+
+        has_conditions = bool(urls or events or flag)
+        if not has_conditions and (sample_rate is None or sample_rate >= 1):
+            return {}
+
+        for url in urls:
+            if url not in url_triggers:
+                url_triggers.append(url)
+        for event in events:
+            name = event.get("name") if isinstance(event, dict) else event
+            if name and name not in event_triggers:
+                event_triggers.append(name)
+        if flag and linked_flag is None:
+            if isinstance(flag, dict):
+                variant = flag.get("variant")
+                linked_flag = {"flag": flag.get("key"), "variant": variant} if variant else flag.get("key")
+            else:
+                linked_flag = flag
+        if conditions.get("matchType"):
+            match_types.add(conditions["matchType"])
+        if sample_rate is not None:
+            sample_rates.append(sample_rate)
+
+    fields: dict[str, Any] = {}
+    if url_triggers:
+        fields["urlTriggers"] = url_triggers
+    if event_triggers:
+        fields["eventTriggers"] = event_triggers
+    if linked_flag is not None:
+        fields["linkedFlag"] = linked_flag
+    # Groups are OR'd together, so "any" is the closest single match type when they differ.
+    if match_types:
+        fields["triggerMatchType"] = match_types.pop() if len(match_types) == 1 else "any"
+    # Groups are OR'd together, so the highest sample rate approximates the union.
+    if sample_rates:
+        max_rate = max(sample_rates)
+        if max_rate < 1:
+            fields["sampleRate"] = str(Decimal(str(max_rate)).normalize())
+    return fields
 
 
 logger = structlog.get_logger(__name__)
@@ -190,6 +255,14 @@ class RemoteConfig(UUIDTModel):
                         },
                     }
                 normalized_groups.append(group)
+
+            # Old SDKs read the flat V1 fields, not triggerGroups. When the legacy columns are
+            # empty, fill each empty field from the groups so an old SDK records an approximation
+            # instead of every session.
+            projected_v1_fields = project_trigger_groups_to_v1_fields(groups)
+            for key, value in projected_v1_fields.items():
+                if not v1_fields.get(key):
+                    v1_fields[key] = value
 
             return {
                 **base_config,

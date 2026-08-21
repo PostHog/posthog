@@ -557,9 +557,9 @@ function SdkCompatibilityBanner(): JSX.Element {
                 About <strong>{pct}%</strong> of recent web traffic (
                 {humanFriendlyNumber(outdatedWebTraffic.outdatedCount)}{' '}
                 {pluralize(outdatedWebTraffic.outdatedCount, 'event', 'events', false)}) is on a posthog-js before v
-                {TRIGGER_GROUPS_MIN_SDK_VERSION}. Those sessions still record using the legacy recording conditions
-                below — upgrade to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ for full trigger-group coverage. Both
-                configurations are sent meanwhile, so nothing is lost.
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}. Those SDKs can't read trigger groups, so they record an approximation
+                built from your groups' URLs and events. This coverage is not exact. Upgrade to v
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}+ so every session uses your trigger groups.
             </LemonBanner>
         )
     }
