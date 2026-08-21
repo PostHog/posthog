@@ -157,11 +157,11 @@ interface Collected {
     ended: Promise<void>
 }
 
-function collect(server: WorkerIngestServer, source: FrameSource): Collected {
+function collect(server: WorkerIngestServer, source: FrameSource, signal?: AbortSignal): Collected {
     const collected: Collected = { acks: [], all: [], error: null, ended: Promise.resolve() }
     collected.ended = (async () => {
         try {
-            for await (const ack of server.ingestStream(source)) {
+            for await (const ack of server.ingestStream(source, signal)) {
                 collected.all.push(ack)
                 if (Number(ack.seq) !== 0) {
                     collected.acks.push(ack)
@@ -379,6 +379,57 @@ describe('WorkerIngestServer', () => {
             expect(fairDriver.feeds[2].streamId).not.toBe(streamA)
         } finally {
             await fairServer.stop()
+        }
+    })
+
+    it('drops a cancelled stream from the admission queue so its slot skips to a live stream', async () => {
+        // Regression: a stream that disconnected while waiting for a slot left
+        // its waiter in the FIFO queue. A freed slot was granted to that dead
+        // waiter ahead of live streams, feeding work that could never be acked
+        // and starving real traffic under repeated disconnects.
+        const laneDriver = new FakeDriver()
+        const laneServer = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { driver: laneDriver, onFatal: jest.fn() }
+        )
+        await laneServer.start()
+        try {
+            const sourceA = new FrameSource()
+            const cancelled = new AbortController()
+            const sourceCancelled = new FrameSource()
+            const sourceLive = new FrameSource()
+            collect(laneServer, sourceA)
+            collect(laneServer, sourceCancelled, cancelled.signal)
+            collect(laneServer, sourceLive)
+
+            sourceA.push(hello({ consumerId: 'consumer-a' }))
+            sourceCancelled.push(hello({ consumerId: 'consumer-cancelled' }))
+            sourceLive.push(hello({ consumerId: 'consumer-live' }))
+
+            // A takes the only slot; the soon-to-cancel stream queues behind it.
+            // The waiter gauge is process-global, so track it against a baseline.
+            sourceA.push(subBatch(1, [1]))
+            await until(() => laneDriver.feeds.length === 1)
+            const streamA = laneDriver.feeds[0].streamId
+            const baseWaiters = await slotWaiters()
+            sourceCancelled.push(subBatch(1, [2]))
+            await until(async () => (await slotWaiters()) === baseWaiters + 1)
+
+            // The stream disconnects while parked — its waiter must leave the queue.
+            cancelled.abort()
+            await until(async () => (await slotWaiters()) === baseWaiters)
+
+            // A live stream queues, then A's slot frees: it must go to the live
+            // stream, and the cancelled stream's sub-batch (offset 2) never feeds.
+            sourceLive.push(subBatch(1, [3]))
+            await until(async () => (await slotWaiters()) === baseWaiters + 1)
+            laneDriver.complete({ streamId: streamA, seq: 1, accepted: 1 })
+            await until(() => laneDriver.feeds.length === 2)
+
+            expect(laneDriver.feeds[1].offsets).toEqual([3])
+            expect(laneDriver.feeds.some((f) => f.offsets.includes(2))).toBe(false)
+        } finally {
+            await laneServer.stop()
         }
     })
 

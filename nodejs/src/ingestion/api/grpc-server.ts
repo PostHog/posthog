@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { Code, ConnectError, ConnectRouter } from '@connectrpc/connect'
+import { Code, ConnectError, ConnectRouter, HandlerContext } from '@connectrpc/connect'
 import { connectNodeAdapter } from '@connectrpc/connect-node'
 import * as http2 from 'node:http2'
 import { Counter, Gauge } from 'prom-client'
@@ -112,10 +112,17 @@ export interface WorkerIngestServerOptions {
     sessionIdleTimeoutMs?: number
 }
 
+/** Thrown from `FifoSlots.acquire` when the waiting stream is cancelled. */
+class SlotAcquisitionAborted extends Error {}
+
 /**
  * FIFO slot queue: capacity grants go to waiters in arrival order. A freed
  * slot passes directly to the oldest waiter instead of returning to a pool a
  * newer arrival could win.
+ *
+ * A waiter can be cancelled via its `AbortSignal`: a stream that disconnects
+ * while parked here is removed from the queue, so a freed slot skips it and
+ * goes to a live stream instead of feeding work that can never be acked.
  */
 class FifoSlots {
     private available: number
@@ -125,18 +132,35 @@ class FifoSlots {
         this.available = capacity
     }
 
-    acquire(): Promise<void> {
+    acquire(signal?: AbortSignal): Promise<void> {
+        if (signal?.aborted) {
+            return Promise.reject(new SlotAcquisitionAborted())
+        }
         if (this.available > 0) {
             this.available--
             return Promise.resolve()
         }
         grpcFeedSlotWaiters.inc()
-        return new Promise<void>((resolve) =>
-            this.waiters.push(() => {
+        return new Promise<void>((resolve, reject) => {
+            const grant = (): void => {
+                signal?.removeEventListener('abort', onAbort)
                 grpcFeedSlotWaiters.dec()
                 resolve()
-            })
-        )
+            }
+            const onAbort = (): void => {
+                const index = this.waiters.indexOf(grant)
+                if (index === -1) {
+                    // Already granted a slot; the caller's post-acquire check
+                    // hands it back. Nothing queued to remove here.
+                    return
+                }
+                this.waiters.splice(index, 1)
+                grpcFeedSlotWaiters.dec()
+                reject(new SlotAcquisitionAborted())
+            }
+            this.waiters.push(grant)
+            signal?.addEventListener('abort', onAbort, { once: true })
+        })
     }
 
     release(): void {
@@ -307,7 +331,8 @@ export class WorkerIngestServer {
             connectNodeAdapter({
                 routes: (router: ConnectRouter) => {
                     router.service(WorkerIngest, {
-                        ingestStream: (requests) => this.ingestStream(requests),
+                        ingestStream: (requests, context: HandlerContext) =>
+                            this.ingestStream(requests, context.signal),
                     })
                 },
             })
@@ -471,7 +496,10 @@ export class WorkerIngestServer {
         this.deps.onFatal(error)
     }
 
-    async *ingestStream(requests: AsyncIterable<IngestStreamRequest>): AsyncIterable<IngestStreamResponse> {
+    async *ingestStream(
+        requests: AsyncIterable<IngestStreamRequest>,
+        signal?: AbortSignal
+    ): AsyncIterable<IngestStreamResponse> {
         if (this.fatalError) {
             throw new ConnectError('ingest pipeline is poisoned', Code.Unavailable)
         }
@@ -505,7 +533,7 @@ export class WorkerIngestServer {
             })
         )
 
-        const reader = this.runReader(stream, requests)
+        const reader = this.runReader(stream, requests, signal)
         // The generator surfaces reader failures through the ack queue; this
         // handler keeps the rejection from becoming an unhandled one.
         reader.catch(() => {})
@@ -524,7 +552,11 @@ export class WorkerIngestServer {
         }
     }
 
-    private async runReader(stream: StreamState, requests: AsyncIterable<IngestStreamRequest>): Promise<void> {
+    private async runReader(
+        stream: StreamState,
+        requests: AsyncIterable<IngestStreamRequest>,
+        signal?: AbortSignal
+    ): Promise<void> {
         try {
             for await (const request of requests) {
                 if (request.msg.case === 'hello') {
@@ -583,7 +615,13 @@ export class WorkerIngestServer {
                 // that's the backpressure) until a batch slot is granted in
                 // arrival order. A retry race here instead of a queue let busy
                 // streams starve quiet ones, wedging whole consumers.
-                await this.slots.acquire()
+                await this.slots.acquire(signal)
+                if (signal?.aborted) {
+                    // Cancelled between the slot grant and here: hand the slot
+                    // straight back so a live stream gets it, and stop reading.
+                    this.slots.release()
+                    return
+                }
                 let feedAccepted = false
                 try {
                     while (true) {
@@ -623,6 +661,11 @@ export class WorkerIngestServer {
             stream.readerDone = true
             this.maybeFinish(stream)
         } catch (error) {
+            if (error instanceof SlotAcquisitionAborted) {
+                // The stream was cancelled while waiting for a slot; it never
+                // acquired capacity, so there is nothing to release or ack.
+                return
+            }
             stream.readerDone = true
             const connectError = error instanceof ConnectError ? error : new ConnectError(String(error), Code.Internal)
             stream.acks.fail(connectError)
