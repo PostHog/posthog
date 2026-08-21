@@ -21,6 +21,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models.team import Team
 
+from products.warehouse_sources.backend.models import external_data_schema
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -849,6 +850,22 @@ class TestRepartitionActivity:
         assert wrote is True
         rewrite = schema.repartition_rewrite
         assert rewrite is not None and rewrite["rows_written"] == 5
+
+    def test_the_checkpoint_claim_check_runs_inside_the_row_lock(self, team):
+        # The predicate tests below pass against a plain refresh-then-write, which is the bug: the
+        # check and the write have to share one locked critical section or a superseding claimant can
+        # land between them. Pins that the write goes through the locked primitive.
+        schema = _make_schema(team, {})
+        schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+
+        with patch.object(external_data_schema, "update_sync_type_config_keys") as locked_update:
+            save_repartition_checkpoint_if_claimed(
+                schema, claim_token="live-claim", checkpoint={"temp_uri": "s3://t", "rows_written": 5}
+            )
+
+        locked_update.assert_called_once()
+        # The claim check must be the mutate callback, evaluated against the row read under the lock.
+        assert locked_update.call_args.kwargs["mutate"] is not None
 
     def test_a_staged_swap_is_never_abandoned_by_the_attempt_cap(self, team):
         # An interrupted swap may already have deleted live, leaving temp the only intact copy. Giving
