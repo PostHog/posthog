@@ -122,7 +122,15 @@ function SimulationChart({
                     xAxis: { hide: true },
                     yAxis: [
                         { id: DEFAULT_Y_AXIS_ID, position: 'left', tickFormatter: (v) => humanFriendlyNumber(v) },
-                        { id: 'yScore', position: 'right', format: 'percentage_scaled', label: 'Anomaly score' },
+                        {
+                            id: 'yScore',
+                            position: 'right',
+                            format: 'percentage_scaled',
+                            label: 'Anomaly score',
+                            // Without this the axis stops at the highest score, so a threshold above
+                            // every score falls outside the plot and doesn't draw at all.
+                            includeValues: threshold != null ? [threshold] : undefined,
+                        },
                     ],
                     showGrid: true,
                     legend: hasSubScores ? { show: true, position: 'bottom' } : undefined,

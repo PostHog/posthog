@@ -44,6 +44,10 @@ export interface YAxisConfig extends YFormatterConfig {
     min?: number
     /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
     max?: number
+    /** Values the axis must reach even when the data doesn't, without capping it like `max`. Use it
+     *  to keep a reference line on-plot: an overlay outside the domain doesn't draw at all. Honored
+     *  per axis in the array (multi-axis) form, where `min`/`max` don't reach. */
+    includeValues?: readonly number[]
 }
 
 export function useXTickFormatter(
@@ -144,6 +148,7 @@ export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
         label: config.label,
         hide: config.hide,
         startAtZero: config.startAtZero,
+        valueDomain: config.includeValues?.length ? { include: config.includeValues } : undefined,
     }))
 }
 

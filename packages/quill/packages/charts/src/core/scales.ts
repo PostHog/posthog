@@ -437,12 +437,18 @@ export function createScales(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
-        /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
-         *  primary axis, so secondary axes keep their own data-derived scale. */
+        /** Applied to the primary y-axis only. A secondary axis takes its domain from
+         *  `axes[].valueDomain` instead. */
         valueDomain?: ValueDomain
         /** Per-axis overrides — explicit values win over the alternating-side default and the
          *  scalar `scaleType`/`floatBaseline` options (which only reach the primary axis). */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
+        axes?: {
+            id: string
+            position?: 'left' | 'right'
+            scaleType?: 'linear' | 'log'
+            startAtZero?: boolean
+            valueDomain?: ValueDomain
+        }[]
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
@@ -476,7 +482,7 @@ export function createScales(
         const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
             scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
-            valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
+            valueDomain: override?.valueDomain ?? (axisIndex === 0 ? options.valueDomain : undefined),
             floatBaseline:
                 override?.startAtZero != null
                     ? override.startAtZero === false
@@ -687,7 +693,7 @@ export function createBarScales(
         /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
         valuePadding?: number
         /** Per-axis overrides — explicit values win over the alternating-side default and `options.scaleType`. */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
+        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; valueDomain?: ValueDomain }[]
     } = {}
 ): BarScaleSet {
     const {
@@ -772,7 +778,7 @@ export function createBarScales(
                 barLayout,
                 axisOverrides.get(axisId)?.scaleType ?? scaleType,
                 axisStackedSeries?.length ? axisStackedSeries : undefined,
-                axisIndex === 0 ? valueDomain : undefined,
+                axisOverrides.get(axisId)?.valueDomain ?? (axisIndex === 0 ? valueDomain : undefined),
                 valuePadding
             )
             yAxes[axisId] = { scale, position }

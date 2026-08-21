@@ -315,6 +315,10 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis, overriding the chart-level `valueDomain` (which only reaches
+     *  the primary axis). Needed to keep a secondary-axis reference line on-plot — an overlay
+     *  outside the domain doesn't render. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
