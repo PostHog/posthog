@@ -387,23 +387,13 @@ export class IngestionConsumer {
     }
 
     private createEventUsageBatch(): () => UsageRecordBatch {
-        const client =
-            createUsageIngestionClient(this.config, 'events') ??
-            createUsageIngestionClient(this.config, 'surveys') ??
-            createUsageIngestionClient(this.config, 'enhanced_persons')
+        const client = createUsageIngestionClient(this.config, 'events')
         const isTeamEnabled = usageReportTeamMatcher(this.config, 'events')
-        const isSurveyTeamEnabled = usageReportTeamMatcher(this.config, 'surveys')
-        const isEnhancedPersonsTeamEnabled = usageReportTeamMatcher(this.config, 'enhanced_persons')
         return () =>
             new UsageRecordBatch(client, {
                 unit: 'events',
                 isTeamEnabled: () => true,
-                isUsageKeyEnabled: (teamId, usageKey) =>
-                    usageKey === 'survey_responses'
-                        ? isSurveyTeamEnabled(teamId)
-                        : usageKey === 'enhanced_person_events'
-                          ? isEnhancedPersonsTeamEnabled(teamId)
-                          : isTeamEnabled(teamId),
+                isUsageKeyEnabled: (teamId) => isTeamEnabled(teamId),
             })
     }
 
