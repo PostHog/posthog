@@ -334,6 +334,58 @@ class TestSlackFormatting(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "paragraphs_break_once",
+                [_paragraph("one"), _paragraph("two")],
+                "one\ntwo",
+            ),
+            (
+                "authored_blank_line_stays_a_single_blank_line",
+                [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
+                "one\n\ntwo",
+            ),
+            (
+                "hard_break_drops_its_markdown_trailing_spaces",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "one"},
+                            {"type": "hardBreak"},
+                            {"type": "text", "text": "two"},
+                        ],
+                    }
+                ],
+                "one\ntwo",
+            ),
+            (
+                "code_block_keeps_its_own_blank_lines",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "a = 1\n\nb = 2"}]},
+                    _paragraph("after"),
+                ],
+                "```\na = 1\n\nb = 2\n```\nafter",
+            ),
+        ]
+    )
+    def test_outbound_text_uses_mrkdwn_line_breaks_not_markdown_ones(
+        self, _name: str, content: list[dict], expected: str
+    ) -> None:
+        slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": content}, "")
+        assert slack_text == expected
+
+    def test_outbound_blocks_keep_an_authored_blank_line(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
+        }
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+        assert [el["elements"][0]["text"] for el in slack_blocks[0]["elements"]] == ["one", "\n\n", "two"]
+
+    @parameterized.expand(
+        [
             ("bold_stays_bold", "**bold**", "*bold*"),
             ("italic", "*italic*", "_italic_"),
             ("bold_italic", "***both***", "*_both_*"),
@@ -655,7 +707,7 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         text, blocks = rich_content_to_slack_payload(doc, "fallback")
         assert blocks is None
-        assert text == "Two options (pick one):\n\n- Use query-time properties, e.g. person.email"
+        assert text == "Two options (pick one):\n- Use query-time properties, e.g. person.email"
 
     @parameterized.expand(
         [
