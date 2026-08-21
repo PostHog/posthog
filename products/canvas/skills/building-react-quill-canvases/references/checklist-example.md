@@ -8,9 +8,9 @@ The parts that break when improvised, in the order they matter:
 - **Content lives in its own data module** (`src/plan.ts`), typed, separate from the component. Editing the steps later is a data edit, not a component rewrite — and a follow-up request like "add a step" touches one file.
 - **One shared `ph.state` key per step** (`step:<id>`), holding `{ done, note }`. Progress is team-visible and survives reloads; per-key writes mean two people ticking different steps don't clobber each other the way one big list value would. An entry that returns to blank is deleted with a null write, so state never accumulates empty rows. Declare `state: ["shared"]` in `capabilities.posthog`.
 - **A ref alongside React state for updates.** Note saves are debounced per step; checkbox saves are immediate. Both go through one `update()` that reads the latest entry from a ref, so a keystroke and a checkbox click in the same debounce window can't overwrite each other with stale values.
-- **Loading and failure are visible states.** Skeletons while `ph.state.list` resolves; a load failure says progress won't be remembered; a save failure says a change didn't save. Never fall through to an empty checklist that looks freshly reset.
+- **Loading and failure are visible states.** Skeletons while `ph.state.list` resolves; a load failure says progress won't be remembered; a save failure says a change didn't save. Save errors are keyed per step, so one step's later success can't hide another step's failed write. Never fall through to an empty checklist that looks freshly reset.
 - **Every step states its expected outcome.** A checkbox alone tells the runner what to do, not how to know it worked — the `expect` line is what makes the list a runbook instead of a todo list. A notes field per step captures deviations where they happened.
-- **Destructive reset asks twice.** The reset button swaps to a confirm button instead of clearing shared progress on one click.
+- **Destructive reset asks twice, then cancels pending saves.** The reset button swaps to a confirm button instead of clearing shared progress on one click, and the reset clears every pending debounced timer first so an in-flight note save can't write itself back after the keys are deleted.
 
 Capabilities for this project: the full `capabilities.posthog` shape with `state: ["shared"]` and everything else empty (`insights: []`, `inlineQueries: false`, `captureEvents: []`, `actions: []`, `network.origins: []`). Keep `index.html` and `dependencies` exactly as `canvas-source-retrieve` returned them.
 
@@ -111,6 +111,9 @@ type Entries = Record<string, Entry>
 
 const PREFIX = 'step:'
 const BLANK: Entry = { done: false, note: '' }
+const RESET_KEY = '*reset'
+
+const errorMessage = (err: unknown): string => String((err as { message?: string })?.message ?? err)
 
 function CommandBlock({
   id,
@@ -121,14 +124,14 @@ function CommandBlock({
   id: string
   cmd: string
   copied: string | null
-  onCopy: (id: string, text: string) => void
+  onCopy: (id: string, text: string) => Promise<void>
 }) {
   const ok = copied === id
   const failed = copied === 'fail:' + id
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-end">
-        <Button variant="outline" size="sm" onClick={() => onCopy(id, cmd)}>
+        <Button variant="outline" size="sm" onClick={() => void onCopy(id, cmd)}>
           {ok ? <Check size={13} /> : <Copy size={13} />}
           {ok ? 'Copied' : failed ? 'Select it manually' : 'Copy'}
         </Button>
@@ -144,7 +147,7 @@ export default function Canvas() {
   const [entries, setEntries] = useState<Entries>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ setup: true })
   const [hideDone, setHideDone] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -155,9 +158,9 @@ export default function Canvas() {
 
   useEffect(() => {
     let cancelled = false
-    ph.state
-      .list({ scope: 'shared' })
-      .then((rows) => {
+    const load = async (): Promise<void> => {
+      try {
+        const rows = await ph.state.list({ scope: 'shared' })
         if (cancelled) {
           return
         }
@@ -175,14 +178,15 @@ export default function Canvas() {
         entriesRef.current = next
         setEntries(next)
         setLoading(false)
-      })
-      .catch((err) => {
+      } catch (err) {
         if (cancelled) {
           return
         }
         setLoading(false)
-        setLoadError(String(err?.message ?? err))
-      })
+        setLoadError(errorMessage(err))
+      }
+    }
+    void load()
     return () => {
       cancelled = true
     }
@@ -197,12 +201,16 @@ export default function Canvas() {
     }
   }, [])
 
-  const persist = (stepId: string, entry: Entry) => {
+  // Save failures are tracked per step: a later success on one step must not
+  // hide another step's failed write.
+  const persist = async (stepId: string, entry: Entry): Promise<void> => {
     const empty = !entry.done && entry.note.trim() === ''
-    ph.state
-      .set(PREFIX + stepId, empty ? null : entry, { scope: 'shared' })
-      .then(() => setSaveError(null))
-      .catch((err) => setSaveError(String(err?.message ?? err)))
+    try {
+      await ph.state.set(PREFIX + stepId, empty ? null : entry, { scope: 'shared' })
+      setSaveErrors(({ [stepId]: _cleared, ...rest }) => rest)
+    } catch (err) {
+      setSaveErrors((prev) => ({ ...prev, [stepId]: errorMessage(err) }))
+    }
   }
 
   // Keep a ref alongside state so a note keystroke and a checkbox click in the
@@ -213,41 +221,42 @@ export default function Canvas() {
     setEntries(entriesRef.current)
     window.clearTimeout(timers.current[stepId])
     if (delay === 0) {
-      persist(stepId, next)
+      void persist(stepId, next)
     } else {
-      timers.current[stepId] = window.setTimeout(() => persist(stepId, next), delay)
+      timers.current[stepId] = window.setTimeout(() => void persist(stepId, next), delay)
     }
   }
 
-  const onCopy = (id: string, text: string) => {
+  const onCopy = async (id: string, text: string): Promise<void> => {
     const flash = (value: string, ms: number) => {
       setCopied(value)
       window.setTimeout(() => setCopied((c) => (c === value ? null : c)), ms)
     }
     try {
-      const clip = navigator.clipboard
-      if (!clip) {
-        throw new Error('clipboard unavailable')
-      }
-      clip
-        .writeText(text)
-        .then(() => flash(id, 1500))
-        .catch(() => flash('fail:' + id, 2500))
+      await navigator.clipboard.writeText(text)
+      flash(id, 1500)
     } catch {
       flash('fail:' + id, 2500)
     }
   }
 
-  const resetAll = () => {
-    const keys = Object.keys(entriesRef.current)
-    Promise.all(keys.map((k) => ph.state.set(PREFIX + k, null, { scope: 'shared' })))
-      .then(() => {
-        entriesRef.current = {}
-        setEntries({})
-        setConfirmReset(false)
-        setSaveError(null)
-      })
-      .catch((err) => setSaveError(String(err?.message ?? err)))
+  const resetAll = async (): Promise<void> => {
+    // Cancel pending debounced saves first, or a note typed just before the
+    // reset writes itself back after the keys are cleared.
+    for (const id of Object.keys(timers.current)) {
+      window.clearTimeout(timers.current[id])
+    }
+    timers.current = {}
+    try {
+      const keys = Object.keys(entriesRef.current)
+      await Promise.all(keys.map((k) => ph.state.set(PREFIX + k, null, { scope: 'shared' })))
+      entriesRef.current = {}
+      setEntries({})
+      setConfirmReset(false)
+      setSaveErrors({})
+    } catch (err) {
+      setSaveErrors((prev) => ({ ...prev, [RESET_KEY]: errorMessage(err) }))
+    }
   }
 
   const doneCount = useMemo(() => Object.values(entries).filter((e) => e.done).length, [entries])
@@ -282,7 +291,7 @@ export default function Canvas() {
               {allOpen ? 'Collapse all' : 'Expand all'}
             </Button>
             {confirmReset ? (
-              <Button variant="primary" size="sm" onClick={resetAll}>
+              <Button variant="primary" size="sm" onClick={() => void resetAll()}>
                 Confirm reset
               </Button>
             ) : (
@@ -318,10 +327,12 @@ export default function Canvas() {
             </CardContent>
           </Card>
         )}
-        {saveError && (
+        {Object.keys(saveErrors).length > 0 && (
           <Card size="sm">
             <CardContent>
-              <p className="text-sm text-destructive-foreground">A change did not save: {saveError}</p>
+              <p className="text-sm text-destructive-foreground">
+                A change did not save: {Object.values(saveErrors)[0]}
+              </p>
             </CardContent>
           </Card>
         )}
