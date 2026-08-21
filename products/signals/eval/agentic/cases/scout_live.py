@@ -103,7 +103,8 @@ CASES: list[ScoutCase] = [
         "scout_error_tracking_broad_reach_emit",
         "signals-scout-error-tracking",
         "Project Elm has error tracking enabled and normally sees 80-120 exceptions/hour.",
-        "No dedupe entry for err_payment_token_missing. Reviewer memory maps checkout backend to octo-checkout.",
+        "No dedupe entry for err_payment_token_missing. Reviewer memory maps the checkout backend to the "
+        "acme/webapp repo, owned by octo-checkout.",
         "New issue err_payment_token_missing fired 1,940 times from 1,870 users in 90 minutes. "
         "Top frame is payments/api/checkout.py and first_seen aligns with deploy dep_42.",
         "No live report covers err_payment_token_missing or checkout token missing.",
@@ -154,7 +155,8 @@ CASES: list[ScoutCase] = [
         "scout_feature_flags_stale_rollout_emit",
         "signals-scout-feature-flags",
         "Project Hazel has 212 active feature flags.",
-        "Memory says stale cleanup reports should route to octo-flags when the flag is still evaluated.",
+        "Memory says stale cleanup reports should route to the acme/webapp repo (owned by octo-flags) "
+        "when the flag is still evaluated.",
         "Flag beta-new-nav is active, 100% rolled out, has no targeting conditions, and was evaluated "
         "1.8M times in 7 days. The related experiment ended 41 days ago.",
         "No live report covers beta-new-nav cleanup.",
@@ -321,7 +323,8 @@ CASES: list[ScoutCase] = [
         "scout_mcp_tool_calls_emit",
         "signals-scout-mcp-tool-calls",
         "Project Rowan uses MCP heavily from multiple clients.",
-        "No report exists for schema-search failures. Owner memory maps MCP tools to octo-mcp.",
+        "No report exists for schema-search failures. Owner memory maps MCP tools to the acme/mcp-server repo, "
+        "owned by octo-mcp.",
         "mcp_tool_call failures for schema-search rose from 0.4% to 17.8% over 6 hours. "
         "The failures affect 41 distinct clients and return the same validation error.",
         "No matching reports.",
