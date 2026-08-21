@@ -210,7 +210,7 @@ class DuckLakeRegisterDataImportsMetadata:
     ducklake_table_name: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsActivityInputs:
     team_id: int
     job_id: str

@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextlib
+import dataclasses
 from collections.abc import Iterator
 
 import pytest
@@ -1016,8 +1017,7 @@ def test_register_uses_workflow_minted_names(monkeypatch):
 
     conn.execute.side_effect = execute
     names = registration_module.registration_table_names_from_token("feedc0de" * 4)
-    inputs = _activity_inputs()
-    inputs.registration_table_names = names
+    inputs = dataclasses.replace(_activity_inputs(), registration_table_names=names)
 
     registration_module._register_prepared_parquet_files(
         inputs,
