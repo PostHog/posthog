@@ -91,7 +91,7 @@ Path patterns:
 
 | Pattern                                            | Domain                                     | Notes                    |
 |----------------------------------------------------|--------------------------------------------|--------------------------|
-| `/bcdn_token=<token>&expires=<timestamp>/`         |                                            | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token |
+| `/bcdn_token=<token>[&<field>=<value>...]/`       |                                            | [Bunny](https://support.bunny.net/hc/en-us/articles/360016055099-How-to-sign-URLs-for-BunnyCDN-Token-Authentication) token in the first path segment |
 | `/p/<token>/n/`                                   | `objectstorage.*.oraclecloud.com`           | [Oracle pre-authenticated request](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingpreauthenticatedrequests_topic-To_create_a_preauthenticated_request_for_all_objects_in_a_bucket.htm) |
 | `/s--<token>--/`                                  |                                            | [Cloudinary](https://cloudinary.com/documentation/control_access_to_media) signature |
 | `/storage/v1/object/sign/`                        |                                            | [Supabase](https://supabase.com/docs/guides/storage/cdn/smart-cdn) signed object |
@@ -101,6 +101,8 @@ Path patterns:
 **1.3** It's preferable if upstream systems run the subset of these checks that they are easily able to, to reduce load on the system
 
 **1.4** All checks must be re-run if the URL is redirected
+
+**1.5** The producer collects only the `src` attribute on `img`, `image`, and `picture` elements. Other source attributes are out of scope until this specification adds them.
 
 ### 2. Opt-out signals
 
@@ -153,7 +155,7 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.4** To avoid interruptions, the lane starts to refresh robots.txt and tdmrep.json when the cached version is 23 hours old. The lane can use the current cached version while one refresh is in progress.
 
-**3.5** The lane follows up to 5 redirects when requesting robots.txt and tdmrep.json, including to a different authority. This happens without needing to push any messages to Kafka.
+**3.5** The lane follows up to 5 redirects when requesting robots.txt and tdmrep.json, including to a different authority. It follows these redirects without publishing to Kafka. The result still applies to the original origin. Configuration-file requests use the failure, cache, and retry rules in this section rather than the redirected authority's per-origin image back-off or circuit-breaker state.
 
 **3.6** A redirect chain longer than 5 counts as unreachable.
 
@@ -161,7 +163,7 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.8** The lane tries to parse every line of the robots.txt file, and ignores lines it cannot parse
 
-**3.9** The lane must use an established robots.txt parsing library rather than creating its own. The selected library defines robots group selection and path matching.
+**3.9** The lane uses [`@trybyte/robotstxt-parser`](https://github.com/trybyte-app/robotstxt-ts-port), a TypeScript port of Google's parser, for RFC 9309 group selection and path matching. The product token is `PostHogImageFetcherBot`. The lane uses the library's low-level parser to retain and process every field line for extensions such as `Crawl-delay`, `Content-Usage`, and `Content-Signal`.
 
 **3.10** If the response to fetching robots.txt is an HTML file instead of a text file (e.g. in the case of a misconfigured server), we still treat it as a text file and try to parse every line
 
@@ -169,7 +171,7 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.12** TDMRep does not specify a maximum size for tdmrep.json. The lane refuses a tdmrep.json file larger than 500KiB. It treats this result as unreachable.
 
-**3.13** A rule in that tdmrep.json refuses the URL when its location covers the URL and it sets `tdm-reservation` to 1.
+**3.13** The lane parses and applies tdmrep.json according to the [TDMRep Community Group Final Report](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/). A matching reservation of `1` refuses the URL.
 
 **3.14** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file
 
@@ -215,23 +217,23 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **4.10** The first configured private key signs outbound requests. The key directory publishes every configured public key so that an operator can rotate keys.
 
-**4.11** The key-directory response carries one signature for each published key. Each signature covers the constant `us.posthog.com` request authority and the response `Content-Digest`. It carries `alg="ed25519"`, `tag="http-message-signatures-directory"`, `keyid`, `created`, `expires`, and a random nonce. `expires` is 5 minutes after `created`. The response uses `Cache-Control: no-store`.
+**4.11** The key-directory response carries one signature for each published key. Each signature covers `@authority;req`, whose value is the constant `us.posthog.com`, and the response `Content-Digest`. It carries `alg="ed25519"`, `tag="http-message-signatures-directory"`, `keyid`, `created`, `expires`, and a random nonce. `expires` is 5 minutes after `created`. The response uses `Cache-Control: public, max-age=60`.
 
 ### 5. Limits
 
 **5.1** Requests in flight never exceed the pod limit.
 
-**5.2** Requests in flight to one origin never exceed the origin limit.
+**5.2** Requests in flight to one origin never exceed the origin limit during steady-state ownership. A bounded exception applies during the Kafka rebalance window described below.
 
-**5.3** Requests to one origin never exceed the rate its token bucket allows.
+**5.3** Requests to one origin never exceed the rate its token bucket allows during steady-state ownership. The same bounded rebalance exception applies.
 
 **5.4** A redirect is not a way around any limit. For example, if a request to `https://a.com/image` redirects to `https://b.com/image`, the first request counts against the first origin and the second request counts against the second origin.
 
 **5.5** A wait is not a way around any limit. For example, a URL that waits for the pod limit must check the per-origin limit and all other limits before it resumes.
 
-**5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by origin, so one pod normally handles the request limits for an origin.
+**5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by registrable domain, using both the ICANN and private sections of the Public Suffix List. All origins under one registrable domain therefore go to one partition, and one pod normally holds the separate request-control state for each of those origins.
 
-**5.7** A Kafka partition rebalance should not cause us to temporarily go over pod-local limits
+**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the origin limit and token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
 
 **5.8** In-flight concurrency limits apply to all external URL fetches (e.g. `robots.txt` files), not just images. It does not apply to internal services like DynamoDB or Kafka.
 
@@ -246,7 +248,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | Requests per second per origin          | origin                                            | 1, burst 5 |
 | Hop budget                              | one original URL, across every message it becomes | 10         |
 | Redirects followed without republishing | one fetch                                         | 3          |
-| Response bytes, compressed              | one response                                      | 2 MB       |
+| Response bytes, compressed              | one response                                      | 20 MiB     |
 | Request timeout                         | one URL, redirects included                       | 10 seconds |
 | Pass deadline                           | one pass                                          | 20 seconds |
 | Pass wall time, worst case              | one pass                                          | 30 seconds |
@@ -261,9 +263,9 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | robots.txt and tdmrep.json results                                                                    | Origin and file type    | DynamoDB, with an optional hot cache in pod memory               |
 | URL crawl history and HTTP cache metadata                                                              | Global canonical URL    | DynamoDB                                                        |
 | Original ref, current URL, remaining image hops, and earliest retry time                               | One URL job             | Kafka record                                                    |
-| Top-N metric labels                                                                                    | Registrable/root domain | Bounded pod memory                                              |
+| Top-N metric labels                                                                                    | Registrable/provider domain | Bounded pod memory                                           |
 
-**5.12** No request-control state uses the registrable domain or root domain as its key.
+**5.12** No request-control state uses the registrable domain or provider domain as its key.
 
 **5.13** The pod limits its origin runtime map to 20,000 entries because the number of origins is unbounded.
 
@@ -292,27 +294,35 @@ Removing an eligible entry cannot permit an earlier request.
 
 ### 7. Back-off and retry delay
 
-**7.1** One network failure for an origin applies to every URL queued for that origin in the same pass.
+**7.1** This section applies to image requests. Configuration-file requests use the failure and retry rules in section 3 and do not change an origin's image back-off or circuit-breaker state.
 
-**7.2** One delay, such as an HTTP 429 or 503 `Retry-After` value or a `Crawl-delay` rule, applies to every URL queued for that origin in the same pass.
+**7.2** A network error, timeout, HTTP 408, HTTP 425, HTTP 429, or HTTP 5xx response is a transient failure. It increments the origin's consecutive transient-failure count. A successful response, valid redirect, or terminal HTTP response resets that count.
 
-**7.3** Repeated network failures cause an exponential back-off per origin.
+**7.3** One transient failure for an origin applies to every image URL queued for that origin in the same pass.
 
-**7.4** Per-origin delays and back-off state use the pod memory described in requirement 5.11.
+**7.4** The retry back-off after the first consecutive transient failure is 1 minute. Each further consecutive failure doubles the maximum delay, up to 1 hour. The actual delay is selected uniformly between one half and all of that maximum, inclusive.
 
-**7.5** We respect `Crawl-delay` in robots.txt, which sets a minimum interval between two requests to an origin.
+**7.5** A valid `Retry-After` on HTTP 429 or HTTP 503 sets a minimum retry delay. The lane accepts either a non-negative integer number of seconds or an HTTP date. It uses the longer of `Retry-After` and the delay from requirement 7.4. It ignores an invalid or past value.
 
-**7.6** We use the `Crawl-delay` from the robots.txt from the same origin (not just registrable domain) as the URL.
+**7.6** After 5 consecutive transient failures, the origin's circuit breaker opens for the calculated delay. When that period ends, one image request becomes the half-open probe. Other image requests for the origin remain delayed until the probe completes.
 
-**7.7** The lane uses the longer of its own interval and the `Crawl-delay`.
+**7.7** A successful, redirected, or terminal response to the half-open probe closes the circuit breaker and resets its failure count. A transient failure reopens it with the next exponential delay.
 
-**7.8** A delayed retry must not block processing. A delayed retry goes to the back of the queue for its current batch, and if the delay has not elapsed by the time it reaches the front of the queue, it must instead republish to a delay Kafka topic.
+**7.8** Per-origin delays, failure counts, and circuit-breaker state use the bounded pod memory described in requirement 5.11.
 
-**7.9** A `Crawl-delay` longer than the pass deadline immediately sends the URL to a delay topic
+**7.9** The lane respects every `Crawl-delay` field line in the selected robots.txt group for `PostHogImageFetcherBot`. It accepts a non-negative decimal number of seconds, ignores invalid values, and uses the greatest valid value.
 
-**7.10** A `Crawl-delay` longer than the longest delay topic is a refusal rather than a delay
+**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. The lane uses the longer of its 1-request-per-second interval and `Crawl-delay`.
 
-**7.11** When republishing to a delay topic, URLs are published to the delay Kafka topic with the smallest delay that is greater than or equal to the required delay.
+**7.11** One active delay, whether it comes from back-off, `Retry-After`, `Crawl-delay`, or an open circuit breaker, applies to every image URL queued for that origin. The lane uses the latest resulting not-before time.
+
+**7.12** A delayed retry must not block processing. It goes to the back of the queue for its current batch. If the delay has not elapsed when it returns to the front, the lane republishes it to a delay Kafka topic.
+
+**7.13** A delay longer than the pass deadline immediately sends the URL to a delay topic.
+
+**7.14** A required delay longer than 1 hour is a terminal refusal rather than a sequence of passes through the 1-hour topic.
+
+**7.15** When republishing to a delay topic, the lane uses the topic with the smallest delay that is greater than or equal to the required delay.
 
 ### 8. Hop budget
 
@@ -334,20 +344,22 @@ Removing an eligible entry cannot permit an earlier request.
 
 ### 9. Redirects
 
-**9.1** When following a redirect to another origin, send the URL back to the frontier so that the new origin's limits can be applied.
+**9.1** The lane treats HTTP 301, 302, 303, 307, and 308 as redirects. It resolves a relative `Location` against the current URL.
 
-**9.2** When following a redirect to the same origin, handle it within the same Kafka batch.
+**9.2** When following a redirect to another origin, send the URL back to the frontier so that the new origin's limits can be applied.
 
-**9.3** After a redirect, all checks must be re-run on the new URL
+**9.3** When following a redirect to the same origin, handle it within the same Kafka batch.
 
-**9.4** Redirects should keep their original key. This is necessary for the data prep phase to be able to find the image.
+**9.4** After a redirect, all checks must be re-run on the new URL
 
-**9.5** A republished message carries the original ref. The ref is a hash of the original URL. A ref
+**9.5** Redirects should keep their original key. This is necessary for the data prep phase to be able to find the image.
+
+**9.6** A republished message carries the original ref. The ref is a hash of the original URL. A ref
 built from a redirect target matches no recording.
 
-**9.6** The lane follows no more than 3 same-origin redirects while it processes one frontier record. If the next redirect is also same-origin, the lane republishes its target to the frontier instead of recording a terminal failure.
+**9.7** The lane follows no more than 3 same-origin redirects while it processes one frontier record. If the next redirect is also same-origin, the lane republishes its target to the frontier instead of recording a terminal failure.
 
-**9.7** The republished target carries the original ref, remaining image-hop budget, and earliest retry time. Republishing resets the 3-redirect local count. It does not reset the total image-hop budget.
+**9.8** The republished target carries the original ref, remaining image-hop budget, and earliest retry time. Republishing resets the 3-redirect local count. It does not reset the total image-hop budget.
 
 ### 10. Kafka mechanics
 
@@ -363,9 +375,33 @@ built from a redirect target matches no recording.
 
 A terminal refusal has no destination Kafka record, so it starts at step 2. A delayed retry has no terminal URL result in crawl history. These systems do not share a transaction. A failure before step 3 must throw. A replay can create a duplicate, which requirement 10.2 permits.
 
-**10.4** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
+**10.4** A frontier or delay record is versioned JSON. Its Kafka key is the registrable domain of every job's current URL. One record can contain multiple jobs for that key. Each job has this schema:
 
-**10.5** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
+```json
+{
+    "v": 1,
+    "jobs": [
+        {
+            "originalRef": "imageurl:<hash>",
+            "currentUrl": "https://images.example.com/image.png",
+            "remainingHops": 10,
+            "notBeforeMs": 0,
+            "firstSeenAtMs": 1787241600000,
+            "fetchCount": 0,
+            "republishCount": 0,
+            "lastRepublishReason": null
+        }
+    ]
+}
+```
+
+`v` is the integer `1`. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, or `origin_map_full`.
+
+The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
+
+**10.5** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
+
+**10.6** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
 
 ### 11. Metrics
@@ -381,7 +417,7 @@ that scenario.
 **11.2** These metrics are tracked for each completed fetch request (images and other files)
 
 - Registrable domain (top N, bounded with Space-Saving algorithm)
-- Root domain (top N, bounded with Space-Saving algorithm)
+- Provider domain (top N, bounded with Space-Saving algorithm)
 - Time taken
 - HTTP response / network failure if any
 
@@ -390,9 +426,15 @@ that scenario.
 - Block status
 - Block reason if any
 
+**11.4** The registrable domain is the effective top-level domain plus one when the Public Suffix List's ICANN and private sections are both active. For example, it is `posthog.com` for `app.posthog.com` and `myapp.vercel.app` for `cdn.myapp.vercel.app`.
+
+**11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
+
+**11.6** Each top-N metric uses 200 Space-Saving counters per pod for one 10-minute window. It exports the 20 largest labels and one `other` label as gauges. At the window boundary, it clears the estimator and removes the labels from the previous window before it starts the next window.
+
 ### 12. Conditional requests
 
-**12.1** The lane stores the `ETag`, `Last-Modified`, `Date`, `Age`, `Cache-Control`, and `Expires` metadata in the crawl history for that URL.
+**12.1** The lane stores the request time, response time, `ETag`, `Last-Modified`, `Date`, `Age`, `Cache-Control`, and `Expires` metadata in the crawl history for that URL.
 
 **12.2** The default minimum interval between two fetches of one image URL is 30 days.
 
@@ -402,7 +444,7 @@ that scenario.
 
 **12.5** A `304` response means the image did not change. The lane keeps the existing image and merges the response metadata from the `304` response into the stored metadata as RFC 9111 requires.
 
-**12.6** The lane calculates the explicit freshness lifetime as a shared cache under RFC 9111. It uses `s-maxage`, then `max-age`, then `Expires` minus `Date`. It subtracts the current age, including the `Age` value and the time since the response arrived. An invalid value adds no freshness time.
+**12.6** The lane calculates the explicit freshness lifetime as a shared cache under RFC 9111. It uses `s-maxage`, then `max-age`, then `Expires` minus `Date`. The stored response time substitutes for a missing `Date`. It calculates current age as `max(0, response_time - Date, Age + response_time - request_time) + max(0, now - response_time)`. It treats a missing or invalid `Age` as 0, subtracts current age from the freshness lifetime, and treats a negative result as 0. Another missing or invalid value contributes no freshness time.
 
 **12.7** The next permitted fetch time is the later of 30 days after the response arrived and the end of its explicit freshness lifetime.
 
@@ -410,19 +452,19 @@ that scenario.
 
 **12.9** `immutable` does not create or extend a freshness lifetime. It means that the lane must not send a conditional request while the stored response is fresh. The lane revalidates a stale response in the same way as a response without `immutable`.
 
-**12.10** If the lane receives a `304` but cannot find the previously stored image, it retries one time without a conditional request. This retry costs one image hop.
-
 ### 13. URL key
 
 **13.1** The lane fetches a URL one time within its crawl-history interval, regardless of how many customers refer to it. The ref and the crawl-history key do not depend on the team.
 
 **13.2** The URL used for the fetch is the same URL that was seen in a session replay. The lane does not remove or reorder path or query data. A URL that contains userinfo is refused under requirement 1.2. A URL fragment is not part of an HTTP request target and is not sent to the server.
 
-**13.3** The key is based on a canonicalized version of the URL, so that similar URLs are folded into one.
+**13.3** The key uses the shared Rust URL-policy implementation to canonicalize the URL. The canonical form uses the parser's serialized HTTPS URL, lowercases and IDNA-encodes the host, removes a trailing DNS root dot, removes the fragment, omits the explicit default port `443`, and uses `/` for an empty path. It does not sort path segments or query fields. The shared parser's serialization is authoritative for percent-encoding and dot-segment normalization.
+
+After parsing and before final serialization, the implementation removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
-**13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction.
+**13.5** A URL ref has the form `imageurl:<hash>`. The producer calculates `GLOBAL_URL_KEY` with the existing `pseudonymize(ml_pseudonymization_secret, "image-url-key", "global-v1")` construction. The hash is the first 22 base64url characters of `HMAC-SHA256(GLOBAL_URL_KEY, canonical_url)`. Every producer must use this construction. The DynamoDB crawl-history key for the original URL is the same `imageurl:<hash>` string.
 
 **13.6** The mirror stores the ref in a sibling attribute named `data-anon-image-ref-<attribute>`. For example, the ref for `src` is stored in `data-anon-image-ref-src`. The source attribute keeps its image placeholder.
 
@@ -432,8 +474,7 @@ that scenario.
 
 ### 14. HTTP request/response
 
-**14.1** The lane accepts a compressed response. It specifies the encodings it can read in
-`Accept-Encoding`.
+**14.1** The lane accepts the `identity`, `gzip`, `deflate`, `br`, and `zstd` content codings and refuses every other coding. It sends `gzip, deflate, br, zstd` in `Accept-Encoding`; `identity` remains acceptable as HTTP defines.
 
 **14.2** The lane never sends cookies, and ignores cookies that are set by the response
 
@@ -450,7 +491,7 @@ that scenario.
 
 **14.8** The lane should submit a compressed response to the Kafka topic without decompressing it. The lane never decompresses whole responses.
 
-**14.9** This lane is not responsible for checking any limit on uncompressed size. The image scrubber checks the uncompressed size.
+**14.9** The image scrubber decodes the response with a streaming size check and refuses it as soon as the uncompressed bytes exceed 20 MiB. It must not allocate or decode an unbounded output before it applies this check.
 
 **14.10** The lane accepts these media types and refuses every other one:
 
@@ -496,6 +537,8 @@ that scenario.
 **15.7** An error communicating with the store is fatal for the Kafka batch. The handler must throw so that the input offsets are not stored.
 
 **15.8** The robots.txt and tdmrep.json caches use separate per-origin items. They do not share a TTL or an item with URL crawl history.
+
+**15.9** The registrable-domain Kafka key puts all origins under that domain on one pod, while each DynamoDB item belongs to one URL or one origin. Outside the bounded rebalance exception in requirement 5.7, one pod therefore builds updates for a given item. Before each `BatchWriteItem` call, the lane folds repeated updates for one item into the last in-memory state so that a request never contains duplicate keys. A rebalance replay can write the same final state again, which requirement 15.4 permits. The lane does not use conditional writes or a distributed DynamoDB concurrency lock.
 
 ## 16. Delay topics
 
@@ -550,6 +593,14 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.10** The maximum record size is the response byte limit in requirement 5.10 plus the maximum key, header, and Kafka protocol overhead. The fetcher producer, image-scrub topic, existing image-scrub dead-letter topic, and their consumers must accept that size.
 
+**17.11** After scrubbing a URL-backed image, the image scrubber writes it to the deterministic S3 object key `<configured image prefix>/url/<hash>`, where `<hash>` comes from the `imageurl:<hash>` ref. URL-backed images do not use the time-partitioned shard index used by inline images.
+
+**17.12** A later successful scrub for the same ref overwrites that object. The last completed S3 write is the version that data preparation reads. This policy avoids a version index or a search across historical shards.
+
+**17.13** Data preparation converts each distinct ref to the deterministic object key and performs one direct S3 read. A missing object leaves the image placeholder in place and does not require a recrawl.
+
+**17.14** Inline images keep their existing sharded S3 storage and Parquet index.
+
 ## External specifications
 
 | Specification                                                                                                            | What it governs here                                                                                                                                                 |
@@ -567,14 +618,14 @@ ai_research_session_replay_image_fetch_retry_1h
 | [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Requirement 2.6. The `Content-Usage` dictionary                                                                                                                     |
 | [draft-ietf-aipref-vocab](https://datatracker.ietf.org/doc/draft-ietf-aipref-vocab/)                                     | Requirement 2.6. The `train-ai` preference and how conflicting or invalid preferences are resolved                                                                  |
 | [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Requirement 2.6. The `Content-Usage` response field and robots.txt rule                                                                                              |
-| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Requirements 7.2 and 14.17. `Retry-After` and repeated field lines                                                                                                   |
+| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Requirements 7.5 and 14.17. `Retry-After` and repeated field lines                                                                                                   |
 | [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html), HTTP Caching                                                    | Section 12. Freshness lifetime, current age, cache directives, and conditional revalidation                                                                          |
 | [RFC 8246](https://www.rfc-editor.org/rfc/rfc8246.html), HTTP Immutable Responses                                       | Requirement 12.9. The effect of `immutable` during and after a response's freshness lifetime                                                                         |
 | [DynamoDB BatchGetItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html)            | Requirement 15.6. Bulk reads, the 100-item request limit, and unprocessed keys                                                                                        |
 | [DynamoDB BatchWriteItem](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchWriteItem.html)        | Requirement 15.6. Bulk writes, the 25-item request limit, and unprocessed items                                                                                       |
 | [Google robots.txt behavior](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)                    | Requirements 3.16 and 3.17. The places where PostHog follows or is more conservative than Google                                                                     |
 | [Smokescreen](https://github.com/stripe/smokescreen)                                                                     | Section 6. The outbound proxy that enforces the production network boundary                                                                                           |
-| [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and root domains used by bounded metrics                                                                                                              |
+| [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable and provider domains used for Kafka ownership and bounded metrics                                                                                      |
 
 `noai` and `noimageai` in requirement 2.6 have no specification. They are a convention that art hosting
 platforms adopted, and `X-Robots-Tag` is the transport.
