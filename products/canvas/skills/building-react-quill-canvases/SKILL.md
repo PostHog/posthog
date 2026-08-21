@@ -15,8 +15,9 @@ The whole application is one React/TSX file (`src/canvas.tsx` in the source proj
 react-dom or call createRoot.
 
 Start from the working scaffold in [references/starter-scaffold.md](references/starter-scaffold.md)
-on a first build: it already wires the date picker, theme tokens, per-card skeletons, and correct
-typed-node result reading. Keep that wiring; replace the sample metric and layout.
+on a first build: it already wires the date picker, theme tokens, per-query loading state (every
+card fills in independently as its own data lands), and correct typed-node result reading. Keep
+that wiring; replace the sample metrics and layout.
 
 ## Imports
 
@@ -74,8 +75,15 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
 
 Every data point renders a skeleton in its own `Card` while loading or refreshing: `SkeletonText`
 (matching `lines` and text-size `className`) for text/number values, `Skeleton` for blocks/charts.
-Drive `isLoading` off the data calls and set it true again on refresh; never show a blank or a
-jumping layout.
+
+Render progressively — each query owns its loading state. The chrome (heading, date picker,
+card frames with skeletons inside) renders immediately, every independent query fires
+concurrently on mount, and each card swaps its skeleton for data the moment its own query
+resolves, so a slow query only holds back its own card. Never drive the whole canvas off one
+shared `loading` flag or a `Promise.all` across independent queries — that makes the fastest
+metric wait for the slowest. Set each section's loading state true again on refresh; never show
+a blank or a jumping layout. Content the first paint doesn't show (an inactive tab, a collapsed
+section, a drill-down) defers its query until the user reveals it.
 
 A failed query and an empty result are different states — never let one render as the other.
 `.catch` on every `ph.query`/`ph.loadInsight` must set an error state that renders visibly (the
