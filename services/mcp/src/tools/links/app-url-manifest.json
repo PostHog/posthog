@@ -307,7 +307,7 @@
     "cohortsStaffTools": {
         "template": "/feature_flags/staff/cohorts",
         "params": [],
-        "scope": "project"
+        "scope": "global"
     },
     "comment": {
         "template": "/data-management/comments/{id}",
@@ -697,7 +697,7 @@
     "experimentsStaffTools": {
         "template": "/experiments/staff",
         "params": [],
-        "scope": "project"
+        "scope": "global"
     },
     "exports": {
         "template": "/exports",
@@ -727,7 +727,7 @@
     "featureFlagsStaffTools": {
         "template": "/feature_flags/staff",
         "params": [],
-        "scope": "project"
+        "scope": "global"
     },
     "featurePreview": {
         "template": "/settings/user-feature-previews",
@@ -1571,11 +1571,6 @@
     },
     "tracing": {
         "template": "/tracing",
-        "params": [],
-        "scope": "project"
-    },
-    "tracingOperation": {
-        "template": "/tracing/operation",
         "params": [],
         "scope": "project"
     },

@@ -29,7 +29,7 @@ const PRODUCTS_DIR = path.join(REPO, 'products')
 const OUT_FILE = path.join(REPO, 'services/mcp/src/tools/links/app-url-manifest.json')
 
 // First path segments that never get a `/project/:id` prefix. Mirrors `pathsWithoutProjectId` in
-// frontend/src/lib/utils/router-utils.ts — keep in sync there.
+// frontend/src/lib/utils/kea-router.ts — keep in sync there.
 const PATHS_WITHOUT_PROJECT_ID = new Set([
     'api',
     'me',
@@ -47,10 +47,20 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'cli',
     'render_query',
 ])
-const isProjectScoped = (template) => !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')
+// Instance-level pages living under a product's own prefix, so a first-segment check misses them.
+// Mirrors `exactPathsWithoutProjectId` in the same file, including its nested-path rule — that is
+// what keeps the cohorts staff tools at /feature_flags/staff/cohorts out of the project prefix.
+const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature_flags/staff', '/experiments/staff']
+const isProjectScoped = (template) =>
+    !EXACT_PATHS_WITHOUT_PROJECT_ID.some((exact) => template === exact || template.startsWith(`${exact}/`)) &&
+    !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')
 
 // `urls` helpers that build prefixes/origins rather than linkable destinations.
 const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProject', 'newTab'])
+// Builders whose required arguments all live in the query string, which the probe drops. Most
+// base-only entries are still fine (`/surveys` without its `tab` is a real page), but these resolve
+// to a scene that renders its missing-parameter error, so an entry would be a confident dead link.
+const EXCLUDED_BUILDERS = new Set(['tracingOperation'])
 
 const sentinel = (name) => `:${name}`
 
@@ -286,6 +296,10 @@ function buildManifest(urls) {
     for (const name of Object.keys(urls).sort()) {
         if (EXCLUDED_HELPERS.has(name)) {
             excluded.push({ name, reason: 'structural helper' })
+            continue
+        }
+        if (EXCLUDED_BUILDERS.has(name)) {
+            excluded.push({ name, reason: 'query-only parameters' })
             continue
         }
         const fn = urls[name]
