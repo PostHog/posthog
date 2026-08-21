@@ -3,8 +3,8 @@ import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingesti
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
-    // Meter and quota-limit traces against their own billing identity, not logs'.
-    protected override quotaResource = 'traces_mb_ingested' as const
+    // Traces bill against the same bucket as logs: one product, one free tier, one price. The
+    // inherited logs_mb_ingested quota resource is that bucket, so it is deliberately not overridden.
     protected override appSource = 'traces'
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {

@@ -27,6 +27,8 @@ export const SPEND_TYPES = [
 ] as const
 
 export const USAGE_ONLY_TYPES = [
+    { label: 'Logs and traces ingested (bytes)', value: 'logs_and_traces_bytes_in_period' },
+    { label: 'Traces ingested (MB)', value: 'traces_mb_in_period' },
     { label: 'PostHog Desktop token credits', value: 'posthog_code_token_credits_used_in_period' },
     { label: 'Sandbox compute credits', value: 'sandbox_compute_credits_used_in_period' },
     { label: 'Sandbox compute CPU millicore-seconds', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
