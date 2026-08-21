@@ -153,16 +153,16 @@ def _keyset_batches(queryset: QuerySet[_M], batch_size: int) -> Iterator[_M]:
     cursors — Django then fetches the entire result set in one query. Keyset batches keep memory
     and per-query time bounded in every environment.
     """
-    last_id = None
+    last_pk = None
     while True:
-        batch_queryset = queryset.order_by("id")
-        if last_id is not None:
-            batch_queryset = batch_queryset.filter(id__gt=last_id)
+        batch_queryset = queryset.order_by("pk")
+        if last_pk is not None:
+            batch_queryset = batch_queryset.filter(pk__gt=last_pk)
         rows = list(batch_queryset[:batch_size])
         yield from rows
         if len(rows) < batch_size:
             return
-        last_id = rows[-1].id
+        last_pk = rows[-1].pk
 
 
 def scan_for_masked_secrets(
