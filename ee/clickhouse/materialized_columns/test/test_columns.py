@@ -29,6 +29,7 @@ from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
     MaterializedColumnDetails,
     _clear_materialized_columns_cache,
+    _get_enabled_materialized_columns_cached,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
@@ -103,7 +104,9 @@ class TestMaterializedColumnsTransientFallback(TestCase):
 
     def setUp(self):
         _clear_materialized_columns_cache("events")
+        _get_enabled_materialized_columns_cached.clear_cache()
         self.addCleanup(_clear_materialized_columns_cache, "events")
+        self.addCleanup(_get_enabled_materialized_columns_cached.clear_cache)
 
     @parameterized.expand(TRANSIENT_ERRORS)
     def test_falls_back_to_empty_when_query_fails_and_no_cache(self, _name, error):
@@ -141,6 +144,24 @@ class TestMaterializedColumnsTransientFallback(TestCase):
             ),
         ):
             assert MaterializedColumn._get_all("events", fallback_on_error=True) == cached
+
+    def test_transient_failure_does_not_poison_enabled_columns_cache(self):
+        # The read path degrades on a transient failure, but that empty result must not be memoized
+        # by cache_for (which serves it for 15 minutes and, with background_refresh, overwrites the
+        # last-good registry). Once ClickHouse recovers, the next call must return the real registry.
+        recovered_rows = [("mat_foo", "column_materializer::properties::foo", "String", False, [])]
+
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            side_effect=NetworkError("Connection refused"),
+        ):
+            assert get_enabled_materialized_columns("events", use_cache=True) == {}
+
+        with patch(
+            "ee.clickhouse.materialized_columns.columns.sync_execute",
+            return_value=recovered_rows,
+        ):
+            assert ("foo", "properties") in get_enabled_materialized_columns("events", use_cache=True)
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):

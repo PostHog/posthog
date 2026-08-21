@@ -19,7 +19,7 @@ from posthog.clickhouse.client import sync_execute  # noqa: E402
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries  # noqa: E402
 from posthog.models.utils import UUIDT  # noqa: E402
 
-from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns  # noqa: E402
+from ee.clickhouse.materialized_columns.columns import _get_enabled_materialized_columns_cached  # noqa: E402
 
 get_column = lambda rows, index: [row[index] for row in rows]
 
@@ -73,9 +73,9 @@ def benchmark_clickhouse(fn):
 @contextmanager
 def no_materialized_columns():
     "Allows running a function without any materialized columns being used in query"
-    cast(Any, get_enabled_materialized_columns)._cache = {
+    cast(Any, _get_enabled_materialized_columns_cached)._cache = {
         ("events",): (now(), {}),
         ("person",): (now(), {}),
     }
     yield
-    cast(Any, get_enabled_materialized_columns)._cache = {}
+    cast(Any, _get_enabled_materialized_columns_cached)._cache = {}

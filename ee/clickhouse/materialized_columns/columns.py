@@ -286,18 +286,36 @@ def get_materialized_columns(
 
 
 @cache_for(timedelta(minutes=15), background_refresh=True)
-def get_enabled_materialized_columns(
+def _get_enabled_materialized_columns_cached(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
-    # HogQL read path: build directly from a degrading read so a transient ClickHouse failure
-    # falls back to no materialized columns (query still compiles via JSON extraction) instead of
-    # killing query preparation. The schema-mutation path uses get_materialized_columns, which fails
-    # loud so it never mutates against a degraded registry.
+    # Memoized read for the HogQL path. Fail loud on a transient ClickHouse failure so the degraded
+    # result never enters this cache: cache_for only preserves the previous entry when the call
+    # raises, so returning an empty registry here would be memoized for the full 15-minute TTL and,
+    # with background_refresh, a failed refresh would overwrite the last-good registry. The
+    # per-query fallback lives in get_enabled_materialized_columns below, outside this memo.
     return {
         (column.details.property_name, column.details.table_column): column
-        for column in MaterializedColumn.get_all(table, fallback_on_error=True)
+        for column in MaterializedColumn.get_all(table)
         if not column.details.is_disabled
     }
+
+
+def get_enabled_materialized_columns(
+    table: TablesWithMaterializedColumns, **cache_kwargs: Any
+) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
+    # HogQL read path. Serve the memoized registry, but if fetching it hits a transient ClickHouse
+    # failure (only on a cold cache - a warm entry is served as-is), degrade to a non-memoized read
+    # so query preparation still compiles via JSON extraction. Keeping the fallback out here means a
+    # blip degrades that one lookup instead of poisoning the 15-minute memo for every later query.
+    try:
+        return _get_enabled_materialized_columns_cached(table, **cache_kwargs)
+    except TRANSIENT_METADATA_ERRORS:
+        return {
+            (column.details.property_name, column.details.table_column): column
+            for column in MaterializedColumn.get_all(table, fallback_on_error=True)
+            if not column.details.is_disabled
+        }
 
 
 @dataclass
