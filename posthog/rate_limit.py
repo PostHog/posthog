@@ -2,6 +2,7 @@ import re
 import json
 import time
 import hashlib
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import timedelta
 from functools import lru_cache
@@ -285,7 +286,9 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         else:
             # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
             # This could be email for example when logging in or uuid when verifying email
-            ident = request.data.get("email") or request.data.get("uuid")
+            # A top-level JSON array (or any non-mapping body) has no .get(), so coerce it to an empty mapping first.
+            data = request.data if isinstance(request.data, Mapping) else {}
+            ident = data.get("email") or data.get("uuid")
             if not isinstance(ident, str):
                 # A malformed body (e.g. a JSON list) or a missing value — throttle on the request origin instead.
                 ident = self.get_ident(request)
