@@ -2,12 +2,13 @@
 
 A run log is JSONL: one JSON object per line, every line has a top-level `type`.
 There are two families, depending on which runtime produced the run.
-Every recipe below was verified against real logs; copy them as-is and adapt the filters.
+The recipes below are backed by runtime tests or verified against real logs; copy them as-is and
+adapt the filters.
 
 Two rules apply to every query:
 
-- Always output with `jq -c` and cap with `head` / string slicing (`[0:300]`) — a single tool
-  output can be hundreds of KB.
+- Cap row listings with `head` and slice large strings (`[0:300]`). Aggregate censuses may scan the
+  log because they emit only a small, fixed result.
 - `input_line_number` in a jq program gives each match its line number; use it as the anchor
   for context queries.
 
@@ -37,7 +38,7 @@ Agent events are wrapped as `{"type": "pi_event", "timestamp": ..., "event": {..
 | `assistant_thought_chunk` | `event.content.text` — streaming; thousands of tiny chunks per run, coalesce or skip                                |
 | `tool_call_started`       | `event.toolCall`: `id`, `title` (tool name, e.g. `bash`), `kind` (`execute`/`edit`/…), `rawInput` (the actual args) |
 | `tool_call_updated`       | `event.toolCall`: `id`, `status` (`completed`/`failed`), `rawOutput[]` (`{type:"text", text}`), `content`           |
-| `message_end`             | `event.message.usage.totalTokens` — tokens consumed by the completed assistant turn                                   |
+| `usage_update`            | `event.totalTokens` — tokens consumed by the completed assistant turn                                                 |
 | `turn_completed`          | turn boundary                                                                                                       |
 
 The tool `title` is terse (`bash`, `write`); the real command is in `rawInput`.
@@ -59,7 +60,7 @@ jq -c 'select(.event.type=="tool_call_started") | {line: input_line_number, kind
 Failed calls with their output (the primary evidence source):
 
 ```sh
-jq -c 'select(.event.type=="tool_call_updated" and .event.toolCall.status=="failed") | {line: input_line_number, output: ([.event.toolCall.rawOutput // [] | .[] | .text // ""] | join(" "))[0:300]}' <log>
+jq -c 'select(.event.type=="tool_call_updated" and .event.toolCall.status=="failed") | {line: input_line_number, output: ([.event.toolCall.rawOutput // [] | .[] | .text // ""] | join(" "))[0:300]}' <log> | head -80
 ```
 
 Status census:
@@ -109,7 +110,7 @@ jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update") | .
 Failed calls with output:
 
 ```sh
-jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update" and .notification.params.update.status=="failed") | .notification.params.update | {line: input_line_number, title, output: (.rawOutput | tostring)[0:300]}' <log>
+jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update" and .notification.params.update.status=="failed") | .notification.params.update | {line: input_line_number, title, output: (.rawOutput | tostring)[0:300]}' <log> | head -80
 ```
 
 Agent narration (what the agent said it was doing, and why):
@@ -147,17 +148,17 @@ per-turn total, so sum them rather than subtracting them. The command prints a m
 log lacks token records inside the span — then omit `tokens` from the finding:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "message_end" and .event.message.role == "assistant" then .event.message.usage.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage // .notification.params.used | token_total) else empty end | select(type == "number")] | if length > 0 then add else "insufficient token records in span" end'
+sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "usage_update" then .event.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage // .notification.params.used | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient token records in span" end'
 ```
 
 ### Token-measurement examples
 
-Pi records usage on the completed assistant message. These two records fall inside a measured
+Pi records usage after each completed assistant message. These two records fall inside a measured
 span, so the reported token waste is `1200 + 900 = 2100`:
 
 ```jsonl
-{"type":"pi_event","event":{"type":"message_end","message":{"role":"assistant","usage":{"totalTokens":1200}}}}
-{"type":"pi_event","event":{"type":"message_end","message":{"role":"assistant","usage":{"totalTokens":900}}}}
+{"type":"pi_event","event":{"type":"usage_update","totalTokens":1200}}
+{"type":"pi_event","event":{"type":"usage_update","totalTokens":900}}
 ```
 
 ACP records usage in `_posthog/usage_update`. Codex provides `usage.totalTokens`; Claude provides
