@@ -47,6 +47,7 @@ from posthog.models.utils import (
 )
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
+from posthog.user_exists import any_user_exists
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_can_create_org,
@@ -89,19 +90,6 @@ try:
     from ee.models.license import get_licensed_users_available
 except ImportError:
     get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
-
-
-# Once any user exists, an instance never returns to zero users, so the fresh-install check below
-# only needs the database until the first user is created. Cache the positive result process-wide
-# to keep the query off every authenticated render (and off the database when it briefly blips).
-_any_user_exists = False
-
-
-def any_user_exists() -> bool:
-    global _any_user_exists
-    if not _any_user_exists:
-        _any_user_exists = User.objects.exists()
-    return _any_user_exists
 
 
 def login_required(view):
