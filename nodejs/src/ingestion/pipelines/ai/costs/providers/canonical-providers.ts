@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-21 10:08:31 UTC
+// Generated at: 2026-08-21 20:03:50 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -127,6 +127,7 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
+    | 'novita-fast'
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
@@ -174,6 +175,7 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
+    | 'thinkingmachines-nvfp4'
     | 'together'
     | 'upstage'
     | 'venice'

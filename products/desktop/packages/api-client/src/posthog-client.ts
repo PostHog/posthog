@@ -72,14 +72,18 @@ import type {
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
+  activitySection,
   compactCount,
+  dailySparkLabels,
   dailySparkPoints,
   decorateFlagPreview,
   decorateSurveyPreview,
   type EvidencePreview,
   exposureFact,
+  formatDay,
   gridRows,
   hogqlEscape,
+  pivotDailyGroups,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
@@ -323,6 +327,8 @@ export type {
 
 export type Evaluation = Schemas.Evaluation;
 
+export type GithubInstallationStatus = "connected" | "unavailable";
+
 export interface UserGitHubIntegration {
   id: string;
   kind: "github";
@@ -332,22 +338,39 @@ export interface UserGitHubIntegration {
     type?: string | null;
     name?: string | null;
   } | null;
+  github_login?: string | null;
   uses_shared_installation?: boolean;
+  /** False when disconnecting would also uninstall the App from GitHub. */
+  installation_shared?: boolean;
+  installation_status?: GithubInstallationStatus;
   created_at?: string;
 }
+
+/** `unidentified` means the requester could not be resolved, so approval can never
+ * be detected and the user has to restart the connect flow. */
+export type GithubInstallRequestStatus =
+  | "pending"
+  | "approved"
+  | "unidentified";
 
 /** A personal GitHub App install awaiting (or granted) org-owner approval; the
  * durable server-side counterpart to the in-flight connect spinner. Mirrors
  * `GitHubInstallRequest` on the backend. */
-export interface GitHubInstallRequest {
+export interface GithubInstallRequestItem {
   id: string;
   github_login: string;
-  /** `unidentified` means the requester could not be resolved, so approval can
-   *  never be detected and the user has to restart the connect flow. */
-  status: "pending" | "approved" | "unidentified";
-  installation_id?: string | null;
+  status: GithubInstallRequestStatus;
+  installation_id: string | null;
+  account_login?: string | null;
+  account_type?: string | null;
   requested_at: string;
-  resolved_at?: string | null;
+  resolved_at: string | null;
+}
+
+export interface GithubInstallRequestsResponse {
+  results: GithubInstallRequestItem[];
+  /** App install page with no PostHog state, for an org owner to open. */
+  install_url?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -553,6 +576,8 @@ export interface ExternalDataSource {
   // The generated `ExternalDataSourceSerializers` types this as `string`,
   // but the actual API returns an array of schema objects
   schemas?: ExternalDataSourceSchema[] | string;
+  /** Non-secret connection settings, e.g. a GitHub source's `repositories`. */
+  job_inputs?: Record<string, unknown> | null;
 }
 
 /**
@@ -1726,27 +1751,6 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
-    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch GitHub install requests: ${response.statusText}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      results?: GitHubInstallRequest[];
-    };
-    return data.results ?? [];
-  }
-
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -1760,6 +1764,63 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** `GET /api/users/@me/integrations/github/install_requests/`: installs waiting on a GitHub org owner. */
+  async getGithubInstallRequests(): Promise<GithubInstallRequestsResponse> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+    const data =
+      (await response.json()) as Partial<GithubInstallRequestsResponse>;
+    return {
+      results: data.results ?? [],
+      install_url: data.install_url ?? null,
+    };
+  }
+
+  async dismissGithubInstallRequest(requestId: string): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/${encodeURIComponent(requestId)}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+  }
+
+  /** `DELETE /api/environments/{project}/integrations/{id}/`: any team-level integration (GitHub, Slack, ...). */
+  async deleteIntegration(
+    projectId: number,
+    integrationId: number | string,
+  ): Promise<void> {
+    await this.api.delete("/api/projects/{project_id}/integrations/{id}/", {
+      path: { project_id: projectId.toString(), id: Number(integrationId) },
+    });
+  }
+
+  /** Emails the project's admins asking them to connect an integration; members only. */
+  async requestIntegrationAccess(
+    projectId: number,
+    body: { kind: string; reason: string },
+  ): Promise<void> {
+    const urlPath = `/api/environments/${projectId}/integrations/request_access/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify(body) },
+    });
   }
 
   /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
@@ -2197,6 +2258,36 @@ export class PostHogAPIClient {
   }
 
   /**
+   * `PATCH .../external_data_sources/{id}/`. `job_inputs` merges into the stored inputs, so
+   * changing a GitHub source's repositories only needs `{ repositories: [...] }`.
+   */
+  async updateExternalDataSource(
+    projectId: number,
+    sourceId: string,
+    payload: { job_inputs: Record<string, unknown> },
+  ): Promise<ExternalDataSource> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        body: payload as unknown as Schemas.PatchedExternalDataSourceSerializers,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data source: ${response.statusText}`,
+      );
+    }
+    return response.data as unknown as ExternalDataSource;
+  }
+
+  /**
    * Fetch the connect-form field schema for external data source types from the
    * warehouse wizard endpoint. Pass `sourceType` (e.g. `"Jira"`) to scope to one
    * source; omit to fetch every source's config. Returns a map keyed by the
@@ -2271,6 +2362,39 @@ export class PostHogAPIClient {
       throw new Error(
         errorData.detail ??
           `Failed to update external data schema: ${response.statusText}`,
+      );
+    }
+  }
+
+  /**
+   * Update several of a source's schemas in one request. The backend commits each schema on its
+   * own, so one schema failing still applies the rest and the error names the ones it could not
+   * save — unlike a client-side loop, where the first failure skips everything after it.
+   */
+  async bulkUpdateExternalDataSchemas(
+    projectId: number,
+    sourceId: string,
+    schemas: { id: string; should_sync?: boolean; sync_type?: string }[],
+  ): Promise<void> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        query: {},
+        body: {
+          schemas,
+        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data schemas: ${response.statusText}`,
       );
     }
   }
@@ -2528,6 +2652,7 @@ export class PostHogAPIClient {
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
+        naming_source?: string;
       },
   ): Promise<Task> {
     const teamId = await this.getTeamId();
@@ -3665,7 +3790,9 @@ export class PostHogAPIClient {
         TaskRun,
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
-    >,
+    > & {
+      state_append?: Record<string, unknown>;
+    },
   ): Promise<TaskRun> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -3680,6 +3807,25 @@ export class PostHogAPIClient {
       },
     );
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async analyzeTaskRun(
+    taskId: string,
+    runId: string,
+  ): Promise<{ analysis_task_id: string; created: boolean }> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      //@ts-expect-error this is not in the generated client
+      `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
+      {
+        path: {
+          project_id: teamId.toString(),
+          task_id: taskId,
+          id: runId,
+        },
+      },
+    );
+    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
@@ -4029,6 +4175,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -4051,10 +4198,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4088,6 +4239,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const urlPath = `/api/users/@me/integrations/github/${installationId}/repos/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4108,10 +4260,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -6041,19 +6197,33 @@ export class PostHogAPIClient {
     name: string | null;
     description: string | null;
     query: unknown;
+    response: Record<string, unknown> | null;
   } | null> {
     const projectId = (await this.getTeamId()).toString();
-    const page = await this.api.get("/api/projects/{project_id}/insights/", {
-      path: { project_id: projectId },
-      query: { short_id: shortId },
-    });
-    const insight = page.results[0];
-    if (!insight) return null;
-    return {
-      name: insight.name || insight.derived_name || null,
-      description: insight.description || null,
-      query: insight.query ?? null,
-    };
+    try {
+      const insight = await this.api.get(
+        "/api/projects/{project_id}/insights/{id}/",
+        {
+          path: { project_id: projectId, id: shortId },
+          query: { refresh: "blocking" },
+        },
+      );
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
+        query: insight.query ?? null,
+        response:
+          insight.result === null || insight.result === undefined
+            ? null
+            : {
+                results: insight.result,
+                columns: insight.columns ?? [],
+              },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
   }
 
   /**
@@ -6122,14 +6292,47 @@ export class PostHogAPIClient {
         const until = experiment.end_date
           ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
           : "";
-        const exposures = await this.runQuery({
-          kind: "HogQLQuery",
-          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
-        }).catch(() => ({}));
+        const scope = `event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until}`;
+        const [exposures, dailyExposures] = await Promise.all([
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY variant ORDER BY variant`,
+          }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE ${scope} GROUP BY day, variant ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
         const fact = exposureFact(gridRows(exposures));
-        return fact
-          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
-          : preview;
+        // "false" rows are flag evaluations outside the experiment, not a variant.
+        const pivot = pivotDailyGroups(
+          gridRows(dailyExposures).filter((row) => String(row[1]) !== "false"),
+        );
+        const variantStats = gridRows(exposures)
+          .filter((row) => typeof row[0] === "string" && row[0] !== "false")
+          .slice(0, 4)
+          .map((row) => ({
+            label: `${row[0]} exposed`,
+            value: compactCount(Number(row[1]) || 0),
+          }));
+        return {
+          ...preview,
+          facts: fact ? [...(preview.facts ?? []), fact] : preview.facts,
+          stats: [...(preview.stats ?? []), ...variantStats],
+          chart: pivot
+            ? {
+                title:
+                  pivot.omittedGroups > 0
+                    ? `Daily exposed users by variant (top ${pivot.series.length} of ${
+                        pivot.series.length + pivot.omittedGroups
+                      })`
+                    : "Daily exposed users by variant",
+                labels: pivot.labels,
+                series: pivot.series,
+                render: "line" as const,
+              }
+            : undefined,
+        };
       }
       case "error": {
         // The issue's identity plus its 30-day activity: total events, users
@@ -6159,12 +6362,29 @@ export class PostHogAPIClient {
             `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
           );
         }
-        const points = dailySparkPoints(gridRows(daily));
+        const stats = [
+          ...(preview.stats ?? []),
+          ...(users > 0
+            ? [
+                { label: "Users in 30 days", value: compactCount(users) },
+                { label: "Events in 30 days", value: compactCount(events) },
+              ]
+            : []),
+        ];
+        const dailyRows = gridRows(daily);
+        const points = dailySparkPoints(dailyRows);
         return {
           ...preview,
           facts,
+          stats,
           spark:
-            points.length > 1 ? { points, render: "bar" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(dailyRows),
+                  render: "bar" as const,
+                }
+              : undefined,
         };
       }
       case "event": {
@@ -6182,14 +6402,27 @@ export class PostHogAPIClient {
           query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
         }).catch(() => ({}));
         const preview = shapeEventDefinitionPreview(definition);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         return {
           ...preview,
           facts:
             total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Events in 14 days", value: compactCount(total) }]
+              : []),
+            ...(preview.stats ?? []),
+          ],
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
         };
       }
       case "ticket": {
@@ -6200,11 +6433,32 @@ export class PostHogAPIClient {
         return shapeTicketPreview(ticket);
       }
       case "person": {
+        if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) {
+          // A UUID-shaped id can be a person uuid or a UUID-shaped distinct id
+          // (posthog-js writes anonymous distinct ids as UUIDs). Retrieve-by-id
+          // matches only the person uuid, so a 404 (no such uuid) or 400 (the id
+          // isn't a valid person uuid) means fall through and resolve it as a
+          // distinct id below rather than giving up.
+          const person = await this.api
+            .get("/api/projects/{project_id}/persons/{id}/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch((error) => {
+              const status = requestErrorStatus(error);
+              if (status === 404 || status === 400) return null;
+              throw error;
+            });
+          if (person) return shapePersonPreview(person);
+        }
         const page = await this.api.get("/api/projects/{project_id}/persons/", {
           path: { project_id: projectId },
           query: { search: id },
         });
-        const person = page.results?.[0];
+        const person = page.results?.find(
+          (candidate) =>
+            candidate.uuid === id || candidate.distinct_ids?.includes(id),
+        );
         return person ? shapePersonPreview(person) : null;
       }
       case "replay": {
@@ -6257,7 +6511,7 @@ export class PostHogAPIClient {
       }
       case "action": {
         if (numericId === null) return null;
-        const [action, volume] = await Promise.all([
+        const [action, volume, totals] = await Promise.all([
           this.api.get("/api/projects/{project_id}/actions/{id}/", {
             path: { project_id: projectId, id: numericId },
             query: {},
@@ -6266,17 +6520,61 @@ export class PostHogAPIClient {
             kind: "HogQLQuery",
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id), max(timestamp) FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 30 DAY`,
+          }).catch(() => ({})),
         ]);
         const preview = shapeActionPreview(action);
-        const points = dailySparkPoints(gridRows(volume));
+        const volumeRows = gridRows(volume);
+        const points = dailySparkPoints(volumeRows);
         const total = points.reduce((sum, value) => sum + value, 0);
         const facts = [...(preview.facts ?? [])];
         if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        const totalsRow = gridRows(totals)[0];
+        const matches30d = totalsRow ? Number(totalsRow[0]) : 0;
+        const users30d = totalsRow ? Number(totalsRow[1]) : 0;
+        const lastSeen =
+          totalsRow && typeof totalsRow[2] === "string" && matches30d > 0
+            ? totalsRow[2]
+            : null;
+        if (users30d > 0) facts.push(`${compactCount(users30d)} users (30d)`);
         return {
           ...preview,
           facts,
+          stats: [
+            ...(total > 0
+              ? [{ label: "Matches in 14 days", value: compactCount(total) }]
+              : []),
+            ...(users30d > 0
+              ? [{ label: "Users in 30 days", value: compactCount(users30d) }]
+              : []),
+            ...(lastSeen
+              ? [{ label: "Last seen", value: formatDay(lastSeen) }]
+              : []),
+          ],
           spark:
-            points.length > 1 ? { points, render: "line" as const } : undefined,
+            points.length > 1
+              ? {
+                  points,
+                  labels: dailySparkLabels(volumeRows),
+                  render: "line" as const,
+                }
+              : undefined,
+          sections: [
+            ...activitySection([
+              [
+                "Matches in 30 days",
+                matches30d > 0 ? compactCount(matches30d) : null,
+              ],
+              [
+                "Unique users in 30 days",
+                users30d > 0 ? compactCount(users30d) : null,
+              ],
+              ["Last seen", lastSeen ? formatDay(lastSeen) : null],
+            ]),
+            ...(preview.sections ?? []),
+          ],
         };
       }
       case "eval": {

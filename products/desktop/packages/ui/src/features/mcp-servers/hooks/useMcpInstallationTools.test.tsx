@@ -37,6 +37,16 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   },
 }));
 
+// Keep the real retry budget but collapse the backoff so the tests stay fast.
+vi.mock("@posthog/core/mcp-servers/toolRefresh", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@posthog/core/mcp-servers/toolRefresh")
+  >()),
+  autoRefreshRetryDelayMs: () => 5,
+}));
+
+import { toast } from "@posthog/ui/primitives/toast";
+
 import { useMcpInstallationTools } from "./useMcpInstallationTools";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -142,5 +152,75 @@ describe("useMcpInstallationTools setBulkApproval", () => {
       "unlocked",
       "approved",
     );
+  });
+});
+
+describe("useMcpInstallationTools auto-refresh", () => {
+  let queryClient: QueryClient;
+
+  function stableWrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+  });
+
+  it("retries a failed silent refresh a bounded number of times, then stops until a later mount", async () => {
+    mockClient.getMcpInstallationTools.mockResolvedValue([]);
+    // Reject on a later tick so the pending state renders first, as a real
+    // request does. An immediate rejection collapses the pending and error
+    // renders into one and hides the re-fire this guards against.
+    mockClient.refreshMcpInstallationTools.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error("upstream down")), 5),
+        ),
+    );
+
+    const first = renderHook(
+      () =>
+        useMcpInstallationTools("inst-auto-refresh", {
+          autoRefreshIfEmpty: true,
+        }),
+      { wrapper: stableWrapper },
+    );
+    // One attempt plus AUTO_REFRESH_MAX_RETRIES retries.
+    await waitFor(() =>
+      expect(mockClient.refreshMcpInstallationTools).toHaveBeenCalledTimes(3),
+    );
+    // Long enough for the last failure to settle and re-run the auto-refresh
+    // effect; a fourth listing here is the retry storm this guards against.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    expect(first.result.current.refreshPending).toBe(false);
+    expect(mockClient.refreshMcpInstallationTools).toHaveBeenCalledTimes(3);
+    expect(toast.error).not.toHaveBeenCalled();
+    first.unmount();
+
+    renderHook(
+      () =>
+        useMcpInstallationTools("inst-auto-refresh", {
+          autoRefreshIfEmpty: true,
+        }),
+      { wrapper: stableWrapper },
+    );
+    // A later mount gets one more bounded batch, not an open-ended one.
+    await waitFor(() =>
+      expect(mockClient.refreshMcpInstallationTools).toHaveBeenCalledTimes(6),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+    expect(mockClient.refreshMcpInstallationTools).toHaveBeenCalledTimes(6);
   });
 });

@@ -592,6 +592,68 @@ class TestRewriteIntoTemp:
         assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
         assert "fragment_readahead" not in captured
 
+    def test_progress_is_checkpointed_before_any_deadline(self, tmp_path):
+        # The deadline handler is the only other place a checkpoint is written, and an OOM-killed
+        # worker never reaches it, so a rewrite that dies mid-flight must already have one.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        saved: list[tuple[int, str | None]] = []
+
+        async def save_checkpoint(rows_so_far, resolved_target):
+            saved.append((rows_so_far, resolved_target.partition_format))
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+                save_checkpoint=save_checkpoint,
+                checkpoint_interval_seconds=0,
+            )
+        )
+
+        assert saved, "a rewrite that commits must checkpoint without waiting for the deadline"
+        # Backed by rows actually committed to temp, and carrying the resolved scheme the resume needs.
+        assert saved[-1][0] > 0
+        assert saved[-1][1] == "day"
+
+    def test_a_failing_checkpoint_does_not_fail_the_rewrite(self, tmp_path):
+        # Losing a checkpoint costs redone work on the next attempt; failing the rewrite costs the
+        # whole thing.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+
+        async def exploding_checkpoint(rows_so_far, resolved_target):
+            raise RuntimeError("pooler dropped")
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+                save_checkpoint=exploding_checkpoint,
+                checkpoint_interval_seconds=0,
+            )
+        )
+
+        assert rows_written == len(rows)
+
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -1440,6 +1502,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
             patch.object(
                 repartition_module,
                 "_rewrite_into_temp",
@@ -1455,8 +1518,10 @@ class TestRewriteCheckpointResume:
                     )
                 )
 
-        schema.set_repartition_rewrite.assert_called_once()
-        checkpoint = schema.set_repartition_rewrite.call_args.args[0]
+        saved.assert_called_once()
+        # Fenced on the claim this attempt holds, so a superseded worker cannot write here.
+        assert saved.call_args.kwargs["claim_token"] == "tok"
+        checkpoint = saved.call_args.kwargs["checkpoint"]
         assert checkpoint["rows_written"] == 1
         assert checkpoint["live_version"] == live.version()
         assert checkpoint["target"]["partition_format"] == "day"

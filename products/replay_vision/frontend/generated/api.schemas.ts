@@ -762,7 +762,9 @@ export const ScannerModelEnumApi = {
 } as const
 
 /**
- * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
+ * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+ * this blob at query time, so it is the only place an experiment can enter a scanner's
+ * targeting — which is what lets the write-side access check and read-side redaction cover it.
  */
 export interface ScannerExperimentTargetingApi {
     /**
@@ -771,13 +773,11 @@ export interface ScannerExperimentTargetingApi {
      */
     experiment_id: number
     /**
-     * Targeted experiment variants. Empty means every variant.
-     * @maxItems 50
-     * @items.maxLength 400
+     * Narrow to sessions of people exposed to this variant. Null means every variant.
+     * @maxLength 400
+     * @nullable
      */
-    variant_keys: string[]
-    /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-    use_exposure_fallback: boolean
+    variant?: string | null
 }
 
 export interface FeedbackThemeSessionApi {
@@ -2005,6 +2005,8 @@ export interface EstimateRequestApi {
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
+    /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
+    experiment_targeting?: ScannerExperimentTargetingApi | null
 }
 
 /**
