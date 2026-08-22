@@ -41,15 +41,15 @@ export interface sqlVariablesLogicActions {
             variableId: string
         }
     }
-    loadVariables: () => any
-    loadVariablesFailure: (
+    loadSqlVariables: () => any
+    loadSqlVariablesFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadVariablesSuccess: (
+    loadSqlVariablesSuccess: (
         variables: Variable[],
         payload?: any
     ) => {
@@ -93,7 +93,7 @@ export const sqlVariablesLogic = kea<sqlVariablesLogicType>([
         variables: [
             [] as Variable[],
             {
-                loadVariables: async () => {
+                loadSqlVariables: async () => {
                     const response = await api.insightVariables.list()
                     return response.results
                 },
@@ -132,6 +132,6 @@ export const sqlVariablesLogic = kea<sqlVariablesLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadVariables()
+        actions.loadSqlVariables()
     }),
 ])

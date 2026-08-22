@@ -55,6 +55,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'loadAllCohorts', // App-boot fetch feeding pickers and breadcrumbs; the cohorts list scene surfaces its own retry state
+    'loadVariables', // App-boot picker fetch in variableDataLogic; the SQL variables scene uses loadSqlVariables so it still toasts
 ]
 
 /*
@@ -187,7 +189,15 @@ export function initKea({
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
-                    if (errorMessage) {
+                    // During a backend outage every background load fails at once, and each failure
+                    // would stack its own toast. Collapse a 500 from a load action into one shared
+                    // toast that react-toastify dedupes by toastId. Write actions keep their specific
+                    // message, since a single user action is not a wall and its detail is useful.
+                    if (error.status === 500 && isLoadAction) {
+                        lemonToast.error('A server error occurred. Some data could not be loaded.', {
+                            toastId: 'lemon-error-server-error',
+                        })
+                    } else if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }
