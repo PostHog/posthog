@@ -285,10 +285,11 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         else:
             # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
             # This could be email for example when logging in or uuid when verifying email
-            ident = request.data.get("email") or request.data.get("uuid") or self.get_ident(request)
-            if isinstance(ident, str):
-                ident = ident.lower()
-            ident = hashlib.sha256(ident.encode()).hexdigest()
+            ident = request.data.get("email") or request.data.get("uuid")
+            if not isinstance(ident, str):
+                # A malformed body (e.g. a JSON list) or a missing value — throttle on the request origin instead.
+                ident = self.get_ident(request)
+            ident = hashlib.sha256(ident.lower().encode()).hexdigest()
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
