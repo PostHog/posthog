@@ -65228,6 +65228,8 @@ export namespace Schemas {
       recordings_queued_for_deletion: boolean;
       /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
+      /** Messages about parts of the request that did nothing, such as an event deletion that queued no work because no persons matched. */
+      warnings?: string[];
     }
 
     export interface PersonDeletePropertyRequest {

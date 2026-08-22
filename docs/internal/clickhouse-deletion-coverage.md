@@ -123,6 +123,22 @@ If a future producer emitted rows before person resolution, leaving `person_id` 
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
 
+## Event retention is a query filter, not a deletion
+
+`event_retention_months` does not delete aged-out events.
+It hides them at read time.
+
+`retention_floor_for_table` in `posthog/hogql/printer/clickhouse.py` adds a mandatory `timestamp > now() - toIntervalMonth(N)` guard on every events-table scan, next to the `team_id` guard.
+A query can therefore never read an event older than the retention window, but the row stays on disk.
+Nothing in this deletion machinery removes it.
+The row expires only when its table's TTL reclaims it (see "Tables on TTL alone"), which may be much later than the retention window or, for the long-lived events tables, effectively never.
+
+The field is read-only on the API and is resynced from billing, so a customer cannot set it.
+Two consequences follow, and both reach support by hand today:
+
+- A shorter retention window makes old events invisible to queries at once, but does not shorten how long the data sits in storage.
+- Making an event unreachable by retention is not erasure. A privacy or GDPR request still needs a real deletion through the sweeps above.
+
 ## Related, and deliberately unchanged
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.

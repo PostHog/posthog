@@ -513,6 +513,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertTrue(data["events_queued_for_deletion"])
         self.assertFalse(data["recordings_queued_for_deletion"])
         self.assertEqual(data["deletion_errors"], [])
+        self.assertEqual(data["warnings"], [])
         self.assertIsNone(get_person_by_uuid(self.team.pk, str(person.uuid)))
         self.assertIsNone(get_person_by_uuid(self.team.pk, str(person2.uuid)))
 
@@ -677,6 +678,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertFalse(data["events_queued_for_deletion"])
         self.assertEqual(data["deletion_errors"], [])
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+        # A 202 alone reads as accepted, so the response must warn that the requested deletion queued nothing.
+        self.assertEqual(len(data["warnings"]), 1)
+        self.assertIn("No persons matched", data["warnings"][0])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deletion_status_lists_pending_deletions(self):

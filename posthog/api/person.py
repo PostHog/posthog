@@ -260,6 +260,11 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
     )
+    warnings = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Messages about parts of the request that did nothing, such as an event deletion that queued no work because no persons matched.",
+    )
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -687,6 +692,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+
+        Event deletion runs per matched person. When no person matches the IDs you send, the endpoint queues no work and returns a warning in the response. It cannot delete events that have no person profile.
         """
 
         delete_events = bool(request.data.get("delete_events"))
@@ -742,12 +749,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_recordings:
             queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
 
+        warnings: builtins.list[str] = []
+        if len(persons) == 0 and (delete_events or delete_recordings):
+            # The 202 status alone reads as accepted, so state the no-op plainly when nothing was queued.
+            warnings.append(
+                "No persons matched the IDs you sent, so no deletion was queued. "
+                "This endpoint deletes events and recordings only for a matched person. "
+                "It cannot delete events that have no person profile."
+            )
+
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,
+            "warnings": warnings,
         }
 
     @extend_schema(
