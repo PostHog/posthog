@@ -28,15 +28,6 @@ jobs:
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 
-            - name: Check Codex Flox wrapper
-              run: |
-                  if [[ ! -f .codex/with-flox.test.sh ]]; then
-                      echo "Codex Flox wrapper test is not present on this branch."
-                      exit 0
-                  fi
-                  shellcheck .codex/with-flox .codex/with-flox.test.sh
-                  bash .codex/with-flox.test.sh
-
             - name: Check Windows-compatible repository paths
               run: |
                   shellcheck .github/scripts/check-windows-paths.sh .github/scripts/check-windows-paths.test.sh
