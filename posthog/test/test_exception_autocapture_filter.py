@@ -26,6 +26,11 @@ class TestDropTransientConnectionErrors:
             # connection — only connection-error types are eligible for the transient markers.
             ("value_error_mentions_refused", "ValueError", "Connection refused by the widget parser"),
             ("genuine_operational_error", "OperationalError", 'relation "posthog_team" does not exist'),
+            # Non-DB exceptions carry DNS text too (redis/requests ConnectionError, socket.gaierror);
+            # the DNS markers apply only to connection-error types, so these still get reported.
+            ("connection_error_dns", "ConnectionError", "Temporary failure in name resolution"),
+            ("runtime_error_dns", "RuntimeError", "Name or service not known"),
+            ("gaierror_dns", "gaierror", 'could not translate host name "db" to address'),
         ]
     )
     def test_keeps_real_exception_events(self, _name: str, exc_type: str, value: str) -> None:

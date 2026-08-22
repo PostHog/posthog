@@ -13,8 +13,10 @@ the `type` and `value` strings in `$exception_list` instead of the exception cla
 
 from typing import Any, Optional
 
-# psycopg cannot resolve the database hostname yet — the docker-compose boot race. Unambiguous,
-# so matched regardless of exception type.
+# psycopg cannot resolve the database hostname yet — the docker-compose boot race. Matched only when
+# the exception type is a connection error, since Redis, HTTP, and socket errors carry the same DNS
+# text and a genuine defect quoting it must still reach error tracking. Mirrors the type gate in
+# products/.../pipeline_v3/batch_consumer._is_dns_resolution_transient_error.
 _DNS_FAILURE_MARKERS = (
     "could not translate host name",
     "temporary failure in name resolution",
@@ -46,12 +48,12 @@ _CONNECTION_ERROR_TYPES = frozenset({"OperationalError", "InterfaceError"})
 
 
 def _is_transient_connection_event(exception_entry: dict[str, Any]) -> bool:
+    if exception_entry.get("type") not in _CONNECTION_ERROR_TYPES:
+        return False
     value = str(exception_entry.get("value") or "").lower()
-    if any(marker in value for marker in _DNS_FAILURE_MARKERS):
-        return True
-    if exception_entry.get("type") in _CONNECTION_ERROR_TYPES:
-        return any(marker in value for marker in _TRANSIENT_CONNECTION_MARKERS)
-    return False
+    return any(marker in value for marker in _DNS_FAILURE_MARKERS) or any(
+        marker in value for marker in _TRANSIENT_CONNECTION_MARKERS
+    )
 
 
 def drop_transient_connection_errors(event: dict[str, Any]) -> Optional[dict[str, Any]]:
