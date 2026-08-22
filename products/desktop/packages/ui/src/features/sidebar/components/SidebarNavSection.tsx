@@ -66,7 +66,6 @@ export function SidebarNavSection({
   // One canonical address per destination now — the channels mirrors are gone,
   // so this section navigates identically whichever pane it renders inside.
   // New task still scopes to the current channel when one is set.
-  const goNewTask = () => openTaskInput();
   const goCommandCenter = navigateToCommandCenter;
 
   // Active flags are pure functions of the current view — mirror what
@@ -181,7 +180,7 @@ export function SidebarNavSection({
       <Box mb="2">
         <NewTaskItem
           isActive={isHomeActive}
-          onClick={withNavTrack("new_task", goNewTask)}
+          onClick={withNavTrack("new_task", openTaskInput)}
         />
       </Box>
 
