@@ -1,8 +1,12 @@
 import type { GithubInstallRequestItem } from "@posthog/api-client/posthog-client";
-import { buildOrgOwnerMessage } from "@posthog/core/integrations/installRequests";
+import {
+  buildOrgOwnerMessage,
+  unlinkedApprovedRequests,
+} from "@posthog/core/integrations/installRequests";
 import { Button, Text } from "@posthog/quill";
 import { useDismissGithubInstallRequest } from "@posthog/ui/features/integrations/useDismissGithubInstallRequest";
 import { useGithubInstallRequests } from "@posthog/ui/features/integrations/useGithubInstallRequests";
+import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 
 interface GithubInstallRequestsBannerProps {
@@ -20,12 +24,16 @@ export function GithubInstallRequestsBanner({
   isConnecting = false,
 }: GithubInstallRequestsBannerProps) {
   const { data } = useGithubInstallRequests();
+  const { data: linkedInstallations = [] } = useUserGithubIntegrations();
   const dismiss = useDismissGithubInstallRequest();
   const { copied, copy } = useCopy();
 
   const requests = data?.results ?? [];
   const pending = requests.filter((r) => r.status === "pending");
-  const approved = requests.filter((r) => r.status === "approved");
+  const approved = unlinkedApprovedRequests(
+    requests,
+    linkedInstallations.map((integration) => integration.installation_id),
+  );
   const installUrl = data?.install_url ?? null;
 
   if (pending.length === 0 && approved.length === 0) {
