@@ -393,8 +393,9 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
             # The list endpoint filters on team_id and sorts by last_used or created_at.
             # Team-scoped composites let each sort seek within one team instead of walking
-            # the global last_used index and filtering team_id row by row. `-last_used` is
-            # the default sort. (team_id, ref) is already covered by `unique_ref_per_team`.
+            # the global last_used index and filtering team_id row by row. The API sets no
+            # default sort; the UI defaults to `-created_at`. (team_id, ref) is already
+            # covered by `unique_ref_per_team`.
             models.Index(fields=["team", "last_used"], name="et_symset_team_used_idx"),
             models.Index(fields=["team", "created_at"], name="et_symset_team_created_idx"),
         ]
