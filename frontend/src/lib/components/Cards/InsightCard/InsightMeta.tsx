@@ -25,6 +25,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -439,17 +440,55 @@ export function InsightMeta({
                     <>
                         {/* Insight related */}
                         {canViewInsight && (
+                            <>
+                                <LemonButton
+                                    to={urls.insightView(
+                                        short_id,
+                                        dashboardId,
+                                        variablesOverride,
+                                        filtersOverride,
+                                        tileFiltersOverride
+                                    )}
+                                    fullWidth
+                                >
+                                    View
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() =>
+                                        void copyToClipboard(
+                                            urls.absolute(
+                                                urls.currentProject(
+                                                    urls.insightView(
+                                                        short_id,
+                                                        dashboardId,
+                                                        variablesOverride,
+                                                        // A tile that ignores dashboard filters must not carry
+                                                        // filters_override, or the link won't match the tile.
+                                                        ignoresDashboardFilters ? undefined : filtersOverride,
+                                                        tileFiltersOverride
+                                                    )
+                                                )
+                                            ),
+                                            'insight link'
+                                        )
+                                    }
+                                    fullWidth
+                                >
+                                    Copy link
+                                </LemonButton>
+                            </>
+                        )}
+                        {dashboardId && (
                             <LemonButton
-                                to={urls.insightView(
-                                    short_id,
-                                    dashboardId,
-                                    variablesOverride,
-                                    filtersOverride,
-                                    tileFiltersOverride
-                                )}
+                                onClick={() =>
+                                    void copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.dashboard(dashboardId))),
+                                        'dashboard link'
+                                    )
+                                }
                                 fullWidth
                             >
-                                View
+                                Copy dashboard link
                             </LemonButton>
                         )}
                         {canEditInsight && (
