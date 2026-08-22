@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -179,6 +179,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         responseLoading,
         responseError,
         queryCancelled,
+        hasMoreData,
+        dataLimit,
+        isTableVisualization,
         isChartSettingsPanelOpen,
         xData,
         yData,
@@ -306,8 +309,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <HogQLBoldNumber />
     }
 
+    // Charts silently plot only the rows the backend returned, so warn when the result was
+    // truncated. The table shows its own banner, and the bold number reads a single value.
+    const truncationWarning =
+        !responseError && !responseLoading && !isTableVisualization && hasMoreData ? (
+            <LemonBanner type="warning" className="mb-2">
+                {dataLimit
+                    ? `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
+                    : 'Results are limited – add a LIMIT clause to override'}
+            </LemonBanner>
+        ) : null
+
     if (props.embedded) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div className="DataVisualization InsightCard__viz">
+                {truncationWarning}
+                {component}
+            </div>
+        )
     }
 
     return (
@@ -377,6 +396,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 )}
 
                 <SqlInsightDateFilterNotice source={query.source} />
+
+                {truncationWarning}
 
                 {!props.embedded && <VariablesForInsight />}
 

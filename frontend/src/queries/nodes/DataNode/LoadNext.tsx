@@ -36,9 +36,9 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                     numberOfRows === 1 ? 'entry' : 'entries'
                 }`
             }
-            return `Default limit of ${dataLimit} rows reached`
+            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
+            return `Results limited to ${dataLimit} rows – add a LIMIT clause to override`
         }
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '

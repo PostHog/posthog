@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -24,6 +24,9 @@ jest.mock('@posthog/lemon-ui', () => ({
         return null
     },
 }))
+
+// The chart components rely on canvas, which jsdom lacks; the truncation banner is what we assert.
+jest.mock('./Components/Charts/SqlChart', () => ({ SqlChart: (): null => null }))
 
 describe('DataTableVisualization', () => {
     const query: DataVisualizationNode = {
@@ -81,4 +84,46 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    const truncatedResults: HogQLQueryResponse<number[][]> = {
+        ...cachedResults,
+        hasMore: true,
+        limit: 100,
+    }
+
+    test('warns that a truncated chart result was limited', async () => {
+        render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-truncated-chart"
+                query={{ ...query, display: ChartDisplayType.ActionsLineGraph }}
+                setQuery={jest.fn()}
+                cachedResults={truncatedResults}
+                readOnly
+            />
+        )
+
+        await waitFor(() => {
+            expect(screen.queryByText('Results limited to 100 rows – add a LIMIT clause to override')).not.toBeNull()
+        })
+    })
+
+    test('does not add the chart truncation banner for a truncated table result', async () => {
+        render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-truncated-table"
+                query={query}
+                setQuery={jest.fn()}
+                cachedResults={truncatedResults}
+                readOnly
+            />
+        )
+
+        await waitFor(() => {
+            if (!mockLatestLemonTableProps) {
+                throw new Error('Expected LemonTable to render')
+            }
+        })
+
+        expect(screen.queryByText('Results limited to 100 rows – add a LIMIT clause to override')).toBeNull()
+    })
 })
