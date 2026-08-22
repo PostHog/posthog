@@ -1,4 +1,6 @@
+import { TaskFeedDetailPane } from "@posthog/ui/features/canvas/components/TaskFeedDetailPane";
 import { TaskFeedHome } from "@posthog/ui/features/canvas/components/TaskFeedHome";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   ChannelSkeleton,
   withRouteSkeleton,
@@ -12,5 +14,10 @@ export const Route = createFileRoute("/website/feeds/$feedId")({
 
 function TaskFeedRoute() {
   const { feedId } = Route.useParams();
-  return <TaskFeedHome feedId={feedId} />;
+  const channelsLayout = useChannelsLayout();
+  return channelsLayout ? (
+    <TaskFeedDetailPane feedId={feedId} />
+  ) : (
+    <TaskFeedHome feedId={feedId} />
+  );
 }
