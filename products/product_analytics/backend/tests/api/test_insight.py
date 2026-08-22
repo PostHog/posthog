@@ -966,6 +966,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
 
+    @parameterized.expand(
+        [
+            ("dashboards not json", "dashboards", "foo"),
+            ("dashboards not a list", "dashboards", "5"),
+            ("tags not json", "tags", "foo"),
+            ("tags not a list", "tags", "5"),
+            ("created_by not json", "created_by", "foo"),
+            ("created_by not a list", "created_by", "5"),
+        ]
+    )
+    def test_list_filter_malformed_json_list_param_returns_400(self, _name, param, value):
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {param: value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == param
+
     def test_list_filter_by_search_nul_bytes_do_not_500(self):
         Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "\x00\x00\x00"})

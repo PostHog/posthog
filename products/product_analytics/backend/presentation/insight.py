@@ -2043,6 +2043,16 @@ class InsightViewSet(
             tiebreakers=("name",),
         )
 
+    @staticmethod
+    def _parse_json_list_param(key: str, value: str) -> list:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, list):
+            raise ValidationError({key: "Must be a JSON list."})
+        return parsed
+
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
         search_term: str | None = None
@@ -2132,20 +2142,20 @@ class InsightViewSet(
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
-                    dashboards_ids = json.loads(dashboards_filter)
+                    dashboards_ids = self._parse_json_list_param("dashboards", dashboards_filter)
                     for dashboard_id in dashboards_ids:
                         # filter by dashboards one at a time so the filter is AND not OR
                         queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
-                    tags_list = json.loads(tags_filter)
+                    tags_list = self._parse_json_list_param("tags", tags_filter)
                     if tags_list:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
-                    created_by_ids = json.loads(created_by_filter)
+                    created_by_ids = self._parse_json_list_param("created_by", created_by_filter)
                     if created_by_ids:
                         queryset = queryset.filter(created_by__id__in=created_by_ids)
             elif key == "created_date_from":
