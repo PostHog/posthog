@@ -938,6 +938,7 @@ describe('experimentReplayTabLogic', () => {
         // experiment's id (dropping the filter would list every scanner in the project) and surface
         // the name, type, and monthly observation count each row shows.
         logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
         ;(visionScannersList as jest.Mock).mockResolvedValue({
             results: [
                 { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
@@ -959,9 +960,23 @@ describe('experimentReplayTabLogic', () => {
         withScanners.unmount()
     })
 
+    it('does not query scanners when the vision entry-point flag is off', async () => {
+        // The card only renders behind the flag, so the lookup must not fire for the many users who
+        // open the Recordings tab without it. The default test flags leave the flag off.
+        logic.unmount()
+        ;(visionScannersList as jest.Mock).mockClear()
+        const withoutFlag = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withoutFlag.mount()
+
+        await expectLogic(withoutFlag).toFinishAllListeners()
+        expect(visionScannersList).not.toHaveBeenCalled()
+        withoutFlag.unmount()
+    })
+
     it('degrades to no back-link when the scanner lookup fails', async () => {
         // The tab must render even if the lookup errors, so the loader swallows to an empty list.
         logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
         ;(visionScannersList as jest.Mock).mockRejectedValue(new Error('boom'))
         const withError = experimentReplayTabLogic({ experiment: EXPERIMENT })
         withError.mount()
