@@ -94,6 +94,31 @@ describe('PersonPropertyService', () => {
         )
     })
 
+    it('continues person creation when the twin lookup fails', async () => {
+        const createdPerson = { uuid: new UUIDT().toString(), properties: {} }
+        const store = storeCreatingNewPerson({
+            fetchForChecking: jest.fn().mockRejectedValue(new Error('persons read replica unavailable')),
+            createPerson: jest.fn().mockResolvedValue({
+                success: true,
+                created: true,
+                messages: [],
+                person: createdPerson,
+            }),
+        })
+        const service = buildService('Intaldarryl@gmail.com', store)
+
+        const [person, kafkaAck] = await service.updateProperties()
+        await kafkaAck
+
+        expect(person).toBe(createdPerson)
+        expect(store.createPerson).toHaveBeenCalled()
+        expect(mockEmitIngestionWarning).not.toHaveBeenCalledWith(
+            expect.anything(),
+            teamId,
+            expect.objectContaining({ type: 'distinct_id_case_collision' })
+        )
+    })
+
     it('does not warn when the fresh mixed-case distinct id has no lowercased twin', async () => {
         const store = storeCreatingNewPerson()
         const service = buildService('Intaldarryl@gmail.com', store)

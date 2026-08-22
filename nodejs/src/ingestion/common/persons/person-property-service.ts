@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { defaultRetryConfig, promiseRetry } from '~/common/utils/retries'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -6,6 +8,11 @@ import { InternalPerson } from '~/types'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { extractEventOps } from './person-update'
+
+export const distinctIdCaseCollisionCheckErrorsCounter = new Counter({
+    name: 'distinct_id_case_collision_check_errors_total',
+    help: 'Case-collision twin lookups that failed (e.g. persons read replica unavailable) and were skipped so ingestion continues.',
+})
 
 /**
  * Service responsible for handling person property updates and person creation.
@@ -94,7 +101,15 @@ export class PersonPropertyService {
         if (lowercased === distinctId) {
             return null
         }
-        return await this.context.personStore.fetchForChecking(this.context.team.id, lowercased)
+        try {
+            return await this.context.personStore.fetchForChecking(this.context.team.id, lowercased)
+        } catch {
+            // This lookup only feeds an info-severity warning, so its failure — e.g. the
+            // persons read replica being unavailable — must never fail the event. Count it
+            // and skip the warning; person creation continues on the primary as before.
+            distinctIdCaseCollisionCheckErrorsCounter.inc()
+            return null
+        }
     }
 
     /**
