@@ -249,7 +249,7 @@ export const reportInsightTool = defineLocalTool({
           .min(1)
           .optional()
           .describe(
-            "Tokens consumed across the wasted span, summed from Pi or ACP per-turn usage records.",
+            "Tokens consumed across the wasted span, measured from the run log.",
           ),
       })
       .optional()
