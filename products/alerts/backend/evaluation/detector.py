@@ -136,6 +136,13 @@ def _format_sub_detector(sub_result: dict[str, Any]) -> str:
 def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, Any]) -> AlertEvaluationResult:
     """Score an extracted trends series with an anomaly detector (the non-threshold alert path).
 
+    The live path calls ``detect()``, which only scores the latest complete interval — it decides
+    "is the newest interval anomalous?" and does not localize an anomaly across the window. So this
+    path does not emit ``triggered_points``/``triggered_dates``/``anomaly_scores``: ``detect()``
+    could only ever fill them with the last index and a single score, which reads as per-interval
+    attribution the live path never computed. The simulation path (``_sim_from_series``) uses
+    ``detect_batch`` and does carry real per-interval attribution for the chart.
+
     Breakdown alerts fire on the first anomalous breakdown value; non-breakdown alerts score the
     single selected series.
     """
@@ -156,9 +163,6 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
                 return AlertEvaluationResult(
                     value=current_value,
                     breaches=[_anomaly_breach(s.label, current_value, detection.score, detector_type_str)],
-                    anomaly_scores=detection.all_scores or None,
-                    triggered_points=detection.triggered_indices or None,
-                    triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
                     interval=interval_value,
                     triggered_metadata={"series_index": bd_index},
                 )
@@ -182,9 +186,6 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
     return AlertEvaluationResult(
         value=float(data[-1]) if len(data) > 0 else None,
         breaches=breaches,
-        anomaly_scores=detection.all_scores or None,
-        triggered_points=detection.triggered_indices or None,
-        triggered_dates=_triggered_dates(s, detection.triggered_indices or []) or None,
         interval=interval_value,
     )
 
