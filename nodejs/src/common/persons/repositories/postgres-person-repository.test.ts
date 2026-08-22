@@ -478,6 +478,35 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
+        it('returns the uuid holder when the create runs inside a transaction', async () => {
+            // The legacy path recovers from a caught unique violation, which leaves the
+            // transaction aborted. Reading the holder on that transaction raises 25P02 and the
+            // throw escapes the conflict branch entirely, failing the merge saga that reaches
+            // createPerson through inTransaction. `repository` has no allowlist, so it takes
+            // that path rather than the ON CONFLICT one.
+            const team = await getFirstTeam(hub.postgres)
+            const uuid = new UUIDT().toString()
+            const first = await repository.createPerson(TIMESTAMP, { a: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'tx-uuid-did',
+            })
+            if (!first.success) {
+                throw new Error('Failed to create person')
+            }
+
+            const second = await repository.inTransaction('conflict-inside-transaction', (tx) =>
+                tx.createPerson(TIMESTAMP, { b: 2 }, {}, {}, team.id, null, false, uuid, {
+                    distinctId: 'tx-uuid-did-2',
+                })
+            )
+
+            expect(second).toEqual({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['tx-uuid-did-2'],
+                conflictingPerson: expect.objectContaining({ id: first.person.id, uuid }),
+            })
+        })
+
         it('createPerson dedupes repeated distinct ids instead of failing the multi-insert', async () => {
             const team = await getFirstTeam(hub.postgres)
             const uuid = new UUIDT().toString()
