@@ -14297,6 +14297,10 @@ class TestFeatureFlagMyFlags(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted"])
+        # Must request all runtimes, otherwise the flags service reads the internal
+        # python-requests User-Agent as a server runtime and drops client-only flags,
+        # reporting a client-only flag that is on as false.
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
         returned_keys = {item["feature_flag"]["key"] for item in response.json()}
         self.assertEqual(returned_keys, {"wanted"})
 

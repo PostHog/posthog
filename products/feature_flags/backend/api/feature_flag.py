@@ -3510,11 +3510,15 @@ class FeatureFlagViewSet(
 
         # Authenticated Django UI handler (the flags list in the app), not customer SDK
         # traffic. Pass the internal token so the call bypasses per-team billing.
+        # Ask for "all" runtimes (as evaluation_reasons does): the internal request has a
+        # python-requests User-Agent, which the flags service reads as a server runtime and
+        # would otherwise use to drop client-only flags, reporting them here as false.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
             flag_keys=flag_keys,
+            evaluation_runtime="all",
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
