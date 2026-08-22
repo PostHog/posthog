@@ -27,11 +27,16 @@ ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=_EVALUATE_NON_RETRYABLE_ERROR_NAMES,
 )
 
+# A misconfiguration such as email not being enabled won't clear on retry, so notify_alert
+# fails fast on it. Temporal matches non-retryable types by exact name.
+_NOTIFY_NON_RETRYABLE_ERROR_NAMES = ["ImproperlyConfigured"]
+
 ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=5),
     maximum_interval=dt.timedelta(minutes=2),
     backoff_coefficient=2.0,
     maximum_attempts=5,
+    non_retryable_error_types=_NOTIFY_NON_RETRYABLE_ERROR_NAMES,
 )
 
 

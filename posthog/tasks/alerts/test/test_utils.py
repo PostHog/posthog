@@ -243,18 +243,34 @@ class TestSendNotificationsReceipts(APIBaseTest):
         )
         self.alert.subscribed_users.add(self.user)
 
+    @patch("posthog.tasks.alerts.utils.is_email_available", return_value=True)
     @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
     @patch("posthog.tasks.alerts.utils.send_alert_email")
-    def test_breach_notifications_return_email_receipts(self, mock_send: MagicMock, _mock_trigger: MagicMock) -> None:
+    def test_breach_notifications_return_email_receipts(
+        self, mock_send: MagicMock, _mock_trigger: MagicMock, _mock_email_available: MagicMock
+    ) -> None:
         receipts = send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
 
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
 
+    @patch("posthog.tasks.alerts.utils.is_email_available", return_value=False)
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_breach_notifications_skip_email_when_unavailable(
+        self, mock_send: MagicMock, mock_trigger: MagicMock, _mock_email_available: MagicMock
+    ) -> None:
+        receipts = send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
+
+        assert receipts == []
+        mock_send.assert_not_called()
+        mock_trigger.assert_called_once()
+
+    @patch("posthog.tasks.alerts.utils.is_email_available", return_value=True)
     @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
     @patch("posthog.tasks.alerts.utils.send_alert_email", side_effect=RuntimeError("smtp down"))
     def test_breach_notifications_propagate_email_failure(
-        self, _mock_send: MagicMock, _mock_trigger: MagicMock
+        self, _mock_send: MagicMock, _mock_trigger: MagicMock, _mock_email_available: MagicMock
     ) -> None:
         with pytest.raises(RuntimeError):
             send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")

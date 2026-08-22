@@ -41,7 +41,7 @@ from posthog.temporal.alerts.activities import (
     prepare_alert,
     record_failed_evaluation,
 )
-from posthog.temporal.alerts.retry_policy import alert_timeouts
+from posthog.temporal.alerts.retry_policy import ALERT_NOTIFY_RETRY_POLICY, alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -909,6 +909,12 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
+
+
+def test_email_misconfiguration_is_non_retryable_for_the_notify_policy() -> None:
+    # An instance without email configured raises ImproperlyConfigured, which never clears on
+    # retry, so notify_alert must fail fast instead of burning every attempt.
+    assert "ImproperlyConfigured" in (ALERT_NOTIFY_RETRY_POLICY.non_retryable_error_types or [])
 
 
 @pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])

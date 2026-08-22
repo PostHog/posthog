@@ -11,6 +11,7 @@ import structlog
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.email import is_email_available
 from posthog.ph_client import ph_background_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
@@ -225,6 +226,11 @@ def send_notifications_for_breaches(
     """
     deliveries: list[AlertDelivery] = []
     email_targets = alert.get_subscribed_users_emails()
+    if email_targets and not is_email_available():
+        # Skip email on an instance without email configured, so the hog function
+        # destinations and the in-app paths after this still run.
+        logger.warning("send_notifications_for_breaches.email_unavailable", alert_id=alert.id)
+        email_targets = []
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
         campaign_key = f"alert-firing-notification-{idempotency_key}"
