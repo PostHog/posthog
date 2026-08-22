@@ -37,6 +37,7 @@ Agent events are wrapped as `{"type": "pi_event", "timestamp": ..., "event": {..
 | `assistant_thought_chunk` | `event.content.text` — streaming; thousands of tiny chunks per run, coalesce or skip                                |
 | `tool_call_started`       | `event.toolCall`: `id`, `title` (tool name, e.g. `bash`), `kind` (`execute`/`edit`/…), `rawInput` (the actual args) |
 | `tool_call_updated`       | `event.toolCall`: `id`, `status` (`completed`/`failed`), `rawOutput[]` (`{type:"text", text}`), `content`           |
+| `message_end`             | `event.message.usage.totalTokens` — tokens consumed by the completed assistant turn                                   |
 | `turn_completed`          | turn boundary                                                                                                       |
 
 The tool `title` is terse (`bash`, `write`); the real command is in `rawInput`.
@@ -88,8 +89,8 @@ The interesting method is `session/update`, discriminated by `.notification.para
 | `usage_update`                          | context fill: `used` / `size`                                                            |
 | `available_commands_update`             | skills list — huge, skip it                                                              |
 
-Other useful methods: `_posthog/usage_update` (`params.cost` in USD and `params.used` token
-counts, cumulative — `tail -1` is the run's total), `_posthog/turn_complete`.
+Other useful methods: `_posthog/usage_update` (`params.cost` in USD and `params.usage` token
+counts for the latest turn), `_posthog/turn_complete`.
 
 ### ACP recipes
 
@@ -141,11 +142,12 @@ Wall-clock seconds between two lines (every line has a top-level `timestamp`):
 sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";"") | sub("\\+00:00$";"Z") | fromdateiso8601] | last - first'
 ```
 
-Token delta across the span (works on both usage shapes; prints a message when the log
-lacks usage updates inside the span — then omit `tokens` from the finding):
+Tokens consumed inside the span. Pi assistant messages and ACP usage updates both carry a
+per-turn total, so sum them rather than subtracting them. The command prints a message when the
+log lacks token records inside the span — then omit `tokens` from the finding:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.method=="_posthog/usage_update") | (.notification.params.usage // .notification.params.used) | select(type=="object") | (.totalTokens // (.inputTokens + .outputTokens + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0)))] | if length > 1 then (last - first) else "insufficient usage updates in span" end'
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | if .type == "pi_event" and .event.type == "message_end" and .event.message.role == "assistant" then .event.message.usage.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage.totalTokens // .notification.params.used) else empty end | select(type == "number")] | if length > 0 then add else "insufficient token records in span" end'
 ```
 
 Wasted tool calls are the count of tool-timeline rows between the two lines.
