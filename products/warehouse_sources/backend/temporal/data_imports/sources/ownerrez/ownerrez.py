@@ -27,6 +27,12 @@ OWNERREZ_API_HOST = "api.ownerrez.com"
 # Required per the vendor's auth guide: "Use a user-agent header to identify yourself on all calls."
 USER_AGENT = "PostHog Data Warehouse (+https://posthog.com)"
 
+# "v1" is the framework's legacy unversioned label, not OwnerRez's retired v1.x API — this client
+# has only ever built /v2 paths. So the "v1" pin and the "v2.0" pin resolve to the identical wire;
+# the version is a pure declaration with no request-layer dispatch.
+OWNERREZ_API_VERSION_V1 = "v1"
+OWNERREZ_API_VERSION_V2_0 = "v2.0"
+
 
 @frozen
 class OwnerRezResumeConfig:
