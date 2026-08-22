@@ -71,6 +71,12 @@ NON_PR_BEARING_TASK_RUN_TYPES = frozenset({TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE
 
 _TERMINAL_NO_PR_RUN_STATUSES = frozenset({"failed", "cancelled"})
 
+# The decision states the tasks merge webhook resolves a report from. A report holding a
+# MERGED implementation PR while sitting in one of these states re-opened on new evidence
+# after the fix shipped (resolution only fires for still-surfaced reports) — the fix
+# demonstrably didn't take.
+_REOPENED_DECISION_STATUSES = frozenset({"ready", "pending_input"})
+
 _GITHUB_PR_URL_PREFIX = "https://github.com/"
 
 
@@ -139,35 +145,55 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
     ]
 
 
-def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id: str | None = None) -> bool:
+def _live_implementation_exists(
+    *, team_id: int, report_id: str, exclude_task_id: str | None = None, report_status: str | None = None
+) -> bool:
     """Whether the report has an implementation task that still claims its one slot.
 
     Reads the `SignalReportTask` gate rows (not the API-mutable artefact log) and traverses
     to runs via the FK, staying behind the tasks public interface like `billing`. A task
     releases the slot only when it is deleted or every one of its runs ended failed/cancelled
     without shipping a GitHub PR — a task with no runs yet still claims it, and a shipped PR
-    claims it permanently (the report is implemented). Quota-cancelled implementations delete
-    their gate rows (`release_quota_cancelled_implementation`), so they never count.
+    claims it permanently (the report is implemented), with one exception: a completed run
+    whose PR has since MERGED stops claiming while the report sits in a decision state
+    (`report_status` ready/pending_input). The merge webhook resolves only still-surfaced
+    reports, so that combination means the report re-opened on new evidence after the fix
+    shipped — the fix didn't take, and a fresh implementation attempt is legitimate.
+    Billing's `billed_earlier` idempotency keeps the rework unbilled, so this releases no
+    second charge. Quota-cancelled implementations delete their gate rows
+    (`release_quota_cancelled_implementation`), so they never count.
     """
+    reopened_after_merge = report_status in _REOPENED_DECISION_STATUSES
     claimants = SignalReportTask.objects.filter(
         team_id=team_id, report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
     ).exclude(task__deleted=True)
     if exclude_task_id is not None:
         claimants = claimants.exclude(task_id=exclude_task_id)
-    rows = claimants.values_list("task_id", "task__runs__status", "task__runs__output__pr_url")
-    runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
-    for task_id, status, pr_url in rows:
-        runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
+    rows = claimants.values_list(
+        "task_id", "task__runs__status", "task__runs__output__pr_url", "task__runs__output__pr_merged"
+    )
+    runs_by_task: dict[str, list[tuple[str | None, object, object]]] = {}
+    for task_id, status, pr_url, pr_merged in rows:
+        runs_by_task.setdefault(str(task_id), []).append((status, pr_url, pr_merged))
     for runs in runs_by_task.values():
-        has_runs = any(run_status is not None for run_status, _run_pr_url in runs)
+        has_runs = any(run_status is not None for run_status, _run_pr_url, _run_pr_merged in runs)
         if not has_runs:
             return True
-        for run_status, run_pr_url in runs:
+        for run_status, run_pr_url, run_pr_merged in runs:
             if run_status is None:
+                continue
+            shipped_pr = isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX)
+            # JSON booleans arrive as bool; tolerate string forms like the report serializer does.
+            merged = run_pr_merged in (True, "true", "True")
+            if run_status == "completed" and shipped_pr and merged and reopened_after_merge:
+                # Shipped, merged, and the report re-opened anyway: this run's claim is spent.
+                # A live rework run on the same task still claims via the branch below.
                 continue
             if run_status not in _TERMINAL_NO_PR_RUN_STATUSES:
                 return True
-            if isinstance(run_pr_url, str) and run_pr_url.startswith(_GITHUB_PR_URL_PREFIX):
+            if shipped_pr:
+                if merged and reopened_after_merge:
+                    continue
                 return True
     return False
 
@@ -191,7 +217,7 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         # The serializer already team-scoped the report; behave as the create path would without a cap.
         return
     if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
-        if _live_implementation_exists(team_id=team_id, report_id=report_id):
+        if _live_implementation_exists(team_id=team_id, report_id=report_id, report_status=report.status):
             raise ReportTaskCapExceeded(
                 kind=TASK_RUN_TYPE_IMPLEMENTATION,
                 detail="A PR task already exists for this report. Open the existing task to continue.",
@@ -244,7 +270,9 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
-    if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
+    if _live_implementation_exists(
+        team_id=team_id, report_id=report_id, exclude_task_id=task_id, report_status=report.status
+    ):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION,
             detail="A PR task already exists for this report. Open the existing task to continue.",

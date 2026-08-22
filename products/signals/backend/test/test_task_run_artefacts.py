@@ -20,8 +20,10 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    ReportTaskCapExceeded,
     aappend_task_run_artefact,
     append_task_run_artefact,
+    enforce_report_task_cap,
     record_implementation_task,
     release_quota_cancelled_implementation,
     signals_task_ids,
@@ -455,3 +457,88 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
         assert SignalReport.associated_task_runs(
             report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         )
+
+
+class TestImplementationSlotAfterMerge(BaseTest):
+    def _report(self, status: SignalReport.Status = SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=status,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _implementation(self, report: SignalReport, *runs: dict) -> Task:
+        task = Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        for run in runs:
+            TaskRun.objects.create(team=self.team, task=task, **run)
+        return task
+
+    def _assert_capped(self, report: SignalReport) -> None:
+        from django.db import transaction
+
+        with transaction.atomic():
+            try:
+                enforce_report_task_cap(team_id=self.team.id, report_id=str(report.id), relationship=None)
+            except ReportTaskCapExceeded:
+                return
+        raise AssertionError("expected the implementation slot to be claimed")
+
+    def _assert_open(self, report: SignalReport) -> None:
+        from django.db import transaction
+
+        with transaction.atomic():
+            enforce_report_task_cap(team_id=self.team.id, report_id=str(report.id), relationship=None)
+
+    def test_merged_pr_releases_the_slot_when_the_report_reopens(self):
+        # The fix shipped and merged, yet the pipeline re-surfaced the report on new
+        # evidence — a fresh attempt must not 429 on the spent task.
+        report = self._report(SignalReport.Status.READY)
+        self._implementation(
+            report,
+            {
+                "status": TaskRun.Status.COMPLETED,
+                "output": {"pr_url": "https://github.com/PostHog/posthog/pull/1", "pr_merged": True},
+            },
+        )
+        self._assert_open(report)
+
+    def test_merged_pr_keeps_the_slot_on_a_resolved_report(self):
+        report = self._report(SignalReport.Status.RESOLVED)
+        self._implementation(
+            report,
+            {
+                "status": TaskRun.Status.COMPLETED,
+                "output": {"pr_url": "https://github.com/PostHog/posthog/pull/1", "pr_merged": True},
+            },
+        )
+        self._assert_capped(report)
+
+    def test_open_pr_still_claims_the_slot(self):
+        report = self._report(SignalReport.Status.READY)
+        self._implementation(
+            report,
+            {"status": TaskRun.Status.COMPLETED, "output": {"pr_url": "https://github.com/PostHog/posthog/pull/1"}},
+        )
+        self._assert_capped(report)
+
+    def test_live_rework_run_claims_even_after_the_merge(self):
+        # Someone already continued the task; a second fresh task would double the work.
+        report = self._report(SignalReport.Status.READY)
+        self._implementation(
+            report,
+            {
+                "status": TaskRun.Status.COMPLETED,
+                "output": {"pr_url": "https://github.com/PostHog/posthog/pull/1", "pr_merged": True},
+            },
+            {"status": TaskRun.Status.IN_PROGRESS, "output": {}},
+        )
+        self._assert_capped(report)
