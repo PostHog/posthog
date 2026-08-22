@@ -2044,7 +2044,7 @@ class InsightViewSet(
         )
 
     @staticmethod
-    def _parse_json_list_param(key: str, value: str) -> list:
+    def _parse_json_list_param(key: str, value: str) -> Sequence[Any]:
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
