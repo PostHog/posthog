@@ -37,7 +37,8 @@ interface GitHubSourceRepositoriesDialogProps {
 
 /**
  * Add or remove repositories on an existing GitHub inbox source. The backend reconciles the
- * per-repo schemas and webhooks from the new list, so the PATCH only carries `repositories`.
+ * per-repo schemas and webhooks from the new list, so the PATCH only carries `repositories`; it
+ * creates an added repository's rows disabled, which the save then switches on.
  */
 export function GitHubSourceRepositoriesDialog({
   source,
