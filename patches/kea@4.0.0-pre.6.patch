@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs.js b/lib/index.cjs.js
-index 917e1c5..0c70918 100644
+index 917e1c5..b9bbbd5 100644
 --- a/lib/index.cjs.js
 +++ b/lib/index.cjs.js
 @@ -612,9 +612,27 @@ var isPaused = function isPaused() {
@@ -31,8 +31,93 @@ index 917e1c5..0c70918 100644
    });
  }
  function useValues(logic) {
+@@ -1135,9 +1153,13 @@ function actions(input) {
+           dispatchId: nextDispatchId()
+         }));
+       };
+-      logic.actions[key].toString = function () {
+-        return type;
+-      };
++      Object.defineProperty(logic.actions[key], 'toString', {
++        value: function () {
++          return type;
++        },
++        writable: true,
++        configurable: true
++      });
+       if (!disableAsyncActions) {
+         logic.asyncActions[key] = /*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
+           var builtAction,
+@@ -1193,9 +1215,13 @@ function actions(input) {
+             }
+           }, _callee, null, [[2, 4]]);
+         }));
+-        logic.asyncActions[key].toString = function () {
+-          return type;
+-        };
++        Object.defineProperty(logic.asyncActions[key], 'toString', {
++          value: function () {
++            return type;
++          },
++          writable: true,
++          configurable: true
++        });
+       }
+       logic.actionKeys[type] = key;
+       logic.actionTypes[key] = type;
+@@ -1214,9 +1240,13 @@ function createActionCreator(type, payloadCreator) {
+       }
+     };
+   };
+-  action.toString = function () {
+-    return type;
+-  };
++  Object.defineProperty(action, 'toString', {
++    value: function () {
++      return type;
++    },
++    writable: true,
++    configurable: true
++  });
+   action._isKeaAction = true;
+   return action;
+ }
+@@ -1266,9 +1296,13 @@ function connect(input) {
+               var _otherLogic$actionCre;
+               return (_otherLogic$actionCre = otherLogic.actionCreators)[from].apply(_otherLogic$actionCre, arguments);
+             };
+-            logic.actionCreators[to].toString = function () {
+-              return createActionType(from, otherLogic.pathString);
+-            };
++            Object.defineProperty(logic.actionCreators[to], 'toString', {
++              value: function () {
++                return createActionType(from, otherLogic.pathString);
++              },
++              writable: true,
++              configurable: true
++            });
+             logic.actionTypes[to] = logic.actionCreators[to].toString();
+           } else {
+             logic.actionCreators[to] = otherLogic.actionCreators[from];
+@@ -1291,9 +1325,13 @@ function connect(input) {
+           var builtAction = (_logic$actionCreators = logic.actionCreators)[to].apply(_logic$actionCreators, arguments);
+           getContext().store.dispatch(builtAction);
+         };
+-        logic.actions[to].toString = function () {
+-          return logic.actionTypes[to];
+-        };
++        Object.defineProperty(logic.actions[to], 'toString', {
++          value: function () {
++            return logic.actionTypes[to];
++          },
++          writable: true,
++          configurable: true
++        });
+       };
+       for (var _iterator2 = _createForOfIteratorHelperLoose(response), _step2; !(_step2 = _iterator2()).done;) {
+         _loop();
 diff --git a/lib/index.esm.js b/lib/index.esm.js
-index 8116790..3500e6a 100644
+index 8116790..e53b545 100644
 --- a/lib/index.esm.js
 +++ b/lib/index.esm.js
 @@ -586,9 +586,27 @@ var isPaused = function isPaused() {
@@ -64,3 +149,88 @@ index 8116790..3500e6a 100644
    });
  }
  function useValues(logic) {
+@@ -1109,9 +1127,13 @@ function actions(input) {
+           dispatchId: nextDispatchId()
+         }));
+       };
+-      logic.actions[key].toString = function () {
+-        return type;
+-      };
++      Object.defineProperty(logic.actions[key], 'toString', {
++        value: function () {
++          return type;
++        },
++        writable: true,
++        configurable: true
++      });
+       if (!disableAsyncActions) {
+         logic.asyncActions[key] = /*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
+           var builtAction,
+@@ -1167,9 +1189,13 @@ function actions(input) {
+             }
+           }, _callee, null, [[2, 4]]);
+         }));
+-        logic.asyncActions[key].toString = function () {
+-          return type;
+-        };
++        Object.defineProperty(logic.asyncActions[key], 'toString', {
++          value: function () {
++            return type;
++          },
++          writable: true,
++          configurable: true
++        });
+       }
+       logic.actionKeys[type] = key;
+       logic.actionTypes[key] = type;
+@@ -1188,9 +1214,13 @@ function createActionCreator(type, payloadCreator) {
+       }
+     };
+   };
+-  action.toString = function () {
+-    return type;
+-  };
++  Object.defineProperty(action, 'toString', {
++    value: function () {
++      return type;
++    },
++    writable: true,
++    configurable: true
++  });
+   action._isKeaAction = true;
+   return action;
+ }
+@@ -1240,9 +1270,13 @@ function connect(input) {
+               var _otherLogic$actionCre;
+               return (_otherLogic$actionCre = otherLogic.actionCreators)[from].apply(_otherLogic$actionCre, arguments);
+             };
+-            logic.actionCreators[to].toString = function () {
+-              return createActionType(from, otherLogic.pathString);
+-            };
++            Object.defineProperty(logic.actionCreators[to], 'toString', {
++              value: function () {
++                return createActionType(from, otherLogic.pathString);
++              },
++              writable: true,
++              configurable: true
++            });
+             logic.actionTypes[to] = logic.actionCreators[to].toString();
+           } else {
+             logic.actionCreators[to] = otherLogic.actionCreators[from];
+@@ -1265,9 +1299,13 @@ function connect(input) {
+           var builtAction = (_logic$actionCreators = logic.actionCreators)[to].apply(_logic$actionCreators, arguments);
+           getContext().store.dispatch(builtAction);
+         };
+-        logic.actions[to].toString = function () {
+-          return logic.actionTypes[to];
+-        };
++        Object.defineProperty(logic.actions[to], 'toString', {
++          value: function () {
++            return logic.actionTypes[to];
++          },
++          writable: true,
++          configurable: true
++        });
+       };
+       for (var _iterator2 = _createForOfIteratorHelperLoose(response), _step2; !(_step2 = _iterator2()).done;) {
+         _loop();
