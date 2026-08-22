@@ -499,7 +499,11 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (b.currentTurn) {
+  if (event.type === "usage_update") {
+    return;
+  }
+
+  if (event.type === "turn_completed" && b.currentTurn) {
     completePromptTurn(b, b.currentTurn, event.timestamp, {
       stopReason: event.stopReason,
     });
