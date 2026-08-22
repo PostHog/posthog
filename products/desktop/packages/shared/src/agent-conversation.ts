@@ -175,6 +175,11 @@ export type AgentConversationEvent = (
       message: string;
     }
   | {
+      type: "usage_update";
+      timestamp: number;
+      totalTokens: number;
+    }
+  | {
       type: "turn_completed";
       timestamp: number;
       stopReason?: string;

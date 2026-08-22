@@ -18,6 +18,18 @@ function isMessage(message: AgentMessage): message is Message {
   );
 }
 
+function usageEvents(message: AssistantMessage): AgentConversationEvent[] {
+  return message.usage.totalTokens > 0
+    ? [
+        {
+          type: "usage_update",
+          timestamp: message.timestamp,
+          totalTokens: message.usage.totalTokens,
+        },
+      ]
+    : [];
+}
+
 function customMessageEvents(message: AgentMessage): AgentConversationEvent[] {
   if (message.role === "bashExecution") {
     const id = `pi-bash-${message.timestamp}`;
@@ -501,15 +513,23 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       const visibleEvents = events.filter(
         (translated) => translated.type !== "runtime_error",
       );
-      if (event.message.role !== "assistant" || !assistantStream) {
+      if (event.message.role !== "assistant") {
         return visibleEvents;
       }
 
-      return reconcileAssistantContent(
-        event.message,
-        visibleEvents,
-        assistantStream,
-      );
+      const usage = usageEvents(event.message);
+      if (!assistantStream) {
+        return [...visibleEvents, ...usage];
+      }
+
+      return [
+        ...reconcileAssistantContent(
+          event.message,
+          visibleEvents,
+          assistantStream,
+        ),
+        ...usage,
+      ];
     }
 
     if (event.type === "agent_end") {
