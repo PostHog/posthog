@@ -5,6 +5,8 @@ export const MAX_UNCOMPRESSED_IMAGE_BYTES = 20 * 1024 * 1024
 export const CONTENT_TYPE_HEADER = 'content-type'
 export const CONTENT_ENCODING_HEADER = 'content-encoding'
 
+const MAX_CONTENT_ENCODING_LAYERS = 4
+
 export const SUPPORTED_IMAGE_MEDIA_TYPES = [
     'image/png',
     'image/jpeg',
@@ -30,6 +32,9 @@ function parseContentEncodings(contentEncoding: string | undefined): string[] {
         return []
     }
     const encodings = contentEncoding.split(',').map((encoding) => encoding.trim().toLowerCase())
+    if (encodings.length > MAX_CONTENT_ENCODING_LAYERS) {
+        throw new InvalidImageTransportError(`content-encoding exceeds ${MAX_CONTENT_ENCODING_LAYERS} codings`)
+    }
     if (encodings.some((encoding) => encoding.length === 0)) {
         throw new InvalidImageTransportError('content-encoding contains an empty coding')
     }

@@ -45,6 +45,16 @@ describe('image transport', () => {
         await expect(prepareFetchedImage(encoded, 'image/png', 'gzip, br')).resolves.toEqual(png)
     })
 
+    it('rejects more than four content coding layers', async () => {
+        await expect(
+            prepareFetchedImage(
+                imageHeaders['image/png'],
+                'image/png',
+                'identity, identity, identity, identity, identity'
+            )
+        ).rejects.toThrow('content-encoding exceeds 4 codings')
+    })
+
     it('stops decompression when the decoded bytes cross the 20 MiB cap', async () => {
         const compressed = gzipSync(Buffer.alloc(MAX_UNCOMPRESSED_IMAGE_BYTES + 1))
 
