@@ -5976,6 +5976,18 @@ snapshots:
         hash: v1.k794b7964.7b105d74e4bd6c48e6ffee982e294557b0230d3c43769a252c753745f0d8ec0a.j2wHTrpAU0iVskR8PYJPk9KNhWUYrGDbwyxM0h9015M
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
+    scenes-app-customer-analytics-track-rules--configured--dark:
+        hash: v1.k794b7964.ef012fb60a8040fc022e06779adb84626fe4ba862d616285274ac3e5c73f15fb.Dz-T6kd65oDandYpYJfxkaS7hIFtnyfy7LVJ_6ihcYI
+    scenes-app-customer-analytics-track-rules--configured--light:
+        hash: v1.k794b7964.f0ddc044704544d042f8d8660becc5c336abd903d5f000792f9cdd52ab5ffd27.ukVgbMTv8AgAlQBeHvH-m2ni3ZT61Ze3NNNROVY8YvA
+    scenes-app-customer-analytics-track-rules--feature-gate-off--dark:
+        hash: v1.k794b7964.247e31dff1b806907ec4c327f1ad132fc186861cbe8f2265fa05296f1aa2a95b.KZZKeqM5D6IpwNrMdlEf5EbTm6KGmcdapADEzg755Gw
+    scenes-app-customer-analytics-track-rules--feature-gate-off--light:
+        hash: v1.k794b7964.5bf2ef575702ea1997fa9c147c10662b40445407894616a915c9e330cbc8c06a.0vS8B765QPDhC4h_KtJPlL5o3f5b_PZ-giJD2DPRkd4
+    scenes-app-customer-analytics-track-rules--preview--dark:
+        hash: v1.k794b7964.08ae957dfb6c95ac721250cc8d64644344769b44799a619d95d7250b78054e9e.3Q3Iow0rCaEywLydJBLFwOp-xbo9DA4se-L4D5gazNE
+    scenes-app-customer-analytics-track-rules--preview--light:
+        hash: v1.k794b7964.30e6b06c583f37b66a2c6e717652517f1fb7f0b4b5be5ed1bca11dd607c33f8f.Qfcbq6WbrYMSFB6yymWEg5w7Q2JbxrIz7VEMJUOymu0
     scenes-app-data-management--data-warehouse-managed-viewsets--dark:
         hash: v1.k794b7964.c8b8c112665a993ec00602d6f00602775548a3aa782ae541e4738e879b5a1107.KTg2KYEs4UHmHOuVj0Py_3WERNbAjQ1UQHf5n6yxhSc
     scenes-app-data-management--data-warehouse-managed-viewsets--light:
