@@ -2,9 +2,14 @@ from datetime import datetime
 
 import pytest
 
+from pydantic import ValidationError
+
+from products.signals.backend.artefact_schemas import LEGACY_PROPOSED_CHANGE_PLACEHOLDER
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
+    SignalFindingUpdate,
+    _render_previous_finding_context,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
@@ -116,6 +121,7 @@ class TestBuildInitialResearchPrompt:
                 relevant_code_paths=["example.py"],
                 data_queried="Queried the relevant events.",
                 verified=True,
+                proposed_change="In example.py, add the missing null check.",
             )
             if has_previous_finding
             else None
@@ -174,3 +180,38 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+
+class TestSignalFindingUpdate:
+    # A re-research that keeps a prior finding must still state the fix, so the confirmation
+    # response carries a diagnosis rather than bare confirmation prose.
+    @pytest.mark.parametrize("proposed_change", [None, "   "])
+    def test_confirmation_requires_proposed_change(self, proposed_change):
+        with pytest.raises(ValidationError):
+            SignalFindingUpdate(previous_finding_correct=True, proposed_change=proposed_change)
+
+    def test_confirmation_accepts_restated_proposed_change(self):
+        update = SignalFindingUpdate(previous_finding_correct=True, proposed_change="In a.py, add the null check.")
+        assert update.finding is None
+
+
+class TestRenderPreviousFindingContext:
+    def _finding(self, proposed_change: str) -> SignalFinding:
+        return SignalFinding(
+            signal_id="s1",
+            relevant_code_paths=["a.py"],
+            data_queried="none",
+            verified=True,
+            proposed_change=proposed_change,
+        )
+
+    def test_normal_finding_can_be_confirmed(self):
+        rendered = _render_previous_finding_context(self._finding("In a.py, add the guard."))
+        assert "`previous_finding_correct: true`" in rendered
+
+    def test_legacy_finding_must_be_replaced_not_confirmed(self):
+        # A finding backfilled with the legacy placeholder has no real change to restate, so
+        # confirming it would carry the placeholder into the trace. Force a fresh replacement.
+        rendered = _render_previous_finding_context(self._finding(LEGACY_PROPOSED_CHANGE_PLACEHOLDER))
+        assert "do not confirm it" in rendered.lower()
+        assert "`previous_finding_correct: true`" not in rendered

@@ -35,6 +35,7 @@ from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     _parse_artefact_content,
     _parse_stored_charts,
+    _parse_stored_finding,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -80,12 +81,14 @@ def _build_research_output() -> ReportResearchOutput:
                 relevant_code_paths=["frontend/src/scenes/onboarding/OnboardingFlow.tsx"],
                 data_queried="Checked onboarding_completed volume in recent events; it dropped 38% week over week.",
                 verified=True,
+                proposed_change="In OnboardingFlow.tsx, restore the onboarding_completed capture call on the final step.",
             ),
             SignalFinding(
                 signal_id="sig-2",
                 relevant_code_paths=["posthog/api/event.py"],
                 data_queried="Compared pageview and user_signed_up volumes; those remained stable.",
                 verified=True,
+                proposed_change="No code change applies here; this signal only corroborates sig-1 as stable baseline traffic.",
             ),
             ActionabilityAssessment(
                 explanation="The issue has a clear code path and supporting event-volume evidence.",
@@ -549,7 +552,9 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     session = Mock()
     session.send_followup = AsyncMock(side_effect=RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"))
     session.end = AsyncMock()
-    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    first_finding = SignalFinding(
+        signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True, proposed_change="No change."
+    )
 
     with patch(
         "products.tasks.backend.facade.agents.MultiTurnSession.start",
@@ -579,6 +584,26 @@ def test_parse_artefact_content_raises_on_incompatible_schema():
     )
     with pytest.raises(ValueError, match="incompatible with the current ActionabilityAssessment schema"):
         _parse_artefact_content(ActionabilityAssessment, artefact, "report-1")
+
+
+def test_parse_stored_finding_loads_legacy_row_without_crashing():
+    # `_load_previous_research` reads stored findings through this wrapper. A finding stored before
+    # `proposed_change` became required must still load, or re-research crashes on every report that
+    # holds a pre-existing finding.
+    legacy = '{"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": true}'
+    artefact = SignalReportArtefact(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING, content=legacy)
+    finding = _parse_stored_finding(artefact, "report-1")
+    assert finding.signal_id == "s1"
+    assert finding.proposed_change.strip()
+
+
+def test_parse_stored_finding_raises_on_incompatible_schema():
+    # Tolerance is scoped to the missing `proposed_change` only — other schema mismatches still fail.
+    artefact = SignalReportArtefact(
+        type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING, content='{"unexpected": "shape"}'
+    )
+    with pytest.raises(ValueError, match="incompatible with the current SignalFinding schema"):
+        _parse_stored_finding(artefact, "report-1")
 
 
 def test_parse_stored_charts_skips_bad_rows_without_raising():

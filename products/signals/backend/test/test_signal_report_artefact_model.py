@@ -57,7 +57,13 @@ class TestSignalReportArtefactHelpers(BaseTest):
 
     @staticmethod
     def _finding(signal_id: str) -> SignalFinding:
-        return SignalFinding(signal_id=signal_id, relevant_code_paths=["a.py"], data_queried="none", verified=True)
+        return SignalFinding(
+            signal_id=signal_id,
+            relevant_code_paths=["a.py"],
+            data_queried="none",
+            verified=True,
+            proposed_change="In a.py, add the missing guard.",
+        )
 
     # --- classification ---
 

@@ -7,16 +7,19 @@ from pydantic import BaseModel, ValidationError
 
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
+    LEGACY_PROPOSED_CHANGE_PLACEHOLDER,
     ArtefactContentValidationError,
     CodeReference,
     Commit,
     NoteArtefact,
+    SignalFinding,
     SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
     artefact_type_for,
     parse_artefact_content,
+    parse_stored_artefact_content,
 )
 from products.signals.backend.models import SignalReportArtefact
 
@@ -117,7 +120,13 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("priority_judgment", {"explanation": "It is bad.", "priority": "P1"}),
             (
                 "signal_finding",
-                {"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": True},
+                {
+                    "signal_id": "s1",
+                    "relevant_code_paths": ["a.py"],
+                    "data_queried": "none",
+                    "verified": True,
+                    "proposed_change": "In a.py, guard the None case before the call.",
+                },
             ),
             ("repo_selection", {"repository": None, "reason": "no candidates"}),
             ("suggested_reviewers", [{"github_login": "octocat", "github_name": None, "relevant_commits": []}]),
@@ -151,6 +160,16 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("actionability_judgment", {"explanation": "", "actionability": "nope", "already_addressed": False}),
             ("priority_judgment", {"explanation": "x", "priority": "P9"}),
             ("signal_finding", {"signal_id": "s1"}),
+            (
+                "signal_finding",
+                {
+                    "signal_id": "s1",
+                    "relevant_code_paths": ["a.py"],
+                    "data_queried": "ran execute-sql",
+                    "verified": True,
+                    "proposed_change": "   ",
+                },
+            ),
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
             ("note", {"note": "   "}),
@@ -185,3 +204,23 @@ class TestValidateArtefactContent(SimpleTestCase):
 
         with self.assertRaises(ArtefactContentValidationError):
             artefact_type_for(NotAnArtefact())
+
+
+class TestParseStoredArtefactContent(SimpleTestCase):
+    # Stored-read boundary used by every reader of persisted findings (re-research and the report
+    # canvas). It must load a finding written before `proposed_change` became required, or those
+    # readers drop the finding and lose its research evidence.
+    def test_backfills_legacy_finding_missing_proposed_change(self):
+        legacy = {"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": True}
+        parsed = parse_stored_artefact_content("signal_finding", legacy)
+        assert isinstance(parsed, SignalFinding)
+        assert parsed.proposed_change == LEGACY_PROPOSED_CHANGE_PLACEHOLDER
+
+    def test_tolerance_is_scoped_to_findings(self):
+        # Only the finding backfill is tolerant — other types stay strict, so the write path and
+        # other-type reads are unaffected.
+        with self.assertRaises(ArtefactContentValidationError):
+            parse_stored_artefact_content(
+                "actionability_judgment",
+                {"explanation": "", "actionability": "nope", "already_addressed": False},
+            )

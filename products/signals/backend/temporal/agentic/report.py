@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -18,7 +18,13 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    ArtefactContent,
+    ArtefactContentValidationError,
+    RelatedTo,
+    SuggestedReviewers,
+    parse_stored_artefact_content,
+)
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -88,6 +94,18 @@ def _parse_artefact_content(
         ) from error
 
 
+def _parse_stored_finding(artefact: SignalReportArtefact, report_id: str) -> SignalFinding:
+    # Tolerant read for stored findings: a legacy row missing `proposed_change` is backfilled rather
+    # than rejected (see `parse_stored_artefact_content`). Any other schema mismatch still fails loudly.
+    try:
+        return cast(SignalFinding, parse_stored_artefact_content(artefact.type, artefact.content))
+    except ArtefactContentValidationError as error:
+        raise ValueError(
+            f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
+            f"current {SignalFinding.__name__} schema"
+        ) from error
+
+
 async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
     report = await SignalReport.objects.filter(id=report_id).only("title", "summary", "charts").afirst()
@@ -120,7 +138,7 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
-                finding = _parse_artefact_content(SignalFinding, artefact, report_id)
+                finding = _parse_stored_finding(artefact, report_id)
                 findings_by_signal[finding.signal_id] = finding
             case SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
                 actionability = _parse_artefact_content(ActionabilityAssessment, artefact, report_id)
