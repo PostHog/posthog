@@ -939,7 +939,7 @@ export interface SignalSourceConnectedProperties {
   via_setup_wizard: boolean;
 }
 
-// Agents page events (the `/code/agents` configuration surface)
+// Agents page events (the `/agents` configuration surface)
 export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {

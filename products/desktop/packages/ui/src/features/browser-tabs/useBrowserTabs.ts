@@ -11,7 +11,7 @@ export function useTabsSnapshot() {
 
 /**
  * True when the primary window's active tab is a blank "+" tab (no canvas, task,
- * or channel). The blank tab parks at `/website`, whose index would otherwise
+ * or channel). The blank tab parks at `/spaces`, whose index would otherwise
  * redirect to the first channel — callers use this to suppress that redirect so
  * a blank tab (and the in-flight navigation leaving it) isn't hijacked.
  */

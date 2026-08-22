@@ -58,12 +58,53 @@ async function consumePrimedProvision(
   return client.provisionDefaultTaskChannels();
 }
 
+/**
+ * Route prefixes that moved when the app's routes were flattened. A saved
+ * location is a raw href, so an install that last quit on an old path would
+ * otherwise reopen on a route that no longer exists.
+ */
+const MOVED_PREFIXES: readonly (readonly [string, string])[] = [
+  ["/website/command-center", "/command-center"],
+  ["/website/mcp-servers", "/mcp-servers"],
+  ["/website/activity", "/activity"],
+  ["/website/skills", "/skills"],
+  ["/website/feeds", "/feeds"],
+  ["/website/home", "/"],
+  ["/website/new", "/new"],
+  ["/website", "/spaces"],
+  ["/code/inbox", "/inbox"],
+  ["/code/agents", "/agents"],
+  ["/code/archived", "/archived"],
+  ["/code/loops", "/loops"],
+  ["/code/tasks", "/tasks"],
+  ["/code/pr", "/pr"],
+  ["/code", "/new"],
+];
+
+// Longest first, so `/website/home` can never be eaten by `/website` however
+// the list above is edited.
+const MOVED_LONGEST_FIRST = [...MOVED_PREFIXES].sort(
+  (a, b) => b[0].length - a[0].length,
+);
+
+/** A saved href on today's routes. Unrecognized hrefs are returned unchanged. */
+export function rewriteSavedLocation(href: string): string {
+  for (const [from, to] of MOVED_LONGEST_FIRST) {
+    if (href === from) return to;
+    if (href.startsWith(`${from}/`)) {
+      const rest = href.slice(from.length);
+      return to === "/" ? rest : to + rest;
+    }
+  }
+  return href;
+}
+
 export async function resolveStartupLocation(
   identity: string,
   client: StartupLocationClient,
 ): Promise<StartupLocation> {
   const saved = await stateStorage.getItem(storageKey(identity));
-  if (saved) return { href: saved, firstRun: null };
+  if (saved) return { href: rewriteSavedLocation(saved), firstRun: null };
 
   const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   if (legacy) {
@@ -73,7 +114,7 @@ export async function resolveStartupLocation(
       await client.provisionDefaultTaskChannels();
       void stateStorage.removeItem(legacyStorageKey(identity));
     } catch {}
-    return { href: legacy, firstRun: null };
+    return { href: rewriteSavedLocation(legacy), firstRun: null };
   }
 
   const provisioned = await consumePrimedProvision(identity, client);
@@ -87,7 +128,7 @@ export async function resolveStartupLocation(
   const isFirstRun =
     provisioned.personal_created || provisioned.general_created;
   return {
-    href: `/website/${general.id}`,
+    href: `/spaces/${general.id}`,
     firstRun: isFirstRun ? { generalChannelId: general.id } : null,
   };
 }
