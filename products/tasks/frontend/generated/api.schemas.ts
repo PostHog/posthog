@@ -1667,6 +1667,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
  * * `signals_chat` - Signals Chat
+ * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
@@ -1690,6 +1691,7 @@ export const OriginProductEnumApi = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
 } as const
 
@@ -1730,6 +1732,7 @@ export interface TaskCreateApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -1874,6 +1877,7 @@ export interface TaskWriteApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -2001,6 +2005,7 @@ export interface PatchedTaskWriteApi {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
     origin_product?: OriginProductEnumApi
     /**
@@ -3009,6 +3014,13 @@ export interface PatchedTaskRunUpdateApi {
      *
      * * `local` - local */
     environment?: TaskRunUpdateEnvironmentEnumApi
+}
+
+export interface TaskRunAnalyzeResponseApi {
+    /** Id of the analysis task to navigate to. */
+    analysis_task_id: string
+    /** True when a new analysis task was created; false when an existing analysis for this run was returned. */
+    created: boolean
 }
 
 export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
@@ -4505,6 +4517,7 @@ export type TasksListParams = {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -4632,6 +4645,7 @@ export const TasksListExcludeOriginProduct = {
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
     Workflow: 'workflow',
 } as const
 

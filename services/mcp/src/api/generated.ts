@@ -50562,6 +50562,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
@@ -50586,6 +50587,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 
@@ -64182,6 +64184,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -80088,6 +80091,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -80236,6 +80240,13 @@ export namespace Schemas {
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
+    }
+
+    export interface TaskRunAnalyzeResponse {
+      /** Id of the analysis task to navigate to. */
+      analysis_task_id: string;
+      /** True when a new analysis task was created; false when an existing analysis for this run was returned. */
+      created: boolean;
     }
 
     export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown };
@@ -81393,6 +81404,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -94303,6 +94315,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -94432,6 +94445,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 
