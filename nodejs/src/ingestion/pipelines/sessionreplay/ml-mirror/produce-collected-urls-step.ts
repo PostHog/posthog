@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
@@ -10,9 +12,9 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
- * ref of approximately 32 bytes and no image bytes. A ref that this cache drops before its next
- * arrival produces a second time, which costs topic volume and one more ledger read in the
- * fetcher, but never correctness. The fetcher dedupes on the same ref again.
+ * digest of the ref and transport URL, with no image bytes or original URL. An entry that this
+ * cache drops before its next arrival produces a second time, which costs topic volume and one
+ * more ledger read in the fetcher, but never correctness. The fetcher dedupes on the ref again.
  */
 const PRODUCED_REF_CACHE_MAX = 500_000
 
@@ -57,6 +59,10 @@ export interface CollectedUrlsMessage {
     urls: RecordUrl[]
 }
 
+function producedUrlCacheKey(entry: CollectedUrl): string {
+    return createHash('sha256').update(entry.ref).update('\0').update(entry.url).digest('base64url')
+}
+
 /**
  * Produce the collected URLs of remote images to the fetch topic, keyed by registrable domain.
  *
@@ -74,7 +80,8 @@ export interface CollectedUrlsMessage {
  * that batch. A buffer that spans messages would break that guarantee, because the pipeline could
  * commit the offset of a message while the URLs of that message were still in the buffer. A crash
  * would then lose them. The group-by-host step already removes most of the record count, `linger.ms`
- * makes the batches on the wire, and the ref cache stops a repeated image before it produces at all.
+ * makes the batches on the wire, and the cache stops an identical transport URL before it produces
+ * at all. A new transport URL for the same canonical ref still produces.
  *
  * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs
  * in namespaced sibling attributes, while media sources keep their placeholders.
@@ -88,7 +95,7 @@ export function createProduceCollectedUrlsStep<
     outputs: IngestionOutputs<MlImageFetchOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
-    const producedRefs = new RefDedupCache('image_fetch_producer', producedRefCacheMax)
+    const producedTransportUrls = new RefDedupCache('image_fetch_producer', producedRefCacheMax)
 
     return function produceCollectedUrlsStep(input) {
         const collected = input.collectedUrls
@@ -96,7 +103,9 @@ export function createProduceCollectedUrlsStep<
             return Promise.resolve(ok(input))
         }
 
-        const fresh = collected.filter((entry) => !producedRefs.has(entry.ref))
+        const fresh = collected
+            .map((entry) => ({ entry, cacheKey: producedUrlCacheKey(entry) }))
+            .filter(({ cacheKey }) => !producedTransportUrls.has(cacheKey))
         SessionRecordingIngesterMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
@@ -110,9 +119,10 @@ export function createProduceCollectedUrlsStep<
         // Every entry must use the global URL-ref shape and carry the same transport pseudonym. One
         // replay message belongs to one team, and a record stamped with another team's pseudonym is
         // a tenant-attribution error that nothing downstream can detect.
-        const usable: CollectedUrl[] = []
+        const usable: typeof fresh = []
         let pseudoTeam: string | undefined
-        for (const entry of fresh) {
+        for (const candidate of fresh) {
+            const { entry } = candidate
             const parsed = parseImageRef(entry.ref)
             if (
                 !parsed ||
@@ -123,7 +133,7 @@ export function createProduceCollectedUrlsStep<
                 continue
             }
             pseudoTeam ??= entry.pseudoTeam
-            usable.push(entry)
+            usable.push(candidate)
         }
         const unusable = fresh.length - usable.length
         if (unusable > 0) {
@@ -137,8 +147,8 @@ export function createProduceCollectedUrlsStep<
         }
 
         const byDomain = new Map<string, RecordUrl[]>()
-        for (const entry of usable) {
-            producedRefs.add(entry.ref)
+        for (const { entry, cacheKey } of usable) {
+            producedTransportUrls.add(cacheKey)
             const group = byDomain.get(entry.domain)
             const record: RecordUrl = { ref: entry.ref, url: entry.url, host: entry.host }
             SessionRecordingIngesterMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
@@ -170,29 +180,29 @@ export function createProduceCollectedUrlsStep<
             })
         )
 
-        // The failure handler captures only the refs, so that a produce which is not yet delivered
-        // does not hold the URL strings alive longer than the messages themselves.
-        const refs = usable.map((entry) => entry.ref)
+        // The failure handler captures only the cache keys, so that a produce which is not yet
+        // delivered does not hold the URL strings alive longer than the messages themselves.
+        const producedCacheKeys = usable.map(({ cacheKey }) => cacheKey)
         const produce = outputs
             .queueMessages(ML_IMAGE_FETCH_OUTPUT, messages)
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
-                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produced', refs.length)
+                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
             })
             .catch((error) => {
                 // A dangling ref renders as a placeholder, so a failed produce is logged and never
-                // thrown back into the pipeline. Un-mark the refs: the same image in a later
+                // thrown back into the pipeline. Un-mark the cache entries: the same image in a later
                 // snapshot then produces again, one attempt for each recurrence and no retry loop.
                 // A duplicate costs the fetcher one ledger read, because the ledger is keyed by ref.
-                for (const ref of refs) {
-                    producedRefs.delete(ref)
+                for (const cacheKey of producedCacheKeys) {
+                    producedTransportUrls.delete(cacheKey)
                 }
                 logger.warn('🌐', 'ml_image_fetch_produce_failed', {
-                    count: refs.length,
+                    count: producedCacheKeys.length,
                     domains: byDomain.size,
                     error: String(error),
                 })
-                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produce_failed', refs.length)
+                SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produce_failed', producedCacheKeys.length)
             })
         return Promise.resolve(ok({ ...input, collectedUrls: undefined }, [produce]))
     }

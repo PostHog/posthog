@@ -4,7 +4,7 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
-import { createProduceCollectedUrlsStep } from './produce-collected-urls-step'
+import { RecordUrl, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {
     const PSEUDO_TEAM = 'a'.repeat(32)
@@ -108,15 +108,15 @@ describe('produceCollectedUrlsStep', () => {
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
-    it('dedups refs it already produced across messages', async () => {
+    it('dedups an identical transport URL but produces a new URL for the same ref', async () => {
         const step = createProduceCollectedUrlsStep(outputs)
-        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
-        const second = collected('h2', 'cdn.example.com', 'https://cdn.example.com/b.jpg')
+        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=old')
+        const replacement = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=new')
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first] })
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, second] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, replacement] })
         expect(
-            queued.map((batch) => decode(batch).map((m) => m.value.urls.map((u: { ref: string }) => u.ref)))
-        ).toEqual([[[first.ref]], [[second.ref]]])
+            queued.map((batch) => decode(batch).map((message) => message.value.urls.map((url: RecordUrl) => url.url)))
+        ).toEqual([[[first.url]], [[replacement.url]]])
     })
 
     it('swallows a failed produce and un-marks its refs so a later sighting produces again', async () => {
