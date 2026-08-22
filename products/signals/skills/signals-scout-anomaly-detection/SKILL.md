@@ -101,7 +101,8 @@ One paragraph: which watchlist items you checked, what you added, which anomalie
 - **Seasonal swings** — the regular daily/weekly rhythm (weekday vs weekend, business-hours vs overnight). Only real once the move clears the **seasonality-matched** baseline.
 - **The current partial bucket** — the in-progress hour/day is incomplete; never score it.
 - **Data-pipeline gaps, not real drops** — a metric that flat-lines to zero across _every_ insight at the same timestamp is almost always missing/late data or a deploy gap, not a product anomaly. Note it (it may be worth its own report) but don't report it as a metric anomaly per insight.
-- **Low-count noise** — series whose baseline counts are tiny; a few events of movement is not signal. Enforce the minimum relative-change and minimum-absolute-count floors.
+- **Low-count noise** — series whose baseline counts are tiny; a few events of movement is not signal. Enforce the minimum relative-change and minimum-absolute-count floors. `alert-simulate` does not enforce them — the production detectors never see a rate's denominator or a count's volume — so read the underlying volume and apply the floor yourself before trusting a simulator hit.
+- **Mixed-timestamp rates** — a rate whose numerator and denominator bucket on different timestamp fields is not a cohort rate; it inflates when the denominator's daily volume dips. Fix the insight definition (both series on one timestamp field) rather than reporting the spike. See [`references/anomaly-methods.md`](references/anomaly-methods.md).
 - **Dev / test / internal-only segments** — bursts whose `properties.$environment` or service is `dev`/`local`/`test`, or single-user/single-session quirks.
 - **Expected one-offs the team already knows about** — launches, migrations, backfills, known experiments. If a `noise:` / `addressed:` entry names it, skip.
 

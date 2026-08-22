@@ -45,6 +45,16 @@ configs and a detector-selection guide, read the `anomaly-alerts`, `signals-aler
   per-series sub-blocks, or prefer a non-breakdown insight for a clean read.
 - **Only points with ≥ `window` history get scored.** On a short series, simulate with a
   smaller `window` (e.g. ≤ 168) to get scored points; `date_from` controls how far back to go.
+- **A short `window` over-fires.** The detector scores the latest bucket against the last
+  `window` points, so a small window makes ordinary day-to-day movement look anomalous. Keep the
+  daily `window` near 90 and the hourly near 336; do not shrink it to a week or two to fit a
+  short series. Widen `date_from` for more history, or mark the item `low-data` and skip.
+- **The simulator has no low-count or minimum-volume guard.** The production detectors score the
+  value series alone — they never see a rate's denominator or a count's absolute volume. The
+  low-count floor in the fallback below is yours to apply: before you trust a simulator hit on a
+  rate or count series, read the underlying volume and confirm it clears the floor. A rate rises
+  when its denominator's daily volume drops, and the detector cannot tell that apart from a real
+  move.
 
 **When to still hand-roll (the fallback below).** `alert-simulate` requires a saved insight,
 and its detectors use rolling windows rather than explicit same-day-of-week / same-hour-of-week
@@ -52,6 +62,19 @@ matching. Keep the SQL path for: series that aren't a saved insight (e.g. an hou
 operational-pulse built in `execute-sql`), custom long baselines, or strict seasonality
 matching the detector doesn't do. The MAD-based z-score below is both that fallback and the
 concept the simulator automates.
+
+## Rate and ratio metrics: same timestamp on both series
+
+A rate divides one series by another — merged / created, converted / started, errored / total.
+Bucket **both** series on the **same timestamp field** so the ratio follows a cohort. A
+mixed-timestamp rate — the numerator bucketed on one event time, the denominator on another — is
+not a cohort rate: each day divides one day's numerator by a different population's denominator.
+It inflates whenever the denominator's daily volume dips, and the detector reads that inflation
+as a spike. For a PR merge rate, bucket both merged and created PRs on the creation date, so day
+`d` shows the merge outcome of the PRs created on day `d`. Read the series definition
+(`insight-get`) before scoring a rate; if the two series use different timestamp fields, the
+anomaly is in the metric, not the data — fix the insight first. Pair this with the low-count
+floor: a rate on a small denominator is noisy even when both series share a timestamp.
 
 ## Fallback scorer: robust z on the latest complete bucket
 
