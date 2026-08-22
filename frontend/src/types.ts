@@ -86,6 +86,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -294,6 +295,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
@@ -1176,6 +1178,7 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -4789,6 +4792,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5593,6 +5597,10 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: IntegrationConfigApi['installation_shared']
+    /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: IntegrationConfigApi['installation_status']
 }
 
 export interface EmailIntegrationDomainGroupedType {
@@ -6250,6 +6258,9 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
+     * for example on its first run or after the query changes. */
+    is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
@@ -6667,34 +6678,14 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportServiceS3 = {
-    type: 'S3'
-    config: {
-        bucket_name: string
-        region: string
-        prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
-        exclude_events: string[]
-        include_events: string[]
-        compression: string | null
-        encryption: string | null
-        kms_key_id: string | null
-        endpoint_url: string | null
-        file_format: string
-        max_file_size_mb: number | null
-        use_virtual_style_addressing: boolean
-    }
-}
-
+// Credentials live on the linked `aws-s3` integration, not in the config.
 export type BatchExportServiceAwsS3 = {
     type: 'AwsS3'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
@@ -6705,18 +6696,17 @@ export type BatchExportServiceAwsS3 = {
     }
 }
 
+// Credentials and the provider endpoint URL live on the linked `s3-compatible` integration.
 export type BatchExportServiceS3Compatible = {
     type: 'S3Compatible'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
-        endpoint_url: string
         use_virtual_style_addressing: boolean
         file_format: string
         max_file_size_mb: number | null
@@ -6846,9 +6836,6 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
-    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
-    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
-    'S3',
     'AwsS3',
     'S3Compatible',
     'Snowflake',
@@ -6860,7 +6847,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'AzureBlob',
 ]
 export type BatchExportService =
-    | BatchExportServiceS3
     | BatchExportServiceAwsS3
     | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
@@ -7311,7 +7297,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
@@ -7892,6 +7878,7 @@ export interface DataWarehouseActivityRecord {
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+export type HeatmapSource = 'server' | 'toolbar'
 
 export interface HeatmapScreenshotType {
     id: number

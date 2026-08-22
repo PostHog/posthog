@@ -640,8 +640,8 @@ export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, param
 /**
  * Read the canvas's runtime key-value state (the ph.state store).
  *
- * Returns the canvas's shared entries plus the caller's own user-scoped
- * entries — never another viewer's.
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
  */
 export const canvasesStateRetrieve = async (
     projectId: string,

@@ -23,6 +23,8 @@ export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
+
+export const TASK_ANALYSIS_FLAG = "posthog-code-task-analysis";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
@@ -52,8 +54,6 @@ export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
-/** Gates replacing Inbox report navigation with generated report canvases. */
-export const REPORT_CANVAS_INBOX_FLAG = "posthog-desktop-report-canvases";
 
 /**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The

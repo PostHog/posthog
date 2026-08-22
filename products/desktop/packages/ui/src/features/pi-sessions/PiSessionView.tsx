@@ -741,7 +741,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
         ) : (
           <PromptInput
             sessionId={taskId}
-            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            toolbarEndSlot={
+              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+            }
             taskId={taskId}
             repoPath={repoPath}
             placeholder="Type a message..."

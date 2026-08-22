@@ -29,8 +29,15 @@ vi.mock("@tanstack/react-router", () => ({
   useRouterState: ({
     select,
   }: {
-    select: (s: { location: { pathname: string } }) => string;
-  }) => select({ location: { pathname: usePathname() } }),
+    select: (s: {
+      location: { pathname: string };
+      matches: { routeId: string }[];
+    }) => unknown;
+  }) =>
+    select({
+      location: { pathname: usePathname() },
+      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+    }),
 }));
 
 vi.mock(
@@ -92,6 +99,9 @@ vi.mock("@posthog/ui/features/canvas/stores/dashboardEditStore", () => ({
   useDashboardEditStore: (sel: (s: unknown) => unknown) =>
     sel({ setEditing: vi.fn() }),
   useIsDashboardEditing: () => false,
+}));
+vi.mock("@posthog/ui/features/canvas/components/ActivityDetailPane", () => ({
+  ActivityDetailPane: () => <div data-testid="activity-detail" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
   NewCanvasMenu: () => null,

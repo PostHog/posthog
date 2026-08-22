@@ -4,6 +4,10 @@ import datetime as dt
 from django.utils import timezone
 
 from pydantic import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -30,10 +34,18 @@ from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
     DEEP_SWEEP_MAX_WINDOW,
     FIND_SCANNER_CANDIDATES_TIMEOUT,
+    PRIMING_LOOKBACK,
+    PRIMING_MAX_EXECUTION_SECONDS,
+    PRIMING_SCAN_SESSIONS,
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_deep_sweep_failure, record_sweep_outcome
+from products.replay_vision.backend.temporal.metrics import (
+    record_candidate_page_full,
+    record_deep_candidates,
+    record_deep_sweep_failure,
+    record_sweep_outcome,
+)
 from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -79,7 +91,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
-        query = scanner.recordings_query()
+        query = scanner.targeted_recordings_query()
     except ValidationError as exc:
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
@@ -95,6 +107,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
+        # The exposure filter's access check runs as the creator, matching the defence-in-depth check above.
+        user=scanner.created_by,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
@@ -106,10 +120,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    fetched = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
-    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
-    saturated = len(fetched) == limit
+    try:
+        batch = candidate_query.run_batch(limit)
+    except (DRFValidationError, PermissionDenied):
+        # The exposure filter (run as the creator) can't resolve the targeted experiment: the creator
+        # lost experiment access, or the experiment can't answer for its exposed population — most
+        # often a draft that hasn't launched, but also deleted, group-aggregated, or renamed-variant.
+        # A draft heals itself at launch and none of the rest are the sweep's to repair, so skip the
+        # tick (no watermark advance) instead of failing it on every fire.
+        record_sweep_outcome("experiment_linkage_unresolved")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    fetched = batch.matched
+    if batch.saturated:
+        record_candidate_page_full()
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
@@ -149,32 +172,52 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             activity.logger.exception("replay_vision.deep_sweep_failed", extra={"scanner_id": str(scanner.id)})
             record_deep_sweep_failure()
 
+    # A never-swept scanner gets a one-off priming pass over the recordings that already exist, so
+    # its page has observations without waiting for new sessions to land and settle. Strictly behind
+    # the fast walk's range (bounded by the pre-advance watermark), so the two can't overlap.
+    priming_candidates: list[CandidateSession] = []
+    priming_limit = min(PRIMING_SCAN_SESSIONS, limit - len(candidates) - len(deep_candidates))
+    if scanner.primed_at is None and priming_limit > 0:
+        priming_candidates = _priming_pass(scanner, query, priming_limit)
+        # Marked on the first tick that had headroom to try, whatever the outcome: priming is
+        # one-shot, and an empty or failed pass just means the regular sweep takes it from here.
+        # A tick whose batches spent the whole in-flight budget defers priming to a later tick.
+        ReplayScanner.objects.filter(pk=scanner.pk, primed_at__isnull=True).update(primed_at=timezone.now())
+
     # Sessions that repeatedly exhausted the rasterizer's whole retry envelope (the Class B
     # compositor wedge) get quarantined for the counter's TTL window; each dispatch would otherwise
     # burn up to an hour of shared rasterizer capacity on a render that cannot finish. The watermark
     # still advances past them, so they are skipped, not retried forever.
-    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates]])
+    stuck = read_stuck_session_ids(
+        inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates, *priming_candidates]]
+    )
     if stuck:
         activity.logger.warning("replay_vision.stuck_sessions_skipped %d", len(stuck))
         record_sweep_outcome("stuck_sessions_skipped")
         candidates = [c for c in candidates if c.session_id not in stuck]
         deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
+        priming_candidates = [c for c in priming_candidates if c.session_id not in stuck]
 
+    if deep_candidates:
+        record_deep_candidates(len(deep_candidates))
     record_sweep_outcome(
-        "candidates_found" if candidates or deep_candidates else "no_candidates",
-        candidates=len(candidates) + len(deep_candidates),
+        "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
+        candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
     )
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=saturated,
+        saturated=batch.saturated,
         swept_through=candidate_query.settle_cutoff,
-        keyset_end=fetched[-1].session_end if fetched else None,
-        keyset_session_id=fetched[-1].session_id if fetched else "",
+        keyset_end=batch.keyset_end,
+        keyset_session_id=batch.keyset_session_id,
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],
         deep_swept_through=deep_progress.swept_through if deep_progress else None,
         deep_keyset_session_id=deep_progress.seen_session_id if deep_progress else "",
+        priming_candidates=[
+            CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in priming_candidates
+        ],
     )
 
 
@@ -198,6 +241,38 @@ def _throttled(scanner: ReplayScanner) -> bool:
     if factor <= 1:
         return False
     return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
+
+
+def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:
+    """A few of the freshest already-settled recordings from before the fast walk's range.
+
+    Ignores the scanner's sampling rate (priming exists to produce examples now) but keeps its
+    sampling mode, so a surfacing-scored scanner still primes on the sessions it would surface.
+    Never raises: priming is advisory and must not fail the tick that carries the real sweep.
+    """
+    window_start = timezone.now() - PRIMING_LOOKBACK
+    if window_start >= scanner.last_swept_at:
+        # The watermark already covers the whole priming window (a scanner that sat throttled or
+        # unswept for over a day); there is nothing behind the fast walk to prime from.
+        return []
+    try:
+        return WindowedCandidateQuery(
+            team=scanner.team,
+            query=query,
+            window_start=window_start,
+            window_end=scanner.last_swept_at,
+            query_type="ReplayVisionPrimingCandidateQuery",
+            sampling_rate=1.0,
+            sampling_salt=str(scanner.id),
+            sampling_mode=scanner.sampling_mode,
+            candidate_limit=limit,
+            max_execution_time_seconds=PRIMING_MAX_EXECUTION_SECONDS,
+            scanner_id=str(scanner.id),
+        ).run()
+    except Exception:
+        activity.logger.exception("replay_vision.priming_pass_failed")
+        record_sweep_outcome("priming_failed")
+        return []
 
 
 def _buckets_or_pre_split(buckets: dict[str, int] | None, scanner: ReplayScanner) -> dict[str, int] | None:
@@ -286,6 +361,7 @@ def _deep_sweep(
     deep_query = WindowedCandidateQuery(
         team=scanner.team,
         query=query,
+        user=scanner.created_by,
         window_start=swept_through,
         window_end=window_end,
         ascending=True,

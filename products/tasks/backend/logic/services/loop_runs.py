@@ -380,7 +380,7 @@ def _fire_loop_committed(
         # deactivation grabs the row lock first, the other either sees the disabled row (and skips)
         # or blocks until this fire commits, so deactivation's run-cancellation scan then sees the
         # new run instead of racing past it. A run must never start under a just-deactivated
-        # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
+        # owner's credentials (see loop_lifecycle.pause_loop).
         # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
         # fail-closed default manager would raise without ambient team context.
         locked_loop = (

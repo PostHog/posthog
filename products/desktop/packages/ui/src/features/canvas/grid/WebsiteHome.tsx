@@ -88,8 +88,10 @@ export function WebsiteHome() {
   }
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-(--gray-4) border-b px-4 py-2">
-        <Heading size="lg">Home</Heading>
+      <div className="flex shrink-0 items-center justify-between border-border border-b px-4 py-2">
+        <Heading size="lg" className="font-bold">
+          Home
+        </Heading>
         <Button
           variant={editing ? "primary" : "outline"}
           size="sm"

@@ -27,6 +27,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
+import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
@@ -52,17 +53,16 @@ import {
   SWITCHER_WIDTH_PX,
   useRightPanelOpen,
 } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
   MentionAvailabilityProvider,
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
-import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import {
@@ -352,27 +352,25 @@ export function WebsiteLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const params = useParams({ strict: false });
 
-  // App pages mirrored into the Channels space (Home, Skills, MCP servers,
-  // Command Center) are channel-less and push their title into the shared
-  // header store. With no code HeaderRow here, surface that title in this bar so
-  // the mirrored pages read the same as in Code.
-  const headerContent = useHeaderStore((s) => s.content);
-
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
-  const taskId = params.taskId;
+
+  // Activity reads a task into its pane off the feed, so the session is not
+  // always the one in the URL.
+  const { taskId, channelId: taskChannelId } = useActiveSession();
+
   const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
-  const { tasks: filedTasks } = useChannelTasks(channelId);
+  const { tasks: filedTasks } = useChannelTasks(taskChannelId);
   const channelTask = filedTasks.some((record) => record.taskId === taskId)
     ? tasks?.find((task) => task.id === taskId)
     : undefined;
 
   const { channels } = useChannels();
   const mentionsDisabledReason =
-    channels.find((channel) => channel.id === channelId)?.channelType ===
+    channels.find((channel) => channel.id === taskChannelId)?.channelType ===
     "personal"
       ? PRIVATE_SPACE_MENTIONS_DISABLED
       : null;
@@ -402,17 +400,7 @@ export function WebsiteLayout() {
           Hidden when the canvas toolbar is showing (grid / a single canvas),
           and skipped entirely when there is neither a title nor a session's
           actions to carry. */}
-      {!showToolbar && (headerContent || channelTask) && (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b pr-2 pl-1">
-          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
-            {headerContent}
-          </div>
-          {/* Rendered without a wrapper: the actions cap themselves at half the
-              bar, and a wrapper that hugs their content resolves that
-              percentage against itself, which clips them. */}
-          {channelTask && <TaskHeaderActions task={channelTask} />}
-        </div>
-      )}
+      {!showToolbar && <SpaceHeaderRow task={channelTask} />}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
