@@ -431,7 +431,7 @@ interface GitActionControlProps {
   onSelect: (id: GitMenuActionId) => void;
 }
 
-function GitActionControl({
+export function GitActionControl({
   primaryAction,
   actions,
   isBusy,

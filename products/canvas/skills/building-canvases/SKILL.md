@@ -55,8 +55,9 @@ implementation contracts. Load every companion that applies before writing sourc
   `<canvas>`, or WebGL work where application components add no useful structure. It owns semantic
   markup, direct browser APIs, animation cleanup, and non-Quill theming.
 - **`querying-canvas-data`** whenever the canvas reads PostHog data, captures events, or navigates.
-  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, and declared
-  data capabilities. Load it alongside either implementation skill when data is involved.
+  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, progressive
+  per-query loading, and declared data capabilities. Load it alongside either implementation skill
+  when data is involved.
 - **`validating-and-publishing-canvases`** for every canvas. It owns project shape, capability
   declarations, validation diagnostics, guarded publishes, drafts, builds, and conflict recovery.
 
@@ -87,7 +88,9 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), and
+   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
+   skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
    ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at

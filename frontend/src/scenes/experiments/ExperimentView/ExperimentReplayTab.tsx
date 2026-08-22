@@ -184,7 +184,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
-        usingExposureFallback,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -242,8 +241,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         urls.replayVisionScannerTemplate('new'),
         experimentScannerParams({
             experimentId: experiment.id as number,
-            variantKeys: effectiveVariantKey ? [effectiveVariantKey] : [],
-            useExposureFallback: usingExposureFallback,
+            variantKey: effectiveVariantKey,
         })
     ).url
 

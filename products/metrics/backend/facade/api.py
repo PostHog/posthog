@@ -13,11 +13,13 @@ from typing import Any
 from posthog.models import Team
 
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
+    MetricBucketDecomposition,
     MetricEventSample,
     MetricFilter,
     MetricPoint,
@@ -34,7 +36,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
+from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -220,9 +222,10 @@ def list_metric_names(
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
     Raises `ValueError` for an out-of-range limit.
+
+    The unsearched list is cached per team for a minute; searches are not.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
-    return runner.run()
+    return cached_metric_names(team=team, search=search, limit=limit)
 
 
 def list_metric_attribute_keys(
@@ -406,4 +409,35 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         anomaly_to=context.fired_at + context.leadout,
         filters=filters,
         companions=context.companions,
+    )
+
+
+def explain_metric_bucket(
+    *,
+    team: Team,
+    metric_name: str,
+    aggregation: str,
+    bucket_start: dt.datetime,
+    interval: str,
+    filters: Sequence[MetricFilter] = (),
+    metric_type: MetricType | None = None,
+    quantile: float | None = None,
+) -> MetricBucketDecomposition:
+    """Take one chart point apart and show how it was built.
+
+    Returns the series that reported in the bucket, the samples each sent, and
+    the two reductions that combined them, alongside both the value the product
+    would plot and the value recomputed independently from the raw samples.
+    Reading them side by side is what makes an aggregation bug visible instead
+    of merely plausible. The presentation layer surfaces `ValueError` as a 400.
+    """
+    return _decompose_bucket(
+        team=team,
+        metric_name=metric_name,
+        aggregation=aggregation,
+        bucket_start=bucket_start,
+        interval=interval,
+        filters=filters,
+        metric_type=metric_type.value if metric_type is not None else None,
+        quantile=quantile,
     )
