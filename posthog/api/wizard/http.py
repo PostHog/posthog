@@ -412,14 +412,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
         throttle_classes=[SetupWizardGatewayTokenRateThrottle],
     )
     def gateway_token(self, request: Request) -> Response:
-        """Mint a scoped gateway token for a wizard run against the Go ai-gateway.
+        """Mint a scoped gateway token for a wizard run.
 
-        The CLI calls this after OAuth and uses the returned phe_ (pinned
-        product=wizard / obo=<customer org>, capped, expiring) as its gateway
-        bearer, re-calling near expiry. 404 when unconfigured or the rollout
-        flag is off for this org — the CLI treats any non-200 as "stay on the
-        legacy gateway", so rollout percentage is controlled here without a CLI
-        release.
+        The CLI uses the returned phe_ (pinned product=wizard / obo=<customer org>,
+        capped, expiring) as its gateway bearer and re-calls near expiry. It treats
+        any non-200 as "stay on the legacy gateway", so rollout is controlled here
+        rather than by a CLI release.
         """
         if not wizard_gateway_configured():
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unconfigured").inc()
@@ -434,19 +432,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise AuthenticationFailed("Invalid access token.")
 
         access_token = authenticator.access_token
-        # The wizard's own OAuth application, by client id. llm_gateway:read is an
-        # internal scope stamped on every sandbox and agent token, so the scope
-        # alone does not say the caller is the wizard, and those tokens run
-        # customer repository content.
+        # llm_gateway:read is an internal scope stamped on every sandbox and agent
+        # token, so only the wizard's own OAuth application may mint.
         application = getattr(access_token, "application", None)
         client_id = getattr(application, "client_id", None)
         if not client_id or client_id not in settings.WIZARD_GATEWAY_CLIENT_IDS:
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_wizard_app").inc()
             raise AuthenticationFailed("Access token was not issued to the wizard.")
 
-        # The token's own scope text, matching credential_has_gateway_scope. The
-        # `scopes` property filters through OAUTH2_PROVIDER["SCOPES"], so a
-        # narrowing of that map would silently drop the scope.
+        # The token's own scope text: the `scopes` property filters through
+        # OAUTH2_PROVIDER["SCOPES"], where a narrowing would silently drop the scope.
         if RequiredGatewayScope not in (access_token.scope or "").split():
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="scope_missing").inc()
             raise AuthenticationFailed("Access token lacks the gateway scope.")
@@ -460,13 +455,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
             raise exceptions.NotFound(ERROR_PROJECT_NOT_FOUND)
 
-        # scoped_teams is frozen at consent, so re-check what it cannot see:
-        # the user is still active, still a member, and still has project
-        # access. The credential projection runs the same check for the same
-        # token class, though it passes the organization's root team while this
-        # passes the scoped team itself, so the scoped-teams containment branch
-        # is a tautology here and the membership and RBAC branches are the ones
-        # doing work.
+        # scoped_teams is frozen at consent, so re-check what it cannot see: the user
+        # is still active, still a member, and still has project access.
         if not oauth_credential_authorized(access_token, team):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
             raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
@@ -497,7 +487,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
                 "gateway_url": wizard_gateway_base_url(),
-                # For the CLI's run-metadata blob, so dashboards keep a team
+                # Rides the CLI's run-metadata blob so dashboards keep a team
                 # breakdown next to the org-level obo attribution.
                 "team_id": team.id,
             },

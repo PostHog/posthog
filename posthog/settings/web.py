@@ -1313,24 +1313,20 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
-# Internal-product posture projected into gateway_credential.json blobs.
-# NON_BILLABLE: comma-separated team ids whose gateway spend is PostHog-funded
-# (the gateway stamps $ai_billable=false). TIER_OVERRIDES: JSON map of team id
-# (string) -> tier ("free"/"pro"/"enterprise") for the gateway rate-limit bucket.
+# Internal-product posture projected into gateway_credential.json: team ids whose
+# spend is PostHog-funded (the gateway stamps $ai_billable=false), and a JSON
+# team_id -> tier map ("free"/"pro"/"enterprise") for its rate-limit bucket.
 AI_GATEWAY_NON_BILLABLE_TEAM_IDS = get_list(get_from_env("AI_GATEWAY_NON_BILLABLE_TEAM_IDS", ""))
 AI_GATEWAY_TEAM_TIER_OVERRIDES = get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", {}, type_cast=json.loads)
 
-# Wizard gateway-token mint (the wizard CLI's v2 auth): the wizard team's phs_
-# used as the mint bearer, the gateway base URL handed to the CLI, and the
-# per-run bounds. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint (404),
-# which the CLI treats as "stay on the legacy gateway".
+# Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
+# (404), which the CLI treats as "stay on the legacy gateway".
 WIZARD_GATEWAY_URL = get_from_env("WIZARD_GATEWAY_URL", "")
 WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
-# OAuth application client ids allowed to mint. Required: llm_gateway:read is an
-# internal scope stamped on every sandbox and agent token, so the scope alone does
-# not identify the wizard. Empty refuses every mint.
-# Blank entries filtered: get_list keeps them, and a list of empty strings is
-# truthy, which would read as configured while matching no client id.
+# OAuth application client ids allowed to mint: llm_gateway:read is an internal
+# scope on every sandbox and agent token, so the scope alone does not identify the
+# wizard. Empty refuses every mint, and blanks are filtered because a list of
+# empty strings is truthy and would read as configured.
 WIZARD_GATEWAY_CLIENT_IDS = [
     client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
 ]

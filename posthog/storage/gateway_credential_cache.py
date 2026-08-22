@@ -70,11 +70,9 @@ GATEWAY_CREDENTIAL_FIELDS = [
 ]
 
 # Internal-product posture (gateway-defined, internal/auth/gateway_credential.go):
-# billable:false marks spend the gateway stamps $ai_billable=false (PostHog-funded
-# products like the setup wizard); tier feeds the gateway's rate-limit/shed bucket.
-# Both are settings-driven maps rather than Team columns: they apply to a handful
-# of internal teams, and a settings change takes effect on the hourly full
-# reprojection without signal wiring.
+# billable:false marks PostHog-funded spend, tier feeds the rate-limit/shed bucket.
+# Settings-driven rather than Team columns: a handful of internal teams, and a
+# settings change lands on the hourly reprojection with no signal wiring.
 BILLABLE_KEY = "billable"
 TIER_KEY = "tier"
 GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
@@ -300,32 +298,27 @@ def _policy_for_credential(
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 
-    # Omit both posture fields unless set: absent means billable / tier-unknown
-    # on the gateway side, so blobs for ordinary teams stay byte-identical.
+    # Absent means billable / tier-unknown on the gateway, so ordinary teams' blobs
+    # stay byte-identical.
     if team.id in _non_billable_team_ids():
         policy[BILLABLE_KEY] = False
     tier = _team_tier_overrides().get(str(team.id))
     if tier is not None:
-        # isinstance first: an unhashable value (a list or dict from the JSON
-        # setting) would raise on the set membership below, inside a projection
-        # whose failure expires every credential blob.
+        # isinstance first: an unhashable value from the JSON setting would raise on
+        # the membership test, inside a projection whose failure expires every blob.
         if isinstance(tier, str) and tier in GATEWAY_KNOWN_TIERS:
             policy[TIER_KEY] = tier
         else:
-            # Dropping it silently would also suppress the gateway's own
-            # unrecognized-tier warning, leaving a typo with no signal anywhere.
+            # The gateway never sees the value, so this is the only signal a typo gets.
             logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
 
     return policy
 
 
 def _non_billable_team_ids() -> set[int]:
-    """Teams whose gateway spend is PostHog-funded (never customer-billable).
-
-    Read per call so tests can override_settings without cache poking. A
+    """Teams whose gateway spend is PostHog-funded (never customer-billable). A
     non-numeric entry is skipped rather than raised: this runs inside every
-    credential projection, so one malformed entry must not stop the others
-    (an aborted refresh expires the whole credential cache).
+    credential projection, and an aborted refresh expires the whole cache.
     """
     ids: set[int] = set()
     for team_id in getattr(settings, "AI_GATEWAY_NON_BILLABLE_TEAM_IDS", []) or []:
@@ -337,9 +330,8 @@ def _non_billable_team_ids() -> set[int]:
 
 
 def _team_tier_overrides() -> dict[str, str]:
-    """Explicit team_id (string) -> tier map for the gateway's rate-limit bucket.
-
-    A non-mapping value degrades to no overrides for the same reason as above.
+    """Explicit team_id (string) -> tier map for the gateway's rate-limit bucket. A
+    non-mapping value degrades to no overrides rather than failing the projection.
     """
     raw = getattr(settings, "AI_GATEWAY_TEAM_TIER_OVERRIDES", {}) or {}
     if not isinstance(raw, dict):
@@ -349,11 +341,9 @@ def _team_tier_overrides() -> dict[str, str]:
 
 
 def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool:
-    """Whether an OAuth credential is still authorized for team right now.
-
-    Public entry point for callers outside the projection (the wizard mint
-    endpoint) that must re-check what a token's frozen scoped_teams cannot see:
-    the user is active, a member, and still has project access.
+    """Whether an OAuth credential is still authorized for team right now: the user
+    is active, a member, and still has project access. Callers outside the
+    projection need it because a token's scoped_teams is frozen at consent.
     """
     return _oauth_authorization_ok(credential, team, team.id, None)
 

@@ -35,10 +35,6 @@ class _Response:
 
 
 class TestMintWizardGatewayToken:
-    """Covers the request this module builds and each failure branch. The endpoint
-    tests mock this function out, so without these the product pin, the bearer,
-    and the four error paths are never executed."""
-
     @pytest.fixture(autouse=True)
     def _mint_settings(self):
         with override_settings(**MINT_SETTINGS):

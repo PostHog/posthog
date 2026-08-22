@@ -623,13 +623,6 @@ class SetupWizardCloudRunTests(APIBaseTest):
 
 
 class SetupWizardGatewayTokenThrottleTests(APIBaseTest):
-    """The mint throttle must not key on anything the caller chooses.
-
-    request.user is anonymous at throttle time (this viewset carries only
-    session auth and the action authenticates in its own body), so the throttle
-    resolves the bearer itself and falls back to the trusted proxy chain.
-    """
-
     def tearDown(self):
         super().tearDown()
         cache.clear()

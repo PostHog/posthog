@@ -1038,13 +1038,9 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
 
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
-    """Mint throttle for the wizard's gateway token.
-
-    Its own namespace, so a mint never spends the wizard query allowance and a
-    gateway flap cannot exhaust the budget the legacy fallback depends on. Keyed
-    on the authenticated user rather than the bearer: OAuth access tokens rotate
-    hourly, and a per-bearer key resets with them while the mint ceiling it
-    protects is shared by every wizard user behind one credential.
+    """Mint throttle for the wizard's gateway token. Its own namespace, so a mint
+    never spends the wizard query allowance and a gateway flap cannot exhaust the
+    budget the legacy fallback depends on.
     """
 
     scope = "wizard_gateway_token"
@@ -1055,18 +1051,15 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return "120/day"
 
     def get_cache_key(self, request, view):
-        # DRF resolves request.user from this viewset's authenticators, which are
-        # the project defaults (session only) — the bearer is authenticated in the
-        # action body, after throttling. So request.user is anonymous here and
-        # get_ident would fall back to the raw X-Forwarded-For header, which the
-        # caller chooses. Resolve the token instead, and key on the trusted proxy
-        # chain's client IP when there isn't one.
+        # request.user is anonymous here: the viewset authenticates sessions only and
+        # the bearer is checked in the action body, after throttling. get_ident would
+        # then key on the caller-chosen X-Forwarded-For, so resolve the token and fall
+        # back to the trusted proxy chain's client IP.
         ident = None
         try:
             result = OAuthAccessTokenAuthentication().authenticate(request)
         except Exception:
-            # Throttling must not turn a bad bearer into a 500; the action
-            # rejects it a moment later with the right status.
+            # A bad bearer must not become a 500; the action rejects it a moment later.
             result = None
         if result is not None:
             user, _ = result

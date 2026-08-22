@@ -1,16 +1,13 @@
 """Mint a wizard-run scoped gateway token.
 
-The wizard CLI's v2 auth: instead of sending the user's OAuth token to the
-gateway, Django mints a `phe_` scoped token off the PostHog-owned wizard team's
-`phs_` (WIZARD_GATEWAY_MINT_KEY). The mint pins the attribution the caller must
-not control: product=wizard, obo=the customer organization the run is for, and
-the acting user — plus a per-run spend cap and an expiry. The customer's own
-wallet is never involved; the debit lands on the wizard team.
-
-Sibling of products/tasks' sandbox mint (ai_gateway_token.py); separate because
-the wizard needs `expires_at` back for CLI-side refresh and runs on its own
-settings, and interactive mints answer one attempt fast instead of retrying
-into the CLI's timeout.
+Django mints a `phe_` off the PostHog-owned wizard team's `phs_`
+(WIZARD_GATEWAY_MINT_KEY) rather than sending the user's OAuth token to the
+gateway. The mint pins what the caller must not control (product=wizard, obo=the
+customer organization, the acting user) plus a per-run cap and an expiry, and the
+debit lands on the wizard team, never the customer's wallet. Kept separate from
+products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
+`expires_at` back for CLI-side refresh, and an interactive mint answers one
+attempt fast instead of retrying into the CLI's timeout.
 """
 
 from decimal import Decimal, InvalidOperation
@@ -31,9 +28,8 @@ _MINT_TIMEOUT_SECONDS = 10
 _MIN_TTL_SECONDS = 60
 _MAX_TTL_SECONDS = 86400
 
-# The gateway parses the cap as a decimal and 400s anything non-positive, over
-# 6dp, or above its top-up ceiling. A bad knob should be a local default rather
-# than a 503 for every wizard run.
+# The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
+# ceiling, so a bad knob falls back locally instead of 503ing every mint.
 _DEFAULT_CAP_USD = Decimal("50")
 _MAX_CAP_USD = Decimal("10000")
 _CAP_QUANTUM = Decimal("0.000001")
@@ -46,8 +42,7 @@ WIZARD_GATEWAY_MINTS = Counter(
 
 
 class WizardGatewayMintError(Exception):
-    """The gateway refused or failed the mint; the caller answers 503 and the
-    CLI falls back to the legacy gateway posture."""
+    """The gateway refused or failed the mint; the caller answers 503."""
 
 
 def wizard_gateway_configured() -> bool:
@@ -56,16 +51,15 @@ def wizard_gateway_configured() -> bool:
 
 
 def wizard_gateway_base_url() -> str:
-    """The gateway base the mint posts to, without the version segment. Handed to
-    the CLI as well, so both sides read one normalization of the setting."""
+    """The gateway base without the version segment. The CLI gets the same string,
+    so both sides read one normalization of the setting."""
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
 def mint_wizard_gateway_token(*, obo: str, user: str) -> dict[str, Any]:
-    """Mint one run's token; returns {token, expires_at, cap_usd}.
-
-    Raises WizardGatewayMintError on any refusal or transport failure. The
-    bearer never appears in logs or exception text.
+    """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
+    WizardGatewayMintError on any refusal or transport failure; the bearer never
+    appears in logs or exception text.
     """
     base_url = wizard_gateway_base_url()
     body = {
@@ -113,10 +107,9 @@ def _ttl_seconds() -> int:
 
 
 def _cap_usd() -> str:
-    """The per-token cap as a fixed-point string the gateway will accept.
-
-    An unparseable, non-positive, or over-ceiling setting falls back to the
-    default rather than making every mint a 503.
+    """The per-token cap as a fixed-point string the gateway accepts. An
+    unparseable, non-positive, or over-ceiling setting falls back to the default
+    rather than making every mint a 503.
     """
     raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
     try:
@@ -124,9 +117,8 @@ def _cap_usd() -> str:
     except (InvalidOperation, ValueError):
         logger.warning("wizard_gateway_token: cap_usd is not a decimal, using the default", cap=raw)
         cap = _DEFAULT_CAP_USD
-    # Quantize first, then range-check: a positive value below a microdollar
-    # rounds to 0.000000, which the gateway rejects as non-positive — the 503
-    # this clamp exists to avoid.
+    # Quantize before the range check: a positive value below a microdollar
+    # rounds to 0.000000, which the gateway rejects as non-positive.
     if cap.is_finite():
         cap = cap.quantize(_CAP_QUANTUM)
     if not cap.is_finite() or cap <= 0 or cap > _MAX_CAP_USD:
