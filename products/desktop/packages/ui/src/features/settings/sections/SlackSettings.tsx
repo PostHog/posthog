@@ -1,11 +1,18 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { Button, Text } from "@posthog/quill";
+import { Button, Spinner } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
+import { useSlackConnect } from "@posthog/ui/features/integrations/useSlackConnect";
+import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { SlackInboxNotificationsSettings } from "./SlackInboxNotificationsSettings";
+import {
+  SlackWorkspaceConnection,
+  SlackWorkspaceConnectionCallouts,
+} from "./SlackWorkspaceConnection";
 
 const SLACK_DOCS_URL = "https://posthog.com/docs/libraries/slack";
 const SETTINGS_REFETCH_INTERVAL_MS = 30_000;
@@ -16,6 +23,8 @@ export function SlackSettings() {
   const { isLoading } = useIntegrations({
     refetchInterval: SETTINGS_REFETCH_INTERVAL_MS,
   });
+  const { hasSlackIntegration } = useIntegrationSelectors();
+  const slackConnect = useSlackConnect();
 
   const slackSettingsUrl = projectId
     ? getPostHogUrl(
@@ -25,16 +34,58 @@ export function SlackSettings() {
     : null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <Text size="xs" variant="muted">
-        Connect a Slack workspace so reports can post to channels, reviewers get
-        pinged, and you can kick off tasks like pull requests from Slack.
-      </Text>
+    <div className="flex flex-col gap-7">
+      <SettingsSection
+        label="Workspace connection"
+        description="Connect a Slack workspace so reports can post to channels, reviewers get pinged, and you can kick off tasks from Slack."
+        action={
+          !isLoading && hasSlackIntegration ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={slackConnect.isConnecting}
+              onClick={() => {
+                void slackConnect.connect();
+              }}
+            >
+              {slackConnect.isConnecting ? (
+                <Spinner />
+              ) : (
+                <ArrowSquareOutIcon size={12} />
+              )}
+              {slackConnect.isConnecting
+                ? "Waiting…"
+                : "Connect another workspace"}
+            </Button>
+          ) : undefined
+        }
+      >
+        <SlackWorkspaceConnection
+          isLoading={isLoading}
+          showConnectAnother={false}
+        />
+        <SlackWorkspaceConnectionCallouts />
+      </SettingsSection>
 
-      <SlackInboxNotificationsSettings
-        isLoading={isLoading}
-        showHeader={false}
-      />
+      {hasSlackIntegration ? (
+        <SettingsSection
+          label="Inbox notifications"
+          description={
+            <>
+              New inbox reports are posted to Slack with the suggested reviewers
+              @mentioned. PostHog must be in the channel, so invite it with{" "}
+              <code className="text-[12px]">/invite @PostHog</code>.
+            </>
+          }
+        >
+          <SlackInboxNotificationsSettings
+            isLoading={isLoading}
+            showHeader={false}
+            showWorkspaceConnection={false}
+          />
+        </SettingsSection>
+      ) : null}
 
       <SlackCommentNotificationsSettings />
 
@@ -43,7 +94,7 @@ export function SlackSettings() {
           <Button
             type="button"
             variant="outline"
-            size="xs"
+            size="sm"
             onClick={() => void openUrlInBrowser(slackSettingsUrl)}
           >
             <ArrowSquareOutIcon size={12} />
@@ -53,7 +104,7 @@ export function SlackSettings() {
         <button
           type="button"
           onClick={() => void openUrlInBrowser(SLACK_DOCS_URL)}
-          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-(--accent-11) text-xs no-underline hover:text-(--accent-12)"
+          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-gray-10 text-xs no-underline hover:text-gray-12"
         >
           Learn about the Slack integration
           <ArrowSquareOutIcon size={11} />

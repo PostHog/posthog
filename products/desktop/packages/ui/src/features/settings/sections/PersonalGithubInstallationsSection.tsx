@@ -196,14 +196,9 @@ function PersonalGithubInstallationRow({
         isLoadingRepos={isLoadingRepos}
         hasRepoFetchFailed={hasRepoFetchFailed}
         meta={
-          <>
-            {integration.created_at
-              ? `Connected ${formatRelativeTimeLong(integration.created_at)}`
-              : "Connected"}
-            {integration.uses_shared_installation
-              ? " · Uses your project's shared GitHub connection"
-              : ""}
-          </>
+          integration.created_at
+            ? `Connected ${formatRelativeTimeLong(integration.created_at)}`
+            : "Connected"
         }
         onManage={() => void openUrlInBrowser(settingsUrl)}
         actions={
