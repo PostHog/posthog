@@ -282,12 +282,23 @@ class TestSendNotificationsReceipts(APIBaseTest):
         assert send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1") == []
         mock_send.assert_not_called()
 
+    @patch("posthog.tasks.alerts.utils.is_email_available", return_value=True)
     @patch("posthog.tasks.alerts.utils.send_alert_email")
-    def test_error_notifications_return_email_receipts(self, mock_send: MagicMock) -> None:
+    def test_error_notifications_return_email_receipts(
+        self, mock_send: MagicMock, _mock_email_available: MagicMock
+    ) -> None:
         receipts = send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1")
 
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
+
+    @patch("posthog.tasks.alerts.utils.is_email_available", return_value=False)
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_error_notifications_skip_email_when_unavailable(
+        self, mock_send: MagicMock, _mock_email_available: MagicMock
+    ) -> None:
+        assert send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1") == []
+        mock_send.assert_not_called()
 
 
 class TestDisableInvalidAlert(APIBaseTest):
