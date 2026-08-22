@@ -1,103 +1,115 @@
 # Image fetcher implementation notes
 
-The [README](./README.md) is the normative specification. This file lists changes that the current implementation needs to satisfy that specification.
+The [README](./README.md) is the normative specification. This file records the implementation, assumptions, and rollout constraints.
 
-## Global URL refs
+## Implementation map
 
-The current URL ref has the form `imageurl:<pseudo-team>:<hash>`. The hash uses a key derived for one team. The crawl-history key also contains the team pseudonym.
+### URL collection and identity
 
-Change the URL collector, Kafka record parser, crawl-history key, image scrubber, S3 storage, and data-preparation lookup to use the global URL ref from requirement 13.5. Inline image refs can remain team-specific.
+The shared Rust URL policy performs admission, canonicalization, and global ref creation. It refuses private targets, credentials, userinfo, and known signed URLs.
 
-Derive one URL HMAC key from the existing ML pseudonymization secret without a team input. Pin the derivation from requirement 13.5 and the resulting test vectors in the shared Rust and Node fixtures before changing either producer.
+The mirror emits versioned frontier jobs. Each job carries the original ref, current URL, remaining hops, timing, and amplification counters.
 
-## Data-preparation ref attributes
+Kafka uses the registrable domain as the frontier key. Runtime limits and policy caches use the full origin.
 
-The anonymizer already stores a remote-image ref in `data-anon-image-ref-<attribute>`. The current ref resolver handles `image:` refs that replace an image value directly. It does not recognize `imageurl:` or use a sibling ref attribute to identify the placeholder that it must replace.
+### Policy and network boundary
 
-The current collector considers `src`, `rr_src`, and `poster`. Limit URL collection and sibling ref creation to `src` until the specification adds another source attribute.
+The fetcher evaluates `robots.txt`, TDMRep, response opt-outs, and HTTP cache metadata. Configuration misses are coalesced per origin and file.
 
-The packed DOM serializer treats an unrecognized `data-*` attribute as model input and tokenizes its value. Without a new removal step, it will tokenize the ref hash.
+The shared streamed-request helper preserves repeated response field lines. Policy evaluation therefore sees every opt-out field in received order.
 
-Resolve the URL ref before rendering and tokenization. Use the sibling attribute's suffix as the destination attribute. Remove the sibling attribute after the lookup, including when the image is missing.
+Production requests use Smokescreen. The Rust admission policy also refuses every IP literal, including a public IP literal.
 
-## Fetcher-to-scrubber record
+Web Bot Auth uses the shared PostHog key directory. The directory response has a 60-second public cache lifetime.
 
-The mirror currently sends an image to the scrub topic with the ref as the Kafka key and the raw image bytes as the Kafka value. It sends no JSON envelope. The scrubber accepts `image:` refs and rejects `imageurl:` refs.
+### Scheduling and retries
 
-The fetcher does not publish images yet. The server enforces dry-run mode.
+Each origin has a token bucket, concurrency limit, crawl delay, transient-failure count, and circuit breaker. The runtime map contains at most 20,000 origins.
 
-Publish the fetched response body in the Kafka value and add the headers from section 17. The current fetcher requests `identity` and refuses another content coding. Change it to accept the codings it advertises and pass the encoded response body to Kafka.
+An origin remains in memory while it is active, blocked, reserved, or running a configuration request. A full map defers an untracked origin without network access.
 
-Change the scrubber to accept a global `imageurl:` ref. Decode its `content-encoding` with an uncompressed-size limit, then check its bytes against `content-type` before scrubbing it.
+The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 
-The current scrubber writes every image into a binary shard and writes its location to a time-partitioned Parquet index. Store a URL-backed image at the deterministic object key from requirements 17.11 to 17.13 instead. Keep the shard and index path for inline images.
+Retry jobs use 1-minute, 10-minute, and 1-hour Kafka topics. The topics use broker append timestamps.
 
-The current dead-letter sink rebuilds the headers from diagnostic data, and its replay keeps only the replay counter. Change both paths to preserve `content-type` and `content-encoding`.
+Each delay consumer waits once for the latest record in its batch. It then republishes the complete batch to the frontier.
 
-The image-fetch producer currently uses the default Kafka message limit because its configuration has no `message.max.bytes` setting. Raise the configured response limit to 20 MiB and size the producer and both topics for that limit plus the maximum record overhead.
+### Durable completion
 
-## Durable completion
+DynamoDB stores URL outcomes and configuration entries. Reads use 100-item batches and writes use 25-item batches. Large configuration bodies use immutable generation-specific chunks that publish before their manifest.
 
-The current fetcher records a successful fetch in DynamoDB without publishing its bytes. Change the handler to use the order in requirement 10.3.
+The client retries unprocessed keys and items with bounded concurrency and time. An incomplete chunk generation is a logged cache miss that the next configuration fetch repairs. A malformed base item fails the Kafka batch.
 
-The current frontier record does not carry all state needed after a redirect or retry. Replace it with the versioned job schema in requirement 10.4 and keep its counters and not-before time through every frontier and delay-topic publish.
+For a successful fetch, the producer publishes the image before DynamoDB records completion. Kafka offsets commit only after both operations succeed.
 
-The current crawl-history client can return partial read or write failures. The consumer logs these failures and continues. Change these paths to throw from the Kafka batch. Do not store the input offsets after a DynamoDB failure.
+Frontier records retain work until a terminal result. A pass deadline defers unfinished jobs instead of dropping them.
 
-## Configuration caches
+### Fetch-to-scrub transport
 
-The current fetcher does not fetch or cache robots.txt or tdmrep.json.
+The fetch producer sends the encoded response body as the Kafka value. Headers carry the content type and ordered content codings.
 
-The current request limits bound open sockets and the host-budget map. They do not coalesce concurrent cache misses for one origin. Add one in-flight configuration request per origin and file type. Other requests for that entry must wait for the same result.
+The production fetch queue can hold one full 100-record batch at the response-size limit. The delay consumers publish sequentially to avoid queue-full replay loops.
 
-Use `@trybyte/robotstxt-parser` with the product token `PostHogImageFetcherBot`. Use its low-level parser for every extension field line in addition to its RFC 9309 group and path matcher.
+The scrubber decodes supported codings in reverse order. It enforces the uncompressed limit during each decoding layer and verifies the image signature.
 
-## URL admission
+Inline images retain sharded storage and Parquet indexes. URL images use `scrubbed-images/url/<global-hash>` for deterministic direct lookup. Conditional writes use the source Kafka partition and offset to prevent an old partition owner from replacing newer bytes.
 
-The current Rust collector removes userinfo before it emits the fetch URL. Change it to refuse the URL instead. The current collector also accepts several known pre-signed URL forms and removes their volatile parameters only from the dedup URL. Change it to refuse the pre-signed forms in requirement 1.2.
+URL-image S3 writes use the scrub worker concurrency bound. A full scrub batch cannot create an unbounded S3 request burst.
 
-Keep only the non-credential volatile query fields from requirement 13.3 in canonicalization. Pin the complete canonicalization behavior with shared Rust and Node test vectors.
+The ML data-preparation resolver reads URL images by global ref. It removes sibling ref attributes before rendering, including when an image is absent.
 
-## Per-origin budgets
+### Operations
 
-The current producer partitions the frontier by registrable domain. Keep that partition key so that every origin under the registrable domain has one steady-state pod owner.
+Metrics cover terminal outcomes, requests, origin state, retries, amplification, system time, DynamoDB failures, and bounded heavy hitters.
 
-Change the rate limit, concurrency limit, back-off, circuit breaker, and configuration request lock to use the origin. Use the registrable and provider domains only for Kafka ownership and bounded metrics.
+The Grafana dashboard uses these runtime metrics. Its frontier health panels exclude the delay topics so they do not double-count retry traffic.
 
-The image-fetch server imports `KafkaConsumer` from `consumer-v1` directly. Move it to `KafkaConsumerV2`, whose cooperative revoke path drains the active batch before unassignment. Keep the bounded timeout exception from requirement 5.7. Do not add a distributed lease.
+The Helm deployment defines fetch, scrub, and three retry consumers. Fetch and retry synchronization remains manual until their dependencies exist.
 
-## Error back-off
+## Assumptions
 
-The current host budget halves its rate after a failure, mixes refusals with transient failures, and does not have a half-open probe. Replace that behavior with the exact transient-failure count, jittered exponential delay, and half-open state in section 7. Configuration-file failures must not change this image-request state.
+- Only the `src` attribute creates a remote-image ref. The collector does not create refs for `rr_src` or `poster`.
+- A response can contain at most four content-coding layers. This bound limits decompression work while retaining common stacked encodings.
+- The standard pass is shorter than the minimum image retry delay. Active back-off therefore follows requirement 7.13 without an in-memory second pass.
+- Smokescreen is the authoritative production DNS and connection boundary. Local URL admission is an additional fail-closed check.
+- The fetch deployment uses Smokescreen without proxy credentials. The lane does not send `Proxy-Authorization`.
+- The Web Bot Auth private key and Kubernetes secret remain operator-managed. No private key material belongs in these repositories.
+- The DynamoDB table and its workload identity permissions exist before the fetch deployment becomes active.
+- The shared ML bucket grants the data-preparation workload read access to the deterministic URL-image prefix.
+- The image-scrub topic partition count remains fixed while deterministic URL-image objects exist. The source-offset write fence refuses a ref that moves between partitions.
+- Retry topics use the replay cluster's existing `session_replay_` naming convention.
+- Current public documentation already describes the collector-side image limits. No separate documentation repository change is required.
 
-## Delay topics
+## Delta from the original requirements
 
-The current delay consumer requires a batch size of 1 because it waits separately for each record. Change it to calculate the latest ready time for the batch, wait once, and then publish the batch.
+The implementation has three product-behavior or interface deltas from the original README.
 
-The current delay topics do not require broker timestamps. Set `message.timestamp.type=LogAppendTime` on all three topics. The delay consumer must use the resulting Kafka record timestamp and must not use a producer timestamp.
+| Original requirement                                                                 | Final implementation                                      | Reason and effect                                                                                                                                                   |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accept any number of supported content-coding layers.                                | Accept at most four layers.                               | This bound limits decompression work. A response with more than four layers is refused. Requirements 14.1 and 17.6 now state this bound.                            |
+| Remove the `cb`, `nocache`, `rnd`, and scoped Meta query fields from the global ref. | Keep every query field in the global ref.                 | An arbitrary origin can use these names to select different bytes. Keeping them prevents cross-tenant object-key collisions. Requirement 13.3 now states this rule. |
+| Use delay topic names with the `ai_research_session_replay_` prefix.                 | Use the existing replay-cluster `session_replay_` prefix. | This keeps the topics consistent with the deployed replay naming convention. Requirement 16.2 now lists the deployed names.                                         |
 
-The current publisher sends a delay longer than 1 hour through the 1-hour topic more than once. Change it to record a refusal when the required delay is longer than the longest delay topic.
+The implementation also has these rollout and repository-state deltas. They do not change steady-state fetch behavior.
 
-## Load handling
+- The 20-second pass is shorter than the first retry delay. Therefore, retries use the durable delay topic and do not use an in-memory second pass.
+- Fetch and retry ApplicationSet synchronization stays manual until the cross-repository dependencies are active.
+- The base charts change keeps `SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN` set to `true` and `SESSION_RECORDING_ML_URL_PRODUCER_ENABLED` set to `false`.
+- The first activation charts change clears fetch dry-run only after every consumer and infrastructure dependency is active.
+- The second activation charts change enables the version 2 mirror producer after active fetching is verified.
+- Web Bot Auth private keys and the Kubernetes secret stay outside source control. An operator must create them before activation.
+- The DynamoDB table and workload identity permissions were already present on the current infrastructure `main` branch. This work does not create a duplicate table or duplicate permissions.
+- The required public documentation was already present on the current `posthog.com` `master` branch. This work does not create an empty documentation pull request.
 
-The current consumer drops an input when its capture time is older than the configured maximum age. Remove this age-based drop.
+## Deployment order
 
-The current fetch pass limits how many shed URLs it republishes. Remove this limit. Kafka stores load until the lane can process it. A pass deadline can stop new requests, but every unfinished URL must remain in Kafka.
+1. Apply the Kafka topic sizes and broker timestamp settings from `posthog-cloud-infra`.
+2. Apply the DynamoDB table, workload permissions, Smokescreen, and required secrets.
+3. Deploy the scrubber changes and the ML data-preparation resolver.
+4. Deploy the fetch and retry workloads with automatic synchronization disabled. Keep fetch dry-run enabled and the version 2 mirror producer disabled.
+5. Start each retry tier, then start the fetch workload and verify policy, refusal, and origin-state metrics.
+6. Apply the first activation charts change to enable image publishing, then verify fetch processing and downstream delivery.
+7. Apply the second activation charts change to enable the version 2 mirror producer.
+8. Enable automatic synchronization after the first production verification succeeds.
 
-## Repeated response headers
-
-The current streamed-request helper keeps only the first value of a repeated response header. Change it to expose every field line in received order. Apply requirement 14.17 before parsing response-header opt-outs. Keeping only the first value can miss a later `X-Robots-Tag: noai` refusal.
-
-## Same-origin redirect continuation
-
-The current fetcher treats a fourth same-origin redirect as a terminal `too_many_redirects` result. Change it to republish the target with the original ref and remaining image-hop budget. Requirements 9.7 and 9.8 specify this behavior.
-
-## Bounded origin state
-
-The current budget map holds 20,000 entries. It can evict an origin while that origin is blocked. A later request creates a new entry with a full burst. That request can contact the origin before its `Retry-After` or breaker delay ends.
-
-Change the map to evict only entries that meet requirement 5.14. If no entry is eligible, send the job for the untracked origin to the 1-minute delay topic without making a network request.
-
-## Key-directory caching
-
-The current Django key-directory response sends `Cache-Control: no-store`. Change it to the 60-second public cache policy in requirement 4.11 while keeping the 5-minute response-signature lifetime.
+Do not activate a delay consumer before its topic uses `LogAppendTime`. Producer timestamps do not provide the required delay guarantee.

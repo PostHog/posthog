@@ -11,80 +11,53 @@
 //! The fetch lane runs in another language. The registrable domain therefore travels with each
 //! URL as data, so that lane reads the result and never repeats the rule.
 
-use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 
+use percent_encoding::percent_decode_str;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
 
-/// Query parameters that change on each page load without changing the image behind the URL.
-///
-/// **This is an allow list of names. It must stay one.**
-///
-/// Never add a rule about the *shape* of a value. "Looks random" and "is long" both describe real
-/// image parameters.
-///
-/// **Never add a name that also selects an image.** `w`, `h`, `q`, `fm`, `dpr`, `fit`, `auto`,
-/// `format`, `resize`, `crop` and `quality` all do. Collapsing those onto one ref would point one
-/// ref at several genuinely different images, and nothing downstream can detect it.
-///
-/// Only unambiguous names live here. A short name that one vendor uses for a signature and another
-/// uses for a size belongs in [`SCOPED_VOLATILE_PARAMS`], where a marker keeps it honest.
-///
-/// `s` is the name that forced the split. imgix signs with it. Gravatar sizes with it. Removing it
-/// everywhere made a 48-pixel avatar and a 200-pixel avatar the same image.
-const VOLATILE_PARAMS: &[&str] = &[
-    // AWS SigV4 presigned (S3, CloudFront). Long and vendor-prefixed, so unambiguous.
-    "x-amz-algorithm",
-    "x-amz-credential",
-    "x-amz-date",
-    "x-amz-expires",
-    "x-amz-signedheaders",
-    "x-amz-signature",
-    "x-amz-security-token",
-    // CloudFront canned policies. key-pair-id is vendor-specific enough to stand alone.
-    "key-pair-id",
-    // Google Cloud Storage V4.
-    "x-goog-algorithm",
-    "x-goog-credential",
-    "x-goog-date",
-    "x-goog-expires",
-    "x-goog-signedheaders",
-    "x-goog-signature",
-    // Akamai token auth.
-    "hdnts",
+const CREDENTIAL_PARAMS: &[&str] = &[
+    "__cld_token__",
+    "__token__",
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth_token",
+    "authorization",
+    "awsaccesskeyid",
+    "credential",
+    "googleaccessid",
     "hdnea",
     "hdntl",
-    "__token__",
-    // Cache busters whose names say so.
-    "cb",
-    "rnd",
-    "nocache",
+    "hdnts",
+    "id_token",
+    "ik-s",
+    "jsessionid",
+    "ossaccesskeyid",
+    "phpsessid",
+    "q-ak",
+    "q-signature",
+    "security-token",
+    "session_token",
+    "sessionid",
+    "sig",
+    "signature",
+    "signedheaders",
+    "token",
+    "x-amz-credential",
+    "x-amz-security-token",
+    "x-amz-signature",
+    "x-amz-signedheaders",
+    "x-cos-security-token",
+    "x-goog-credential",
+    "x-goog-signature",
+    "x-goog-signedheaders",
+    "x-oss-credential",
+    "x-oss-security-token",
+    "x-oss-signature",
 ];
-
-/// Volatile names that are only volatile in a known context.
-///
-/// Each entry is `(marker, names)`. The names are removed only when the query also carries the
-/// marker, which is a parameter the vendor always sends alongside them. Without the marker the
-/// names are left alone, because on another host they select an image.
-const SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] = &[
-    // Azure Blob shared access signatures always carry sig, and sv alongside the rest.
-    (
-        "sig",
-        &["sv", "st", "se", "sp", "sr", "sig", "spr", "skoid"],
-    ),
-    // Meta's CDN always carries _nc_ohc with the rest of its rotating set. stp encodes a crop, so
-    // it is only safe to drop when the whole set is present and the URL is therefore one of theirs.
-    ("_nc_ohc", &["_nc_ohc", "_nc_ht", "oh", "oe", "ccb", "stp"]),
-    // CloudFront canned policies pair Signature with Expires and Policy. Both are ordinary words
-    // elsewhere: `expires` is a real cache hint, and `policy=thumb` is a plausible image selector.
-    ("signature", &["signature", "expires", "policy"]),
-    ("key-pair-id", &["policy", "expires"]),
-];
-
-/// Hosts whose short signature parameter is safe to remove, because the vendor owns the host.
-const HOST_SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] = &[(".imgix.net", &["s", "expires"])];
 
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
@@ -131,28 +104,6 @@ pub struct CanonicalUrl {
     pub domain: String,
 }
 
-/// Whether one parameter of this URL is volatile.
-///
-/// The name set is built once per URL. A scan of the parameter list made this quadratic in the
-/// parameter count, and a page controls both that count and the number of URLs.
-fn is_volatile(name: &str, host: &str, names_on_this_url: &HashSet<String>) -> bool {
-    if VOLATILE_PARAMS.iter().any(|p| p.eq_ignore_ascii_case(name)) {
-        return true;
-    }
-    for (marker, names) in SCOPED_VOLATILE_PARAMS {
-        if names.iter().any(|p| p.eq_ignore_ascii_case(name)) && names_on_this_url.contains(*marker)
-        {
-            return true;
-        }
-    }
-    for (suffix, names) in HOST_SCOPED_VOLATILE_PARAMS {
-        if host.ends_with(suffix) && names.iter().any(|p| p.eq_ignore_ascii_case(name)) {
-            return true;
-        }
-    }
-    false
-}
-
 /// Whether a host is one we would ever fetch from.
 ///
 /// A page controls the URL set, and the set exists to be handed to something that makes outbound
@@ -165,8 +116,8 @@ fn is_volatile(name: &str, host: &str, names_on_this_url: &HashSet<String>) -> b
 /// request and on every redirect hop.
 pub fn is_public_host(host: &str) -> bool {
     let host = without_brackets_or_trailing_dot(host);
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return is_public_ip(ip);
+    if host.parse::<IpAddr>().is_ok() {
+        return false;
     }
     is_public_domain_name(&host.to_ascii_lowercase())
 }
@@ -204,74 +155,6 @@ fn is_public_domain_name(lowercase_host: &str) -> bool {
     )
 }
 
-/// IPv6 offers several ways to write an IPv4 address, and each one used to bypass most of the IPv4
-/// rules. Every embedding is now judged by [`is_public_v4`].
-fn is_public_ip(ip: IpAddr) -> bool {
-    let v6 = match ip {
-        IpAddr::V4(v4) => return is_public_v4(v4),
-        IpAddr::V6(v6) => v6,
-    };
-    if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
-        return false;
-    }
-    let segments = v6.segments();
-    let is_unique_local = (segments[0] & 0xfe00) == 0xfc00;
-    let is_link_local = (segments[0] & 0xffc0) == 0xfe80;
-    if is_unique_local || is_link_local {
-        return false;
-    }
-    match v6
-        .to_ipv4_mapped()
-        .or_else(|| v6.to_ipv4())
-        .or_else(|| ipv4_inside_6to4(segments))
-        .or_else(|| ipv4_inside_nat64(segments))
-    {
-        Some(v4) => is_public_v4(v4),
-        None => true,
-    }
-}
-
-/// 6to4 carries the address in the two segments after the `2002::/16` prefix.
-fn ipv4_inside_6to4(segments: [u16; 8]) -> Option<Ipv4Addr> {
-    (segments[0] == 0x2002).then(|| ipv4_from_segments(segments[1], segments[2]))
-}
-
-/// The NAT64 well-known prefix `64:ff9b::/96` carries it in the last two segments.
-fn ipv4_inside_nat64(segments: [u16; 8]) -> Option<Ipv4Addr> {
-    let has_well_known_prefix = segments[0] == 0x0064
-        && segments[1] == 0xff9b
-        && segments[2] == 0
-        && segments[3] == 0
-        && segments[4] == 0;
-    has_well_known_prefix.then(|| ipv4_from_segments(segments[6], segments[7]))
-}
-
-fn ipv4_from_segments(high: u16, low: u16) -> Ipv4Addr {
-    Ipv4Addr::new((high >> 8) as u8, high as u8, (low >> 8) as u8, low as u8)
-}
-
-fn is_public_v4(v4: Ipv4Addr) -> bool {
-    let [a, b, c, _] = v4.octets();
-    let this_network = a == 0;
-    let carrier_grade_nat = a == 100 && (64..128).contains(&b);
-    let ietf_protocol_assignments = a == 192 && b == 0 && c == 0;
-    let benchmarking = a == 198 && (b == 18 || b == 19);
-    let reserved = a >= 240;
-
-    !(v4.is_loopback()
-        || v4.is_private()
-        || v4.is_link_local()
-        || v4.is_broadcast()
-        || v4.is_documentation()
-        || v4.is_unspecified()
-        || v4.is_multicast()
-        || this_network
-        || carrier_grade_nat
-        || ietf_protocol_assignments
-        || benchmarking
-        || reserved)
-}
-
 /// Why a URL was not collected. Each variant is a label on the decline counter. A lane
 /// that collects less than it should then reads off a dashboard, rather than being guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,6 +172,10 @@ pub enum Decline {
     NoHost,
     /// Loopback, private, link-local or an internal-only name. See [`is_public_host`].
     NonPublicHost,
+    /// A known URL credential, signature, token, signed-header list, or non-empty userinfo.
+    Credential,
+    /// A query parameter name could not be percent-decoded as UTF-8.
+    InvalidQuery,
 }
 
 impl Decline {
@@ -301,6 +188,8 @@ impl Decline {
             Decline::BadPort => "bad_port",
             Decline::NoHost => "no_host",
             Decline::NonPublicHost => "non_public_host",
+            Decline::Credential => "credential",
+            Decline::InvalidQuery => "invalid_query",
         }
     }
 }
@@ -331,6 +220,9 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if url.port().is_some() {
         return Err(Decline::BadPort);
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Decline::Credential);
+    }
     // `example.com.` and `example.com` name the same host, and the consumer compares the two as
     // strings in more than one place. The dot comes off the URL as well as off the host, so
     // everything downstream sees one spelling.
@@ -342,16 +234,18 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if host != host_str {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
+    if has_credential_query(&url)? || has_credential_path(&url, &host)? {
+        return Err(Decline::Credential);
+    }
 
-    remove_credentials_and_fragment(&mut url);
+    url.set_fragment(None);
     let fetch = url.to_string();
     // Percent-encoding and IDNA can grow a URL, so the cap is re-checked on what we emit.
     if fetch.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
 
-    remove_volatile_params(&mut url, &host);
-    let dedup = url.to_string();
+    let dedup = fetch.clone();
 
     Ok(CanonicalUrl {
         fetch,
@@ -361,52 +255,93 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     })
 }
 
-fn remove_credentials_and_fragment(url: &mut Url) {
-    // The setters fail only on a cannot-be-a-base URL, which the http(s) check already excluded.
-    let _ = url.set_username("");
-    let _ = url.set_password(None);
-    url.set_fragment(None);
+fn has_credential_query(url: &Url) -> Result<bool, Decline> {
+    let Some(raw_query) = url.query() else {
+        return Ok(false);
+    };
+    for raw_pair in raw_query.split('&') {
+        let raw_name = raw_pair.split_once('=').map_or(raw_pair, |(name, _)| name);
+        if !has_valid_percent_encoding(raw_name) {
+            return Err(Decline::InvalidQuery);
+        }
+        let form_name = raw_name.replace('+', " ");
+        percent_decode_str(&form_name)
+            .decode_utf8()
+            .map_err(|_| Decline::InvalidQuery)?;
+    }
+    Ok(url.query_pairs().any(|(name, value)| {
+        CREDENTIAL_PARAMS
+            .iter()
+            .any(|credential| credential.eq_ignore_ascii_case(&name))
+            || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
+    }))
 }
 
-/// Rewrites the query of every URL that has one, whether or not it removed anything.
-///
-/// Rewriting only when something was removed made the result depend on an unrelated fact. Two
-/// encodings of one query then hashed the same when a signature was present and differently when
-/// it was absent, so one image could hold two refs.
-fn remove_volatile_params(url: &mut Url, host: &str) {
-    if url.query().is_none() {
-        return;
+fn has_valid_percent_encoding(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
     }
-    let pairs: Vec<(String, String)> = url
-        .query_pairs()
-        .map(|(k, v)| (k.into_owned(), v.into_owned()))
-        .collect();
-    let names_on_this_url: HashSet<String> =
-        pairs.iter().map(|(k, _)| k.to_ascii_lowercase()).collect();
-    let kept: Vec<&(String, String)> = pairs
-        .iter()
-        .filter(|(k, _)| !is_volatile(k, host, &names_on_this_url))
-        .collect();
+    true
+}
 
-    if kept.is_empty() {
-        url.set_query(None);
-        return;
+fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
+    if !has_valid_percent_encoding(url.path()) {
+        return Err(Decline::Credential);
     }
-    let mut query = url.query_pairs_mut();
-    query.clear();
-    for (name, value) in kept {
-        query.append_pair(name, value);
-    }
+    let path = percent_decode_str(url.path())
+        .decode_utf8()
+        .map_err(|_| Decline::Credential)?
+        .to_ascii_lowercase();
+    let segments: Vec<&str> = path.split('/').collect();
+    let first_segment_has_bunny_token = segments
+        .get(1)
+        .and_then(|segment| segment.strip_prefix("bcdn_token="))
+        .and_then(|value| value.split('&').next())
+        .is_some_and(|token| !token.is_empty());
+    let has_oracle_token = host.starts_with("objectstorage.")
+        && host.ends_with(".oraclecloud.com")
+        && host.split('.').count() == 4
+        && segments.get(1) == Some(&"p")
+        && segments.get(2).is_some_and(|token| !token.is_empty())
+        && segments.get(3) == Some(&"n");
+    let has_cloudinary_signature = segments.iter().any(|segment| {
+        segment
+            .strip_prefix("s--")
+            .and_then(|value| value.strip_suffix("--"))
+            .is_some_and(|token| !token.is_empty())
+    });
+    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
+        || path.contains("/storage/v1/render/image/sign/");
+    let has_session_token = segments.iter().any(|segment| {
+        segment
+            .split_once(";jsessionid=")
+            .and_then(|(_, value)| value.split(';').next())
+            .is_some_and(|token| !token.is_empty())
+    });
+
+    Ok(first_segment_has_bunny_token
+        || has_oracle_token
+        || has_cloudinary_signature
+        || has_supabase_signature
+        || has_session_token)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn volatile(name: &str, host: &str, others: &[&str]) -> bool {
-        let present: HashSet<String> = others.iter().map(|o| o.to_ascii_lowercase()).collect();
-        is_volatile(name, host, &present)
-    }
     #[test]
     fn canonicalize_rejects_what_we_will_not_fetch() {
         for raw in [
@@ -423,73 +358,97 @@ mod tests {
     }
 
     #[test]
-    fn canonicalize_normalizes_and_strips_credentials() {
-        let c = canonicalize("HTTPS://User:Pass@Example.COM:443/A.png#frag").unwrap();
+    fn canonicalize_normalizes_and_removes_the_fragment() {
+        let c = canonicalize("HTTPS://Example.COM:443/A.png#frag").unwrap();
         assert_eq!(c.fetch, "https://example.com/A.png");
         assert_eq!(c.host, "example.com");
-        assert!(!c.fetch.contains("User"));
-        assert!(!c.fetch.contains("Pass"));
     }
 
     #[test]
-    fn the_signature_stays_on_the_fetch_url_and_leaves_the_dedup_url() {
-        let signed = "https://cdn.example.com/a.png?w=200&X-Amz-Signature=deadbeef&X-Amz-Date=20260810T000000Z";
-        let c = canonicalize(signed).unwrap();
-        // The fetcher needs the signature, or the request 403s.
-        assert!(c.fetch.contains("X-Amz-Signature=deadbeef"));
-        // The ref must not move when the signature does.
-        assert_eq!(c.dedup, "https://cdn.example.com/a.png?w=200");
-    }
-
-    #[test]
-    fn a_query_that_is_only_volatile_leaves_no_empty_question_mark() {
-        let c = canonicalize("https://cdn.example.com/a.png?nocache=12345").unwrap();
-        assert_eq!(c.dedup, "https://cdn.example.com/a.png");
-    }
-
-    #[test]
-    fn a_generic_word_is_only_volatile_beside_its_vendor_marker() {
-        // `policy=thumb` and `policy=full` are plausible image selectors on an ordinary host.
-        let thumb = canonicalize("https://cdn.example.com/a.png?policy=thumb").unwrap();
-        let full = canonicalize("https://cdn.example.com/a.png?policy=full").unwrap();
-        assert_ne!(thumb.dedup, full.dedup);
-        // Beside CloudFront's signature it is part of the signing set.
-        assert!(volatile("policy", "cdn.example.com", &["signature"]));
-    }
-
-    #[test]
-    fn an_ambiguous_cache_buster_is_kept() {
-        // `v` and `t` are cache busters on some hosts and content-version or variant markers on
-        // others. Keeping them costs a missed dedup. Removing them merges two different images.
-        let a = canonicalize("https://cdn.example.com/a.png?v=thumb").unwrap();
-        let b = canonicalize("https://cdn.example.com/a.png?v=full").unwrap();
-        assert_ne!(a.dedup, b.dedup);
-    }
-
-    #[test]
-    fn volatile_names_never_include_a_name_that_selects_an_image() {
-        for name in [
-            "w", "h", "q", "fm", "dpr", "fit", "auto", "format", "resize", "crop", "quality",
-        ] {
-            assert!(
-                !volatile(name, "cdn.example.com", &[]),
-                "{name} changes the image and must be kept"
+    fn known_query_credentials_are_refused_case_insensitively() {
+        for name in CREDENTIAL_PARAMS {
+            let raw = format!(
+                "https://cdn.example.com/a.png?{}=",
+                name.to_ascii_uppercase()
             );
+            assert_eq!(try_canonicalize(&raw), Err(Decline::Credential), "{name}");
+        }
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?X-Amz-%53ignature=value"),
+            Err(Decline::Credential)
+        );
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?safe=1&safe=2&TOKEN="),
+            Err(Decline::Credential)
+        );
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?s=0123456789abcdef0123456789abcdef"),
+            Err(Decline::Credential)
+        );
+        assert!(canonicalize("https://cdn.example.com/a.png?s=200").is_some());
+    }
+
+    #[test]
+    fn credential_path_patterns_are_refused_case_insensitively() {
+        for raw in [
+            "https://cdn.example.com/BCDN_TOKEN=value/image.png",
+            "https://objectstorage.region.oraclecloud.com/P/value/N/image.png",
+            "https://cdn.example.com/S--value--/image.png",
+            "https://cdn.example.com/STORAGE/V1/OBJECT/SIGN/value",
+            "https://cdn.example.com/storage/v1/render/image/sign/value",
+            "https://cdn.example.com/images;JSESSIONID=value/a.png",
+        ] {
+            assert_eq!(try_canonicalize(raw), Err(Decline::Credential), "{raw}");
         }
     }
 
     #[test]
-    fn a_short_name_is_only_volatile_where_the_vendor_owns_it() {
-        // `s` sizes a Gravatar avatar and signs an imgix URL. Stripping it everywhere made a
-        // 48-pixel avatar and a 200-pixel avatar the same image.
-        assert!(!volatile("s", "www.gravatar.com", &[]));
-        assert!(volatile("s", "images.imgix.net", &[]));
-        // The Azure SAS names are volatile only when the signature of that set is also present.
-        assert!(!volatile("sp", "cdn.example.com", &["w"]));
-        assert!(volatile("sp", "acct.blob.core.windows.net", &["sig", "sv"]));
-        // `expires` is a real cache hint until CloudFront's `signature` appears beside it.
-        assert!(!volatile("expires", "cdn.example.com", &[]));
-        assert!(volatile("expires", "cdn.example.com", &["signature"]));
+    fn percent_encoded_credential_path_patterns_are_refused() {
+        for raw in [
+            "https://cdn.example.com/BCDN%5fTOKEN=value/image.png",
+            "https://objectstorage.region.oraclecloud.com/%70/value/%6e/image.png",
+            "https://cdn.example.com/S%2d%2dvalue%2d%2d/image.png",
+            "https://cdn.example.com/storage/v1/object/s%69gn/value",
+            "https://cdn.example.com/storage/v1/render/image/s%69gn/value",
+            "https://cdn.example.com/images%3bJSESSIONID=value/a.png",
+        ] {
+            assert_eq!(try_canonicalize(raw), Err(Decline::Credential), "{raw}");
+        }
+    }
+
+    #[test]
+    fn userinfo_and_invalid_query_names_are_refused() {
+        assert_eq!(
+            try_canonicalize("https://user:pass@cdn.example.com/a.png"),
+            Err(Decline::Credential)
+        );
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?bad%FF=value"),
+            Err(Decline::InvalidQuery)
+        );
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?bad%ZZ=value"),
+            Err(Decline::InvalidQuery)
+        );
+    }
+
+    #[test]
+    fn signing_metadata_without_a_credential_is_preserved() {
+        let raw = "https://cdn.example.com/a.png?X-Amz-Algorithm=v4&X-Amz-Date=20260810T000000Z&X-Amz-Expires=60";
+        let canonical = canonicalize(raw).unwrap();
+        assert!(canonical.fetch.contains("X-Amz-Algorithm=v4"));
+        assert!(canonical.dedup.contains("X-Amz-Algorithm=v4"));
+    }
+
+    #[test]
+    fn every_query_field_contributes_to_the_global_ref() {
+        for name in ["cb", "rnd", "nocache", "_nc_ohc", "stp"] {
+            let first =
+                canonicalize(&format!("https://cdn.example.com/a.png?{name}=first")).unwrap();
+            let second =
+                canonicalize(&format!("https://cdn.example.com/a.png?{name}=second")).unwrap();
+            assert_ne!(first.dedup, second.dedup, "{name}");
+        }
     }
 
     #[test]
@@ -600,10 +559,8 @@ mod tests {
         assert!(canonicalize("https://cdn.example.com/i.png").is_some());
         // A public name with a trailing dot is still public, so the fix must not over-reject.
         assert!(canonicalize("https://cdn.example.com./i.png").is_some());
-        // The address rule accepts a public address. Both use https, because the scheme rule
-        // refuses plain http on its own.
-        assert!(canonicalize("https://[2606:4700::1111]/i.png").is_some());
-        assert!(canonicalize("https://8.8.8.8/i.png").is_some());
+        assert!(canonicalize("https://[2606:4700::1111]/i.png").is_none());
+        assert!(canonicalize("https://8.8.8.8/i.png").is_none());
     }
 
     #[test]
@@ -616,12 +573,10 @@ mod tests {
     }
 
     #[test]
-    fn the_dedup_url_does_not_depend_on_whether_a_signature_rode_along() {
-        // The query used to be re-encoded only when something was stripped, so one image could
-        // hold two refs depending on an unrelated condition.
-        let plain = canonicalize("https://cdn.example.com/a.png?a=1&b=2").unwrap();
-        let signed =
-            canonicalize("https://cdn.example.com/a.png?a=1&b=2&X-Amz-Signature=zz").unwrap();
-        assert_eq!(plain.dedup, signed.dedup);
+    fn a_cache_buster_identifies_a_distinct_resource() {
+        let plain = canonicalize("https://cdn.example.com/a.png?a=hello%20world&b=2").unwrap();
+        let cache_busted =
+            canonicalize("https://cdn.example.com/a.png?a=hello%20world&b=2&cb=zz").unwrap();
+        assert_ne!(plain.dedup, cache_busted.dedup);
     }
 }

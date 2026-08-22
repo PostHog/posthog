@@ -1,305 +1,309 @@
 export interface HostBudgetOptions {
-    /** The ceiling for one registrable domain. Only a backoff moves a domain off it, and always downward. */
     requestsPerSecond: number
-    /** Tokens a domain holds while idle, so a domain seen once an hour can send a few requests together. */
     burst: number
-    /** Connections open to one domain at once. This counts them rather than the caller's worker pool, because a redirect reaches a domain without going through that pool. */
     maxConcurrent: number
     breakerFailures: number
     breakerCooldownMs: number
-    /** The longest a domain stays blocked. It bounds the doubling cooldown and a `Retry-After` header alike. */
     breakerMaxCooldownMs: number
     maxTrackedDomains: number
+    random?: () => number
 }
 
+export type BudgetBlockReason = 'breaker_open' | 'backoff' | 'deadline' | 'origin_map_full'
 export type BudgetGrant =
-    | { granted: true; waitMs: number }
-    | { granted: false; reason: 'breaker_open' | 'rate_limited' | 'deadline' }
+    | { granted: true; waitMs: number; halfOpenProbe: boolean; reservedStartAtMs: number | null }
+    | { granted: false; reason: BudgetBlockReason; waitMs: number }
 
-interface DomainState {
+const EVICTION_SCAN_LIMIT = 64
+
+interface OriginState {
     inFlight: number
+    configurationRequests: number
     tokens: number
     lastRefillMs: number
-    requestsPerSecond: number
-    failureScore: number
-    cooldownMs: number
+    lastRequestStartedAtMs: number | null
+    reservedStartTimesMs: number[]
+    crawlDelayMs: number
+    consecutiveTransientFailures: number
     blockedUntilMs: number
-    blockedReason: 'breaker_open' | 'rate_limited'
+    breakerOpen: boolean
+    halfOpenProbeInFlight: boolean
 }
 
-/** A domain's rate never falls below the configured rate divided by this. */
-const MIN_RATE_DIVISOR = 16
-
-/** Domains checked for an idle one before an eviction falls back to the oldest entry. */
-const EVICTION_SCAN = 16
-
-/**
- * How fast this pod may send to one registrable domain.
- *
- * The domain rather than the host, because one operator can serve images from many hostnames, and a
- * rate limit protects the operator. The topic uses the same key, so a domain lands on one partition
- * and one pod, and this budget is then the whole rate that domain receives from this lane. A
- * rebalance can put two pods on one domain for a few seconds, which doubles the rate for that long.
- * No counter across pods closes that window.
- *
- * A restart loses this state, including an open breaker, so a restart sends one more round of
- * requests to a failing site before the breaker opens again.
- */
 export class HostBudget {
-    private readonly domains = new Map<string, DomainState>()
+    private readonly origins = new Map<string, OriginState>()
+    private readonly random: () => number
 
     constructor(private readonly options: HostBudgetOptions) {
-        // These values arrive from the environment, where a typo parses to NaN. A NaN rate makes
-        // every wait NaN and every comparison against it false, so the rate limit stops existing.
         for (const [name, value] of Object.entries(options)) {
-            if (!Number.isFinite(value) || value <= 0) {
-                throw new Error(`the image fetch host budget needs a positive ${name}, got ${value}`)
+            if (name !== 'random' && (!Number.isFinite(value) || (value as number) <= 0)) {
+                throw new Error(`the image fetch origin budget needs a positive ${name}, got ${value}`)
             }
         }
+        this.random = options.random ?? Math.random
     }
 
-    /**
-     * Take the right to send one request to `domain`, or learn why this pod must not send to it.
-     *
-     * A grant carries the time the caller must wait before it sends. The grant already spent the
-     * token, so a caller that waits keeps the rate exact, and a caller that drops the grant only
-     * slows the domain down. A grant that lands after `deadlineMs` is refused instead, because
-     * nobody sends it and the next batch still waits the token out.
-     */
-    public take(domain: string, nowMs: number, deadlineMs: number): BudgetGrant {
-        const state = this.stateFor(domain, nowMs)
-        if (state.blockedUntilMs > nowMs) {
-            return { granted: false, reason: state.blockedReason }
+    public take(origin: string, nowMs: number, deadlineMs: number, ignoreImageDelay = false): BudgetGrant {
+        const state = this.stateFor(origin, nowMs)
+        if (!state) {
+            return { granted: false, reason: 'origin_map_full', waitMs: 0 }
+        }
+        let halfOpenProbe = false
+        if (!ignoreImageDelay) {
+            if (state.blockedUntilMs > nowMs) {
+                return {
+                    granted: false,
+                    reason: state.breakerOpen ? 'breaker_open' : 'backoff',
+                    waitMs: state.blockedUntilMs - nowMs,
+                }
+            }
+            if (state.breakerOpen) {
+                if (state.halfOpenProbeInFlight) {
+                    return { granted: false, reason: 'breaker_open', waitMs: this.options.breakerCooldownMs }
+                }
+                state.halfOpenProbeInFlight = true
+                halfOpenProbe = true
+            }
         }
         this.refill(state, nowMs)
-        const waitMs = state.tokens >= 1 ? 0 : Math.ceil(((1 - state.tokens) / state.requestsPerSecond) * 1000)
+        const tokenWaitMs =
+            state.tokens >= 1 ? 0 : Math.ceil(((1 - state.tokens) / this.options.requestsPerSecond) * 1000)
+        const previousStartMs = Math.max(
+            state.lastRequestStartedAtMs ?? Number.NEGATIVE_INFINITY,
+            ...state.reservedStartTimesMs
+        )
+        const crawlWaitMs = ignoreImageDelay ? 0 : Math.max(0, previousStartMs + state.crawlDelayMs - nowMs)
+        const waitMs = Math.max(tokenWaitMs, crawlWaitMs)
         if (nowMs + waitMs > deadlineMs) {
-            return { granted: false, reason: 'deadline' }
+            if (!ignoreImageDelay && state.breakerOpen) {
+                state.halfOpenProbeInFlight = false
+            }
+            return { granted: false, reason: 'deadline', waitMs }
         }
         state.tokens -= 1
-        return { granted: true, waitMs }
+        const reservedStartAtMs = ignoreImageDelay ? null : nowMs + waitMs
+        if (reservedStartAtMs !== null) {
+            state.reservedStartTimesMs.push(reservedStartAtMs)
+        }
+        return { granted: true, waitMs, halfOpenProbe, reservedStartAtMs }
     }
 
-    /**
-     * Why this pod must not send to the domain, or null when it may.
-     *
-     * A caller that waited for a token asks again before it sends. A `Retry-After` or an open
-     * breaker can arrive during a wait, and a request sent after that reaches a site which just
-     * asked to be left alone. Requirement 5.
-     */
-    public blockedReason(domain: string, nowMs: number): 'breaker_open' | 'rate_limited' | null {
-        const state = this.domains.get(domain)
-        return state && state.blockedUntilMs > nowMs ? state.blockedReason : null
+    public markRequestStarted(origin: string, nowMs: number, reservedStartAtMs: number | null): void {
+        const state = this.origins.get(origin)
+        if (state) {
+            this.removeReservation(state, reservedStartAtMs)
+            state.lastRequestStartedAtMs = nowMs
+        }
     }
 
-    /**
-     * How long the domain stays blocked, so a retry can wait that long rather than guess.
-     *
-     * An unknown domain reads as not blocked, and this creates no entry for it. An entry would let
-     * a question about one domain evict the hold on another.
-     */
-    public blockedForMs(domain: string, nowMs: number): number {
-        const state = this.domains.get(domain)
-        return state ? Math.max(0, state.blockedUntilMs - nowMs) : 0
+    public blockedReason(
+        origin: string,
+        nowMs: number,
+        allowHalfOpenProbe = false
+    ): Exclude<BudgetBlockReason, 'deadline' | 'origin_map_full'> | null {
+        const state = this.origins.get(origin)
+        if (!state) {
+            return null
+        }
+        if (state.blockedUntilMs > nowMs || (state.breakerOpen && state.halfOpenProbeInFlight && !allowHalfOpenProbe)) {
+            return state.breakerOpen ? 'breaker_open' : 'backoff'
+        }
+        return null
     }
 
-    /**
-     * Give back a token for a request that never went out.
-     *
-     * The rate limits what leaves this pod, so a grant that went stale during its wait must not
-     * count against the domain. The burst caps the return, so a return cannot create capacity.
-     */
-    public returnGrant(domain: string, nowMs: number): void {
-        const state = this.stateFor(domain, nowMs)
+    public requestStartWaitMs(origin: string, nowMs: number): number {
+        const state = this.origins.get(origin)
+        return state?.lastRequestStartedAtMs === null || state?.lastRequestStartedAtMs === undefined
+            ? 0
+            : Math.max(0, state.lastRequestStartedAtMs + state.crawlDelayMs - nowMs)
+    }
+
+    public blockedForMs(origin: string, nowMs: number): number {
+        const state = this.origins.get(origin)
+        if (!state) {
+            return 0
+        }
+        if (state.breakerOpen && state.halfOpenProbeInFlight && state.blockedUntilMs <= nowMs) {
+            return this.options.breakerCooldownMs
+        }
+        return Math.max(0, state.blockedUntilMs - nowMs)
+    }
+
+    public returnGrant(origin: string, nowMs: number, reservedStartAtMs: number | null): void {
+        const state = this.origins.get(origin)
+        if (!state) {
+            return
+        }
+        this.removeReservation(state, reservedStartAtMs)
+        this.refill(state, nowMs)
         state.tokens = Math.min(this.options.burst, state.tokens + 1)
+        if (state.breakerOpen) {
+            state.halfOpenProbeInFlight = false
+        }
     }
 
-    /**
-     * Take one of the domain's connection slots, or report that they are all taken.
-     *
-     * The rate limit and the connection limit answer different questions: how often we may start,
-     * and how many we may hold open. A slow site makes the second one bind, and a redirect target
-     * reaches this without passing through the per-domain worker pool that would otherwise bound it.
-     */
-    public acquireConnection(domain: string, nowMs: number): boolean {
-        const state = this.stateFor(domain, nowMs)
-        if (state.inFlight >= this.options.maxConcurrent) {
+    public acquireConnection(origin: string, nowMs: number): boolean {
+        const state = this.stateFor(origin, nowMs)
+        if (!state || state.inFlight >= this.options.maxConcurrent) {
             return false
         }
         state.inFlight += 1
         return true
     }
 
-    public releaseConnection(domain: string): void {
-        const state = this.domains.get(domain)
+    public releaseConnection(origin: string): void {
+        const state = this.origins.get(origin)
         if (state) {
             state.inFlight = Math.max(0, state.inFlight - 1)
         }
     }
 
-    public recordSuccess(domain: string, nowMs: number): void {
-        const state = this.stateFor(domain, nowMs)
-        // Decremented rather than cleared. A domain that fails two requests for every one it answers
-        // never reaches a run of failures, and a counter that resets never opens its breaker.
-        state.failureScore = Math.max(0, state.failureScore - 1)
-        const step = this.options.requestsPerSecond / 8
-        state.requestsPerSecond = Math.min(this.options.requestsPerSecond, state.requestsPerSecond + step)
-        // The doubling ladder clears only once the rate is fully back, so a site that fails,
-        // recovers for one request, and fails again keeps escalating. It does not restart at the
-        // base cooldown every time.
-        if (state.requestsPerSecond >= this.options.requestsPerSecond) {
-            state.cooldownMs = 0
+    public configurationRequestStarted(origin: string, nowMs: number): boolean {
+        const state = this.stateFor(origin, nowMs)
+        if (!state) {
+            return false
+        }
+        state.configurationRequests += 1
+        return true
+    }
+
+    public configurationRequestFinished(origin: string): void {
+        const state = this.origins.get(origin)
+        if (state) {
+            state.configurationRequests = Math.max(0, state.configurationRequests - 1)
         }
     }
 
-    /**
-     * A site said it is unhappy. Halve the rate, and count toward the breaker.
-     *
-     * The rate halves on the first signal rather than after a threshold. A cut that comes too early
-     * costs one slower domain. A cut that comes too late adds load to a site that asked us to stop.
-     *
-     * The tokens go with it. A domain holds a burst while it is idle, so without this the URLs
-     * already queued behind the failed one would leave at the old rate and the cut would reach only
-     * the URLs after them. Requirement 16.
-     */
-    public recordBackoff(domain: string, nowMs: number): void {
-        const state = this.stateFor(domain, nowMs)
-        const floor = this.options.requestsPerSecond / MIN_RATE_DIVISOR
-        state.requestsPerSecond = Math.max(floor, state.requestsPerSecond / 2)
-        state.tokens = 0
-        this.countTowardBreaker(state, nowMs)
-    }
-
-    /**
-     * A refusal that says nothing about load, such as a 403 from an anti-bot rule.
-     *
-     * It counts toward the breaker, because a run of refusals means the site refuses this bot and
-     * more requests only add to that. It leaves the rate alone, because one refused image is an
-     * ordinary answer that must not slow down the images beside it.
-     */
-    public recordRefusal(domain: string, nowMs: number): void {
-        this.countTowardBreaker(this.stateFor(domain, nowMs), nowMs)
-    }
-
-    private countTowardBreaker(state: DomainState, nowMs: number): void {
-        state.failureScore += 1
-        if (state.failureScore < this.options.breakerFailures) {
-            return
+    public setCrawlDelay(origin: string, crawlDelayMs: number, nowMs: number): boolean {
+        const state = this.stateFor(origin, nowMs)
+        if (!state) {
+            return false
         }
-        // Doubled from the last cooldown rather than reset, so a site that keeps failing after the
-        // breaker closes gets a longer pause each time rather than a probe on a fixed beat.
-        state.cooldownMs = Math.min(
-            state.cooldownMs > 0 ? state.cooldownMs * 2 : this.options.breakerCooldownMs,
+        state.crawlDelayMs = Math.max(1_000, crawlDelayMs)
+        return true
+    }
+
+    public recordTransientFailure(origin: string, nowMs: number, retryAfterMs?: number): number {
+        const state = this.stateFor(origin, nowMs)
+        if (!state) {
+            return this.options.breakerCooldownMs
+        }
+        state.consecutiveTransientFailures += 1
+        const maximumDelayMs = Math.min(
+            this.options.breakerCooldownMs * 2 ** (state.consecutiveTransientFailures - 1),
             this.options.breakerMaxCooldownMs
         )
-        // Extended rather than replaced. A breaker that opens inside an hour-long hold must not
-        // shorten that hold to its own cooldown.
-        const openUntilMs = nowMs + state.cooldownMs
-        if (openUntilMs > state.blockedUntilMs) {
-            state.blockedUntilMs = openUntilMs
-            state.blockedReason = 'breaker_open'
+        const minimumDelayMs = Math.ceil(maximumDelayMs / 2)
+        const jitteredDelayMs = Math.min(
+            maximumDelayMs,
+            minimumDelayMs + Math.floor(this.random() * (maximumDelayMs - minimumDelayMs + 1))
+        )
+        const delayMs = Math.max(jitteredDelayMs, retryAfterMs ?? 0)
+        state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs + delayMs)
+        if (state.consecutiveTransientFailures >= this.options.breakerFailures) {
+            state.breakerOpen = true
+            state.halfOpenProbeInFlight = false
         }
-        state.failureScore = 0
+        return delayMs
     }
 
-    /**
-     * Hold the domain for the period a `Retry-After` header asked for.
-     *
-     * The clamp is necessary because a site can name any period, and an unclamped one holds a
-     * domain in this pod's memory for as long as the pod lives.
-     */
-    public recordRetryAfter(domain: string, nowMs: number, retryAfterMs: number): void {
-        const state = this.stateFor(domain, nowMs)
-        const held = Math.min(Math.max(retryAfterMs, 0), this.options.breakerMaxCooldownMs)
-        // The reason moves only when this hold wins. A domain already held by an open breaker would
-        // otherwise report every later shed as a rate limit, which hides the breaker from the
-        // metric that exists to show it.
-        if (nowMs + held > state.blockedUntilMs) {
-            state.blockedUntilMs = nowMs + held
-            state.blockedReason = 'rate_limited'
+    public recordCompletedResponse(origin: string, nowMs: number): void {
+        const state = this.origins.get(origin)
+        if (!state) {
+            return
         }
+        state.consecutiveTransientFailures = 0
+        state.blockedUntilMs = nowMs
+        state.breakerOpen = false
+        state.halfOpenProbeInFlight = false
     }
 
     public get trackedDomains(): number {
-        return this.domains.size
+        return this.origins.size
     }
 
-    /** Domains this dropped while they were still blocked, which resumes traffic to a site that asked us to wait. */
     public evictedWhileBlocked = 0
 
     public blockedDomains(nowMs: number): number {
         let blocked = 0
-        for (const state of this.domains.values()) {
-            if (state.blockedUntilMs > nowMs) {
-                blocked++
+        for (const state of this.origins.values()) {
+            if (state.blockedUntilMs > nowMs || state.breakerOpen) {
+                blocked += 1
             }
         }
         return blocked
     }
 
-    private refill(state: DomainState, nowMs: number): void {
+    private refill(state: OriginState, nowMs: number): void {
         const elapsedMs = Math.max(0, nowMs - state.lastRefillMs)
         state.lastRefillMs = nowMs
-        state.tokens = Math.min(this.options.burst, state.tokens + (elapsedMs / 1000) * state.requestsPerSecond)
+        state.tokens = Math.min(this.options.burst, state.tokens + (elapsedMs / 1000) * this.options.requestsPerSecond)
     }
 
-    private stateFor(domain: string, nowMs: number): DomainState {
-        const existing = this.domains.get(domain)
+    private stateFor(origin: string, nowMs: number): OriginState | undefined {
+        const existing = this.origins.get(origin)
         if (existing) {
-            // Re-inserted so that the map orders by last use, which the eviction below reads.
-            this.domains.delete(domain)
-            this.domains.set(domain, existing)
+            this.origins.delete(origin)
+            this.origins.set(origin, existing)
             return existing
         }
-        this.evictIfFull(nowMs)
-        const state: DomainState = {
+        if (!this.evictIfFull(nowMs)) {
+            return undefined
+        }
+        const state: OriginState = {
             inFlight: 0,
+            configurationRequests: 0,
             tokens: this.options.burst,
             lastRefillMs: nowMs,
-            requestsPerSecond: this.options.requestsPerSecond,
-            failureScore: 0,
-            cooldownMs: 0,
+            lastRequestStartedAtMs: null,
+            reservedStartTimesMs: [],
+            crawlDelayMs: 1_000,
+            consecutiveTransientFailures: 0,
             blockedUntilMs: 0,
-            blockedReason: 'breaker_open',
+            breakerOpen: false,
+            halfOpenProbeInFlight: false,
         }
-        this.domains.set(domain, state)
+        this.origins.set(origin, state)
         return state
     }
 
-    /**
-     * An evicted domain loses its block, so the scan prefers an idle domain. When the map holds
-     * only blocked domains the oldest one goes anyway, because a refusal to evict grows the map
-     * without a bound and the memory limit is the harder failure.
-     */
-    private evictIfFull(nowMs: number): void {
-        if (this.domains.size < this.options.maxTrackedDomains) {
+    private evictIfFull(nowMs: number): boolean {
+        if (this.origins.size < this.options.maxTrackedDomains) {
+            return true
+        }
+        for (let scanned = 0; scanned < EVICTION_SCAN_LIMIT; scanned++) {
+            const oldest = this.origins.entries().next().value as [string, OriginState] | undefined
+            if (!oldest) {
+                return true
+            }
+            const [origin, state] = oldest
+            this.refill(state, nowMs)
+            const eligible =
+                state.inFlight === 0 &&
+                state.configurationRequests === 0 &&
+                state.reservedStartTimesMs.length === 0 &&
+                state.blockedUntilMs <= nowMs &&
+                !state.breakerOpen &&
+                !state.halfOpenProbeInFlight &&
+                state.tokens >= this.options.burst &&
+                (state.lastRequestStartedAtMs === null || state.lastRequestStartedAtMs + state.crawlDelayMs <= nowMs)
+            if (eligible) {
+                this.origins.delete(origin)
+                return true
+            }
+            this.origins.delete(origin)
+            this.origins.set(origin, state)
+        }
+        return false
+    }
+
+    private removeReservation(state: OriginState, reservedStartAtMs: number | null): void {
+        if (reservedStartAtMs === null) {
             return
         }
-        let oldest: string | undefined
-        let scanned = 0
-        for (const [domain, state] of this.domains) {
-            if (state.inFlight > 0) {
-                // Never evicted. A slot is released by domain name, so a lost entry leaks every
-                // slot it held and the domain can then hold more than its limit. The map cannot
-                // grow without a bound this way, because the pod caps its requests in flight.
-                continue
-            }
-            oldest = oldest ?? domain
-            if (state.blockedUntilMs <= nowMs) {
-                this.domains.delete(domain)
-                return
-            }
-            if (++scanned >= EVICTION_SCAN) {
-                break
-            }
-        }
-        if (oldest) {
-            // Counted only when the entry really was blocked.
-            const evicted = this.domains.get(oldest)
-            this.domains.delete(oldest)
-            if (evicted && evicted.blockedUntilMs > nowMs) {
-                this.evictedWhileBlocked++
-            }
+        const index = state.reservedStartTimesMs.indexOf(reservedStartAtMs)
+        if (index >= 0) {
+            state.reservedStartTimesMs.splice(index, 1)
         }
     }
 }

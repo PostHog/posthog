@@ -1,6 +1,57 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { TeamVolume } from './team-volume'
+const TOP_DOMAIN_CAPACITY = 200
+const TOP_DOMAIN_EXPORTS = 20
+const TOP_DOMAIN_WINDOW_MS = 10 * 60 * 1000
+
+class WindowedSpaceSaving {
+    private counts = new Map<string, number>()
+    private total = 0
+    private windowStartedAtMs = Date.now()
+
+    public add(label: string, nowMs = Date.now()): void {
+        this.rotate(nowMs)
+        this.total += 1
+        const current = this.counts.get(label)
+        if (current !== undefined) {
+            this.counts.set(label, current + 1)
+            return
+        }
+        if (this.counts.size < TOP_DOMAIN_CAPACITY) {
+            this.counts.set(label, 1)
+            return
+        }
+        let smallestLabel = ''
+        let smallestCount = Number.POSITIVE_INFINITY
+        for (const [candidate, count] of this.counts) {
+            if (count < smallestCount) {
+                smallestLabel = candidate
+                smallestCount = count
+            }
+        }
+        this.counts.delete(smallestLabel)
+        this.counts.set(label, smallestCount + 1)
+    }
+
+    public top(nowMs = Date.now()): Array<{ label: string; count: number }> {
+        this.rotate(nowMs)
+        const top = [...this.counts]
+            .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+            .slice(0, TOP_DOMAIN_EXPORTS)
+            .map(([label, count]) => ({ label, count }))
+        const topCount = top.reduce((sum, item) => sum + item.count, 0)
+        return [...top, { label: 'other', count: Math.max(0, this.total - topCount) }]
+    }
+
+    private rotate(nowMs: number): void {
+        if (nowMs - this.windowStartedAtMs < TOP_DOMAIN_WINDOW_MS) {
+            return
+        }
+        this.counts.clear()
+        this.total = 0
+        this.windowStartedAtMs = nowMs
+    }
+}
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
 export interface InFlightCount {
@@ -17,14 +68,12 @@ export interface BudgetCounts {
 export type UrlDropReason =
     | 'malformed'
     | 'unsupported_version'
-    | 'stale'
     | 'bad_ref'
     | 'bad_url'
     | 'foreign_domain'
-    | 'private_host'
     | 'oversized_record'
 
-export type DedupScope = 'batch' | 'pod' | 'store'
+export type DedupScope = 'batch' | 'store'
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -32,32 +81,27 @@ export class ImageFetchConsumerMetrics {
         help: 'URLs that passed every check and would have been fetched. In dry run no request is sent, so this is the offered rate rather than the sent rate',
     })
     /**
-     * `batch` and `pod` cost only memory, and `store` costs a shared-store read, so the split is the
-     * measurement rather than the total. A high `store` share against a full pod cache says the pod
-     * cache is too small. A low one says the pod cache already holds the working set.
+     * `batch` costs only memory, while `store` costs a shared-store read.
      */
     private static readonly deduped = new Counter({
         name: 'ml_image_fetch_consumer_deduped_total',
-        help: 'URLs skipped as already known, by the layer that caught them: "batch" (another copy in the same poll batch), "pod" (this pod saw it earlier), "store" (another pod saw it, or this pod before a restart)',
+        help: 'URLs skipped as already known, by the layer that caught them: "batch" (another copy in the same poll batch) or "store" (a durable crawl-history result)',
         labelNames: ['scope'],
     })
     /**
-     * `stale` is the expected reason under a backlog. The others mean the producer and this consumer
-     * disagree about the wire format, so a sustained rate on any of them takes the lane to zero while
-     * the Kafka side still looks healthy.
+     * A sustained rate means the producer and consumer disagree about the wire format.
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the key is not the registrable domain of the host), "private_host" (the host is a private address or a name that only resolves inside a network)',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid',
         labelNames: ['reason'],
     })
     /**
-     * A batch that spans many domains means the key spreads work more finely than the partition count
-     * can express, which is what would let one pod pass the budget of a single site.
+     * This distribution shows how much independent origin state one poll can activate.
      */
-    private static readonly domainsPerBatch = new Histogram({
-        name: 'ml_image_fetch_consumer_domains_per_batch',
-        help: 'Distinct registrable domains in one poll batch. The politeness budget is per domain and held by the pod owning the partition, so this bounds how many budgets one pod runs at once',
+    private static readonly originsPerBatch = new Histogram({
+        name: 'ml_image_fetch_consumer_origins_per_batch',
+        help: 'Distinct origins in one poll batch',
         buckets: [1, 2, 4, 8, 16, 32, 64],
     })
     private static readonly urlsPerRecord = new Histogram({
@@ -67,7 +111,7 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly storeErrors = new Counter({
         name: 'ml_image_fetch_consumer_store_errors_total',
-        help: 'Crawl-history keys that failed, by operation. A failed read makes the lane treat a known URL as new, so the measured hit rate understates the real one. A failed write leaves the URL unrecorded, so the next pod to see it counts it again',
+        help: 'Crawl-history keys in a failed read or write. Either failure stops the batch before Kafka offsets advance',
         labelNames: ['operation'],
     })
     private static readonly batchDuration = new Histogram({
@@ -77,7 +121,7 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly ageSeconds = new Histogram({
         name: 'ml_image_fetch_consumer_url_age_seconds',
-        help: 'Age of a URL when this lane reached it, measured from capture rather than from produce. The tail against the configured age limit says how much of a backlog would be dropped rather than fetched',
+        help: 'Age of a URL when this lane reached it, measured from capture rather than from produce. The tail shows the age of the backlog',
         buckets: [1, 10, 60, 300, 900, 3600, 6 * 3600, 24 * 3600],
     })
     private static readonly dryRun = new Gauge({
@@ -100,8 +144,8 @@ export class ImageFetchConsumerMetrics {
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
     }
-    public static observeBatch(domains: number, durationSeconds: number): void {
-        this.domainsPerBatch.observe(domains)
+    public static observeBatch(origins: number, durationSeconds: number): void {
+        this.originsPerBatch.observe(origins)
         this.batchDuration.observe(durationSeconds)
     }
     public static observeRecord(urls: number): void {
@@ -119,72 +163,150 @@ export class ImageFetchConsumerMetrics {
  * logs of the runner. A URL is page content and belongs in no metric, log, or trace.
  */
 export class ImageFetchRequestMetrics {
+    private static readonly registrableDomains = new WindowedSpaceSaving()
+    private static readonly providerDomains = new WindowedSpaceSaving()
+    private static readonly completedUrls = new Counter({
+        name: 'ml_image_fetch_completed_urls_total',
+        help: 'Completed URLs by final outcome and refusal reason',
+        labelNames: ['outcome', 'refusal_reason'],
+    })
+    private static readonly completedUrlSystemTime = new Histogram({
+        name: 'ml_image_fetch_completed_url_system_time_seconds',
+        help: 'Time from first collection until the URL reaches a terminal outcome',
+        buckets: [1, 60, 600, 3600, 6 * 3600, 24 * 3600, 7 * 24 * 3600, 30 * 24 * 3600],
+    })
+    private static readonly completedUrlFetches = new Histogram({
+        name: 'ml_image_fetch_completed_url_fetches',
+        help: 'Image HTTP requests made before a URL reaches a terminal outcome',
+        buckets: [0, 1, 2, 3, 5, 10],
+    })
+    private static readonly completedUrlRepublishes = new Histogram({
+        name: 'ml_image_fetch_completed_url_republishes',
+        help: 'Frontier and delay-topic republishes before a URL reaches a terminal outcome',
+        buckets: [0, 1, 2, 3, 5, 10],
+    })
+    private static readonly originStatus = new Counter({
+        name: 'ml_image_fetch_origin_status_total',
+        help: 'Origin policy and request-budget decisions after block state is known',
+        labelNames: ['blocked', 'reason'],
+    })
+    private static readonly registrableDomainGauge = new Gauge({
+        name: 'ml_image_fetch_request_registrable_domains',
+        help: 'Completed external requests for the 20 largest registrable domains in the current 10-minute window',
+        labelNames: ['domain'],
+        collect() {
+            this.reset()
+            for (const item of ImageFetchRequestMetrics.registrableDomains.top()) {
+                this.labels(item.label).set(item.count)
+            }
+        },
+    })
+    private static readonly providerDomainGauge = new Gauge({
+        name: 'ml_image_fetch_request_provider_domains',
+        help: 'Completed external requests for the 20 largest provider domains in the current 10-minute window',
+        labelNames: ['domain'],
+        collect() {
+            this.reset()
+            for (const item of ImageFetchRequestMetrics.providerDomains.top()) {
+                this.labels(item.label).set(item.count)
+            }
+        },
+    })
     /**
-     * `ok` against the sum is the yield of the lane. The site answers `not_found`, `forbidden`,
-     * `rate_limited`, and `server_error`. This lane refuses `too_large`, `not_image`, `blocked`,
-     * `bad_redirect`, and `too_many_redirects`. Only `breaker_open` and `deadline` come back in a
-     * later batch.
+     * `ok` against the sum is the yield of the lane.
      */
     private static readonly outcomes = new Counter({
         name: 'ml_image_fetch_requests_total',
-        help: 'URLs that reached the request stage, by outcome. "deadline", "breaker_open", "connection_limit" and "rate_limited" cover URLs the lane never sent, so they say the lane wants more pods or the site wants less traffic, rather than that a fetch failed',
+        help: 'Completed external HTTP requests by status or network failure',
         labelNames: ['outcome'],
     })
     private static readonly duration = new Histogram({
         name: 'ml_image_fetch_request_duration_seconds',
-        help: 'Time from the first request of a URL to its outcome, redirects included. It excludes the wait for a rate-limit token, which ml_image_fetch_budget_wait_seconds holds',
+        help: 'Time for one completed external HTTP request, including its response body',
         labelNames: ['outcome'],
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
     /**
-     * A rising tail means one domain offers more URLs than its rate carries. Past the pass deadline
-     * the wait becomes a `deadline` shed, so read this against that outcome: a growing wait with no
-     * sheds is headroom, and a growing wait with sheds is a domain the lane cannot keep up with.
+     * Read a rising tail with the `deadline` outcome to distinguish headroom from load that an
+     * origin's allowed rate cannot carry within one pass.
      */
     private static readonly budgetWait = new Histogram({
         name: 'ml_image_fetch_budget_wait_seconds',
-        help: 'Time a URL waited for its domain rate limit before its request went out',
+        help: 'Time a URL waited for its origin rate limit before its request went out',
         buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
     })
     private static readonly responseBytes = new Histogram({
         name: 'ml_image_fetch_response_bytes',
         help: 'Size of a downloaded image. The tail against the configured byte limit says how much of the catalog the limit refuses',
-        buckets: [1024, 8 * 1024, 32 * 1024, 128 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024],
+        buckets: [
+            1024,
+            8 * 1024,
+            32 * 1024,
+            128 * 1024,
+            512 * 1024,
+            1024 * 1024,
+            2 * 1024 * 1024,
+            10 * 1024 * 1024,
+            20 * 1024 * 1024,
+        ],
     })
     private static readonly redirects = new Histogram({
         name: 'ml_image_fetch_redirects',
-        help: 'Redirects followed for one URL. Each hop is a separate request against the budget of whichever domain it lands on',
+        help: 'Redirects followed for one URL. Each hop is a separate request against the budget of its origin',
         buckets: [0, 1, 2, 3],
     })
     /**
-     * The tracked count against the configured maximum says whether the map evicts, and an eviction
-     * forgets that a domain is blocked.
-     *
      * Both gauges read the budget at scrape time. A hold expires by the clock, so a count taken at
-     * the end of a batch would report blocked domains until the next batch arrives.
+     * the end of a batch would report blocked origins until the next batch arrives.
      */
     private static readonly trackedDomains = new Gauge({
         name: 'ml_image_fetch_tracked_domains',
-        help: 'Registrable domains this pod holds rate-limit state for',
+        help: 'Origins this pod holds rate-limit state for',
         collect() {
             this.set(ImageFetchRequestMetrics.budget?.trackedDomains ?? 0)
         },
     })
     private static readonly blockedDomains = new Gauge({
         name: 'ml_image_fetch_blocked_domains',
-        help: 'Domains this pod is currently sending nothing to, because a breaker opened or a Retry-After header is still in force',
+        help: 'Origins this pod is currently sending nothing to because a breaker opened or Retry-After is still in force',
         collect() {
             this.set(ImageFetchRequestMetrics.budget?.blockedDomains(Date.now()) ?? 0)
         },
     })
 
-    public static incOutcome(outcome: string, count = 1): void {
-        this.outcomes.labels(outcome).inc(count)
-    }
-    public static observeRequest(outcome: string, durationSeconds: number, redirects: number): void {
+    public static observeRequest(
+        outcome: string,
+        durationSeconds: number,
+        _redirects: number,
+        registrableDomain?: string,
+        providerDomain?: string
+    ): void {
         this.outcomes.labels(outcome).inc()
         this.duration.labels(outcome).observe(durationSeconds)
+        if (registrableDomain) {
+            this.registrableDomains.add(registrableDomain)
+        }
+        if (providerDomain) {
+            this.providerDomains.add(providerDomain)
+        }
+    }
+    public static observeRedirectCount(redirects: number): void {
         this.redirects.observe(redirects)
+    }
+    public static observeCompletedUrl(
+        outcome: string,
+        refusalReason: string,
+        systemTimeSeconds: number,
+        fetches: number,
+        republishes: number
+    ): void {
+        this.completedUrls.labels(outcome, refusalReason).inc()
+        this.completedUrlSystemTime.observe(systemTimeSeconds)
+        this.completedUrlFetches.observe(fetches)
+        this.completedUrlRepublishes.observe(republishes)
+    }
+    public static observeOriginStatus(blocked: boolean, reason = 'none'): void {
+        this.originStatus.labels(blocked ? 'true' : 'false', reason).inc()
     }
     public static observeBudgetWait(waitSeconds: number): void {
         this.budgetWait.observe(waitSeconds)
@@ -194,7 +316,7 @@ export class ImageFetchRequestMetrics {
     }
     private static readonly evictedWhileBlocked = new Gauge({
         name: 'ml_image_fetch_domains_evicted_while_blocked',
-        help: 'Domains dropped from the rate-limit map while they were still blocked. Each one resumes traffic to a site that asked us to wait, so a rising value means the tracked-domain limit is too low',
+        help: 'Origins dropped from the rate-limit map while still blocked. This must stay zero because blocked entries are not eligible for eviction',
         collect() {
             this.set(ImageFetchRequestMetrics.budget?.evictedWhileBlocked ?? 0)
         },
@@ -208,7 +330,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly inFlight = new Gauge({
         name: 'ml_image_fetch_requests_in_flight',
-        help: "Image requests this pod holds open right now. A URL waiting for its domain's rate limit is not counted, because it holds no socket",
+        help: "Image requests this pod holds open right now. A URL waiting for its origin's rate limit is not counted, because it holds no socket",
         collect() {
             this.set(ImageFetchRequestMetrics.requests?.running ?? 0)
         },
@@ -217,23 +339,7 @@ export class ImageFetchRequestMetrics {
     private static budget: BudgetCounts | undefined
     private static requests: InFlightCount | undefined
 
-    /**
-     * URLs a shed left in the back queue, which the lane will not put back.
-     *
-     * A pass sheds whatever it did not reach, and one back queue can hold far more than a delay
-     * tier can carry. Republishing all of them answers overload with more Kafka traffic, and the
-     * same URLs come round again a minute later, each having spent a hop.
-     */
-    private static readonly shedDropped = new Counter({
-        name: 'ml_image_fetch_shed_dropped_total',
-        help: 'URLs a shed did not put back, because one pass republishes at most a fixed number for one domain. They return when a session refers to the same image',
-    })
-
-    public static incShedDropped(count: number): void {
-        this.shedDropped.inc(count)
-    }
-
-    /** The runner owns both. Requirement 28. */
+    /** The runner owns both. */
     public static trackBudget(budget: BudgetCounts, requests: InFlightCount): void {
         this.budget = budget
         this.requests = requests
@@ -242,7 +348,7 @@ export class ImageFetchRequestMetrics {
     /**
      * Read against `ml_image_fetch_requests_total` this is the amplification factor, because the lane
      * reads every republished message again. A rate that approaches the request rate means most work
-     * goes around rather than completes. Requirement 27.
+     * goes around rather than completes.
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
@@ -255,12 +361,11 @@ export class ImageFetchRequestMetrics {
         labelNames: ['reason'],
     })
     /**
-     * Zero is the common case, which is a URL fetched on first sight. The tail shows redirect chains
-     * and retries, and a value at the budget is a URL the lane gave up on. Requirement 26.
+     * Zero is the common case. The tail shows redirect chains and retries.
      */
     private static readonly hopsUsed = new Histogram({
         name: 'ml_image_fetch_hops_used',
-        help: 'Moves one URL made before the lane finished with it. A republish and a retry each count one. A redirect that stays on the same domain is bounded separately and counts none',
+        help: 'Redirects and retries spent from one URL job before the lane finished it',
         buckets: [0, 1, 2, 3, 5, 10],
     })
 
@@ -295,49 +400,10 @@ export class RetryDelayMetrics {
         buckets: [1, 10, 60, 300, 600, 1800, 3600],
     })
 
-    public static incReleased(outcome: 'released' | 'failed' | 'malformed' | 'abandoned'): void {
-        this.released.labels(outcome).inc()
+    public static incReleased(outcome: 'released' | 'failed' | 'malformed' | 'abandoned', count = 1): void {
+        this.released.labels(outcome).inc(count)
     }
     public static observeWait(waitSeconds: number): void {
         this.waitSeconds.observe(waitSeconds)
-    }
-}
-
-/**
- * How the lane's work divides between teams, without an unbounded label.
- *
- * The team ID space is in the low millions, so this bounds `pseudo_team` here rather than at the
- * database. The busiest teams keep their name, everything else is one `other` row, and the count of
- * distinct teams is an estimate in a single series. Requirements 29, 30, and 31.
- *
- * Nothing on this path holds the team ID, so a team ID label here would need the mirror to send it.
- */
-export class ImageFetchTeamMetrics {
-    private static source: TeamVolume | undefined
-
-    private static readonly urlsByTeam = new Gauge({
-        name: 'ml_image_fetch_team_urls',
-        help: 'URLs handled for each of the busiest teams, with the rest summed as "other". The label is the team pseudonym the topic carries, not the team ID',
-        labelNames: ['pseudo_team'],
-        collect() {
-            // Rebuilt at scrape rather than kept in step with the counts, so a team that drops out
-            // of the top list loses its series instead of holding its last value.
-            this.reset()
-            for (const { team, count } of ImageFetchTeamMetrics.source?.top() ?? []) {
-                this.labels(team).set(count)
-            }
-        },
-    })
-    private static readonly distinctTeams = new Gauge({
-        name: 'ml_image_fetch_distinct_teams',
-        help: 'About how many distinct teams this pod has handled URLs for, estimated rather than counted, because an exact set of a million team pseudonyms costs hundreds of megabytes',
-        collect() {
-            this.set(ImageFetchTeamMetrics.source?.distinctTeams() ?? 0)
-        },
-    })
-
-    /** The consumer owns the counts. These gauges read them at scrape time. */
-    public static track(volume: TeamVolume): void {
-        this.source = volume
     }
 }

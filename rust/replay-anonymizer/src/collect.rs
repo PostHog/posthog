@@ -43,8 +43,8 @@ pub fn image_ref(pseudo_team: &str, hash: &str) -> String {
 /// mis-join rather than an error.
 pub const URL_REF_PREFIX: &str = "imageurl";
 
-pub fn url_ref(pseudo_team: &str, hash: &str) -> String {
-    format!("{URL_REF_PREFIX}:{pseudo_team}:{hash}")
+pub fn url_ref(hash: &str) -> String {
+    format!("{URL_REF_PREFIX}:{hash}")
 }
 
 /// True for strings shaped like a content ref. The `image:` prefix cannot collide with a data URI,
@@ -57,27 +57,36 @@ pub fn is_image_ref(s: &str) -> bool {
     s.starts_with("image:")
 }
 
-/// True only for a fully well-formed ref: `image:` + 32 lowercase hex (the team pseudonym) + `:`
-/// + 22 base64url chars (the truncated HMAC).
+/// True only for a fully well-formed content ref or URL ref.
 ///
 /// The loose prefix check would let a captured page set a media attribute to `image:<anything>` and
 /// have it copied verbatim into anonymized output. This bounds what can survive to a fixed-width
 /// opaque token with no room for readable content.
 pub fn is_image_ref_strict(s: &str) -> bool {
-    let Some(rest) = s
-        .strip_prefix("image:")
-        .or_else(|| s.strip_prefix("imageurl:"))
-    else {
-        return false;
-    };
-    let Some((team, hash)) = rest.split_once(':') else {
-        return false;
-    };
+    if let Some(rest) = s.strip_prefix("image:") {
+        let Some((team, hash)) = rest.split_once(':') else {
+            return false;
+        };
+        return is_pseudo_team(team) && is_ref_hash(hash);
+    }
+    if let Some(rest) = s.strip_prefix("imageurl:") {
+        return is_ref_hash(rest)
+            || rest
+                .split_once(':')
+                .is_some_and(|(team, hash)| is_pseudo_team(team) && is_ref_hash(hash));
+    }
+    false
+}
+
+fn is_pseudo_team(team: &str) -> bool {
     team.len() == 32
         && team
             .bytes()
             .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() && b <= b'f')
-        && hash.len() == 22
+}
+
+fn is_ref_hash(hash: &str) -> bool {
+    hash.len() == 22
         && hash
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
