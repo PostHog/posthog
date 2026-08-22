@@ -126,7 +126,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                     />
                     <Markdown>
                         {dedent`
-                            Each exporter fails on its own, so a slow archive write does not block delivery to PostHog.
+                            The collector reports each exporter's result on its own, so a failed archive write does not fail your delivery to PostHog.
                             Set the retention and lifecycle rules on the storage bucket to match your compliance window.
                         `}
                     </Markdown>
