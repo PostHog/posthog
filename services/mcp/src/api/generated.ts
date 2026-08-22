@@ -64101,6 +64101,11 @@ export namespace Schemas {
     }
 
     /**
+     * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
+     */
+    export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
+
+    /**
      * * `local` - local
      */
     export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
@@ -64136,6 +64141,8 @@ export namespace Schemas {
       state?: unknown;
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];
+      /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
+      state_append?: PatchedTaskRunUpdateStateAppend;
       /**
          * Error message if execution failed
          * @nullable

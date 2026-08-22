@@ -2951,6 +2951,11 @@ export interface TaskRunBootstrapCreateRequestApi {
 }
 
 /**
+ * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
+ */
+export type PatchedTaskRunUpdateApiStateAppend = { [key: string]: unknown }
+
+/**
  * * `not_started` - not_started
  * * `queued` - queued
  * * `in_progress` - in_progress
@@ -3005,6 +3010,8 @@ export interface PatchedTaskRunUpdateApi {
     state?: unknown
     /** State keys to remove atomically before applying any state updates. */
     state_remove_keys?: string[]
+    /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
+    state_append?: PatchedTaskRunUpdateApiStateAppend
     /**
      * Error message if execution failed
      * @nullable

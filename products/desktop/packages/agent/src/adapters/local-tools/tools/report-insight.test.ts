@@ -41,9 +41,26 @@ const RUN_LOG = [
       },
     },
   }),
+  // Crafted raw: pnpm wraps this error in   thin spaces, stored as literal
+  // escape sequences — the exact shape that rejected honest quotes in dogfood.
+  '{"type":"pi_event","event":{"type":"tool_call_updated","toolCall":{"status":"failed","rawOutput":[{"type":"text","text":"ui:\\n\\u2009ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL\\u2009 Command \\"biome\\" not found\\n"}]}}}',
 ].join("\n");
 
 const LOG_RELATIVE_PATH = ".posthog/attachments/run-1/art-1/run-log.jsonl";
+
+function appendingUpdateMock(state: Record<string, unknown>) {
+  // Emulates the server's state_append semantics: append under the current state.
+  return (_t: string, _r: string, updates: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(
+      (updates.state_append ?? {}) as Record<string, unknown>,
+    )) {
+      const current = state[key];
+      state[key] = Array.isArray(current) ? [...current, value] : [value];
+    }
+    if (updates.state) Object.assign(state, updates.state);
+    return Promise.resolve({});
+  };
+}
 
 function ctx(cwd: string) {
   return { cwd, taskId: "task-1", taskRunId: "run-1" };
@@ -109,13 +126,32 @@ describe("reportInsightTool", () => {
     ).toBe(false);
   });
 
-  it("persists a verified finding to run state", async () => {
+  it("persists a verified finding via server-side append", async () => {
     const result = await reportInsightTool.handler(ctx(cwd), validFinding());
     expect(result.isError).toBeUndefined();
-    const savedState = updateTaskRun.mock.calls[0][2].state;
-    const saved = savedState[INSIGHTS_STATE_KEY][0];
+    const updates = updateTaskRun.mock.calls[0][2];
+    expect(updates.state).toBeUndefined();
+    const saved = updates.state_append[INSIGHTS_STATE_KEY];
     expect(saved.category).toBe("environment_failure");
     expect(saved.schema_version).toBe(1);
+  });
+
+  it("accepts a quote whose characters are stored as unicode escapes", async () => {
+    // The log stores thin spaces as literal   sequences and quotes as \";
+    // the model copies the rendered text with plain spaces and quotes.
+    const result = await reportInsightTool.handler(
+      ctx(cwd),
+      validFinding({
+        evidence: [
+          {
+            quote:
+              'ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "biome" not found',
+            evidence_type: "command_output",
+          },
+        ],
+      }),
+    );
+    expect(result.isError).toBeUndefined();
   });
 
   it.each([
@@ -204,12 +240,9 @@ describe("reportInsightTool", () => {
     // Models issue parallel tool calls; unserialized read-modify-write kept
     // only the last finding. Simulate the race: state reads reflect prior
     // writes only because the handler serializes.
-    let state: Record<string, unknown> = {};
+    const state: Record<string, unknown> = {};
     getTaskRun.mockImplementation(() => Promise.resolve({ state }));
-    updateTaskRun.mockImplementation((_t, _r, updates) => {
-      state = { ...state, ...updates.state };
-      return Promise.resolve({});
-    });
+    updateTaskRun.mockImplementation(appendingUpdateMock(state));
 
     const second = validFinding({
       observation:
@@ -229,10 +262,11 @@ describe("reportInsightTool", () => {
       no_findings_reason: "run_was_efficient",
     });
     expect(result.isError).toBeUndefined();
-    const savedState = updateTaskRun.mock.calls[0][2].state;
-    expect(savedState[INSIGHTS_STATE_KEY]).toEqual([
-      { schema_version: 1, no_findings_reason: "run_was_efficient" },
-    ]);
+    const updates = updateTaskRun.mock.calls[0][2];
+    expect(updates.state_append[INSIGHTS_STATE_KEY]).toEqual({
+      schema_version: 1,
+      no_findings_reason: "run_was_efficient",
+    });
   });
 
   it("accepts a quote whose newlines are stored JSON-escaped in the log", async () => {

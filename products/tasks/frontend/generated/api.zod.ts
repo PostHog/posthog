@@ -2312,6 +2312,12 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('State keys to remove atomically before applying any state updates.'),
+    state_append: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
+        ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
     environment: zod
         .enum(['local'])

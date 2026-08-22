@@ -13,12 +13,16 @@ Two rules apply to every query:
 
 ## Step 1: detect the format
 
+Check the top-level `type` field structurally — never grep the whole line, because log
+_content_ (prompts, tool output) can mention the other format's markers:
+
 ```sh
-grep -m1 -c 'pi_event' <log> && echo PI-FORMAT || echo ACP-FORMAT
+jq -r '.type' <log> | sort | uniq -c
 ```
 
-`1` → pi format. `0` → ACP format. Both formats also contain `{"type": "notification", ...}`
-infrastructure lines (console output, progress steps) — those are shared and mostly noise.
+Any `pi_event` rows → pi format. Otherwise → ACP format. Both formats also contain
+`{"type": "notification", ...}` infrastructure lines (console output, progress steps) — those
+are shared and mostly noise.
 If neither family's recipes below return anything, the log is a format this skill does not
 know: go to the failure protocol, do not reverse-engineer it.
 

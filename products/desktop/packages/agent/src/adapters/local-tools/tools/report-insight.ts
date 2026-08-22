@@ -104,8 +104,13 @@ function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+// Strip ANSI sequences too: command output in logs carries color codes the
+// model never sees in rendered jq output, so they must not break a match.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ESC byte is the point
+const ANSI_PATTERN = /(?:\u001b|\\u001b)\[[0-9;]*m/g;
+
 function normalizeForMatch(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(ANSI_PATTERN, "").replace(/\s+/g, " ").trim();
 }
 
 async function findAttachedLog(cwd: string): Promise<string | null> {
@@ -126,29 +131,82 @@ async function findAttachedLog(cwd: string): Promise<string | null> {
   }
 }
 
-async function readLogForMatching(cwd: string): Promise<string | null> {
+function collectStrings(value: unknown, sink: string[]): void {
+  if (typeof value === "string") {
+    sink.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, sink);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectStrings(item, sink);
+  }
+}
+
+interface LogHaystacks {
+  raw: string;
+  decoded: string;
+}
+
+let haystackCache: { key: string; haystacks: LogHaystacks } | null = null;
+
+// The model quotes text as jq rendered it, but the file stores every string
+// JSON-escaped — including \uXXXX for characters like thin spaces, which no
+// amount of re-encoding the quote reproduces. So match against two views: the
+// raw bytes (for quotes copied from `jq -c` output, which is escaped the same
+// way) and the decoded string values of every line (for quotes copied from
+// `jq -r` output, which is fully unescaped).
+async function readLogHaystacks(cwd: string): Promise<LogHaystacks | null> {
   const logPath = await findAttachedLog(cwd);
   if (!logPath) return null;
   try {
-    const { size } = await stat(logPath);
+    const { size, mtimeMs } = await stat(logPath);
     if (size > MAX_LOG_BYTES) return null;
-    return normalizeForMatch(await readFile(logPath, "utf8"));
+    const cacheKey = `${logPath}:${size}:${mtimeMs}`;
+    if (haystackCache?.key === cacheKey) return haystackCache.haystacks;
+    const raw = await readFile(logPath, "utf8");
+    const decodedParts: string[] = [];
+    for (const line of raw.split("\n")) {
+      try {
+        collectStrings(JSON.parse(line), decodedParts);
+      } catch {
+        decodedParts.push(line);
+      }
+    }
+    const haystacks: LogHaystacks = {
+      raw: normalizeForMatch(raw),
+      decoded: normalizeForMatch(decodedParts.join(" ")),
+    };
+    haystackCache = { key: cacheKey, haystacks };
+    return haystacks;
   } catch {
     return null;
   }
 }
 
-// The model copies quotes from jq output: `jq -c` re-encodes strings, so the
-// quote may already carry the file's escaped form (`\n` as two characters),
-// while `jq -r` prints the decoded text whose newlines and quotes are stored
-// escaped in the raw JSONL. Accept either by also matching the JSON-encoded
-// variant of the quote.
-function quoteAppearsInLog(quote: string, normalizedLog: string): boolean {
-  const decoded = normalizeForMatch(quote);
-  const encoded = normalizeForMatch(JSON.stringify(quote).slice(1, -1));
-  return (
-    normalizedLog.includes(decoded) ||
-    (encoded !== decoded && normalizedLog.includes(encoded))
+function quoteCandidates(quote: string): string[] {
+  const candidates = new Set([normalizeForMatch(quote)]);
+  candidates.add(normalizeForMatch(JSON.stringify(quote).slice(1, -1)));
+  try {
+    // A quote pasted from `jq -c` output is itself escaped; decode it once so
+    // it can also match the decoded haystack.
+    const unescaped = JSON.parse(`"${quote.replace(/(?<!\\)"/g, '\\"')}"`);
+    if (typeof unescaped === "string") {
+      candidates.add(normalizeForMatch(unescaped));
+    }
+  } catch {
+    // Not a valid escaped fragment; the other candidates cover it.
+  }
+  return [...candidates].filter((candidate) => candidate.length > 0);
+}
+
+function quoteAppearsInLog(quote: string, haystacks: LogHaystacks): boolean {
+  return quoteCandidates(quote).some(
+    (candidate) =>
+      haystacks.raw.includes(candidate) ||
+      haystacks.decoded.includes(candidate),
   );
 }
 
@@ -192,7 +250,11 @@ export const reportInsightTool = defineLocalTool({
     other_justification: z.string().min(50).max(200).optional(),
     wasted_effort: z
       .object({
-        metric: z.enum(["tool_calls", "minutes_estimated"]),
+        metric: z
+          .enum(["tokens", "tool_calls", "minutes_estimated"])
+          .describe(
+            "Prefer tokens when the log carries usage counters (compute the delta across the wasted span); tool_calls when countable; minutes_estimated only as a last resort.",
+          ),
         amount: z.number().int().min(1),
       })
       .optional(),
@@ -246,13 +308,11 @@ export const reportInsightTool = defineLocalTool({
           );
         }
         await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-          state: {
-            [INSIGHTS_STATE_KEY]: [
-              {
-                schema_version: 1,
-                no_findings_reason: args.no_findings_reason,
-              },
-            ],
+          state_append: {
+            [INSIGHTS_STATE_KEY]: {
+              schema_version: 1,
+              no_findings_reason: args.no_findings_reason,
+            },
           },
         });
         return {
@@ -327,14 +387,14 @@ export const reportInsightTool = defineLocalTool({
         );
       }
 
-      const normalizedLog = await readLogForMatching(ctx.cwd);
-      if (normalizedLog === null) {
+      const haystacks = await readLogHaystacks(ctx.cwd);
+      if (haystacks === null) {
         return errorResult(
           `No run log was found under ${ATTACHMENTS_DIR} (or it is too large to verify against). Evidence is verified against the attached .jsonl log; check the attachment exists.`,
         );
       }
       for (const [index, item] of args.evidence.entries()) {
-        if (!quoteAppearsInLog(item.quote, normalizedLog)) {
+        if (!quoteAppearsInLog(item.quote, haystacks)) {
           return errorResult(
             `evidence[${index}].quote was not found in the run log — copy the text exactly as your jq query printed it, not from memory.`,
           );
@@ -356,8 +416,11 @@ export const reportInsightTool = defineLocalTool({
         suggested_fix: args.suggested_fix,
         reported_at: new Date().toISOString(),
       };
+      // state_append: the server appends under its row lock, so a concurrent
+      // writer holding a stale state snapshot cannot clobber earlier findings
+      // (this lost a finding in dogfood when the tool sent the whole array).
       await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-        state: { [INSIGHTS_STATE_KEY]: [...existing, insight] },
+        state_append: { [INSIGHTS_STATE_KEY]: insight },
       });
 
       const remaining = MAX_INSIGHTS_PER_RUN - existing.length - 1;

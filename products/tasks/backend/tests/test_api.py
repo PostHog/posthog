@@ -13528,6 +13528,25 @@ class TestTaskAnalysisInsightEvents(BaseTaskAPITest):
         self.assertEqual(props["wasted_effort_amount"], 3)
         self.assertEqual(props["insight_index"], 1)
 
+    def test_state_append_appends_under_lock_and_emits_only_the_new_insight(self):
+        existing = {"schema_version": 1, "category": "missing_tool"}
+        run = self._make_run(Task.OriginProduct.TASK_ANALYSIS, {"task_analysis_insights": [existing]})
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            tasks_facade.update_task_run(
+                run.id,
+                run.task_id,
+                self.team.id,
+                validated_data={
+                    "state_append": {"task_analysis_insights": {"schema_version": 1, "category": "wasted_retry"}}
+                },
+            )
+        run.refresh_from_db()
+        insights = run.state["task_analysis_insights"]
+        self.assertEqual([entry["category"] for entry in insights], ["missing_tool", "wasted_retry"])
+        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["properties"]["category"], "wasted_retry")
+
     def test_state_patch_on_non_analysis_run_emits_no_insight_events(self):
         run = self._make_run(Task.OriginProduct.USER_CREATED, {})
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:

@@ -2617,7 +2617,13 @@ def update_task_run(
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]
-    has_state_mutation = has_state_merge or bool(state_remove_keys)
+    raw_state_append = validated_data.get("state_append")
+    state_append = (
+        {k: v for k, v in raw_state_append.items() if k not in _PROTECTED_RUN_STATE_KEYS}
+        if isinstance(raw_state_append, dict)
+        else {}
+    )
+    has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
     from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
@@ -2631,7 +2637,7 @@ def update_task_run(
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
             return _task_run_detail_to_dto(run)
-        if has_state_merge:
+        if has_state_mutation:
             prior_insight_count = task_analysis_insight_count(run)
 
         old_status = run.status
@@ -2648,7 +2654,7 @@ def update_task_run(
                 setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
                 update_fields.add(key)
                 continue
-            if key == "state_remove_keys":
+            if key in ("state_remove_keys", "state_append"):
                 continue
             if key == "state" and has_state_merge:
                 existing_state = run.state if isinstance(run.state, dict) else {}
@@ -2670,6 +2676,16 @@ def update_task_run(
             run.state = next_state
             update_fields.add("state")
 
+        if state_append:
+            # Applied under the row lock against the freshly-read row, so appends survive
+            # any concurrent writer that read state before this PATCH.
+            next_state = dict(run.state) if isinstance(run.state, dict) else {}
+            for append_key, item in state_append.items():
+                current = next_state.get(append_key)
+                next_state[append_key] = [*current, item] if isinstance(current, list) else [item]
+            run.state = next_state
+            update_fields.add("state")
+
         new_status = validated_data.get("status")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
@@ -2680,7 +2696,7 @@ def update_task_run(
         run.save(update_fields=list(update_fields))
         run.publish_stream_state_event()
 
-    if has_state_merge:
+    if has_state_mutation:
         capture_new_insight_events(run, prior_insight_count)
 
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an

@@ -246,6 +246,15 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="State keys to remove atomically before applying any state updates.",
     )
+    state_append = serializers.DictField(
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "State keys whose value to append to the list stored at that key, atomically under the row "
+            "lock. Use instead of sending the whole list back through `state`, which loses concurrent "
+            "appends to a read-modify-write race."
+        ),
+    )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
     )

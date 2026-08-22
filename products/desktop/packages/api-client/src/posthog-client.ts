@@ -3670,7 +3670,10 @@ export class PostHogAPIClient {
         TaskRun,
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
-    >,
+    > & {
+      /** Append each value to the list stored at that state key, atomically server-side. */
+      state_append?: Record<string, unknown>;
+    },
   ): Promise<TaskRun> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
