@@ -69,7 +69,7 @@ function showSpendNotice(crossing: SpendLimitCrossing): void {
   const description = `${formatUsd(crossing.spentUsd)} spent in this app ${windowLabel}. Nothing is paused.`;
   const action = {
     label: "View spend",
-    onClick: () => openSettings("plan-usage"),
+    onClick: () => openSettings("cost-management"),
   };
 
   // Warning toasts self-dismiss; the stop notice stays until dismissed.

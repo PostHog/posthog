@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeSpendLevel,
   activeSpendStop,
   EMPTY_SPEND_LIMITS,
   evaluateSpendLimits,
   hasAnySpendLimit,
   niceRound,
+  parseSpendAmount,
   projectedMonthUsd,
   pruneSpendNoticesSeen,
   type SpendLimits,
   spendLimitNoticeKey,
+  spendTickIncrement,
   spendTotalsFromDays,
   suggestedSpendLimits,
 } from "./spendLimits";
@@ -170,5 +173,72 @@ describe("spendLimits", () => {
       monthlyStopUsd: 1000,
     });
     expect(suggestedSpendLimits(0, "2026-08-22")).toBeNull();
+  });
+
+  it.each([
+    // A stop supersedes a warning the page would otherwise flag as amber.
+    [
+      { dailyWarnUsd: 20, dailyStopUsd: 50 },
+      { todayUsd: 60, monthUsd: 60 },
+      "stop",
+    ],
+    [
+      { dailyWarnUsd: 20, dailyStopUsd: 50 },
+      { todayUsd: 30, monthUsd: 30 },
+      "warn",
+    ],
+    [
+      { dailyWarnUsd: 20, dailyStopUsd: 50 },
+      { todayUsd: 5, monthUsd: 5 },
+      null,
+    ],
+    // A monthly line crossed on its own still shows.
+    [{ monthlyWarnUsd: 500 }, { todayUsd: 5, monthUsd: 600 }, "warn"],
+    [{}, { todayUsd: 900, monthUsd: 9000 }, null],
+  ] as const)("activeSpendLevel %#", (partial, totals, expected) => {
+    expect(activeSpendLevel(limits(partial), totals)).toBe(expected);
+  });
+
+  it.each([
+    ["20", 20],
+    ["$20", 20],
+    ["8,950", 8950],
+    ["12.345", 12.35],
+    ["", null],
+    ["0", null],
+    ["-5", null],
+    ["abc", null],
+  ] as const)("parseSpendAmount(%j) -> %s", (raw, expected) => {
+    expect(parseSpendAmount(raw)).toBe(expected);
+  });
+
+  it.each([
+    // A day's average anchors the daily track.
+    [100, 12.4, 10],
+    // A month's pace, rounded, then halved until enough ticks fit.
+    [2000, 384, 250],
+    // No reference figure: fall back to a readable division of the scale.
+    [100, null, 10],
+    [10, null, 1],
+    // A reference so large it would leave one tick gets halved until enough
+    // fit.
+    [100, 90, 12.5],
+    [0, 12, 0],
+  ] as const)(
+    "spendTickIncrement(%s, %s) -> %s",
+    (scale, reference, expected) => {
+      expect(spendTickIncrement(scale, reference)).toBe(expected);
+    },
+  );
+
+  it("always leaves between 6 and 12 ticks on the track", () => {
+    for (const scale of [10, 50, 100, 500, 2000, 20000]) {
+      for (const reference of [null, 0.5, 12.4, 384, 9000]) {
+        const increment = spendTickIncrement(scale, reference);
+        const ticks = scale / increment;
+        expect(ticks).toBeGreaterThanOrEqual(6);
+        expect(ticks).toBeLessThanOrEqual(12);
+      }
+    }
   });
 });

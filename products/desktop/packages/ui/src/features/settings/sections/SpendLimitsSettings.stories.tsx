@@ -6,6 +6,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SpendLimitsSettingsView } from "./SpendLimitsSettings";
 
 const LINES: SpendLimits = {
+  ...EMPTY_SPEND_LIMITS,
   dailyWarnUsd: 20,
   dailyStopUsd: 50,
   monthlyWarnUsd: 500,
@@ -26,8 +27,6 @@ const meta: Meta<typeof SpendLimitsSettingsView> = {
     spendLimits: LINES,
     totals: { todayUsd: 7.31, monthUsd: 84.2, avgDailyUsd: 12.4 },
     onCommit: () => {},
-    warnOnModelSwitch: true,
-    onWarnOnModelSwitchChange: () => {},
   },
 };
 
@@ -36,7 +35,7 @@ type Story = StoryObj<typeof SpendLimitsSettingsView>;
 
 export const BelowLines: Story = {};
 
-export const SuggestionOffered: Story = {
+export const AllOff: Story = {
   args: { spendLimits: EMPTY_SPEND_LIMITS },
 };
 

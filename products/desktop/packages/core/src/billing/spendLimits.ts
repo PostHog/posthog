@@ -2,7 +2,8 @@ import type { SpendAnalysisDayRow } from "@posthog/api-client/spend-analysis";
 
 /**
  * User-set spend lines for this app's personal LLM spend. `null` means the
- * line is off. Lines only inform: crossing one never pauses or blocks work.
+ * line is off. A warning line notifies; a stop line pauses new agent
+ * messages until the line is raised or cleared.
  */
 export interface SpendLimits {
   dailyWarnUsd: number | null;
@@ -20,6 +21,7 @@ export const EMPTY_SPEND_LIMITS: SpendLimits = {
 
 export type SpendLimitLevel = "warn" | "stop";
 export type SpendLimitPeriod = "day" | "month";
+export type SpendLimitScope = SpendLimitPeriod;
 
 export interface SpendLimitCrossing {
   period: SpendLimitPeriod;
@@ -37,6 +39,40 @@ export function hasAnySpendLimit(limits: SpendLimits): boolean {
     limits.monthlyWarnUsd !== null ||
     limits.monthlyStopUsd !== null
   );
+}
+
+/**
+ * A typed spend amount, or null when the text is not one. Accepts a leading
+ * `$` and thousands separators, since that is how the amount is displayed.
+ */
+export function parseSpendAmount(raw: string): number | null {
+  const trimmed = raw.trim().replace(/[$,]/g, "");
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed * 100) / 100;
+}
+
+/**
+ * The gap between tick marks on a spend track. Anchored to a reference figure
+ * so a tick means something in that scope's terms — roughly a day's average on
+ * a daily track, a month's pace on a monthly one — then rounded to a 1/2/5
+ * step and adjusted until the track carries between 6 and 12 of them: with
+ * fewer, the knobs sit on top of most of the ticks.
+ */
+export function spendTickIncrement(
+  scale: number,
+  referenceUsd: number | null,
+): number {
+  if (scale <= 0) return 0;
+  const seed =
+    referenceUsd !== null && referenceUsd > 0 ? referenceUsd : scale / 8;
+  let increment = niceRound(seed);
+  if (increment <= 0) return 0;
+  // Too few ticks to read as a ruler, or so many they turn into a line.
+  while (scale / increment > 12) increment *= 2;
+  while (scale / increment < 6) increment /= 2;
+  return increment;
 }
 
 export interface SpendTotals {
@@ -206,6 +242,33 @@ export function activeSpendStop(
       limitUsd: monthlyStopUsd,
       spentUsd: totals.monthUsd,
     };
+  }
+  return null;
+}
+
+/**
+ * The highest level any line currently sits past, for at-a-glance
+ * indicators: "stop" beats "warn"; null when nothing is crossed.
+ */
+export function activeSpendLevel(
+  limits: SpendLimits,
+  totals: SpendTotals,
+): SpendLimitLevel | null {
+  if (activeSpendStop(limits, totals) !== null) return "stop";
+  const { dailyWarnUsd, monthlyWarnUsd } = limits;
+  if (
+    dailyWarnUsd !== null &&
+    dailyWarnUsd > 0 &&
+    totals.todayUsd >= dailyWarnUsd
+  ) {
+    return "warn";
+  }
+  if (
+    monthlyWarnUsd !== null &&
+    monthlyWarnUsd > 0 &&
+    totals.monthUsd >= monthlyWarnUsd
+  ) {
+    return "warn";
   }
   return null;
 }

@@ -21,5 +21,5 @@ export function useSpendStop(): ActiveSpendStop | null {
 /** The composer tooltip while a stop line holds new messages. */
 export function spendStopMessage(stop: ActiveSpendStop): string {
   const periodLabel = stop.period === "day" ? "Daily" : "Monthly";
-  return `${periodLabel} spend passed your ${formatUsd(stop.limitUsd)} stop line. Raise or clear it in Plan & usage to continue.`;
+  return `${periodLabel} spend passed your ${formatUsd(stop.limitUsd)} stop line. Raise or clear it in Cost management to continue.`;
 }

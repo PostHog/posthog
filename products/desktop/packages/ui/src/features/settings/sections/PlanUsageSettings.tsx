@@ -28,7 +28,6 @@ import { UsageMeter } from "@posthog/ui/features/billing/UsageMeter";
 import { useUsage } from "@posthog/ui/features/billing/useUsage";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
-import { SpendLimitsSettings } from "@posthog/ui/features/settings/sections/SpendLimitsSettings";
 import { SpendAnalysisSection } from "@posthog/ui/features/usage/components/SpendAnalysisSection";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageViewed";
@@ -242,8 +241,6 @@ export function PlanUsageContent({
           )}
         </SettingsSubsection>
       )}
-
-      {spendAnalysisEnabled && <SpendLimitsSettings />}
 
       {spendAnalysisEnabled && (
         <PersonalSpendDisclosure>

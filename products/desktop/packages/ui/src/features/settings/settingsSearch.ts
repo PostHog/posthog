@@ -143,9 +143,30 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "credits", "spend", "subscription"],
   },
   {
-    category: "plan-usage",
+    category: "cost-management",
+    label: "Cost management",
+    keywords: ["cost", "spend", "budget", "savings", "recommendations"],
+  },
+  {
+    category: "cost-management",
     label: "Spend limits",
-    keywords: ["budget", "warning", "alert", "daily spend", "monthly spend"],
+    keywords: [
+      "budget",
+      "warning",
+      "stop line",
+      "daily spend",
+      "monthly spend",
+    ],
+  },
+  {
+    category: "cost-management",
+    label: "Default model",
+    keywords: ["cheaper model", "multiplier", "model cost", "switch model"],
+  },
+  {
+    category: "cost-management",
+    label: "Custom sandbox image",
+    keywords: ["image", "tools", "ripgrep", "cloud runs", "setup"],
   },
   {
     category: "workspaces",

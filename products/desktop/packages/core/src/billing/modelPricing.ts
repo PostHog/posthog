@@ -81,6 +81,17 @@ function formatMultiplier(value: number, approximate: boolean): string {
   return `${approximate ? "≈" : ""}${rounded}×`;
 }
 
+/** Blended per-token multiplier vs the baseline, e.g. 2.5. Null when unpriced. */
+export function modelCostMultiplier(modelId: string): number | null {
+  const price = modelListPrice(modelId);
+  if (!price) return null;
+  return (
+    (price.inputPerMtok / BASELINE.inputPerMtok +
+      price.outputPerMtok / BASELINE.outputPerMtok) /
+    2
+  );
+}
+
 export function modelCostInfo(modelId: string): ModelCostInfo | null {
   const price = modelListPrice(modelId);
   if (!price) return null;

@@ -1,5 +1,9 @@
 import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
-import type { SpendLimitLevel } from "@posthog/core/billing/spendLimits";
+import {
+  type SpendLimitLevel,
+  spendTickIncrement,
+} from "@posthog/core/billing/spendLimits";
+import { SpendKnobValue } from "@posthog/ui/features/settings/sections/SpendKnobValue";
 import { useRef, useState } from "react";
 
 export type SpendSliderTone = "ok" | "warn" | "stop";
@@ -72,17 +76,6 @@ export function formatUsdCompact(value: number): string {
   return formatUsd(value);
 }
 
-const FILL_CLASS: Record<SpendSliderTone, string> = {
-  ok: "bg-(--blue-9)",
-  warn: "bg-(--amber-9)",
-  stop: "bg-(--red-9)",
-};
-
-const HANDLE_CLASS: Record<SpendLimitLevel, string> = {
-  warn: "border-(--amber-9)",
-  stop: "border-(--red-9)",
-};
-
 interface SpendLimitSliderProps {
   warnUsd: number | null;
   stopUsd: number | null;
@@ -92,6 +85,13 @@ interface SpendLimitSliderProps {
   markerUsd: number | null;
   /** Tooltip explaining what the marker is. */
   markerTitle?: string;
+  /** Short label under the marker, e.g. "avg $12.40". */
+  markerLabel?: string;
+  /**
+   * The figure tick spacing is anchored to, so a tick reads as roughly a day's
+   * average or a month's pace rather than an arbitrary slice of the track.
+   */
+  tickReferenceUsd?: number | null;
   /** "Daily" or "Monthly", for the handles' accessible names. */
   periodLabel: string;
   onCommit: (level: SpendLimitLevel, value: number) => void;
@@ -109,6 +109,8 @@ export function SpendLimitSlider({
   spentUsd,
   markerUsd,
   markerTitle,
+  markerLabel,
+  tickReferenceUsd,
   periodLabel,
   onCommit,
 }: SpendLimitSliderProps) {
@@ -133,7 +135,6 @@ export function SpendLimitSlider({
   }
 
   const step = sliderStep(scale);
-  const tone = sliderTone(liveWarn, liveStop, spentUsd);
   const percent = (value: number) =>
     Math.min(100, Math.max(0, (value / scale) * 100));
   const settleClass = drag
@@ -171,40 +172,90 @@ export function SpendLimitSlider({
     return null;
   }
 
+  const warnPercent = isPositive(liveWarn) ? percent(liveWarn) : null;
+  const stopPercent = isPositive(liveStop) ? percent(liveStop) : null;
+  // Zones read left to right: fine up to the warning, caution up to the stop,
+  // and the tail past the stop is where spend cannot go.
+  const tickIncrement = spendTickIncrement(scale, tickReferenceUsd ?? null);
+  const tickPercents: number[] = [];
+  if (tickIncrement > 0) {
+    for (let value = tickIncrement; value < scale; value += tickIncrement) {
+      tickPercents.push(percent(value));
+    }
+  }
+  const cautionStart = warnPercent ?? 0;
+  const cautionWidth = Math.max(
+    0,
+    (stopPercent ?? cautionStart) - cautionStart,
+  );
+
   return (
-    <div className="pt-5 pb-0.5">
-      <div
-        ref={trackRef}
-        className="relative h-2.5 w-full rounded-full bg-(--gray-4)"
-      >
-        <div
-          className={`absolute inset-y-0 left-0 rounded-full ${settleClass} ${FILL_CLASS[tone]}`}
-          style={{ width: `${percent(spentUsd)}%` }}
-        />
+    <div className="pt-10 pb-1">
+      <div ref={trackRef} className="relative h-3.5 w-full">
+        <div className="absolute inset-0 overflow-hidden rounded-full bg-(--gray-4)">
+          {/* One colored band, between the warning and the stop. Everything
+              else is the track's own gray, so color only ever means caution. */}
+          {cautionWidth > 0 && (
+            <div
+              className={`absolute inset-y-0 bg-(--amber-9) ${settleClass}`}
+              style={{ left: `${cautionStart}%`, width: `${cautionWidth}%` }}
+            />
+          )}
+          {stopPercent !== null && (
+            <div
+              className={`absolute inset-y-0 right-0 bg-(--red-9) ${settleClass}`}
+              style={{ left: `${stopPercent}%` }}
+            />
+          )}
+          {/* A ruler: one dot per increment, so a position on the track can be
+              read rather than guessed. */}
+          {tickPercents.map((tickPercent) => (
+            <span
+              key={tickPercent}
+              aria-hidden="true"
+              className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 size-[3px] rounded-full bg-(--gray-a7)"
+              style={{ left: `${tickPercent}%` }}
+            />
+          ))}
+          {/* Spend so far: a drifting hatch, so a live figure reads as live
+              without competing with the caution band for meaning. */}
+          {spentUsd > 0 && (
+            <div
+              aria-hidden="true"
+              className={`absolute inset-y-0 left-0 animate-[spend-usage-drift_1.1s_linear_infinite] bg-(--gray-6) [background-image:repeating-linear-gradient(115deg,rgba(255,255,255,0.5)_0_2px,transparent_2px_6px)] motion-reduce:animate-none ${settleClass}`}
+              style={{ width: `${percent(spentUsd)}%` }}
+            />
+          )}
+        </div>
         {isPositive(markerUsd) && (
           <div
-            className={`-translate-x-1/2 absolute inset-y-0 w-[2px] rounded-full bg-(--gray-12) opacity-50 ${settleClass}`}
+            className={`-translate-x-1/2 absolute inset-y-0 w-[2px] rounded-full bg-(--gray-12) opacity-40 ${settleClass}`}
             style={{ left: `${percent(markerUsd)}%` }}
             title={markerTitle}
           />
         )}
-        {drag && (
+        {handles.map((handle) => (
           <span
-            className="-top-6 -translate-x-1/2 pointer-events-none absolute z-20 whitespace-nowrap rounded-(--radius-2) bg-(--gray-12) px-1.5 py-0.5 font-medium text-(--gray-1) text-[10px] tabular-nums leading-none shadow-sm"
+            key={`${handle.level}-value`}
+            className={`-top-9 -translate-x-1/2 absolute z-20 whitespace-nowrap ${settleClass}`}
             style={{
-              left: `${Math.min(94, Math.max(5, percent(drag.value)))}%`,
+              left: `${Math.min(94, Math.max(6, percent(handle.value)))}%`,
             }}
           >
-            {formatUsdCompact(drag.value)}
+            <SpendKnobValue
+              valueUsd={handle.value}
+              label={formatUsdCompact(handle.value)}
+              name={`${periodLabel} ${handle.name} line`}
+              onCommit={(value) => onCommit(handle.level, value)}
+            />
           </span>
-        )}
+        ))}
         {handles.map((handle) => (
           <div
             key={handle.level}
             className={`-translate-x-1/2 absolute top-1/2 z-10 ${settleClass}`}
             style={{ left: `${percent(handle.value)}%` }}
           >
-            {/* biome-ignore lint/a11y/useSemanticElements: a native range input cannot host two independent thumbs on one shared track */}
             <div
               role="slider"
               tabIndex={0}
@@ -214,7 +265,9 @@ export function SpendLimitSlider({
               aria-valuenow={handle.value}
               aria-valuetext={formatUsd(handle.value)}
               data-attr={`spend-limit-slider-${handle.level}`}
-              className={`-translate-y-1/2 block size-3.5 cursor-grab touch-none rounded-full border-2 bg-(--color-panel-solid) shadow-sm transition-transform duration-150 hover:scale-110 focus-visible:outline focus-visible:outline-(--accent-9) focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-125 active:cursor-grabbing motion-reduce:transition-none ${HANDLE_CLASS[handle.level]}`}
+              // A larger transparent hit area around a notch the size of the
+              // track, so the handle sits inside the color rather than on it.
+              className="-translate-y-1/2 flex size-6 cursor-grab touch-none items-center justify-center rounded-full focus-visible:outline focus-visible:outline-(--accent-9) focus-visible:outline-2 focus-visible:outline-offset-1 active:cursor-grabbing"
               onPointerDown={(event) => {
                 event.preventDefault();
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -248,13 +301,33 @@ export function SpendLimitSlider({
                 );
                 if (next !== handle.value) onCommit(handle.level, next);
               }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="size-3.5 rounded-full bg-[#fff] shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-transform duration-150 motion-reduce:transition-none"
+              />
+            </div>
           </div>
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-(--gray-9) text-[9px] tabular-nums leading-none">
-        <span>$0</span>
-        <span>{formatUsdCompact(scale)}</span>
+      <div className="relative mt-2 h-3">
+        <span className="absolute left-0 whitespace-nowrap text-(--gray-11) text-[9.5px] tabular-nums leading-none">
+          {spentUsd > 0 ? `${formatUsdCompact(spentUsd)} spent` : "$0"}
+        </span>
+        {isPositive(markerUsd) && markerLabel && (
+          <span
+            className={`-translate-x-1/2 absolute whitespace-nowrap text-(--gray-11) text-[9.5px] tabular-nums leading-none ${settleClass}`}
+            style={{
+              left: `${Math.min(88, Math.max(8, percent(markerUsd)))}%`,
+            }}
+            title={markerTitle}
+          >
+            {markerLabel}
+          </span>
+        )}
+        <span className="absolute right-0 text-(--gray-9) text-[9px] tabular-nums leading-none">
+          {formatUsdCompact(scale)}
+        </span>
       </div>
     </div>
   );
