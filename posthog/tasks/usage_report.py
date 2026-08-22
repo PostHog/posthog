@@ -1664,6 +1664,9 @@ POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
+# Customer team the spend was incurred for. Both gateways stamp it in $groups, so
+# ingestion resolves it to a $group_N slot a caller cannot write.
+AI_BILLING_PROJECT_GROUP_TYPE = "project"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
     "EU": 1,
@@ -1691,13 +1694,18 @@ UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
-def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
-    """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
+def get_ai_billing_group_type_index(team_id: int, group_type: str) -> int | None:
+    """Resolve the $group_N index holding group_type for the internal AI events team."""
     for mapping in get_group_types_for_team(team_id):
-        if mapping.get("group_type") == AI_BILLING_INSTANCE_GROUP_TYPE:
+        if mapping.get("group_type") == group_type:
             index = mapping.get("group_type_index")
             return int(index) if index is not None else None
     return None
+
+
+def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
+    """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
+    return get_ai_billing_group_type_index(team_id, AI_BILLING_INSTANCE_GROUP_TYPE)
 
 
 def build_ai_billing_region_filter(team_id: int, region_url: str) -> dict[str, str] | None:
@@ -1776,6 +1784,25 @@ def _get_teams_with_ai_credits_for_products(
     customer_team_id_expr, _ = get_property_string_expr(
         "events", "team_id", "'team_id'", "properties", use_new_events_schema=use_new
     )
+    # team_id is caller-supplied, so a caller can name the team its own spend is
+    # charged to; the $groups-derived slot is the same fact in a form it cannot
+    # write. The per-row fallback keeps a deploy with the group type unregistered
+    # billing as before; drop it once the type is confirmed on both internal teams.
+    project_group_index = get_ai_billing_group_type_index(team_to_query, AI_BILLING_PROJECT_GROUP_TYPE)
+    if project_group_index is None:
+        logger.warning(
+            "ai_billing_project_group_unregistered",
+            team_to_query=team_to_query,
+            group_type=AI_BILLING_PROJECT_GROUP_TYPE,
+            detail="falling back to the caller-supplied team_id property for credit attribution",
+        )
+        customer_team_id_source = customer_team_id_expr
+    else:
+        project_property = f"$group_{project_group_index}"
+        project_expr, _ = get_property_string_expr(
+            "events", project_property, f"'{project_property}'", "properties", use_new_events_schema=use_new
+        )
+        customer_team_id_source = f"if(notEmpty({project_expr}), {project_expr}, {customer_team_id_expr})"
     total_cost_expr, _ = get_property_string_expr(
         "events", "$ai_total_cost_usd", "'$ai_total_cost_usd'", "properties", use_new_events_schema=use_new
     )
@@ -1852,7 +1879,7 @@ def _get_teams_with_ai_credits_for_products(
                     cost_usd
                 FROM (
                     SELECT
-                        toInt64OrZero({customer_team_id_expr}) AS customer_team_id,
+                        toInt64OrZero({customer_team_id_source}) AS customer_team_id,
                         {trace_id_expr} AS trace_id,
                         toDecimal32OrNull(
                             {total_cost_expr},

@@ -3585,6 +3585,14 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             group_type_index=group_type_index,
         )
 
+    def _setup_project_group_mapping(self, team: Team, group_type_index: int = 2) -> None:
+        create_group_type_mapping_without_created_at(
+            team=team,
+            project_id=team.project_id,
+            group_type="project",
+            group_type_index=group_type_index,
+        )
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_llm_observability_usage_metrics(
@@ -3730,6 +3738,89 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: 1.0 USD * 100 * 1.2 = 120 credits
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_attribute_to_the_project_group_not_the_caller_property(self, mock_region: MagicMock) -> None:
+        """The payer comes from the $groups-derived slot, not the caller's team_id property.
+
+        A gateway caller controls unprefixed event properties, so a forged team_id
+        would charge another team's credits. $groups is stripped and re-stamped
+        gateway-side, so the resolved slot is the same fact the caller cannot write.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+        self._setup_project_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period.start + relativedelta(hours=1),
+            properties={
+                # The caller names a team that is not the payer; the group slot
+                # names the real one. Any value here must lose, real team or not.
+                "team_id": 999999,
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "$group_1": "https://us.posthog.com",
+                "$group_2": str(self.org_1_team_1.id),
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_fall_back_to_team_id_when_project_group_unregistered(self, mock_region: MagicMock) -> None:
+        """With no project group type registered, attribution keeps using the property.
+
+        This is the transitional path: it keeps a deploy that has not registered the
+        group type billing as before instead of silently crediting nobody.
+        """
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period.start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 120)
