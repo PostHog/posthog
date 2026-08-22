@@ -811,16 +811,25 @@ class TestPersonsDedupSurvivorVersionFloor:
         assert _version(persons_conn, a) == 2
         assert _version(persons_conn, b) == 4
 
-    def test_the_flag_is_off_by_default(self, persons_conn, tmp_path):
+    @pytest.mark.parametrize(
+        "kwargs,raised",
+        [({}, True), ({"raise_survivor_version": False}, False)],
+        ids=["on by default", "--no-raise-survivor-version opts out"],
+    )
+    def test_the_raise_is_on_unless_a_run_opts_out(self, persons_conn, tmp_path, kwargs, raised):
+        # A run that has to remember a flag to stay correct will eventually forget it, and the
+        # cost of forgetting is a survivor whose ClickHouse row never updates again. The opt-out
+        # still has to work, because it is the rollback if the wider lock ever contends.
         uuid = _uuid(204)
         _add_person(persons_conn, uuid, version=600)
         survivor = _add_person(persons_conn, uuid, version=1)
         _add_distinct_id(persons_conn, survivor, "did-204")
 
-        _run("delete-unreferenced", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True, **kwargs)
 
         assert _persons(persons_conn) == 1
-        assert _version(persons_conn, survivor) == 1
+        expected = 600 + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raised else 1
+        assert _version(persons_conn, survivor) == expected
 
     def test_a_dry_run_counts_the_raises_without_making_them(self, persons_conn, tmp_path):
         # The flag has to be measurable before it writes to a row live ingestion also writes.

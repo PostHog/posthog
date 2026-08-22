@@ -84,11 +84,15 @@ ranks reachability above version, so the row we keep is routinely the lower-vers
 later property updates then lose to a row we just deleted, and ClickHouse serves stale
 properties for as long as the gap takes to close -- which for a large gap is never.
 
---raise-survivor-version lifts a lone survivor above the victims removed with it so its next
-update outranks them. It is not a ClickHouse write: nothing here produces to Kafka, so
-ClickHouse converges on the survivor's next ordinary property update rather than immediately.
-A group with more than one survivor is merge-required and is left alone, because giving both
-the same version makes their ClickHouse rows tie instead of resolve.
+The raise lifts a lone survivor above the victims removed with it so its next update outranks
+them. It is not a ClickHouse write: nothing here produces to Kafka, so ClickHouse converges on
+the survivor's next ordinary property update rather than immediately. A group with more than one
+survivor is merge-required and is left alone, because giving both the same version makes their
+ClickHouse rows tie instead of resolve.
+
+It is on by default, because a run that omits it leaves the divergence in place silently.
+--no-raise-survivor-version opts out, which also drops the UPDATE and the wider lock this takes
+on rows live ingestion writes, and gives up the correction for that run.
 
 Outside the persons DB the bigint survives in places this command cannot repair, all of which
 fail safe. Drain these before a large run rather than reasoning about them mid-flight:
@@ -123,6 +127,7 @@ import os
 import json
 import time
 import logging
+import argparse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -891,11 +896,14 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--raise-survivor-version",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=True,
             help=(
                 "raise a lone survivor's version above the versions of the victims removed with "
                 "it, so its later property updates outrank their ClickHouse rows instead of "
-                "being ignored. Adds an UPDATE on a row live ingestion also writes"
+                "being ignored. On by default: leaving it off silently leaves the survivor's "
+                "ClickHouse row stale. --no-raise-survivor-version opts out, which also drops "
+                "the UPDATE and the wider lock on rows live ingestion writes"
             ),
         )
         parser.add_argument(
