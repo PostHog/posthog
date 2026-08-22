@@ -44,6 +44,13 @@ describe('blur', () => {
         await expect(blurOnly(malicious)).rejects.toBeInstanceOf(UndecodableImageError)
     })
 
+    it.each([1, 2, 0xffff_ffff])('rejects BMP compression mode %s', async (compression) => {
+        const compressed = Buffer.from(bmpSwatch())
+        compressed.writeUInt32LE(compression, 30)
+
+        await expect(blurOnly(compressed)).rejects.toBeInstanceOf(UndecodableImageError)
+    })
+
     it('rejects TIFF input because it is not an accepted fetcher format', async () => {
         const bytes = await swatch().tiff().toBuffer()
 

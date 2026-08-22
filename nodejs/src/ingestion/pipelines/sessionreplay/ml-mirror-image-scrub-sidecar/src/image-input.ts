@@ -38,6 +38,10 @@ function inspectBmp(input: Buffer): ImageDescription {
     if (14 + headerSize > input.length || pixelOffset < 14 + headerSize || pixelOffset > input.length) {
         throw new UndecodableImageError('BMP has invalid header bounds')
     }
+    const compression = input.readUInt32LE(30)
+    if (compression !== 0) {
+        throw new UndecodableImageError(`unsupported BMP compression ${compression}`)
+    }
     const width = input.readInt32LE(18)
     const signedHeight = input.readInt32LE(22)
     const height = Math.abs(signedHeight)
