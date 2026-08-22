@@ -89,6 +89,40 @@ describe("createPiConversationTranslator", () => {
     vi.useRealTimers();
   });
 
+  it("does not carry usage from a terminally failed turn into the next turn", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator();
+    const failedTurnMessage = assistant([{ type: "text", text: "failed" }]);
+    failedTurnMessage.usage.totalTokens = 500;
+    const nextTurnMessage = assistant([{ type: "text", text: "next" }]);
+    nextTurnMessage.usage.totalTokens = 900;
+
+    translator.translateEvent({
+      type: "message_end",
+      message: failedTurnMessage,
+    });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [failedTurnMessage],
+      willRetry: false,
+    });
+    translator.translateEvent({
+      type: "message_end",
+      message: nextTurnMessage,
+    });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 900,
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
   it("appends content missing from the streamed deltas at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);

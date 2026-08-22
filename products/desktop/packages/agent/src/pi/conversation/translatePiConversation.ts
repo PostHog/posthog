@@ -524,6 +524,10 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       const runtimeError = pendingRuntimeError;
       pendingRuntimeError = undefined;
 
+      if (!event.willRetry) {
+        turnTotalTokens = 0;
+      }
+
       if (!event.willRetry && runtimeError) {
         return [runtimeError];
       }
