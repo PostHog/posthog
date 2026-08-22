@@ -144,8 +144,10 @@ sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";""
 
 Tokens consumed by completed turns wholly inside the span. Pi stores the total on `turn_completed`;
 some ACP adapters store it on `_posthog/turn_complete`. Do not use live `_posthog/usage_update`
-records: they can be repeated snapshots for one turn. If the waste is only part of a turn or the
-completion has no usage, omit `tokens`:
+records: they can be repeated snapshots for one turn. The recipe attributes each turn's whole total
+by its completion line, so a span that starts or ends mid-turn borrows a full model request from
+adjacent work or drops one. Anchor boundaries on turn edges; when the span does not hold complete
+turns, or a completion has no usage, omit `tokens`:
 
 ```sh
 sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "turn_completed" then .event.totalTokens elif .notification.method == "_posthog/turn_complete" then (.notification.params.usage | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient completed-turn token records in span" end'
