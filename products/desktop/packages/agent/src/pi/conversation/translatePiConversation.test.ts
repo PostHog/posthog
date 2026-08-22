@@ -66,20 +66,6 @@ describe("createPiConversationTranslator", () => {
     expect(ended).toEqual([]);
   });
 
-  it("keeps assistant token usage in the translated event stream", () => {
-    const translator = createPiConversationTranslator();
-    const message = assistant([{ type: "text", text: "complete" }]);
-    message.usage.totalTokens = 1_234;
-
-    expect(
-      translator.translateEvent({ type: "message_end", message }),
-    ).toContainEqual({
-      type: "usage_update",
-      timestamp: 10,
-      totalTokens: 1_234,
-    });
-  });
-
   it("appends content missing from the streamed deltas at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);

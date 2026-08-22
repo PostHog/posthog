@@ -38,7 +38,6 @@ Agent events are wrapped as `{"type": "pi_event", "timestamp": ..., "event": {..
 | `assistant_thought_chunk` | `event.content.text` — streaming; thousands of tiny chunks per run, coalesce or skip                                |
 | `tool_call_started`       | `event.toolCall`: `id`, `title` (tool name, e.g. `bash`), `kind` (`execute`/`edit`/…), `rawInput` (the actual args) |
 | `tool_call_updated`       | `event.toolCall`: `id`, `status` (`completed`/`failed`), `rawOutput[]` (`{type:"text", text}`), `content`           |
-| `usage_update`            | `event.totalTokens` — tokens consumed by the completed assistant turn                                                 |
 | `turn_completed`          | turn boundary                                                                                                       |
 
 The tool `title` is terse (`bash`, `write`); the real command is in `rawInput`.
@@ -143,22 +142,24 @@ Wall-clock seconds between two lines (every line has a top-level `timestamp`):
 sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";"") | sub("\\+00:00$";"Z") | fromdateiso8601] | last - first'
 ```
 
-Tokens consumed inside the span. Pi assistant messages and ACP usage updates both carry a
-per-turn total, so sum them rather than subtracting them. The command prints a message when the
-log lacks token records inside the span — then omit `tokens` from the finding:
+Tokens consumed inside an ACP span. Each `_posthog/usage_update` is the latest turn's usage, so sum
+the records rather than subtracting them. Pi durable logs do not contain token usage: never
+estimate it, and omit `tokens` from Pi findings. The command also prints a message when an ACP span
+lacks token records — then omit `tokens` from the finding:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "usage_update" then .event.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage // .notification.params.used | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient token records in span" end'
+sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | select(.notification.method == "_posthog/usage_update") | (.notification.params.usage // .notification.params.used | token_total) | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient token records in span" end'
 ```
 
 ### Token-measurement examples
 
-Pi records usage after each completed assistant message. These two records fall inside a measured
-span, so the reported token waste is `1200 + 900 = 2100`:
+Pi durable logs can measure elapsed time and distinct tool calls, but not tokens. This span contains
+two tool calls and timestamps, but no token-bearing record, so report `tool_calls: 2` and measured
+`seconds`, and omit `tokens`:
 
 ```jsonl
-{"type":"pi_event","event":{"type":"usage_update","totalTokens":1200}}
-{"type":"pi_event","event":{"type":"usage_update","totalTokens":900}}
+{"type":"pi_event","timestamp":"2026-08-22T10:00:00Z","event":{"type":"tool_call_started","toolCall":{"id":"call-1","title":"bash"}}}
+{"type":"pi_event","timestamp":"2026-08-22T10:00:05Z","event":{"type":"tool_call_started","toolCall":{"id":"call-2","title":"bash"}}}
 ```
 
 ACP records usage in `_posthog/usage_update`. Codex provides `usage.totalTokens`; Claude provides
