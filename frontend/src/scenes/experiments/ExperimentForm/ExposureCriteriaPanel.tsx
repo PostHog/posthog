@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -21,7 +21,7 @@ import {
     resolvedExposureEvent,
 } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureConfigToFilter, filterToExposureConfig, getExposureTargetingProperties } from '../utils'
 
 const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
     kind: NodeKind.ExperimentEventExposureConfig,
@@ -48,26 +48,39 @@ function InclusionActionFilter({
     experiment: Experiment
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
+    const targetingProperties = getExposureTargetingProperties(experiment.exposure_criteria?.exposure_config)
+
     return (
-        <ActionFilter
-            bordered
-            filters={exposureConfigToFilter(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
-            setFilters={({ events, actions }: Partial<FilterType>): void => {
-                const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ exposure_config: filterToExposureConfig(entity) })
-                }
-            }}
-            typeKey="experiment-exposure-config"
-            buttonCopy="Add exposure event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
-        />
+        <div className="space-y-2">
+            <ActionFilter
+                bordered
+                filters={exposureConfigToFilter(
+                    experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG
+                )}
+                setFilters={({ events, actions }: Partial<FilterType>): void => {
+                    const entity = events?.[0] || actions?.[0]
+                    if (entity) {
+                        onChange({ exposure_config: filterToExposureConfig(entity) })
+                    }
+                }}
+                typeKey="experiment-exposure-config"
+                buttonCopy="Add exposure event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+            />
+            {targetingProperties.length > 0 && (
+                <LemonBanner type="warning">
+                    This filter uses a person, cohort, or group property. Those describe who a user is, not the event
+                    that marks a user as exposed. To limit who enters the experiment, for example by country, set a
+                    release condition on the feature flag instead.
+                </LemonBanner>
+            )}
+        </div>
     )
 }
 
@@ -164,7 +177,8 @@ function ExposureCriteriaFields({
                     description={
                         <>
                             Select a custom event to signal that users reached the part of your app where the experiment
-                            runs. You can also filter out users you would like to exclude.
+                            runs. To limit who enters the experiment, for example by country, set a release condition on
+                            the feature flag instead.
                         </>
                     }
                     selected={isCustom}

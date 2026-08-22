@@ -925,6 +925,23 @@ export function filterToExposureConfig(entity: Record<string, any> | undefined):
 }
 
 /**
+ * Person, cohort, and group filters describe who a user is, so they target an
+ * audience rather than mark an exposure event. Release conditions decide the
+ * audience; an exposure filter on these properties does not, so we surface it
+ * to the user as a likely mistake.
+ */
+export function getExposureTargetingProperties(
+    exposureConfig: ExperimentExposureConfig | undefined
+): AnyPropertyFilter[] {
+    return (exposureConfig?.properties || []).filter(
+        (property) =>
+            property.type === PropertyFilterType.Person ||
+            property.type === PropertyFilterType.Cohort ||
+            property.type === PropertyFilterType.Group
+    )
+}
+
+/**
  * returns the math availability for a metric type
  */
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {

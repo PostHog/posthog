@@ -40,6 +40,7 @@ import {
     getBaselineVariantKey,
     getEventCountQuery,
     getExposureFallbackFilter,
+    getExposureTargetingProperties,
     getFunnelDropoffReason,
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
@@ -1127,6 +1128,51 @@ describe('filterToExposureConfig', () => {
                 },
             ],
         })
+    })
+})
+
+describe('getExposureTargetingProperties', () => {
+    it('returns person, cohort, and group filters but not event filters', () => {
+        const geoipProperty = {
+            key: '$geoip_country_code',
+            value: ['US'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Person,
+        }
+        const cohortProperty = { key: 'id', value: 42, type: PropertyFilterType.Cohort }
+        const groupProperty = { key: 'plan', value: ['pro'], type: PropertyFilterType.Group }
+        const eventProperty = {
+            key: '$feature_flag_response',
+            value: ['test'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        const exposureConfig = {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [geoipProperty, cohortProperty, groupProperty, eventProperty],
+        } as ExperimentEventExposureConfig
+
+        expect(getExposureTargetingProperties(exposureConfig)).toEqual([geoipProperty, cohortProperty, groupProperty])
+    })
+
+    it('returns an empty array when there is no exposure config or no targeting properties', () => {
+        expect(getExposureTargetingProperties(undefined)).toEqual([])
+        expect(
+            getExposureTargetingProperties({
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: '$feature_flag_called',
+                properties: [
+                    {
+                        key: '$feature_flag_response',
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            } as ExperimentEventExposureConfig)
+        ).toEqual([])
     })
 })
 
