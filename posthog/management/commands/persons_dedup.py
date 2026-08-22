@@ -612,28 +612,39 @@ survivor AS (
 )
 """
 
-# A survivor only needs raising when a victim outranks it, and only a lone survivor can be
-# raised: a group with two survivors is merge-required, and giving both the same version would
-# make their ClickHouse rows tie rather than resolve. Those go to the merge pass untouched.
-_SURVIVOR_VERSION_PREDICATE = """
+# Only a lone survivor can be raised: a group with two survivors is merge-required, and giving
+# both the same version would make their ClickHouse rows tie rather than resolve. Those go to
+# the merge pass untouched.
+_LONE_SURVIVOR_PREDICATE = """
   AND v.survivors_in_group = 1
-  AND v.survivor_version <= v.ceiling
 """
 
+# The version guard reads p.version, the live row, not the CTE's survivor_version.
+#
+# LOCK_BATCH_GROUPS_SQL already holds FOR UPDATE on this row, so nothing can move it under us
+# and the two are equal in practice. The distinction still matters: read committed re-checks an
+# UPDATE's qual against the latest tuple after taking the row lock, and that re-check sees a new
+# p.version but not a new CTE, which is evaluated once. Guarding on the CTE would make this
+# statement correct only because of a lock three statements earlier, and silently wrong if
+# anyone reordered the transaction. Guarding on p.version makes it safe on its own, and a
+# survivor a writer pushed above the ceiling is skipped rather than lowered.
 RAISE_SURVIVOR_VERSION_SQL = f"""
 {_SURVIVOR_VERSION_CTE}
 UPDATE posthog_person p
 SET version = v.ceiling + {SURVIVOR_VERSION_MARGIN}
 FROM survivor v
 WHERE p.team_id = %(team)s AND p.id = v.survivor_id
-{_SURVIVOR_VERSION_PREDICATE}
+{_LONE_SURVIVOR_PREDICATE}
+  AND COALESCE(p.version, 0) <= v.ceiling
 """
 
+# The dry-run count has no row to re-check, so it reads the same snapshot the CTE took.
 COUNT_SURVIVOR_VERSION_SQL = f"""
 {_SURVIVOR_VERSION_CTE}
 SELECT count(*) FROM survivor v
 WHERE v.team_id = %(team)s
-{_SURVIVOR_VERSION_PREDICATE}
+{_LONE_SURVIVOR_PREDICATE}
+  AND v.survivor_version <= v.ceiling
 """
 
 VERIFY_ORPHANS_SQL = """

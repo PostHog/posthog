@@ -743,19 +743,29 @@ class TestPersonsDedupSurvivorVersionFloor:
     # reachability above version, so the row we keep is routinely the lower-versioned one and its
     # later updates lose to the row we just deleted. These cover the raise that prevents that.
 
-    def test_a_survivor_below_its_victim_is_raised_above_it(self, persons_conn, tmp_path):
-        uuid = _uuid(200)
-        orphan = _add_person(persons_conn, uuid, version=1500)
-        survivor = _add_person(persons_conn, uuid, version=3)
-        _add_distinct_id(persons_conn, survivor, "did-200")
+    @pytest.mark.parametrize(
+        "victim_version,survivor_version,raised",
+        [(1500, 3, True), (5, 5, True), (5, 88, False)],
+        ids=["survivor below the ceiling", "survivor level with it", "survivor above it"],
+    )
+    def test_a_survivor_is_raised_only_when_a_victim_outranks_it(
+        self, persons_conn, tmp_path, victim_version, survivor_version, raised
+    ):
+        # Level with the ceiling still has to be raised: equal versions tie in ClickHouse and
+        # ReplacingMergeTree picks between them arbitrarily, so the survivor has to end up
+        # strictly above. Tightening the guard to a strict "<" would leave that tie standing.
+        # Above the ceiling is left alone rather than inflated for no gain.
+        uuid = _uuid(200 if raised else 202)
+        orphan = _add_person(persons_conn, uuid, version=victim_version)
+        survivor = _add_person(persons_conn, uuid, version=survivor_version)
+        _add_distinct_id(persons_conn, survivor, f"did-{200 if raised else 202}")
 
         _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
 
         assert _persons(persons_conn) == 1
         assert _count(persons_conn, "SELECT count(*) FROM posthog_person WHERE id = %s", (orphan,)) == 0
-        # Above the victim's 1500, so the survivor's next update outranks the victim's
-        # ClickHouse row instead of being discarded by argMax.
-        assert _version(persons_conn, survivor) == 1500 + persons_dedup_command.SURVIVOR_VERSION_MARGIN
+        expected = victim_version + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raised else survivor_version
+        assert _version(persons_conn, survivor) == expected
 
     def test_the_raise_clears_every_victim_in_a_group_not_just_one(self, persons_conn, tmp_path):
         # The ceiling is a max over the group's victims. Taking any single victim's version
