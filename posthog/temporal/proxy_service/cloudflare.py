@@ -116,9 +116,14 @@ BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
 # across accounts. See Cloudflare's 1xxx error reference.
 CLOUDFLARE_ERROR_CROSS_USER_BANNED = 1014
 
-# Cloudflare's HTML error page shows the code as "Error 1014". The plain-text
-# body sent to API clients shows "error code: 1014".
-_CF_ERROR_CODE_RE = re.compile(r"error(?:\s+code)?[ :]+(\d{4})(?!\d)", re.IGNORECASE)
+# Cloudflare serves the 1014 ban in more than one body shape, and the live probe receives the
+# full HTML error page, not the plain-text body:
+#   - plain-text body sent to some clients:  "error code: 1014"
+#   - a JS snippet in the HTML error page:   "errorCode: 1014"
+#   - the support link in that HTML page:    ".../cloudflare-1xxx-errors/error-1014/"
+# The HTML page splits the visible code across tags ("Error</span> <span>1014</span>"), so match
+# the machine-readable forms above rather than the rendered heading.
+_CF_ERROR_CODE_RE = re.compile(r"error(?:\s*code)?[ :\-]+(\d{4})(?!\d)", re.IGNORECASE)
 
 
 def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:
