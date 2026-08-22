@@ -7,12 +7,11 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { BILLING_USAGE_QUERY_TOO_LARGE_CODE, getBillingUsageError } from './billingBreakdownError'
 import {
-    BILLING_USAGE_QUERY_TOO_LARGE_CODE,
     BillingUsageResponse,
     BillingUsageResponseBreakdownType,
     convertDesktopUsageSeries,
-    getBillingUsageError,
     billingUsageLogic,
 } from './billingUsageLogic'
 

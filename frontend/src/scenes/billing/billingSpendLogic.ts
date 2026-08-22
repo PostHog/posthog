@@ -26,6 +26,7 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
+import { BILLING_USAGE_QUERY_TOO_LARGE_CODE, BillingUsageError, getBillingUsageError } from './billingBreakdownError'
 import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import type { BillingFilters } from './types'
@@ -79,6 +80,7 @@ export interface billingSpendLogicValues {
     currentOrganization: OrganizationType | null // billingLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
+    billingSpendError: BillingUsageError | null
     billingSpendResponse: BillingSpendResponse | null
     billingSpendResponseLoading: boolean
     dateFrom: string
@@ -135,6 +137,9 @@ export interface billingSpendLogicActions {
     }
     resetFilters: () => {
         value: true
+    }
+    setBillingSpendError: (error: BillingUsageError | null) => {
+        error: BillingUsageError | null
     }
     setDateRange: (
         dateFrom: string | null,
@@ -213,9 +218,14 @@ export interface billingSpendLogicMeta {
                 dates: string[]
                 id: number
                 label: string
-            }[]
+            }[],
+            billingSpendError: BillingUsageError | null
         ) => boolean
-        showEmptyState: (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) => boolean
+        showEmptyState: (
+            showSeries: boolean,
+            billingSpendResponse: BillingSpendResponse | null,
+            billingSpendError: BillingUsageError | null
+        ) => boolean
         heading: (filters: {
             breakdowns?: ('team' | 'type')[] | undefined
             interval?: 'day' | 'month' | 'week' | undefined
@@ -268,8 +278,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         setExcludeEmptySeries: (exclude: boolean, shouldDebounce: boolean = true) => ({ exclude, shouldDebounce }),
         toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
         resetFilters: true,
+        setBillingSpendError: (error: BillingUsageError | null) => ({ error }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
@@ -277,6 +288,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
+                    actions.setBillingSpendError(null)
                     const { usage_types, team_ids, breakdowns, interval } = values.filters
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
@@ -290,6 +302,11 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     try {
                         return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
+                        const billingSpendError = getBillingUsageError(error)
+                        if (billingSpendError?.code === BILLING_USAGE_QUERY_TOO_LARGE_CODE) {
+                            actions.setBillingSpendError(billingSpendError)
+                            return null
+                        }
                         lemonToast.error('Failed to load billing spend, please try again or contact support.')
                         throw error
                     }
@@ -338,6 +355,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             {
                 setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude,
                 resetFilters: () => false,
+            },
+        ],
+        billingSpendError: [
+            null as BillingUsageError | null,
+            {
+                setBillingSpendError: (_, { error }) => error,
             },
         ],
     })),
@@ -403,14 +426,20 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
         ],
         showSeries: [
-            (s) => [s.billingSpendResponseLoading, s.series],
-            (billingSpendResponseLoading: boolean, series: billingSpendLogicType['values']['series']) =>
-                billingSpendResponseLoading || series.length > 0,
+            (s) => [s.billingSpendResponseLoading, s.series, s.billingSpendError],
+            (
+                billingSpendResponseLoading: boolean,
+                series: billingSpendLogicType['values']['series'],
+                billingSpendError: BillingUsageError | null
+            ) => billingSpendResponseLoading || (!billingSpendError && series.length > 0),
         ],
         showEmptyState: [
-            (s) => [s.showSeries, s.billingSpendResponse],
-            (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) =>
-                !showSeries && !!billingSpendResponse,
+            (s) => [s.showSeries, s.billingSpendResponse, s.billingSpendError],
+            (
+                showSeries: boolean,
+                billingSpendResponse: BillingSpendResponse | null,
+                billingSpendError: BillingUsageError | null
+            ) => !showSeries && !!billingSpendResponse && !billingSpendError,
         ],
         heading: [
             (s) => [s.filters],
