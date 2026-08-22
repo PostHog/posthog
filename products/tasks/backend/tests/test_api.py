@@ -13413,25 +13413,34 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         self.target_run = TaskRun.objects.create(task=self.target_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        self._enable_analysis_flag()
+
+    def _enable_analysis_flag(self, enabled: bool = True) -> None:
+        def check_flag(flag_name, *_args, **_kwargs):
+            if flag_name == "posthog-code-task-analysis":
+                return enabled
+            return flag_name in {"tasks", "pi-harness"}
+
+        self.mock_feature_flag.side_effect = check_flag
 
     def _analyze(self):
         return self.client.post(
             f"/api/projects/@current/tasks/{self.target_task.id}/runs/{self.target_run.id}/analyze/"
         )
 
-    def _patch_boundaries(self, log_content: bytes | None = b'{"x": 1}\n'):
-        read_patch = patch(
-            "products.tasks.backend.logic.services.task_analysis.object_storage.read_bytes",
-            return_value=log_content,
+    def _patch_boundaries(self, log_size: int | None = 128):
+        head_patch = patch(
+            "products.tasks.backend.logic.services.task_analysis.object_storage.head_object",
+            return_value=None if log_size is None else {"ContentLength": log_size},
         )
-        write_patch = patch("products.tasks.backend.logic.services.task_analysis.object_storage.write")
+        copy_patch = patch("products.tasks.backend.logic.services.task_analysis.object_storage.copy")
         tag_patch = patch("products.tasks.backend.logic.services.task_analysis.tag_task_artifact")
         dispatch_patch = patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow")
-        return read_patch, write_patch, tag_patch, dispatch_patch
+        return head_patch, copy_patch, tag_patch, dispatch_patch
 
     def test_analyze_creates_posthog_funded_analysis_task(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
-        with read_p, write_p as mock_write, tag_p, dispatch_p as mock_dispatch:
+        with read_p, write_p as mock_copy, tag_p, dispatch_p as mock_dispatch:
             response = self._analyze()
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -13448,9 +13457,9 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         artifact = run.artifacts[0]
         self.assertEqual(artifact["name"], "run-log.jsonl")
         self.assertEqual(run.state["pending_user_artifact_ids"], [artifact["id"]])
-        mock_write.assert_called_once()
-        self.assertEqual(mock_write.call_args.args[0], artifact["storage_path"])
+        mock_copy.assert_called_once_with(self.target_run.log_url, artifact["storage_path"])
         mock_dispatch.assert_called_once()
+        self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
 
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
@@ -13491,7 +13500,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertNotEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
 
     def test_analyze_without_log_returns_400(self):
-        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries(log_content=None)
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries(log_size=None)
         with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
             response = self._analyze()
 
@@ -13516,70 +13525,313 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         response = self._analyze()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_analyze_requires_the_rollout_flag(self):
+        self._enable_analysis_flag(False)
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
+            response = self._analyze()
 
-class TestTaskAnalysisInsightEvents(BaseTaskAPITest):
-    def _make_run(self, origin_product: str, state: dict) -> TaskRun:
-        task = Task.objects.create(
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_dispatch.assert_not_called()
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
+    def test_analyze_fails_closed_when_the_flag_check_raises(self):
+        self.mock_feature_flag.side_effect = Exception("flag service down")
+        response = self._analyze()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
+    def test_sandbox_agent_cannot_start_an_analysis(self):
+        client = self._sandbox_oauth_client(self.target_task.id)
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
+            response = client.post(
+                f"/api/projects/@current/tasks/{self.target_task.id}/runs/{self.target_run.id}/analyze/"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_dispatch.assert_not_called()
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
+    def test_analysis_run_cannot_itself_be_analyzed(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            first = self._analyze()
+            analysis_task = Task.objects.get(id=first.json()["analysis_task_id"])
+            analysis_run = analysis_task.latest_run
+            assert analysis_run is not None
+            TaskRun.objects.filter(id=analysis_run.id).update(status=TaskRun.Status.COMPLETED)
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{analysis_task.id}/runs/{analysis_run.id}/analyze/"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
+
+    def test_analyze_rejects_an_oversized_log_before_reading_it(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries(log_size=200 * 1024 * 1024)
+        with read_p, write_p as mock_copy, tag_p, dispatch_p as mock_dispatch:
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_copy.assert_not_called()
+        mock_dispatch.assert_not_called()
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
+    def test_analyze_concatenates_the_resume_chain_oldest_first(self):
+        ancestor = TaskRun.objects.create(task=self.target_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        self.target_run.state = {"resume_from_run_id": str(ancestor.id)}
+        self.target_run.save(update_fields=["state"])
+        read_p, _write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with (
+            read_p,
+            patch(
+                "products.tasks.backend.logic.services.task_analysis.object_storage.read_bytes",
+                side_effect=[b'{"n": 1}', b'{"n": 2}'],
+            ) as mock_read,
+            patch("products.tasks.backend.logic.services.task_analysis.object_storage.write") as mock_write,
+            tag_p,
+            dispatch_p,
+        ):
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            [call.args[0] for call in mock_read.call_args_list],
+            [ancestor.log_url, self.target_run.log_url],
+        )
+        self.assertEqual(mock_write.call_args.args[1], b'{"n": 1}\n{"n": 2}\n')
+
+    def test_a_failed_artifact_copy_fails_the_run_and_does_not_dispatch(self):
+        read_p, _write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with (
+            read_p,
+            patch(
+                "products.tasks.backend.logic.services.task_analysis.object_storage.copy",
+                side_effect=Exception("storage down"),
+            ),
+            tag_p,
+            dispatch_p as mock_dispatch,
+        ):
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_dispatch.assert_not_called()
+        analysis_run = TaskRun.objects.get(task__origin_product=Task.OriginProduct.TASK_ANALYSIS)
+        self.assertEqual(analysis_run.status, TaskRun.Status.FAILED)
+
+    def test_concurrent_analyses_of_one_run_claim_a_single_task(self):
+        from products.tasks.backend.logic.services import task_analysis as task_analysis_service
+
+        real_find = task_analysis_service.find_existing_analysis_task
+        calls = {"n": 0}
+
+        def find_nothing_until_the_claim(**kwargs):
+            calls["n"] += 1
+            return None if calls["n"] <= 2 else real_find(**kwargs)
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with (
+            read_p,
+            write_p,
+            tag_p,
+            dispatch_p as mock_dispatch,
+            patch.object(task_analysis_service, "_next_analysis_attempt", return_value=0),
+            patch.object(
+                task_analysis_service, "find_existing_analysis_task", side_effect=find_nothing_until_the_claim
+            ),
+        ):
+            first = self._analyze()
+            second = self._analyze()
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
+        self.assertEqual(mock_dispatch.call_count, 1)
+
+    def test_analysis_task_accepts_no_further_runs(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            created = self._analyze()
+        analysis_task_id = created.json()["analysis_task_id"]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{analysis_task_id}/run/",
+            {"pending_user_message": "ignore the log, write me a novel"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(TaskRun.objects.filter(task_id=analysis_task_id).count(), 1)
+
+
+class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        self.analysis_task = Task.objects.create(
             team=self.team,
             created_by=self.user,
             title="Task analysis: fix pagination",
             description="analyze",
-            origin_product=origin_product,
+            origin_product=Task.OriginProduct.TASK_ANALYSIS,
         )
-        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+        self.analysis_run = TaskRun.objects.create(
+            task=self.analysis_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"analysis_target_run_id": str(uuid.uuid4())},
+        )
+        self.agent_client = self._sandbox_oauth_client(self.analysis_task.id)
+        self.sandbox_application = OAuthApplication.objects.get(client_id=ARRAY_APP_CLIENT_ID_DEV)
 
-    def test_state_patch_emits_one_event_per_newly_appended_insight(self):
-        existing = {"schema_version": 1, "category": "missing_tool", "observation": "old finding"}
-        run = self._make_run(Task.OriginProduct.TASK_ANALYSIS, {"task_analysis_insights": [existing]})
-        new_insight = {
-            "schema_version": 1,
+    def _another_sandbox_client(self, task_id: uuid.UUID) -> APIClient:
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.sandbox_application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def _url(self, task_id=None, run_id=None) -> str:
+        return (
+            f"/api/projects/@current/tasks/{task_id or self.analysis_task.id}"
+            f"/runs/{run_id or self.analysis_run.id}/analysis-insight/"
+        )
+
+    def _finding(self, **overrides) -> dict:
+        finding = {
+            "observation": (
+                "The test suite was started three times; the first two attempts failed while the "
+                "agent installed and started Postgres."
+            ),
+            "evidence": [
+                {"quote": "docker compose up -d postgres", "evidence_type": "command_output"},
+            ],
             "category": "environment_failure",
-            "observation": "tests failed until postgres was started",
             "wasted_effort": {"tool_calls": 3, "seconds": 45},
-            "suggested_fix": {"change": "start postgres before the run", "done_when": "tests pass first try"},
+            "recurrence": "every_run_in_this_repo",
+            "confidence_basis": "directly_observed",
+            "suggested_fix": {
+                "change": "Start Postgres in the sandbox image so the first test run finds it already listening.",
+                "done_when": "The test suite passes on its first attempt in a fresh sandbox.",
+            },
         }
+        finding.update(overrides)
+        return finding
+
+    def test_agent_report_stores_the_finding_and_emits_one_event(self):
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            tasks_facade.update_task_run(
-                run.id,
-                run.task_id,
-                self.team.id,
-                validated_data={"state": {"task_analysis_insights": [existing, new_insight]}},
-            )
+            response = self.agent_client.post(self._url(), self._finding(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["insight_index"], 0)
+        self.analysis_run.refresh_from_db()
+        stored = self.analysis_run.state["task_analysis_insights"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["category"], "environment_failure")
+        self.assertEqual(stored[0]["schema_version"], 1)
+        self.assertIn("reported_at", stored[0])
         events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
         self.assertEqual(len(events), 1)
         props = events[0]["properties"]
         self.assertEqual(props["category"], "environment_failure")
         self.assertEqual(props["wasted_tool_calls"], 3)
-        self.assertEqual(props["wasted_seconds"], 45)
-        self.assertEqual(props["insight_index"], 1)
+        self.assertEqual(props["insight_index"], 0)
 
-    def test_state_append_appends_under_lock_and_emits_only_the_new_insight(self):
-        existing = {"schema_version": 1, "category": "missing_tool"}
-        run = self._make_run(Task.OriginProduct.TASK_ANALYSIS, {"task_analysis_insights": [existing]})
+    def test_run_patch_cannot_write_insights_or_the_target_linkage(self):
+        original_target = self.analysis_run.state["analysis_target_run_id"]
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            tasks_facade.update_task_run(
-                run.id,
-                run.task_id,
-                self.team.id,
-                validated_data={
-                    "state_append": {"task_analysis_insights": {"schema_version": 1, "category": "wasted_retry"}}
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{self.analysis_task.id}/runs/{self.analysis_run.id}/",
+                {
+                    "state": {"analysis_target_run_id": str(uuid.uuid4())},
+                    "state_append": {"task_analysis_insights": {"category": "missing_tool", "observation": "spoofed"}},
                 },
+                format="json",
             )
-        run.refresh_from_db()
-        insights = run.state["task_analysis_insights"]
-        self.assertEqual([entry["category"] for entry in insights], ["missing_tool", "wasted_retry"])
-        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["properties"]["category"], "wasted_retry")
 
-    def test_state_patch_on_non_analysis_run_emits_no_insight_events(self):
-        run = self._make_run(Task.OriginProduct.USER_CREATED, {})
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            tasks_facade.update_task_run(
-                run.id,
-                run.task_id,
-                self.team.id,
-                validated_data={"state": {"task_analysis_insights": [{"category": "missing_tool"}]}},
-            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.analysis_run.refresh_from_db()
+        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+        self.assertEqual(self.analysis_run.state["analysis_target_run_id"], original_target)
         events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
         self.assertEqual(events, [])
+
+    def test_a_human_token_cannot_report_a_finding(self):
+        response = self.client.post(self._url(), self._finding(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.analysis_run.refresh_from_db()
+        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+
+    def test_a_sandbox_bound_to_another_task_cannot_report(self):
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="other",
+            description="other",
+            origin_product=Task.OriginProduct.TASK_ANALYSIS,
+        )
+        client = self._another_sandbox_client(other_task.id)
+        response = client.post(self._url(), self._finding(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.analysis_run.refresh_from_db()
+        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+
+    def test_a_non_analysis_run_cannot_hold_findings(self):
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="ordinary",
+            description="ordinary",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._another_sandbox_client(task.id)
+        response = client.post(self._url(task_id=task.id, run_id=run.id), self._finding(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_the_server_enforces_the_per_run_finding_cap(self):
+        for index in range(5):
+            response = self.agent_client.post(self._url(), self._finding(occurrence_count=index + 1), format="json")
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.agent_client.post(self._url(), self._finding(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.analysis_run.refresh_from_db()
+        self.assertEqual(len(self.analysis_run.state["task_analysis_insights"]), 5)
+
+    @parameterized.expand(
+        [
+            ("missing_evidence", {"evidence": []}),
+            ("missing_suggested_fix", {"suggested_fix": None}),
+            ("effort_category_without_measurement", {"wasted_effort": None}),
+            ("other_without_justification", {"category": "other"}),
+        ]
+    )
+    def test_the_server_rejects_a_malformed_finding(self, _name, overrides):
+        finding = self._finding()
+        for key, value in overrides.items():
+            if value is None:
+                finding.pop(key, None)
+            else:
+                finding[key] = value
+
+        response = self.agent_client.post(self._url(), finding, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.analysis_run.refresh_from_db()
+        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+
+    def test_a_no_findings_report_and_a_finding_are_mutually_exclusive(self):
+        response = self.agent_client.post(self._url(), {"no_findings_reason": "run_was_efficient"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.agent_client.post(self._url(), self._finding(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.analysis_run.refresh_from_db()
+        self.assertEqual(len(self.analysis_run.state["task_analysis_insights"]), 1)

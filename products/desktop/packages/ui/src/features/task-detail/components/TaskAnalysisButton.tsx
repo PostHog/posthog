@@ -1,5 +1,9 @@
 import { Button } from "@posthog/quill";
-import { ANALYTICS_EVENTS, TASK_ANALYSIS_FLAG, isTerminalStatus } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  isTerminalStatus,
+  TASK_ANALYSIS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -43,7 +47,13 @@ export function TaskAnalysisButton({ task }: { task: Task }) {
     },
   );
 
-  if (!enabled || !runId || !isAnalyzableOrigin || !isTerminalStatus(task.latest_run?.status)) return null;
+  if (
+    !enabled ||
+    !runId ||
+    !isAnalyzableOrigin ||
+    !isTerminalStatus(task.latest_run?.status)
+  )
+    return null;
 
   return (
     <Button

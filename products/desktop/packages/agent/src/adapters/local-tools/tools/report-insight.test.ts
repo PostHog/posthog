@@ -4,10 +4,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getTaskRun = vi.fn();
-const updateTaskRun = vi.fn();
+const reportAnalysisInsight = vi.fn();
 
 vi.mock("../../../signed-commit-artefacts", () => ({
-  createSandboxPosthogClient: () => ({ getTaskRun, updateTaskRun }),
+  createSandboxPosthogClient: () => ({ getTaskRun, reportAnalysisInsight }),
+  withReportDeadline: <T>(work: (signal: AbortSignal) => Promise<T>) =>
+    work(new AbortController().signal),
 }));
 
 import { INSIGHTS_STATE_KEY, reportInsightTool } from "./report-insight";
@@ -45,15 +47,11 @@ const RUN_LOG = [
 const LOG_RELATIVE_PATH = ".posthog/attachments/run-1/art-1/run-log.jsonl";
 
 function appendingUpdateMock(state: Record<string, unknown>) {
-  return (_t: string, _r: string, updates: Record<string, unknown>) => {
-    for (const [key, value] of Object.entries(
-      (updates.state_append ?? {}) as Record<string, unknown>,
-    )) {
-      const current = state[key];
-      state[key] = Array.isArray(current) ? [...current, value] : [value];
-    }
-    if (updates.state) Object.assign(state, updates.state);
-    return Promise.resolve({});
+  return (_t: string, _r: string, insight: Record<string, unknown>) => {
+    const current = state[INSIGHTS_STATE_KEY];
+    const next = Array.isArray(current) ? [...current, insight] : [insight];
+    state[INSIGHTS_STATE_KEY] = next;
+    return Promise.resolve({ insight_index: next.length - 1 });
   };
 }
 
@@ -97,7 +95,7 @@ describe("reportInsightTool", () => {
     await mkdir(path.dirname(logPath), { recursive: true });
     await writeFile(logPath, RUN_LOG);
     getTaskRun.mockResolvedValue({ state: {} });
-    updateTaskRun.mockResolvedValue({});
+    reportAnalysisInsight.mockResolvedValue({});
   });
 
   afterEach(async () => {
@@ -121,14 +119,14 @@ describe("reportInsightTool", () => {
     ).toBe(false);
   });
 
-  it("persists a verified finding via server-side append", async () => {
+  it("persists a verified finding through the report endpoint", async () => {
     const result = await reportInsightTool.handler(ctx(cwd), validFinding());
     expect(result.isError).toBeUndefined();
-    const updates = updateTaskRun.mock.calls[0][2];
-    expect(updates.state).toBeUndefined();
-    const saved = updates.state_append[INSIGHTS_STATE_KEY];
+    const saved = reportAnalysisInsight.mock.calls[0][2];
     expect(saved.category).toBe("environment_failure");
-    expect(saved.schema_version).toBe(1);
+    expect(saved.observation).toBeDefined();
+    expect(saved.schema_version).toBeUndefined();
+    expect(saved.reported_at).toBeUndefined();
   });
 
   it("accepts a quote whose characters are stored as unicode escapes", async () => {
@@ -195,6 +193,27 @@ describe("reportInsightTool", () => {
       /names only/,
     ],
     [
+      "bare credential in env_var_names",
+      validFinding({
+        suggested_fix: {
+          change:
+            "Provide the database credentials to the sandbox before the test suite starts running.",
+          done_when: "Tests pass on the first attempt in a fresh sandbox.",
+          env_var_names: ["ghp_abcdefghijklmnopqrstuvwx"],
+        },
+      }),
+      /credential-like token/,
+    ],
+    [
+      "credential in other_justification",
+      validFinding({
+        category: "other",
+        other_justification:
+          "The run stalled waiting on a token that was pasted inline as ghp_abcdefghijklmnopqrstuvwx by the caller.",
+      }),
+      /credential-like token/,
+    ],
+    [
       "finding combined with no_findings_reason",
       validFinding({ no_findings_reason: "run_was_efficient" }),
       /cannot be combined/,
@@ -203,7 +222,7 @@ describe("reportInsightTool", () => {
     const result = await reportInsightTool.handler(ctx(cwd), args);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(message);
-    expect(updateTaskRun).not.toHaveBeenCalled();
+    expect(reportAnalysisInsight).not.toHaveBeenCalled();
   });
 
   it("enforces the per-run cap and the no-findings contradiction", async () => {
@@ -232,7 +251,7 @@ describe("reportInsightTool", () => {
   it("accumulates findings filed as parallel tool calls", async () => {
     const state: Record<string, unknown> = {};
     getTaskRun.mockImplementation(() => Promise.resolve({ state }));
-    updateTaskRun.mockImplementation(appendingUpdateMock(state));
+    reportAnalysisInsight.mockImplementation(appendingUpdateMock(state));
 
     const second = validFinding({
       observation:
@@ -252,9 +271,7 @@ describe("reportInsightTool", () => {
       no_findings_reason: "run_was_efficient",
     });
     expect(result.isError).toBeUndefined();
-    const updates = updateTaskRun.mock.calls[0][2];
-    expect(updates.state_append[INSIGHTS_STATE_KEY]).toEqual({
-      schema_version: 1,
+    expect(reportAnalysisInsight.mock.calls[0][2]).toEqual({
       no_findings_reason: "run_was_efficient",
     });
   });

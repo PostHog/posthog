@@ -1,7 +1,10 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
+import {
+  createSandboxPosthogClient,
+  withReportDeadline,
+} from "../../../signed-commit-artefacts";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
 export const INSIGHTS_STATE_KEY = "task_analysis_insights";
@@ -185,9 +188,10 @@ function quoteAppearsInLog(quote: string, haystacks: LogHaystacks): boolean {
   );
 }
 
-function findSecretLike(values: Array<string | undefined>): string | null {
+function findSecretLike(finding: unknown): string | null {
+  const values: string[] = [];
+  collectStrings(finding, values);
   for (const value of values) {
-    if (!value) continue;
     for (const pattern of SECRET_PATTERNS) {
       if (pattern.test(value)) return pattern.source;
     }
@@ -278,7 +282,15 @@ export const reportInsightTool = defineLocalTool({
         );
       }
 
-      const run = await client.getTaskRun(ctx.taskId, ctx.taskRunId);
+      const run = await withReportDeadline(
+        (signal) =>
+          client.getTaskRun(
+            ctx.taskId as string,
+            ctx.taskRunId as string,
+            signal,
+          ),
+        "analysis run lookup",
+      );
       const state = (run.state ?? {}) as Record<string, unknown>;
       const existing = Array.isArray(state[INSIGHTS_STATE_KEY])
         ? (state[INSIGHTS_STATE_KEY] as StoredInsight[])
@@ -301,14 +313,16 @@ export const reportInsightTool = defineLocalTool({
             "Findings were already reported for this run, so a no-findings report is contradictory. Stop reporting.",
           );
         }
-        await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-          state_append: {
-            [INSIGHTS_STATE_KEY]: {
-              schema_version: 1,
-              no_findings_reason: args.no_findings_reason,
-            },
-          },
-        });
+        await withReportDeadline(
+          (signal) =>
+            client.reportAnalysisInsight(
+              ctx.taskId as string,
+              ctx.taskRunId as string,
+              { no_findings_reason: args.no_findings_reason },
+              signal,
+            ),
+          "no-findings report",
+        );
         return {
           content: [
             {
@@ -370,13 +384,7 @@ export const reportInsightTool = defineLocalTool({
         }
       }
 
-      const secretField = findSecretLike([
-        args.observation,
-        ...args.evidence.map((item) => item.quote),
-        args.suggested_fix.change,
-        args.suggested_fix.done_when,
-        ...(args.suggested_fix.setup_commands ?? []),
-      ]);
+      const secretField = findSecretLike(args);
       if (secretField) {
         return errorResult(
           "The finding contains a credential-like token. Never include secrets — redact the token and keep only the non-secret part of the evidence.",
@@ -398,7 +406,6 @@ export const reportInsightTool = defineLocalTool({
       }
 
       const insight: StoredInsight = {
-        schema_version: 1,
         observation: args.observation,
         evidence: args.evidence,
         occurrence_count: args.occurrence_count ?? 1,
@@ -412,11 +419,17 @@ export const reportInsightTool = defineLocalTool({
         recurrence: args.recurrence,
         confidence_basis: args.confidence_basis,
         suggested_fix: args.suggested_fix,
-        reported_at: new Date().toISOString(),
       };
-      await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-        state_append: { [INSIGHTS_STATE_KEY]: insight },
-      });
+      await withReportDeadline(
+        (signal) =>
+          client.reportAnalysisInsight(
+            ctx.taskId as string,
+            ctx.taskRunId as string,
+            insight,
+            signal,
+          ),
+        "insight report",
+      );
 
       const remaining = MAX_INSIGHTS_PER_RUN - existing.length - 1;
       return {

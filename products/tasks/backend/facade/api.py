@@ -65,12 +65,16 @@ from products.posthog_ai.backend.task_ownership import detach_conversations_for_
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+    ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_ANALYSIS_INSIGHTS_STATE_KEY,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -2183,6 +2187,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
+        TASK_ANALYSIS_INSIGHTS_STATE_KEY,
+        ANALYSIS_TARGET_TASK_ID_STATE_KEY,
+        ANALYSIS_TARGET_RUN_ID_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -2626,20 +2633,11 @@ def update_task_run(
     has_state_mutation = has_state_merge or bool(state_remove_keys) or bool(state_append)
     update_fields: set[str] = set()
 
-    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
-        capture_new_insight_events,
-        task_analysis_insight_count,
-    )
-
-    prior_insight_count = 0
     with transaction.atomic():
         if has_output_merge or has_state_mutation or only_if_non_terminal:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
             return _task_run_detail_to_dto(run)
-        if has_state_mutation:
-            prior_insight_count = task_analysis_insight_count(run)
-
         old_status = run.status
         old_environment = run.environment
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
@@ -2693,9 +2691,6 @@ def update_task_run(
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
         run.publish_stream_state_event()
-
-    if has_state_mutation:
-        capture_new_insight_events(run, prior_insight_count)
 
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an
     # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
@@ -3697,6 +3692,18 @@ def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, u
     return str(analysis_task.id), created
 
 
+def report_task_analysis_insight(run_id: str | UUID, task_id: str | UUID, team_id: int, *, insight: dict) -> int | None:
+    """Append one validated analysis finding to a run. Returns its index, or ``None`` if not visible."""
+    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
+        append_analysis_insight,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return append_analysis_insight(run=run, insight=insight)
+
+
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -3751,6 +3758,16 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
 
 def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
+
+
+def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task is a server-created analysis, which accepts no further runs.
+
+    Analysis generations are excluded from the customer's credit rollup by their task origin,
+    so a second run under the same task would be unbilled model time for any prompt its owner
+    sends. The run the server created is the whole task.
+    """
+    return Task.objects.filter(id=task_id, team_id=team_id, origin_product=Task.OriginProduct.TASK_ANALYSIS).exists()
 
 
 def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -4933,6 +4950,26 @@ def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
         )
     except Exception:
         logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
+def task_analysis_enabled(team: Team, user: User) -> bool:
+    """Rollout gate for the PostHog-funded analysis endpoint, fail-closed like the Pi gates."""
+    distinct_id = user.distinct_id or f"user_{user.id}"
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASK_ANALYSIS_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("task-analysis flag check failed; treating as disabled")
         return False
 
 
