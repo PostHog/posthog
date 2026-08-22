@@ -3,13 +3,12 @@ import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**
- * The raster set the anonymizer keeps on a collected ref, so a fetched image and an inline one reach
- * the scrub lane as the same kind of thing.
+ * The raster formats that the fetch lane and image scrubber accept.
  *
  * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
  * belongs on the inline path rather than on an image model.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
@@ -328,8 +327,6 @@ export function magicBytesMatch(bytes: Buffer, contentType: ImageContentType): b
             return asciiAt(bytes, 0, 'GIF87a') || asciiAt(bytes, 0, 'GIF89a')
         case 'image/webp':
             return asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WEBP')
-        case 'image/bmp':
-            return asciiAt(bytes, 0, 'BM')
         case 'image/avif':
             // An ISO base media file names its brand after the `ftyp` box header, and AVIF still
             // ships under the `mif1` and `msf1` brands that came before the AVIF ones.

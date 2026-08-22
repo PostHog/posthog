@@ -13,7 +13,6 @@ const imageHeaders = {
     'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
     'image/gif': Buffer.from('GIF89a', 'ascii'),
     'image/webp': Buffer.from('RIFF\x04\x00\x00\x00WEBP', 'binary'),
-    'image/bmp': Buffer.from('BM', 'ascii'),
     'image/avif': Buffer.concat([
         Buffer.from([0x00, 0x00, 0x00, 0x18]),
         Buffer.from('ftypavif', 'ascii'),

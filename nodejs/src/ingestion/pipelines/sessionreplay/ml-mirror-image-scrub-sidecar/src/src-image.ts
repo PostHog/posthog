@@ -35,7 +35,7 @@ export async function decodeSrc(input: Buffer, frame?: Dims): Promise<Src> {
     // flatten, NOT removeAlpha: removeAlpha discards the alpha channel but keeps the RGB underneath,
     // so content hidden under fully transparent pixels (invisible in the replay) would surface in
     // the scrubbed output. Flatten composites over a background, destroying hidden RGB.
-    const { data, info } = await sharpForImage(input, description)
+    const { data, info } = await sharpForImage(input)
         .resize(targetW, targetH, { fit: 'fill' })
         .flatten({ background: '#fff' })
         .raw()

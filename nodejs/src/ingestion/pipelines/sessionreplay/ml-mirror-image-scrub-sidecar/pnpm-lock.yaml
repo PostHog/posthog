@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      bmp-ts:
-        specifier: ^1.0.9
-        version: 1.0.9
       express:
         specifier: ^4.21.1
         version: 4.22.2
@@ -1499,9 +1496,6 @@ packages:
 
   bmp-js@0.1.0:
     resolution: {integrity: sha512-vHdS19CnY3hwiNdkaqk93DvjVLfbEcI8mys4UjuWrlX1haDmroo8o4xCzh4wD6DGV6HxRCyauwhHRqMTfERtjw==}
-
-  bmp-ts@1.0.9:
-    resolution: {integrity: sha512-cTEHk2jLrPyi+12M3dhpEbnnPOsaZuq7C45ylbbQIiWgDFZq4UVYPEY5mlqjvsj/6gJv9qX5sa+ebDzLXT28Vw==}
 
   body-parser@1.20.5:
     resolution: {integrity: sha512-3grm+/2tUOvu2cjJkvsIxrv/wVpfXQW4PsQHYm7yk4vfpu7Ekl6nEsYBoJUL6qDwZUx8wUhQ8tR2qz+ad9c9OA==}
@@ -4174,8 +4168,6 @@ snapshots:
   bintrees@1.0.2: {}
 
   bmp-js@0.1.0: {}
-
-  bmp-ts@1.0.9: {}
 
   body-parser@1.20.5:
     dependencies:

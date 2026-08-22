@@ -501,7 +501,6 @@ the userinfo of a URL, cookies, and known credential query parameters
 | `image/jpeg`   | JPEG   |
 | `image/gif`    | GIF    |
 | `image/webp`   | WebP   |
-| `image/bmp`    | BMP    |
 | `image/avif`   | AVIF   |
 
 **14.11** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.

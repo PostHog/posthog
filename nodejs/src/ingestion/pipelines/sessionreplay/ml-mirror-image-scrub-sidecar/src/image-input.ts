@@ -1,4 +1,3 @@
-import { decode as decodeBmp } from 'bmp-ts'
 import sharp, { type Sharp } from 'sharp'
 
 import { imageMetadataProhibitsAiTraining } from './xmp.ts'
@@ -22,51 +21,7 @@ export interface ImageDescription {
     format: string
 }
 
-function isBmp(input: Buffer): boolean {
-    return input.toString('ascii', 0, 2) === 'BM'
-}
-
-function inspectBmp(input: Buffer): ImageDescription {
-    if (input.length < 54) {
-        throw new UndecodableImageError('BMP header is truncated')
-    }
-    const headerSize = input.readUInt32LE(14)
-    if (headerSize < 40) {
-        throw new UndecodableImageError(`unsupported BMP header size ${headerSize}`)
-    }
-    const pixelOffset = input.readUInt32LE(10)
-    if (14 + headerSize > input.length || pixelOffset < 14 + headerSize || pixelOffset > input.length) {
-        throw new UndecodableImageError('BMP has invalid header bounds')
-    }
-    const compression = input.readUInt32LE(30)
-    if (compression !== 0) {
-        throw new UndecodableImageError(`unsupported BMP compression ${compression}`)
-    }
-    const width = input.readInt32LE(18)
-    const signedHeight = input.readInt32LE(22)
-    const height = Math.abs(signedHeight)
-    if (width <= 0 || height === 0) {
-        throw new UndecodableImageError('BMP has invalid dimensions')
-    }
-    if (!Number.isSafeInteger(width * height) || width * height > LIMIT_INPUT_PIXELS) {
-        throw new UndecodableImageError('image exceeds the pixel limit')
-    }
-    const planes = input.readUInt16LE(26)
-    const bitsPerPixel = input.readUInt16LE(28)
-    if (planes !== 1 || ![1, 4, 8, 16, 24, 32].includes(bitsPerPixel)) {
-        throw new UndecodableImageError('BMP has an unsupported pixel layout')
-    }
-    const paletteEntries = input.readUInt32LE(46) || (bitsPerPixel <= 8 ? 2 ** bitsPerPixel : 0)
-    if (paletteEntries > 256 || paletteEntries * 4 > pixelOffset - (14 + headerSize)) {
-        throw new UndecodableImageError('BMP has invalid palette bounds')
-    }
-    return { width, height, format: 'bmp' }
-}
-
 export async function inspectImage(input: Buffer): Promise<ImageDescription> {
-    if (isBmp(input)) {
-        return inspectBmp(input)
-    }
     const metadata = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
     if (!metadata.width || !metadata.height) {
         throw new UndecodableImageError('image has invalid dimensions')
@@ -84,25 +39,6 @@ export async function inspectImage(input: Buffer): Promise<ImageDescription> {
     }
 }
 
-export function sharpForImage(input: Buffer, description: ImageDescription): Sharp {
-    if (description.format !== 'bmp') {
-        return sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
-    }
-    const decoded = decodeBmp(input, { toRGBA: true })
-    if (
-        decoded.width !== description.width ||
-        decoded.height !== description.height ||
-        decoded.data.length !== description.width * description.height * 4
-    ) {
-        throw new UndecodableImageError('decoded BMP dimensions do not match its header')
-    }
-    if (decoded.bitPP < 32) {
-        // bmp-ts emits zero alpha for BMP depths that have no alpha channel, which would flatten every pixel to white.
-        for (let alphaOffset = 3; alphaOffset < decoded.data.length; alphaOffset += 4) {
-            decoded.data[alphaOffset] = 0xff
-        }
-    }
-    return sharp(decoded.data, {
-        raw: { width: description.width, height: description.height, channels: 4 },
-    })
+export function sharpForImage(input: Buffer): Sharp {
+    return sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS })
 }

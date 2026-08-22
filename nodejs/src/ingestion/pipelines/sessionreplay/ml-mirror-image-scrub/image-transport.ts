@@ -7,14 +7,7 @@ export const CONTENT_ENCODING_HEADER = 'content-encoding'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
-export const SUPPORTED_IMAGE_MEDIA_TYPES = [
-    'image/png',
-    'image/jpeg',
-    'image/gif',
-    'image/webp',
-    'image/bmp',
-    'image/avif',
-] as const
+export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
 
@@ -108,8 +101,6 @@ export function imageBytesMatchMediaType(bytes: Buffer, contentType: SupportedIm
         }
         case 'image/webp':
             return bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
-        case 'image/bmp':
-            return bytes.toString('ascii', 0, 2) === 'BM'
         case 'image/avif':
             return isAvif(bytes)
     }

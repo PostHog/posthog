@@ -20,7 +20,6 @@
         "smoke": "tsx src/smoke.ts"
     },
     "dependencies": {
-        "bmp-ts": "^1.0.9",
         "express": "^4.21.1",
         "onnxruntime-node": "^1.27.0",
         "prom-client": "^15.1.3",

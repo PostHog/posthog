@@ -23,7 +23,7 @@ export async function blurOnly(input: Buffer): Promise<Buffer> {
     try {
         const description = await inspectImage(input)
         const [tw, th] = targetDims(description.width, description.height)
-        return await sharpForImage(input, description).resize(tw, th, { fit: 'fill' }).blur(BLUR_SIGMA).png().toBuffer()
+        return await sharpForImage(input).resize(tw, th, { fit: 'fill' }).blur(BLUR_SIGMA).png().toBuffer()
     } catch (e) {
         throw e instanceof PermanentImageError ? e : new UndecodableImageError(String(e))
     }
