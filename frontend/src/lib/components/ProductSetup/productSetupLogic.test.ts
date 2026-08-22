@@ -74,4 +74,16 @@ describe('productSetupLogic', () => {
 
         expect(task(SetupTaskId.CreateFirstInsight).lockedReason).toBeUndefined()
     })
+
+    // A skipped task that later auto-completes must count once, not as both completed and skipped.
+    it('does not double-count a skipped task that later auto-completes', async () => {
+        await setTeam({
+            ingested_event: true,
+            onboarding_tasks: { [SetupTaskId.IngestFirstEvent]: ActivationTaskStatus.SKIPPED },
+        })
+
+        expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(true)
+        expect(task(SetupTaskId.IngestFirstEvent).skipped).toBe(false)
+        expect(logic.values.completedCount).toBe(logic.values.completedTasks.length)
+    })
 })

@@ -277,7 +277,10 @@ export const productSetupLogic = kea<productSetupLogicType>([
                 for (const task of allTasks) {
                     completedById[task.id] =
                         isAutoCompleted(task.id) || savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED
-                    skippedById[task.id] = savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED
+                    // Completion wins over a stale skip: a task the user skipped but later actually finished is
+                    // genuinely done, so it counts once instead of as both completed and skipped.
+                    skippedById[task.id] =
+                        !completedById[task.id] && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED
                 }
 
                 return allTasks.map((task) => {
