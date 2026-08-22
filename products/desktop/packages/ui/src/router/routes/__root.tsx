@@ -12,6 +12,7 @@ import { AnnouncementBanner } from "@posthog/ui/features/announcements/Announcem
 import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
 import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArchiveSync";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { SpendGuardrailsHost } from "@posthog/ui/features/billing/SpendGuardrailsHost";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
@@ -342,6 +343,7 @@ function RootLayout() {
             was stopping Cmd+W from closing the window. */}
         <TabShortcutFallback enabled />
         {billingEnabled && <UsageLimitModal />}
+        <SpendGuardrailsHost />
         <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
@@ -546,6 +548,7 @@ function RootLayout() {
         />
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
+        <SpendGuardrailsHost />
         <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />

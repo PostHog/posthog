@@ -35,6 +35,7 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
+import { ModelSwitchCacheDialog } from "@posthog/ui/features/sessions/components/ModelSwitchCacheDialog";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
@@ -56,6 +57,7 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
+  flattenSelectOptions,
   useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
@@ -174,7 +176,8 @@ export function SessionView({
   );
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
-  const { allowBypassPermissions } = useSettingsStore();
+  const { allowBypassPermissions, warnOnMidSessionModelSwitch } =
+    useSettingsStore();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
@@ -229,12 +232,40 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
+  // A mid-session model switch first pauses on an inform-only cache-cost
+  // dialog; confirming applies the queued switch unchanged.
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
+    configId: string;
+    value: string;
+    label: string;
+  } | null>(null);
+
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
+      const isMidSessionModelSwitch =
+        warnOnMidSessionModelSwitch &&
+        events.length > 0 &&
+        sessionModelOption?.type === "select" &&
+        sessionModelOption.id === configId &&
+        sessionModelOption.currentValue !== value;
+      if (isMidSessionModelSwitch) {
+        const label =
+          flattenSelectOptions(sessionModelOption.options).find(
+            (option) => option.value === value,
+          )?.name ?? value;
+        setPendingModelSwitch({ configId, value, label });
+        return;
+      }
       sessionService.setSessionConfigOption(taskId, configId, value);
     },
-    [taskId, sessionService],
+    [
+      taskId,
+      sessionService,
+      sessionModelOption,
+      warnOnMidSessionModelSwitch,
+      events.length,
+    ],
   );
 
   const sessionId = taskId ?? "default";
@@ -827,6 +858,21 @@ export function SessionView({
           </Flex>
         )}
       </ContextMenu.Trigger>
+      <ModelSwitchCacheDialog
+        open={pendingModelSwitch !== null}
+        toModelLabel={pendingModelSwitch?.label ?? ""}
+        onConfirm={() => {
+          if (taskId && pendingModelSwitch) {
+            sessionService.setSessionConfigOption(
+              taskId,
+              pendingModelSwitch.configId,
+              pendingModelSwitch.value,
+            );
+          }
+          setPendingModelSwitch(null);
+        }}
+        onCancel={() => setPendingModelSwitch(null)}
+      />
       <ContextMenu.Content size="1">
         <ContextMenu.Item
           onSelect={() => {

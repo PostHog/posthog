@@ -1,3 +1,8 @@
+import {
+  EMPTY_SPEND_LIMITS,
+  pruneSpendNoticesSeen,
+  type SpendLimits,
+} from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
 import type {
   Adapter,
@@ -236,6 +241,16 @@ interface SettingsStore {
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
 
+  // Spend limits (inform-only: crossing a line never pauses work)
+  spendLimits: SpendLimits;
+  // Crossing notices already shown, keyed by period/level/anchor/amount so
+  // each line notifies once per day or month at a given amount.
+  spendNoticesSeen: Record<string, string>;
+  warnOnMidSessionModelSwitch: boolean;
+  setSpendLimits: (limits: Partial<SpendLimits>) => void;
+  markSpendNoticeSeen: (key: string, anchor: string, todayIso: string) => void;
+  setWarnOnMidSessionModelSwitch: (enabled: boolean) => void;
+
   // System / power / permissions
   allowBypassPermissions: boolean;
   preventSleepWhileRunning: boolean;
@@ -469,6 +484,22 @@ export const useSettingsStore = create<SettingsStore>()(
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
 
+      // Spend limits
+      spendLimits: EMPTY_SPEND_LIMITS,
+      spendNoticesSeen: {},
+      warnOnMidSessionModelSwitch: true,
+      setSpendLimits: (limits) =>
+        set((state) => ({ spendLimits: { ...state.spendLimits, ...limits } })),
+      markSpendNoticeSeen: (key, anchor, todayIso) =>
+        set((state) => ({
+          spendNoticesSeen: {
+            ...pruneSpendNoticesSeen(state.spendNoticesSeen, todayIso),
+            [key]: anchor,
+          },
+        })),
+      setWarnOnMidSessionModelSwitch: (enabled) =>
+        set({ warnOnMidSessionModelSwitch: enabled }),
+
       // System / power / permissions
       allowBypassPermissions: false,
       preventSleepWhileRunning: false,
@@ -619,6 +650,11 @@ export const useSettingsStore = create<SettingsStore>()(
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
+
+        // Spend limits
+        spendLimits: state.spendLimits,
+        spendNoticesSeen: state.spendNoticesSeen,
+        warnOnMidSessionModelSwitch: state.warnOnMidSessionModelSwitch,
 
         // System / power / permissions
         allowBypassPermissions: state.allowBypassPermissions,

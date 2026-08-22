@@ -143,6 +143,11 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "credits", "spend", "subscription"],
   },
   {
+    category: "plan-usage",
+    label: "Spend limits",
+    keywords: ["budget", "warning", "alert", "daily spend", "monthly spend"],
+  },
+  {
     category: "workspaces",
     label: "Workspaces",
     keywords: ["repos", "folders", "projects", "directories"],
