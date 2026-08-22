@@ -78,7 +78,7 @@ function validFinding(overrides: Record<string, unknown> = {}) {
     ],
     occurrence_count: 2,
     category: "environment_failure",
-    wasted_effort: { metric: "tool_calls", amount: 14 },
+    wasted_effort: { tool_calls: 14, seconds: 210 },
     recurrence: "every_run_in_this_repo",
     confidence_basis: "directly_observed",
     suggested_fix: {

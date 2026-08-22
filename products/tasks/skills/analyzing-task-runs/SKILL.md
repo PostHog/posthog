@@ -88,9 +88,10 @@ step failed and why, then call the `finish` tool with status `failed`.
 - Suggested fixes must be concrete and checkable. "Pre-install the GitHub CLI (gh)" with
   done-when "gh --version succeeds in a fresh sandbox" is the bar; "improve the environment" is
   below it.
-- When the log carries cumulative usage updates, measure `wasted_effort` in `tokens`: the delta
-  between the usage update before the wasted span and the one after it. A measured token count
-  beats any estimate; the cost recipe also gives the run's total spend for sizing context.
+- `wasted_effort` is measured, never estimated: bracket the wasted span with its start and end
+  line numbers, then count the tool calls between them, subtract the timestamps for `seconds`,
+  and subtract the cumulative usage counters for `tokens` (when the log carries usage updates).
+  Report every dimension you can measure; omit the ones you cannot.
 - Logs from some runtimes lack the agent's narration; do not treat missing narration as evidence
   of anything.
 - The log contains user code and prompts. Use them only to classify; never copy source code,

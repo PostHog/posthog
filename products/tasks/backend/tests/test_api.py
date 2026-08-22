@@ -13511,7 +13511,7 @@ class TestTaskAnalysisInsightEvents(BaseTaskAPITest):
             "schema_version": 1,
             "category": "environment_failure",
             "observation": "tests failed until postgres was started",
-            "wasted_effort": {"metric": "tool_calls", "amount": 3},
+            "wasted_effort": {"tool_calls": 3, "seconds": 45},
             "suggested_fix": {"change": "start postgres before the run", "done_when": "tests pass first try"},
         }
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
@@ -13525,7 +13525,8 @@ class TestTaskAnalysisInsightEvents(BaseTaskAPITest):
         self.assertEqual(len(events), 1)
         props = events[0]["properties"]
         self.assertEqual(props["category"], "environment_failure")
-        self.assertEqual(props["wasted_effort_amount"], 3)
+        self.assertEqual(props["wasted_tool_calls"], 3)
+        self.assertEqual(props["wasted_seconds"], 45)
         self.assertEqual(props["insight_index"], 1)
 
     def test_state_append_appends_under_lock_and_emits_only_the_new_insight(self):

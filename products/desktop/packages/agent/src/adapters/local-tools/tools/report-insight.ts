@@ -250,14 +250,33 @@ export const reportInsightTool = defineLocalTool({
     other_justification: z.string().min(50).max(200).optional(),
     wasted_effort: z
       .object({
-        metric: z
-          .enum(["tokens", "tool_calls", "minutes_estimated"])
+        tool_calls: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Wasted tool calls, counted from the log."),
+        seconds: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
           .describe(
-            "Prefer tokens when the log carries usage counters (compute the delta across the wasted span); tool_calls when countable; minutes_estimated only as a last resort.",
+            "Wall-clock seconds across the wasted span, from the event timestamps bracketing it.",
           ),
-        amount: z.number().int().min(1),
+        tokens: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "Token delta across the wasted span, from the log's cumulative usage counters.",
+          ),
       })
-      .optional(),
+      .optional()
+      .describe(
+        "Measured from the log, never guessed. Include every dimension the log supports; at least one is required for effort-based categories.",
+      ),
     recurrence: z
       .enum(["every_run_in_this_repo", "runs_touching_this_area", "one_off"])
       .optional(),
@@ -346,12 +365,15 @@ export const reportInsightTool = defineLocalTool({
           "category 'other' requires other_justification (50-200 chars).",
         );
       }
+      const wastedDimensions = Object.values(args.wasted_effort ?? {}).filter(
+        (value) => value !== undefined,
+      );
       if (
         WASTED_EFFORT_REQUIRED_CATEGORIES.has(args.category) &&
-        !args.wasted_effort
+        wastedDimensions.length === 0
       ) {
         return errorResult(
-          `category '${args.category}' requires wasted_effort ({metric, amount}).`,
+          `category '${args.category}' requires wasted_effort with at least one measured dimension (tool_calls, seconds, or tokens) — count or subtract it from the log.`,
         );
       }
       if (!args.recurrence || !args.confidence_basis || !args.suggested_fix) {
@@ -410,7 +432,9 @@ export const reportInsightTool = defineLocalTool({
         ...(args.other_justification && {
           other_justification: args.other_justification,
         }),
-        ...(args.wasted_effort && { wasted_effort: args.wasted_effort }),
+        ...(wastedDimensions.length > 0 && {
+          wasted_effort: args.wasted_effort,
+        }),
         recurrence: args.recurrence,
         confidence_basis: args.confidence_basis,
         suggested_fix: args.suggested_fix,

@@ -131,6 +131,25 @@ Once a query gives you a `line` anchor, read a bounded window around it:
 sed -n '<line-3>,<line+3>p' <log> | jq -c '. | tostring | .[0:400]'
 ```
 
+## Both formats: measure a wasted span
+
+Bracket the waste with a start and end line number, then measure — never estimate.
+
+Wall-clock seconds between two lines (every line has a top-level `timestamp`):
+
+```sh
+sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";"") | sub("\\+00:00$";"Z") | fromdateiso8601] | last - first'
+```
+
+Token delta across the span (works on both usage shapes; prints a message when the log
+lacks usage updates inside the span — then omit `tokens` from the finding):
+
+```sh
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.method=="_posthog/usage_update") | (.notification.params.usage // .notification.params.used) | select(type=="object") | (.totalTokens // (.inputTokens + .outputTokens + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0)))] | if length > 1 then (last - first) else "insufficient usage updates in span" end'
+```
+
+Wasted tool calls are the count of tool-timeline rows between the two lines.
+
 ## Evidence quotes
 
 Quote text exactly as jq printed it — copy from your query output, never from memory.

@@ -19,7 +19,7 @@ specific error when something does not check out; fix and retry once, then drop 
   "occurrence_count": 3,
   "category": "environment_failure | missing_tool | verbose_output | redundant_work | missing_capability | instruction_gap | wasted_retry | other",
   "other_justification": "<required only when category is other, 50-200 chars>",
-  "wasted_effort": { "metric": "tokens | tool_calls | minutes_estimated", "amount": 12 },
+  "wasted_effort": { "tool_calls": 12, "seconds": 190, "tokens": 22000 },
   "recurrence": "every_run_in_this_repo | runs_touching_this_area | one_off",
   "confidence_basis": "directly_observed | inferred",
   "suggested_fix": {
@@ -47,12 +47,13 @@ specific error when something does not check out; fix and retry once, then drop 
 - `occurrence_count` is how many times the pattern happened in this run and must be consistent
   with the log.
 - `wasted_effort` is required for `environment_failure`, `missing_tool`, `verbose_output`,
-  `redundant_work`, and `wasted_retry`. Pick the metric mechanically, in this order:
-  1. `tokens` — when the log carries cumulative usage updates (ACP `_posthog/usage_update`),
-     compute the delta between the update before the wasted span and the one after it. This is
-     measured, not estimated — prefer it whenever available.
-  2. `tool_calls` — when the wasted calls are countable from the log.
-  3. `minutes_estimated` — only when neither of the above works.
+  `redundant_work`, and `wasted_retry`. Every dimension is measured from the log, never guessed,
+  and you include each one you can measure (at least one):
+  - `tool_calls` — count the wasted calls between the span's start and end lines.
+  - `seconds` — subtract the event timestamp at the span's start from the one at its end.
+  - `tokens` — when the log carries cumulative usage updates (ACP `_posthog/usage_update`),
+    subtract the counter total before the span from the total after it.
+    If a dimension cannot be measured from the log, leave it out — do not estimate.
 - `recurrence` anchors: `every_run_in_this_repo` — structural, any agent in this repo hits it;
   `runs_touching_this_area` — conditional on the task area; `one_off` — specific to this run.
 - `confidence_basis`: `directly_observed` — visible in the transcript; `inferred` — plausible but
@@ -76,7 +77,7 @@ specific error when something does not check out; fix and retry once, then drop 
   ],
   "occurrence_count": 2,
   "category": "environment_failure",
-  "wasted_effort": { "metric": "tool_calls", "amount": 14 },
+  "wasted_effort": { "tool_calls": 14, "seconds": 210 },
   "recurrence": "every_run_in_this_repo",
   "confidence_basis": "directly_observed",
   "suggested_fix": {
