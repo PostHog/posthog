@@ -428,7 +428,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processWebhook',
+        // SourceWebhookError is an expected outcome (e.g. unknown source 404, disabled 429) that
+        // the API layer maps to an HTTP status. Do not capture it as an exception; keep capturing
+        // unexpected failures.
+        sendException: (error) => !(error instanceof SourceWebhookError),
+    })
     public async processWebhook(
         identifier: string,
         req: ModifiedRequest
