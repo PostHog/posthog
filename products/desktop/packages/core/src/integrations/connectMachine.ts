@@ -1,3 +1,4 @@
+import { signalsConfigKeys } from "../inbox/inboxQuery";
 import { githubInstallRequestKeys } from "./repositoryKeys";
 
 export type ConnectState =
@@ -94,5 +95,11 @@ export function githubInvalidationKeys(
 }
 
 export function slackInvalidationKeys(): ReadonlyArray<ReadonlyArray<unknown>> {
-  return [["integrations", "list"], ["integrations"]];
+  // The autonomy config caches slack_notification_integration_id; connecting or
+  // disconnecting a workspace changes it server-side, so refresh it too.
+  return [
+    ["integrations", "list"],
+    ["integrations"],
+    [...signalsConfigKeys.userAutonomyConfig],
+  ];
 }
