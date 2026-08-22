@@ -79,6 +79,15 @@ as a spike. For a PR merge rate, bucket both merged and created PRs on the creat
 anomaly is in the metric, not the data — fix the insight first. Pair this with the low-count
 floor: a rate on a small denominator is noisy even when both series share a timestamp.
 
+The shared timestamp makes it a cohort, but a cohort takes time to mature. When the numerator
+lags that timestamp — merges trail a PR's creation date, conversions trail signup — the most
+recent buckets are still accruing outcomes, so the rate reads artificially low and keeps rising
+for days. The partial-bucket guard below won't catch it: the day is complete, the cohort is not.
+Score only cohorts whose outcome window has elapsed — drop the most recent buckets over that
+delay, naming it from the metric (a fixed conversion window, or a high percentile of historical
+completion time), the same maturity rule the Retention recipe applies below. Otherwise the young
+cohort reads as a drop — often a drop to zero, the highest-signal shape — and fires falsely.
+
 ## Fallback scorer: robust z on the latest complete bucket
 
 Use this when `alert-simulate` doesn't apply (a non-saved series) or you need a custom
