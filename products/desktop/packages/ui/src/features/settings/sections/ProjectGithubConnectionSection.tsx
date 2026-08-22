@@ -63,25 +63,9 @@ export function ProjectGithubConnectionSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Text size="xs" variant="muted">
-          GitHub access for this project's Self-driving pipeline and cloud
-          tasks.
-        </Text>
-        {hasGithubIntegration ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            disabled={projectId == null || isConnecting}
-            onClick={() => void connect()}
-          >
-            {isConnecting ? <Spinner /> : <ArrowSquareOutIcon size={12} />}
-            {isConnecting ? "Waiting…" : "Add another organization"}
-          </Button>
-        ) : null}
-      </div>
+      <Text size="xs" variant="muted">
+        GitHub access for this project's Self-driving pipeline and cloud tasks.
+      </Text>
 
       {projectId != null ? (
         <GithubInstallRequestsBanner
