@@ -1,11 +1,25 @@
+import { SessionRecordingTriggerGroupsConfig } from 'lib/components/IngestionControls/types'
+
 import {
     hasOutdatedWebSdk,
     legacyConditionsAreInactive,
     legacyUiShouldBeMinimized,
     outdatedWebTrafficShare,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
+    triggerGroupSamplingMissedOnMobile,
     WebRelease,
 } from './replayTriggersLogic'
+
+function triggerGroups(...sampleRates: number[]): SessionRecordingTriggerGroupsConfig {
+    return {
+        version: 2,
+        groups: sampleRates.map((sampleRate, index) => ({
+            id: `group-${index}`,
+            sampleRate,
+            conditions: { matchType: 'all' },
+        })),
+    }
+}
 
 describe('replayTriggersLogic', () => {
     describe('legacyConditionsAreInactive', () => {
@@ -118,6 +132,19 @@ describe('replayTriggersLogic', () => {
             ['no web data, has v2 groups', [], true, false],
         ])('%s -> %s', (_description, releases, hasV2Groups, expected) => {
             expect(legacyUiShouldBeMinimized(releases, hasV2Groups)).toBe(expected)
+        })
+    })
+
+    describe('triggerGroupSamplingMissedOnMobile', () => {
+        it.each<[string, SessionRecordingTriggerGroupsConfig | null, string | null, boolean]>([
+            ['no trigger groups', null, null, false],
+            ['group samples below full, mobile unset', triggerGroups(0.1), null, true],
+            ['group samples below full, mobile at 100%', triggerGroups(0.1), '1', true],
+            ['group samples below full, mobile already sampled', triggerGroups(0.1), '0.1', false],
+            ['groups all at 100%', triggerGroups(1), null, false],
+            ['one of several groups samples below full', triggerGroups(1, 0.5), null, true],
+        ])('%s -> %s', (_description, groups, v1SampleRate, expected) => {
+            expect(triggerGroupSamplingMissedOnMobile(groups, v1SampleRate)).toBe(expected)
         })
     })
 

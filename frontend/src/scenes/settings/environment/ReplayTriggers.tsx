@@ -272,6 +272,22 @@ function Sampling(): JSX.Element {
     )
 }
 
+function MobileTriggerGroupSamplingWarning(): JSX.Element | null {
+    const { triggerGroupSamplingMissedOnMobile } = useValues(replayTriggersLogic)
+
+    if (!triggerGroupSamplingMissedOnMobile) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>Trigger group sampling doesn't apply to mobile.</strong> Your trigger groups sample below 100%, but
+            mobile SDKs don't read them yet, so mobile records every session. Set a mobile sample rate below to sample
+            mobile sessions too.
+        </LemonBanner>
+    )
+}
+
 function MobileSampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -653,6 +669,7 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
+                    <MobileTriggerGroupSamplingWarning />
                     <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
                     <MobileEventTriggers />
                     <LinkedFlagSelector />

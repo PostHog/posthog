@@ -5,7 +5,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { compareVersion } from 'lib/utils/semver'
 import { sdkHealthLogic } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -93,6 +93,22 @@ export function legacyUiShouldBeMinimized(releases: WebRelease[], hasV2Groups: b
     return legacyConditionsAreInactive(releases) && hasV2Groups
 }
 
+/**
+ * Mobile SDKs read only the V1 sample rate, never V2 trigger groups. So a team that samples through
+ * trigger groups keeps recording every mobile session. True when a trigger group samples below 100%
+ * but the V1 sample rate still records every session — the case that silently over-bills mobile.
+ */
+export function triggerGroupSamplingMissedOnMobile(
+    triggerGroups: SessionRecordingTriggerGroupsConfig | null | undefined,
+    v1SampleRate: string | null | undefined
+): boolean {
+    const groupsSampleBelowFull = (triggerGroups?.groups ?? []).some(
+        (group) => typeof group.sampleRate === 'number' && group.sampleRate < 1
+    )
+    const v1RecordsEverySession = v1SampleRate == null || parseFloat(v1SampleRate) >= 1
+    return groupsSampleBelowFull && v1RecordsEverySession
+}
+
 function ensureAnchored(url: string): string {
     url = url.startsWith('^') ? url.substring(1) : url
     url = url.endsWith('$') ? url.substring(0, url.length - 1) : url
@@ -150,6 +166,7 @@ export interface replayTriggersLogicValues {
     shouldMinimizeLegacyConditions: boolean
     showProposedUrlBlocklistErrors: boolean
     showProposedUrlTriggerErrors: boolean
+    triggerGroupSamplingMissedOnMobile: boolean
     urlBlocklistConfig: UrlTriggerConfig[] | null
     urlBlocklistInputValidationWarning: string | null
     urlBlocklistToEdit: {
@@ -337,6 +354,7 @@ export interface replayTriggersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         webTrafficIsRecent: (augmentedData: AugmentedTeamSdkVersionsInfo) => boolean
         hasV2TriggerGroups: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        triggerGroupSamplingMissedOnMobile: (currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldMinimizeLegacyConditions: (
             augmentedData: AugmentedTeamSdkVersionsInfo,
             hasV2TriggerGroups: boolean
@@ -553,6 +571,14 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
                 (currentTeam?.session_recording_trigger_groups?.groups?.length ?? 0) > 0,
+        ],
+        triggerGroupSamplingMissedOnMobile: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                triggerGroupSamplingMissedOnMobile(
+                    currentTeam?.session_recording_trigger_groups,
+                    currentTeam?.session_recording_sample_rate
+                ),
         ],
         shouldMinimizeLegacyConditions: [
             (s) => [s.augmentedData, s.hasV2TriggerGroups],
