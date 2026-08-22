@@ -6,7 +6,10 @@ import {
   GithubLogo,
   Plus,
 } from "@phosphor-icons/react";
-import { isGithubConnectPendingApproval } from "@posthog/core/integrations/connectErrors";
+import {
+  GITHUB_CONNECT_PENDING_APPROVAL_CODE,
+  isGithubConnectPendingApproval,
+} from "@posthog/core/integrations/connectErrors";
 import {
   buildConnectAbandonedProps,
   buildConnectFailedProps,
@@ -106,7 +109,10 @@ export function GitHubConnectPanel() {
     },
   });
   const canTakeAction = !isConnecting && !timedOut && !hasConnectError;
-  const isPendingApproval = isGithubConnectPendingApproval(connectError?.code);
+  // The callback reports an org-owner wait through onPending when the caller
+  // handles it, and on the error channel otherwise, so both are read here.
+  const isPendingApproval =
+    awaitingApproval || isGithubConnectPendingApproval(connectError?.code);
 
   // Every path that begins a connect, including reconnect, must go through
   // this, or its "started" event has no abandoned counterpart.
@@ -153,7 +159,12 @@ export function GitHubConnectPanel() {
       timedOut,
       errorCode: connectError?.code,
     };
-    const fingerprint = buildConnectFailureFingerprint(failureInputs);
+    // A pending approval ends the flow without an error, so it carries no
+    // failure fingerprint of its own; reuse the code so it stays deduped and
+    // still counts as terminal for the abandonment marker below.
+    const fingerprint = isPendingApproval
+      ? GITHUB_CONNECT_PENDING_APPROVAL_CODE
+      : buildConnectFailureFingerprint(failureInputs);
     const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
     // Clear the marker only on a terminal outcome — even a deduped one. A
     // non-terminal re-run (a retry moving error/timeout back to connecting)
