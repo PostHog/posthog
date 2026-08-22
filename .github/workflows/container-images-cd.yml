@@ -544,6 +544,7 @@ jobs:
                         - 'products/error_tracking/backend/logic/**'
                         - 'products/error_tracking/backend/models.py'
                         - 'products/error_tracking/backend/weekly_digest.py'
+                        - 'products/error_tracking/backend/weekly_digest_delivery.py'
                         - 'products/error_tracking/backend/indexed_embedding.py'
                         - 'posthog/tasks/email.py'
                         - 'posthog/tasks/email_utils.py'
