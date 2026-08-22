@@ -3,11 +3,10 @@ Run commands that depend on PostHog's development environment from the repositor
 root through `.codex/with-flox <command> [args...]`.
 This includes hogli, Python and uv, Node.js and pnpm, Rust and Go, and local-stack
 commands. Basic filesystem, Git, and GitHub commands can run directly. Never use
-a dependency executable inherited from another checkout. The wrapper prepares a
-missing, invalid, or stale cache automatically. If it exits with status 77, rerun
-the same command with elevated execution. Request elevated execution on the first
-attempt for explicit environment preparation, dependency changes, and local-stack
-lifecycle commands. Dependency changes also apply the existing dev sandbox.
+a dependency executable inherited from another checkout. Request elevated
+execution on the first attempt for environment preparation, dependency changes,
+and local-stack lifecycle commands. Dependency changes also apply the existing
+dev sandbox.
 """
 
 [sandbox_workspace_write]

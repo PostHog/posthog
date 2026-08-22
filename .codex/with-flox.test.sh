@@ -13,85 +13,45 @@ fail() {
 
 make_fake_repo() {
     local name="$1"
+    local selected_environment="$2"
     local fake_repo="$test_root/$name"
 
-    mkdir -p \
-        "$fake_repo/.codex" \
-        "$fake_repo/.flox/env" \
-        "$fake_repo/bin" \
-        "$fake_repo/fake-bin" \
-        "$fake_repo/home" \
-        "$fake_repo/tools/phrocs"
+    mkdir -p "$fake_repo/.codex" "$fake_repo/home" "$fake_repo/tools/phrocs"
     cp "$source_root/.codex/with-flox" "$fake_repo/.codex/with-flox"
-    cp "$source_root/.codex/run-with-dotenv.py" "$fake_repo/.codex/run-with-dotenv.py"
-    : > "$fake_repo/.flox/env/manifest.toml"
-    : > "$fake_repo/.flox/env/on-activate.sh"
-    : > "$fake_repo/bin/dev-sandbox"
-    : > "$fake_repo/bin/dev-sandbox.sb"
-    : > "$fake_repo/pnpm-lock.yaml"
-    : > "$fake_repo/uv.lock"
-
-    cat > "$fake_repo/fake-bin/flox" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ "${1:-}" != "activate" || "${2:-}" != "--dir" || "${4:-}" != "--" ]]; then
-    echo "unexpected fake Flox arguments" >&2
-    exit 2
-fi
-
-repo_root="$3"
-shift 4
-mkdir -p "$repo_root/.flox/cache/venv/bin"
-printf 'invoked\n' >> "$repo_root/.flox/cache/flox-invocations"
-export DEBUG=1
-export FLOX_ENV_CACHE="$repo_root/.flox/cache"
-export PATH="/usr/bin:/bin"
-exec "$@"
-EOF
-    chmod +x "$fake_repo/fake-bin/flox"
-
+    git -C "$fake_repo" -c init.defaultBranch=master init -q
+    git -C "$fake_repo" config extensions.worktreeConfig true
+    git -C "$fake_repo" config --worktree codex.localEnvironmentConfigPath "$selected_environment"
     printf '%s' "$fake_repo"
 }
 
 run_with_flox() {
     local fake_repo="$1"
-    local environment=(
-        env -i
-        "HOME=$fake_repo/home"
-        LANG=C
-        "PATH=$fake_repo/fake-bin:/usr/bin:/bin"
-        SHELL=/bin/bash
-        "TMPDIR=${TMPDIR:-/tmp}"
-        USER=codex-test
-    )
     shift
-    if [[ -n "${TEST_CODEX_SANDBOX:-}" ]]; then
-        environment+=("CODEX_SANDBOX=$TEST_CODEX_SANDBOX")
-    fi
-    "${environment[@]}" "$fake_repo/.codex/with-flox" "$@"
+    env -i \
+        HOME="$fake_repo/home" \
+        LANG=C \
+        PATH="/usr/bin:/bin" \
+        SHELL=/bin/bash \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        USER=codex-test \
+        "$fake_repo/.codex/with-flox" "$@"
 }
 
-auto_prepare_repo="$(make_fake_repo auto-prepare)"
-output="$(run_with_flox "$auto_prepare_repo" /bin/bash -c 'printf %s "$DEBUG"')"
-[[ "$output" == "1" ]] || fail "missing cache was not prepared before the command ran"
-[[ -f "$auto_prepare_repo/.flox/cache/codex-env" ]] || fail "setup did not create codex-env"
-[[ "$(wc -l < "$auto_prepare_repo/.flox/cache/flox-invocations")" -eq 1 ]] || fail "initial setup did not run exactly once"
-
-run_with_flox "$auto_prepare_repo" /usr/bin/true
-[[ "$(wc -l < "$auto_prepare_repo/.flox/cache/flox-invocations")" -eq 1 ]] || fail "valid cache caused unnecessary setup"
-
-printf 'changed\n' >> "$auto_prepare_repo/.flox/env/manifest.toml"
-run_with_flox "$auto_prepare_repo" /usr/bin/true
-[[ "$(wc -l < "$auto_prepare_repo/.flox/cache/flox-invocations")" -eq 2 ]] || fail "stale cache was not rebuilt"
-
-sandbox_repo="$(make_fake_repo sandbox)"
+disabled_repo="$(make_fake_repo disabled __none__)"
 set +e
-sandbox_output="$(TEST_CODEX_SANDBOX=seatbelt run_with_flox "$sandbox_repo" /usr/bin/true 2>&1)"
-sandbox_status=$?
+disabled_output="$(run_with_flox "$disabled_repo" /usr/bin/true 2>&1)"
+disabled_status=$?
 set -e
-[[ "$sandbox_status" -eq 77 ]] || fail "sandbox setup returned $sandbox_status instead of 77"
-[[ "$sandbox_output" == *"requires elevated execution"* ]] || fail "sandbox setup did not request elevated execution"
-[[ ! -e "$sandbox_repo/.flox/cache/flox-invocations" ]] || fail "sandbox setup invoked Flox"
+[[ "$disabled_status" -eq 1 ]] || fail "missing cache returned $disabled_status instead of 1"
+[[ "$disabled_output" == *"created this worktree without the PostHog environment"* ]] || fail "disabled environment did not explain the missing setup"
+[[ "$disabled_output" == *"If you are an agent, please relay this warning to the user"* ]] || fail "disabled environment did not ask the agent to relay the warning"
+
+selected_repo="$(make_fake_repo selected .codex/environments/environment.toml)"
+set +e
+selected_output="$(run_with_flox "$selected_repo" /usr/bin/true 2>&1)"
+selected_status=$?
+set -e
+[[ "$selected_status" -eq 1 ]] || fail "missing cache returned $selected_status instead of 1"
+[[ "$selected_output" != *"created this worktree without the PostHog environment"* ]] || fail "selected environment produced the disabled warning"
 
 echo "Codex Flox wrapper regression cases passed."

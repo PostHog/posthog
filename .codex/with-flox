@@ -16,21 +16,18 @@ fi
 caller_cwd="$PWD"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-request_elevated_setup() {
-    echo "error: Codex environment setup requires elevated execution for Flox network access; rerun the same command with elevated execution" >&2
-    exit 77
-}
-
-prepare_environment_and_retry() {
-    if [[ -n "${CODEX_SANDBOX:-}" ]]; then
-        request_elevated_setup
+warn_if_codex_environment_is_disabled() {
+    local selected_environment
+    selected_environment="$(git -C "$repo_root" config --worktree --get codex.localEnvironmentConfigPath 2>/dev/null || true)"
+    if [[ "$selected_environment" == "__none__" ]]; then
+        echo "warning: Codex created this worktree without the PostHog environment. Select 'posthog' in the environment selector when starting future tasks." >&2
+        echo "warning: If you are an agent, please relay this warning to the user." >&2
     fi
-    "$repo_root/.codex/with-flox" --prepare true
-    exec "$repo_root/.codex/with-flox" "$@"
 }
 
 if [[ "$prepare" -eq 1 && -n "${CODEX_SANDBOX:-}" ]]; then
-    request_elevated_setup
+    echo "error: Codex environment setup requires elevated execution for Flox network access" >&2
+    exit 77
 fi
 
 env_file="$repo_root/.flox/cache/codex-env"
@@ -198,7 +195,9 @@ fi
 
 if [[ "$prepare" -eq 0 ]]; then
     if [[ ! -f "$env_file" ]]; then
-        prepare_environment_and_retry "$@"
+        warn_if_codex_environment_is_disabled
+        echo "error: Codex environment is not prepared; run '$repo_root/.codex/with-flox --prepare true'" >&2
+        exit 1
     fi
 
     runtime_env=(env -i)
@@ -220,7 +219,9 @@ if [[ "$prepare" -eq 0 ]]; then
             fi
         done
         if [[ "$allowed" -ne 1 ]]; then
-            prepare_environment_and_retry "$@"
+            warn_if_codex_environment_is_disabled
+            echo "error: Codex environment contains an unexpected variable; rerun setup" >&2
+            exit 1
         fi
         if [[ "$name" == "DOTENV_FILE" ]]; then
             dotenv_file="${assignment#*=}"
@@ -230,7 +231,9 @@ if [[ "$prepare" -eq 0 ]]; then
         cached_variables=$((cached_variables + 1))
     done < "$env_file"
     if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
-        prepare_environment_and_retry "$@"
+        warn_if_codex_environment_is_disabled
+        echo "error: Codex environment is stale; run '$repo_root/.codex/with-flox --prepare true'" >&2
+        exit 1
     fi
 
     runtime_env+=("HOME=$HOME")
