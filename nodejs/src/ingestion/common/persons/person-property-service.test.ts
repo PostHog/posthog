@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { UUIDT } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
@@ -74,6 +75,22 @@ describe('PersonPropertyService', () => {
                 }),
                 key: 'Intaldarryl@gmail.com',
             })
+        )
+    })
+
+    it('does not warn about a case collision when person creation fails', async () => {
+        const store = storeCreatingNewPerson({
+            fetchForChecking: jest.fn().mockResolvedValue({ uuid: new UUIDT().toString(), properties: {} }),
+            createPerson: jest.fn().mockRejectedValue(new PersonPropertiesSizeViolationError('too large', teamId)),
+        })
+        const service = buildService('Intaldarryl@gmail.com', store)
+
+        await expect(service.updateProperties()).rejects.toThrow(PersonPropertiesSizeViolationError)
+
+        expect(mockEmitIngestionWarning).not.toHaveBeenCalledWith(
+            expect.anything(),
+            teamId,
+            expect.objectContaining({ type: 'distinct_id_case_collision' })
         )
     })
 

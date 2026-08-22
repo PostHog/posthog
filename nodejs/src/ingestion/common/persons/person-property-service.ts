@@ -49,7 +49,10 @@ export class PersonPropertyService {
             return [person, false]
         }
 
-        await this.warnOnCaseInsensitiveDistinctIdCollision()
+        // Look up a case-only twin before creating, but hold the warning until the
+        // new person actually exists: createPerson can fail permanently (e.g. a
+        // person-properties size violation is not retried), and then nothing split.
+        const caseTwin = await this.findCaseInsensitiveDistinctIdTwin()
 
         let properties = {}
         let propertiesOnce = {}
@@ -58,7 +61,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        return await this.personCreateService.createPerson(
+        const created = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -69,36 +72,44 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+
+        if (caseTwin) {
+            await this.emitCaseInsensitiveDistinctIdCollisionWarning(caseTwin)
+        }
+
+        return created
     }
 
     /**
-     * Warn when a fresh distinct id is about to create a new person while a
-     * lowercased twin already exists for the team. Distinct ids are case-sensitive
-     * keys, so the two never merge and the user splits across duplicate persons.
-     * The event still ingests normally; this only reports the split.
+     * Find a case-only twin for a fresh distinct id: an existing person under the
+     * lowercased form. Returns null when the id is already all-lowercase — so the
+     * common path pays no extra read — or when no twin exists.
      *
-     * The lookup runs only when the incoming id has upper-case letters, so the
-     * common all-lowercase id skips it and pays no extra read. It matches against
-     * the lowercased form, which catches the dominant case where the first-seen
-     * twin was already lowercase; a differently-cased twin is not detected.
+     * Matching against the lowercased form catches the dominant case where the
+     * first-seen twin was already lowercase; a differently-cased twin is not detected.
      */
-    private async warnOnCaseInsensitiveDistinctIdCollision(): Promise<void> {
+    private async findCaseInsensitiveDistinctIdTwin(): Promise<InternalPerson | null> {
         const distinctId = this.context.distinctId
         const lowercased = distinctId.toLowerCase()
         if (lowercased === distinctId) {
-            return
+            return null
         }
+        return await this.context.personStore.fetchForChecking(this.context.team.id, lowercased)
+    }
 
-        const twin = await this.context.personStore.fetchForChecking(this.context.team.id, lowercased)
-        if (!twin) {
-            return
-        }
-
+    /**
+     * Warn that a fresh distinct id created a new person while a lowercased twin
+     * already existed for the team. Distinct ids are case-sensitive keys, so the two
+     * never merge and the user splits across duplicate persons. The event still
+     * ingests normally; this only reports the split.
+     */
+    private async emitCaseInsensitiveDistinctIdCollisionWarning(twin: InternalPerson): Promise<void> {
+        const distinctId = this.context.distinctId
         await emitIngestionWarning(this.context.outputs, this.context.team.id, {
             type: 'distinct_id_case_collision',
             details: {
                 distinctId,
-                existingDistinctId: lowercased,
+                existingDistinctId: distinctId.toLowerCase(),
                 personId: twin.uuid,
                 eventUuid: this.context.event.uuid,
             },
