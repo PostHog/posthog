@@ -30,6 +30,11 @@ import {
   useIntegrations,
   useRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
+import {
+  SettingsCard,
+  SettingsCardRow,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -62,11 +67,10 @@ export function ProjectGithubConnectionSection() {
   });
 
   return (
-    <div className="flex flex-col gap-3">
-      <Text size="xs" variant="muted">
-        GitHub access for this project's Self-driving pipeline and cloud tasks.
-      </Text>
-
+    <SettingsSection
+      label="Project connection"
+      description="GitHub access for this project's Self-driving pipeline and cloud tasks."
+    >
       {projectId != null ? (
         <GithubInstallRequestsBanner
           onFinishConnecting={() => void connect()}
@@ -84,9 +88,9 @@ export function ProjectGithubConnectionSection() {
         </Text>
       ) : null}
 
-      <div className="flex flex-col divide-y divide-(--gray-4) border-(--gray-5) border-t">
+      <SettingsCard>
         {isLoading ? (
-          <div className="flex items-center gap-2 py-4">
+          <div className="flex items-center gap-2 px-3.5 py-3">
             <Spinner />
             <Text size="xs" variant="muted">
               Loading…
@@ -101,46 +105,42 @@ export function ProjectGithubConnectionSection() {
               canDisconnect={isAdmin === true}
             />
           ))
-        ) : (
-          <div className="flex flex-col gap-3 py-4">
-            <Text size="xs" variant="muted">
-              No GitHub connection for this project yet.
-            </Text>
-            {isAwaitingApproval ? null : isAdmin === false &&
-              projectId != null ? (
-              <RequestIntegrationAccessForm
-                projectId={projectId}
-                kind="github"
-                integrationName="GitHub"
-              />
-            ) : (
-              <div className="flex">
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  disabled={
-                    projectId == null || isAdmin === null || isConnecting
-                  }
-                  onClick={() => void connect()}
-                >
-                  {isConnecting ? (
-                    <Spinner />
-                  ) : (
-                    <ArrowSquareOutIcon size={12} />
-                  )}
-                  {isConnecting
-                    ? "Waiting for GitHub…"
-                    : hasConnectError || isTimedOut
-                      ? "Try again"
-                      : "Connect GitHub"}
-                </Button>
-              </div>
-            )}
+        ) : isAwaitingApproval ? (
+          <SettingsCardRow
+            label="No GitHub connection yet"
+            description="A GitHub organization owner still needs to approve the PostHog app."
+          />
+        ) : isAdmin === false && projectId != null ? (
+          <div className="px-3.5 py-3">
+            <RequestIntegrationAccessForm
+              projectId={projectId}
+              kind="github"
+              integrationName="GitHub"
+            />
           </div>
+        ) : (
+          <SettingsCardRow
+            label="No GitHub connection yet"
+            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories."
+          >
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={projectId == null || isAdmin === null || isConnecting}
+              onClick={() => void connect()}
+            >
+              {isConnecting ? <Spinner /> : <ArrowSquareOutIcon size={12} />}
+              {isConnecting
+                ? "Waiting for GitHub…"
+                : hasConnectError || isTimedOut
+                  ? "Try again"
+                  : "Connect GitHub"}
+            </Button>
+          </SettingsCardRow>
         )}
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 

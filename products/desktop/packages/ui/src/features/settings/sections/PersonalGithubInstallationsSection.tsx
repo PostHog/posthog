@@ -22,6 +22,10 @@ import {
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
+import {
+  SettingsCard,
+  SettingsSection,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -56,19 +60,16 @@ export function PersonalGithubInstallationsSection() {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Text size="xs" variant="muted">
-          Personal GitHub installations linked to your PostHog account. Agents
-          use these to act as you.
-        </Text>
+    <SettingsSection
+      label="Your GitHub account"
+      description="Personal GitHub installations linked to your PostHog account. Agents use these to act as you."
+      action={
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={!canConnect}
           onClick={handleConnect}
-          className="shrink-0"
         >
           {isConnecting ? <Spinner /> : <ArrowSquareOutIcon size={12} />}
           {isConnecting
@@ -77,31 +78,35 @@ export function PersonalGithubInstallationsSection() {
               ? "Connect GitHub"
               : "Connect another account"}
         </Button>
-      </div>
-
+      }
+    >
       {hasConnectError ? (
         <Text size="xs" className="text-(--red-11)">
           {describeGithubConnectError(error)}
         </Text>
       ) : null}
 
-      <div className="flex flex-col divide-y divide-(--gray-4) border-(--gray-5) border-t">
+      <SettingsCard>
         {isLoading ? (
-          <div className="flex items-center gap-2 py-4">
+          <div className="flex items-center gap-2 px-3.5 py-3">
             <Spinner />
             <Text size="xs" variant="muted">
               Loading…
             </Text>
           </div>
         ) : integrations.length === 0 ? (
-          <div className="flex items-center gap-3 py-4">
+          <div className="flex items-center gap-3 px-3.5 py-3">
             <div className="shrink-0 text-(--gray-11)">
               <GithubLogoIcon size={20} />
             </div>
-            <Text size="xs" variant="muted">
-              No GitHub installations linked yet. Connect one so agents can open
-              pull requests as you.
-            </Text>
+            <div className="flex flex-col gap-0.5">
+              <span className="font-medium text-[13px] text-gray-12 leading-5">
+                No GitHub account linked yet
+              </span>
+              <span className="text-[12px] text-gray-10 leading-snug">
+                Connect one so agents can open pull requests as you.
+              </span>
+            </div>
           </div>
         ) : (
           integrations.map((integration) => (
@@ -117,8 +122,8 @@ export function PersonalGithubInstallationsSection() {
             />
           ))
         )}
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 
