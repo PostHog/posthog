@@ -414,6 +414,21 @@ tools:
     tasks-models-retrieve:
         operation: tasks_models_retrieve
         enabled: false
+    tasks-partial-update:
+        operation: tasks_partial_update
+        enabled: false
+    tasks-pin-create:
+        operation: tasks_pin_create
+        enabled: false
+    tasks-pinned-retrieve:
+        operation: tasks_pinned_retrieve
+        enabled: false
+    tasks-presence-create:
+        operation: tasks_presence_create
+        enabled: false
+    tasks-presence-destroy:
+        operation: tasks_presence_destroy
+        enabled: false
     tasks-query:
         operation: tasks_query_retrieve
         enabled: true
@@ -453,21 +468,6 @@ tools:
                 - latest_run.status
                 - created_at
                 - updated_at
-    tasks-partial-update:
-        operation: tasks_partial_update
-        enabled: false
-    tasks-pin-create:
-        operation: tasks_pin_create
-        enabled: false
-    tasks-pinned-retrieve:
-        operation: tasks_pinned_retrieve
-        enabled: false
-    tasks-presence-create:
-        operation: tasks_presence_create
-        enabled: false
-    tasks-presence-destroy:
-        operation: tasks_presence_destroy
-        enabled: false
     tasks-repositories-retrieve:
         operation: tasks_repositories_retrieve
         enabled: false
