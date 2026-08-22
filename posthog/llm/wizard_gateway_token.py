@@ -36,6 +36,7 @@ _MAX_TTL_SECONDS = 86400
 # than a 503 for every wizard run.
 _DEFAULT_CAP_USD = Decimal("50")
 _MAX_CAP_USD = Decimal("10000")
+_CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
@@ -123,7 +124,12 @@ def _cap_usd() -> str:
     except (InvalidOperation, ValueError):
         logger.warning("wizard_gateway_token: cap_usd is not a decimal, using the default", cap=raw)
         cap = _DEFAULT_CAP_USD
+    # Quantize first, then range-check: a positive value below a microdollar
+    # rounds to 0.000000, which the gateway rejects as non-positive — the 503
+    # this clamp exists to avoid.
+    if cap.is_finite():
+        cap = cap.quantize(_CAP_QUANTUM)
     if not cap.is_finite() or cap <= 0 or cap > _MAX_CAP_USD:
         logger.warning("wizard_gateway_token: cap_usd out of range, using the default", cap=raw)
-        cap = _DEFAULT_CAP_USD
-    return f"{cap.quantize(Decimal('0.000001')):f}"
+        cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
+    return f"{cap:f}"

@@ -130,7 +130,16 @@ class TestMintWizardGatewayToken:
 
     @pytest.mark.parametrize(
         "configured",
-        ["not a number", "0", "-5", "20000", ""],
+        [
+            "not a number",
+            "0",
+            "-5",
+            "20000",
+            "",
+            # Positive but under a microdollar: it quantizes to 0.000000, which
+            # the gateway rejects as non-positive.
+            "0.0000001",
+        ],
     )
     def test_out_of_contract_cap_falls_back_to_the_default(self, configured):
         # The gateway 400s any of these, and a 400 becomes a 503 for every
