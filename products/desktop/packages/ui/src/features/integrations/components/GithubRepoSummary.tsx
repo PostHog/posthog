@@ -74,6 +74,7 @@ export function GithubRepoSummary({
     <>
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         className="-mx-1 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 text-left transition-colors hover:bg-(--gray-3)"
       >
