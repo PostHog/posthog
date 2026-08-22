@@ -51,6 +51,11 @@ const definitions: CustomPropertyDefinitionApi[] = [
             next_sync_at: '2023-02-16T14:30:00Z',
             latest_run: {
                 id: '01890000-0000-0000-0000-0000000000b1',
+                job_id: null,
+                account_segment: null,
+                sync_phase: null,
+                attempt: null,
+                workflow_id: null,
                 trigger: 'scheduled',
                 status: 'completed',
                 started_at: '2023-02-15T14:29:00Z',
@@ -160,6 +165,11 @@ const definitions: CustomPropertyDefinitionApi[] = [
             next_sync_at: '2023-02-15T13:00:00Z',
             latest_run: {
                 id: '01890000-0000-0000-0000-0000000000b4',
+                job_id: null,
+                account_segment: null,
+                sync_phase: null,
+                attempt: null,
+                workflow_id: null,
                 trigger: 'scheduled',
                 status: 'completed',
                 started_at: '2023-02-15T11:59:00Z',
@@ -179,6 +189,11 @@ const definitions: CustomPropertyDefinitionApi[] = [
 const runs: CustomPropertySyncRunApi[] = [
     {
         id: '01890000-0000-0000-0000-0000000000c1',
+        job_id: null,
+        account_segment: null,
+        sync_phase: null,
+        attempt: null,
+        workflow_id: null,
         trigger: 'scheduled',
         status: 'completed',
         started_at: '2023-02-15T14:29:00Z',
@@ -193,6 +208,11 @@ const runs: CustomPropertySyncRunApi[] = [
     },
     {
         id: '01890000-0000-0000-0000-0000000000c2',
+        job_id: null,
+        account_segment: null,
+        sync_phase: null,
+        attempt: null,
+        workflow_id: null,
         trigger: 'manual',
         status: 'failed',
         started_at: '2023-02-14T09:00:00Z',
