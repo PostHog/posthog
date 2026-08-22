@@ -380,7 +380,11 @@ def _recursively_resolve_column(
     elif isinstance(column, ast.ConstantType):
         fields[name] = _constant_type_to_database_field(name, column)
     elif isinstance(column, ast.SelectQueryType):
-        first_col = next(iter(column.columns.values()))
+        # A scalar-subquery column can have no columns. Projection pushdown prunes them, and the
+        # resolver removes them elsewhere. Report a readable query error, not a bare StopIteration.
+        first_col = next(iter(column.columns.values()), None)
+        if first_col is None:
+            raise QueryError(f'Cannot resolve column "{name}": its subquery selects no columns')
         return _recursively_resolve_column(name, first_col, fields, context)
     else:
         raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")

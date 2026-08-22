@@ -738,6 +738,16 @@ class TestResolver(BaseTest):
         )
         assert len(set(built_ids)) == 3, "all 3 CTEs (base, mid, top) should be built exactly once"
 
+    def test_build_cte_table_empty_scalar_subquery_raises_query_error(self):
+        # A CTE column can be a scalar subquery whose columns dict was emptied (projection pushdown
+        # prunes them). Rebuilding the CTE table must report a readable query error, not a bare
+        # StopIteration that the user sees as an internal 500.
+        empty_subquery = ast.SelectQueryType(columns={}, tables={})
+        select_query_type = ast.SelectQueryType(columns={"scalar": empty_subquery}, tables={})
+
+        with self.assertRaises(QueryError):
+            resolver_utils._build_cte_database_table(select_query_type, self.context)
+
     def test_same_named_ctes_in_different_scopes_do_not_collide(self):
         # Same name, different scopes: keyed by type identity not name, so they must not collide.
         query = (
