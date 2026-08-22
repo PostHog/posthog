@@ -733,6 +733,127 @@ class TestPersonsDedupSurvivorSelection:
         assert _persons(persons_conn) == 2
 
 
+def _version(conn: psycopg.Connection, person_id: int) -> int:
+    return _count(conn, "SELECT version FROM posthog_person WHERE id = %s", (person_id,))
+
+
+class TestPersonsDedupSurvivorVersionFloor:
+    # ClickHouse keys person rows on (team_id, uuid) and resolves them with argMax(..., version),
+    # so both members of a duplicate group compete under one key. The survivor rule ranks
+    # reachability above version, so the row we keep is routinely the lower-versioned one and its
+    # later updates lose to the row we just deleted. These cover the raise that prevents that.
+
+    def test_a_survivor_below_its_victim_is_raised_above_it(self, persons_conn, tmp_path):
+        uuid = _uuid(200)
+        orphan = _add_person(persons_conn, uuid, version=1500)
+        survivor = _add_person(persons_conn, uuid, version=3)
+        _add_distinct_id(persons_conn, survivor, "did-200")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 1
+        assert _count(persons_conn, "SELECT count(*) FROM posthog_person WHERE id = %s", (orphan,)) == 0
+        # Above the victim's 1500, so the survivor's next update outranks the victim's
+        # ClickHouse row instead of being discarded by argMax.
+        assert _version(persons_conn, survivor) == 1500 + persons_dedup_command.SURVIVOR_VERSION_MARGIN
+
+    def test_the_raise_clears_every_victim_in_a_group_not_just_one(self, persons_conn, tmp_path):
+        # The ceiling is a max over the group's victims. Taking any single victim's version
+        # would leave the survivor below a sibling that also wrote to the same ClickHouse key.
+        uuid = _uuid(201)
+        _add_person(persons_conn, uuid, version=40)
+        _add_person(persons_conn, uuid, version=900)
+        _add_person(persons_conn, uuid, version=7)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-201")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 1
+        assert _version(persons_conn, survivor) == 900 + persons_dedup_command.SURVIVOR_VERSION_MARGIN
+
+    def test_a_survivor_already_above_its_victims_is_left_alone(self, persons_conn, tmp_path):
+        # Raising unconditionally would inflate the counter of every survivor that never had
+        # the problem, for no gain.
+        uuid = _uuid(202)
+        _add_person(persons_conn, uuid, version=5)
+        survivor = _add_person(persons_conn, uuid, version=88)
+        _add_distinct_id(persons_conn, survivor, "did-202")
+
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _version(persons_conn, survivor) == 88
+
+    def test_a_merge_required_group_keeps_both_versions_untouched(self, persons_conn, tmp_path):
+        # Two reachable rows plus an unreachable third. Repair may remove the third, but giving
+        # both survivors the same version would make their ClickHouse rows tie rather than
+        # resolve, so the group is left for the merge pass.
+        uuid = _uuid(203)
+        unreachable = _add_person(persons_conn, uuid, version=770)
+        a = _add_person(persons_conn, uuid, version=2)
+        b = _add_person(persons_conn, uuid, version=4)
+        _add_distinct_id(persons_conn, a, "did-203a")
+        _add_distinct_id(persons_conn, b, "did-203b")
+
+        _run("repair", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _count(persons_conn, "SELECT count(*) FROM posthog_person WHERE id = %s", (unreachable,)) == 0
+        assert _version(persons_conn, a) == 2
+        assert _version(persons_conn, b) == 4
+
+    def test_the_flag_is_off_by_default(self, persons_conn, tmp_path):
+        uuid = _uuid(204)
+        _add_person(persons_conn, uuid, version=600)
+        survivor = _add_person(persons_conn, uuid, version=1)
+        _add_distinct_id(persons_conn, survivor, "did-204")
+
+        _run("delete-unreferenced", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 1
+        assert _version(persons_conn, survivor) == 1
+
+    def test_a_dry_run_counts_the_raises_without_making_them(self, persons_conn, tmp_path):
+        # The flag has to be measurable before it writes to a row live ingestion also writes.
+        uuid = _uuid(205)
+        _add_person(persons_conn, uuid, version=500)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-205")
+
+        with capture_logs() as logs:
+            _run("delete-unreferenced", tmp_path, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 2, "a dry run deletes nothing"
+        assert _version(persons_conn, survivor) == 0, "a dry run raises nothing"
+        dry = [log for log in logs if log["event"] == "persons_dedup.dry_run_ok"]
+        assert dry and dry[0]["survivors_to_raise"] == 1
+
+    def test_the_raise_is_rolled_back_with_the_delete(self, persons_conn, tmp_path, monkeypatch):
+        # The raise sits inside the delete transaction. If a later statement aborts it, a
+        # survivor left carrying a raised version would claim a ClickHouse ceiling for rows
+        # that were never removed.
+        uuid = _uuid(206)
+        _add_person(persons_conn, uuid, version=300)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, "did-206")
+
+        def _explode(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_backup", _explode)
+        with pytest.raises(RuntimeError):
+            _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=True)
+
+        assert _persons(persons_conn) == 2
+        assert _version(persons_conn, survivor) == 0
+
+    def test_the_update_grant_is_only_required_when_the_flag_is_set(self):
+        # The command runs today without UPDATE on posthog_person. Demanding it unconditionally
+        # would abort every run whose role was granted exactly what the old modes needed.
+        assert ("posthog_person", "UPDATE") not in persons_dedup_command.WRITE_PRIVILEGES
+        assert ("posthog_person", "UPDATE") in persons_dedup_command.SURVIVOR_VERSION_PRIVILEGES
+        assert set(persons_dedup_command.WRITE_PRIVILEGES) < set(persons_dedup_command.SURVIVOR_VERSION_PRIVILEGES)
+
+
 class TestPersonsDedupVerify:
     def test_verify_fails_while_resolvable_duplicates_remain(self, persons_conn, tmp_path):
         # An orphan repair would have taken: work is genuinely outstanding.
