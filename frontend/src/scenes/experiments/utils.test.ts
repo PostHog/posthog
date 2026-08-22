@@ -1132,7 +1132,7 @@ describe('filterToExposureConfig', () => {
 })
 
 describe('getExposureTargetingProperties', () => {
-    it('returns person, cohort, and group filters but not event filters', () => {
+    it('returns person, cohort, group, and warehouse person-property filters but not event filters', () => {
         const geoipProperty = {
             key: '$geoip_country_code',
             value: ['US'],
@@ -1141,6 +1141,14 @@ describe('getExposureTargetingProperties', () => {
         }
         const cohortProperty = { key: 'id', value: 42, type: PropertyFilterType.Cohort }
         const groupProperty = { key: 'plan', value: ['pro'], type: PropertyFilterType.Group }
+        // The exposure picker offers warehouse person properties (a CRM plan tier or country), so
+        // they can be selected here and describe who the user is, not the exposure event.
+        const warehousePersonProperty = {
+            key: 'plan_tier',
+            value: ['enterprise'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.DataWarehousePersonProperty,
+        }
         const eventProperty = {
             key: '$feature_flag_response',
             value: ['test'],
@@ -1151,10 +1159,15 @@ describe('getExposureTargetingProperties', () => {
         const exposureConfig = {
             kind: NodeKind.ExperimentEventExposureConfig,
             event: '$feature_flag_called',
-            properties: [geoipProperty, cohortProperty, groupProperty, eventProperty],
+            properties: [geoipProperty, cohortProperty, groupProperty, warehousePersonProperty, eventProperty],
         } as ExperimentEventExposureConfig
 
-        expect(getExposureTargetingProperties(exposureConfig)).toEqual([geoipProperty, cohortProperty, groupProperty])
+        expect(getExposureTargetingProperties(exposureConfig)).toEqual([
+            geoipProperty,
+            cohortProperty,
+            groupProperty,
+            warehousePersonProperty,
+        ])
     })
 
     it('returns an empty array when there is no exposure config or no targeting properties', () => {

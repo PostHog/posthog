@@ -925,10 +925,10 @@ export function filterToExposureConfig(entity: Record<string, any> | undefined):
 }
 
 /**
- * Person, cohort, and group filters describe who a user is, so they target an
- * audience rather than mark an exposure event. Release conditions decide the
- * audience; an exposure filter on these properties does not, so we surface it
- * to the user as a likely mistake.
+ * Person, cohort, group, and warehouse person-property filters describe who a
+ * user is, so they target an audience rather than mark an exposure event.
+ * Release conditions decide the audience; an exposure filter on these properties
+ * does not, so we surface it to the user as a likely mistake.
  */
 export function getExposureTargetingProperties(
     exposureConfig: ExperimentExposureConfig | undefined
@@ -937,7 +937,8 @@ export function getExposureTargetingProperties(
         (property) =>
             property.type === PropertyFilterType.Person ||
             property.type === PropertyFilterType.Cohort ||
-            property.type === PropertyFilterType.Group
+            property.type === PropertyFilterType.Group ||
+            property.type === PropertyFilterType.DataWarehousePersonProperty
     )
 }
 
