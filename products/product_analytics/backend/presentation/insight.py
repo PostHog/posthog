@@ -2044,13 +2044,19 @@ class InsightViewSet(
         )
 
     @staticmethod
-    def _parse_json_list_param(key: str, value: str) -> Sequence[Any]:
+    def _parse_json_list_param(key: str, value: str, *, require_int_elements: bool = False) -> Sequence[Any]:
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
             parsed = None
         if not isinstance(parsed, list):
             raise ValidationError({key: "Must be a JSON list."})
+        # A non-integer element reaching an integer ORM field (e.g. `id__in`) raises ValueError/TypeError
+        # inside `.filter()`, a 500. Reject it here instead. `bool` is an `int` subclass but not a valid id.
+        if require_int_elements and not all(
+            isinstance(element, int) and not isinstance(element, bool) for element in parsed
+        ):
+            raise ValidationError({key: "Must be a JSON list of integers."})
         return parsed
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -2142,7 +2148,9 @@ class InsightViewSet(
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
-                    dashboards_ids = self._parse_json_list_param("dashboards", dashboards_filter)
+                    dashboards_ids = self._parse_json_list_param(
+                        "dashboards", dashboards_filter, require_int_elements=True
+                    )
                     for dashboard_id in dashboards_ids:
                         # filter by dashboards one at a time so the filter is AND not OR
                         queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
@@ -2155,7 +2163,9 @@ class InsightViewSet(
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
-                    created_by_ids = self._parse_json_list_param("created_by", created_by_filter)
+                    created_by_ids = self._parse_json_list_param(
+                        "created_by", created_by_filter, require_int_elements=True
+                    )
                     if created_by_ids:
                         queryset = queryset.filter(created_by__id__in=created_by_ids)
             elif key == "created_date_from":

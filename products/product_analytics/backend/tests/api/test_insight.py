@@ -970,10 +970,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("dashboards not json", "dashboards", "foo"),
             ("dashboards not a list", "dashboards", "5"),
+            ("dashboards non-int string element", "dashboards", '["x"]'),
+            ("dashboards non-int object element", "dashboards", "[{}]"),
             ("tags not json", "tags", "foo"),
             ("tags not a list", "tags", "5"),
             ("created_by not json", "created_by", "foo"),
             ("created_by not a list", "created_by", "5"),
+            ("created_by non-int string element", "created_by", '["alice"]'),
+            ("created_by non-int object element", "created_by", "[{}]"),
         ]
     )
     def test_list_filter_malformed_json_list_param_returns_400(self, _name, param, value):
