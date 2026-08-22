@@ -846,6 +846,50 @@ class TestPersonsDedupSurvivorVersionFloor:
         assert _persons(persons_conn) == 2
         assert _version(persons_conn, survivor) == 0
 
+    @pytest.mark.parametrize(
+        "raise_flag,expect_locked",
+        [(True, True), (False, False)],
+        ids=["flag on locks the survivor", "flag off leaves it alone"],
+    )
+    def test_the_survivor_lock_is_taken_up_front_and_only_when_asked(
+        self, persons_conn, tmp_path, monkeypatch, raise_flag, expect_locked
+    ):
+        # The raise runs after the gates and an fsync'd backup. Taking the survivor's lock there
+        # rather than up front reopens a deadlock: ingestion's updatePersonsBatch matches on
+        # (team_id, uuid), so one statement needs both rows, and it can hold the survivor while
+        # blocking on our victim. Probing during the backup proves the lock is already held.
+        # The off case guards the other half -- the wider lock must not be paid by runs that did
+        # not ask for it.
+        uuid = _uuid(207 if raise_flag else 208)
+        _add_person(persons_conn, uuid, version=400)
+        survivor = _add_person(persons_conn, uuid, version=0)
+        _add_distinct_id(persons_conn, survivor, f"did-{207 if raise_flag else 208}")
+
+        observed: dict[str, Any] = {}
+        real_backup = persons_dedup_command.Command._backup
+
+        def backup_then_probe(self, conn, team, path):
+            result = real_backup(self, conn, team, path)
+            with persons_db_connection(writer=True, autocommit=True) as other:
+                with other.cursor() as cur:
+                    # Session-level, not SET LOCAL: this connection is in autocommit, where
+                    # LOCAL is discarded with the implicit transaction and the probe would
+                    # wait forever instead of failing fast.
+                    cur.execute("SET lock_timeout = '250ms'")
+                    try:
+                        cur.execute("SELECT id FROM posthog_person WHERE id = %s FOR UPDATE", (survivor,))
+                        observed["locked"] = False
+                    except psycopg.errors.LockNotAvailable:
+                        observed["locked"] = True
+            return result
+
+        monkeypatch.setattr(persons_dedup_command.Command, "_backup", backup_then_probe)
+        _run("delete-unreferenced", tmp_path, apply=True, raise_survivor_version=raise_flag)
+
+        assert observed["locked"] is expect_locked
+        expected_version = 400 + persons_dedup_command.SURVIVOR_VERSION_MARGIN if raise_flag else 0
+        assert _version(persons_conn, survivor) == expected_version
+
     def test_the_update_grant_is_only_required_when_the_flag_is_set(self):
         # The command runs today without UPDATE on posthog_person. Demanding it unconditionally
         # would abort every run whose role was granted exactly what the old modes needed.

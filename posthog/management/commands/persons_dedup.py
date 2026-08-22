@@ -514,6 +514,27 @@ WHERE p.team_id = %(team)s
 FOR UPDATE
 """
 
+# --raise-survivor-version only. Takes every lock the batch will need -- victims and the
+# survivors the raise updates -- in one ordered statement, before the gates and the backup.
+#
+# Without it the transaction locks victims, spends the gates and an fsync'd backup, and only
+# then reaches for the survivor. Ingestion's updatePersonsBatch matches on (team_id, uuid)
+# (nodejs postgres-person-repository.ts), so one of its statements needs both rows: if it takes
+# the survivor and blocks on our victim while we are still writing the backup, the two deadlock.
+# Postgres would abort one and the batch would retry, but it can bounce an ingestion write too.
+#
+# Collapsing both acquisitions into one statement leaves no window between them. ORDER BY id
+# makes our order deterministic; ingestion's order inside its own statement is the planner's, so
+# this narrows the race rather than removing it, and DeadlockDetected stays the backstop.
+LOCK_BATCH_GROUPS_SQL = f"""
+SELECT p.id FROM posthog_person p
+WHERE p.team_id = %(team)s
+  AND EXISTS (SELECT 1 FROM {VICTIMS_TABLE}_batch b
+               WHERE b.team_id = p.team_id AND b.uuid = p.uuid)
+ORDER BY p.id
+FOR UPDATE
+"""
+
 FETCH_PERSONS_SQL = f"""
 SELECT {", ".join("p." + c for c in PERSON_COLUMNS)}
 FROM posthog_person p
@@ -1308,6 +1329,12 @@ class Command(BaseCommand):
                         "SELECT set_config('statement_timeout', %s, true)",
                         (f"{options['txn_statement_timeout_ms']}ms",),
                     )
+                    # Takes the survivors' locks too, so the raise later in this transaction
+                    # adds no second acquisition point. Runs first, and LOCK_VICTIMS_SQL below
+                    # then re-locks rows already held, which costs nothing and keeps its
+                    # rowcount check meaning exactly what it did before.
+                    if options["raise_survivor_version"]:
+                        cur.execute(LOCK_BATCH_GROUPS_SQL, {"team": team})
                     cur.execute(LOCK_VICTIMS_SQL, {"team": team})
                     locked = cur.rowcount
                     # Re-check inside the transaction: these teams still receive writes, and a
