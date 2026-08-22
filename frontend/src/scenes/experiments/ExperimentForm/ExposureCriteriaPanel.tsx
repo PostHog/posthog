@@ -91,28 +91,39 @@ function ActivationActionFilter({
     experiment: Experiment
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
+    const targetingProperties = getExposureTargetingProperties(experiment.exposure_criteria?.activation_config)
+
     return (
-        <ActionFilter
-            bordered
-            filters={exposureConfigToFilter(
-                experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+        <div className="space-y-2">
+            <ActionFilter
+                bordered
+                filters={exposureConfigToFilter(
+                    experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+                )}
+                setFilters={({ events, actions }: Partial<FilterType>): void => {
+                    const entity = events?.[0] || actions?.[0]
+                    if (entity) {
+                        onChange({ activation_config: filterToExposureConfig(entity) })
+                    }
+                }}
+                typeKey="experiment-activation-config"
+                buttonCopy="Add activation event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+            />
+            {targetingProperties.length > 0 && (
+                <LemonBanner type="warning">
+                    This filter uses a person, cohort, or group property. Those describe who a user is, not the event
+                    that marks a user as exposed. To limit who enters the experiment, for example by country, set a
+                    release condition on the feature flag instead.
+                </LemonBanner>
             )}
-            setFilters={({ events, actions }: Partial<FilterType>): void => {
-                const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ activation_config: filterToExposureConfig(entity) })
-                }
-            }}
-            typeKey="experiment-activation-config"
-            buttonCopy="Add activation event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
-        />
+        </div>
     )
 }
 
