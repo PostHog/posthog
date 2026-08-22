@@ -1,11 +1,14 @@
 import json
 from typing import cast
 
+from unittest import mock
+
 from django.test import SimpleTestCase
 
 from openai import OpenAI
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom import ai_builder
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
     build_system_prompt,
     build_user_prompt,
@@ -149,6 +152,22 @@ class TestDraftManifestSync(SimpleTestCase):
         self.assertEqual(result.attempts, 3)
         self.assertIsNotNone(result.manifest_json)
         self.assertIsNotNone(result.error)
+
+    def test_default_client_built_through_go_gateway_with_team_attribution(self) -> None:
+        # Guards the reported failure: the default client must be built through build_openai_client
+        # (Go ai-gateway, with Python fallback), not get_llm_client, which raised when only
+        # AI_GATEWAY_* was configured. team_id must ride along for per-team spend attribution.
+        fake = _client([json.dumps(_valid_manifest())])
+        with mock.patch.object(ai_builder, "build_openai_client", return_value=fake) as build:
+            result = draft_manifest_sync(team_id=7, source_name="Acme", docs_text="docs", reference_text="ref")
+
+        self.assertEqual(result.status, "ok")
+        build.assert_called_once_with(
+            "warehouse_custom_source_builder",
+            ai_product="warehouse_custom_source_builder",
+            properties={"team_id": "7"},
+            distinct_id="team-7",
+        )
 
     def test_invalid_keeps_last_parseable_draft_when_final_reply_unparseable(self) -> None:
         # Attempt 1 parses but fails validation; the final attempt is unparseable. The result must

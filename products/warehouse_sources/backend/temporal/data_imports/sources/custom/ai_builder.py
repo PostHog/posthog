@@ -27,7 +27,7 @@ import requests
 import structlog
 from openai import OpenAI
 
-from posthog.llm.gateway_client import Product, get_llm_client
+from posthog.llm.gateway_client import Product, build_openai_client, team_distinct_id
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -42,8 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 logger = structlog.get_logger(__name__)
 
-# Gateway product tag — registered in `posthog/llm/gateway_client.py` and
-# `services/llm-gateway/src/llm_gateway/products/config.py`, where it is locked to this model.
+# Gateway product tag — the `$ai_product` telemetry label on the Go ai-gateway, and the route
+# (registered in `posthog/llm/gateway_client.py` and
+# `services/llm-gateway/src/llm_gateway/products/config.py`) on the Python-gateway fallback.
 CUSTOM_SOURCE_BUILDER_PRODUCT: Product = "warehouse_custom_source_builder"
 # Manifest authoring is a high-stakes, low-volume reasoning task (a wrong manifest = a broken source),
 # and API docs can be large — so we pay for the strongest long-context model rather than the cheap
@@ -307,7 +308,7 @@ def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt
         # No `temperature`: it's deprecated/rejected for claude-opus-4-8 (the model fixes it).
         max_tokens=MAX_OUTPUT_TOKENS,
         response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        user=team_distinct_id(team_id),
     )
     return response.choices[0].message.content or ""
 
@@ -327,7 +328,15 @@ def draft_manifest_sync(
     AI-data-processing opt-in before calling: this ships the docs text to the LLM gateway.
     """
     reference_text = reference_text if reference_text is not None else load_skill_reference()
-    client = client if client is not None else get_llm_client(product=CUSTOM_SOURCE_BUILDER_PRODUCT, team_id=team_id)
+    if client is None:
+        # Route through the Go ai-gateway (with a Python-gateway fallback) so the call works wherever
+        # AI_GATEWAY_* is set. team_id rides on the properties blob for per-team spend attribution.
+        client = build_openai_client(
+            CUSTOM_SOURCE_BUILDER_PRODUCT,
+            ai_product=CUSTOM_SOURCE_BUILDER_PRODUCT,
+            properties={"team_id": str(team_id)},
+            distinct_id=team_distinct_id(team_id),
+        )
 
     system_prompt = build_system_prompt(reference_text)
     docs = _bounded_docs(docs_text)
