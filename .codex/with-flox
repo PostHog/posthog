@@ -20,8 +20,8 @@ warn_if_codex_environment_is_disabled() {
     local selected_environment
     selected_environment="$(git -C "$repo_root" config --worktree --get codex.localEnvironmentConfigPath 2>/dev/null || true)"
     if [[ "$selected_environment" == "__none__" ]]; then
-        echo "warning: Codex created this worktree without the PostHog environment. Select 'posthog' in the environment selector when starting future tasks." >&2
-        echo "warning: If you are an agent, please relay this warning to the user." >&2
+        echo "warning: The PostHog local environment is disabled for this worktree. If you start tasks in the Codex desktop app, select 'posthog' for future tasks." >&2
+        echo "warning: If you are an agent, tell the user about the previous warning." >&2
     fi
 }
 
