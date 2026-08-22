@@ -1201,6 +1201,10 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
     return _sandbox_bound_task_id(request) == UUID(task_id)
 
 
+# Command methods that inject caller-authored content and drive a new model turn.
+_HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
+
+
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -2469,6 +2473,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        # Steering an analysis run spends model tokens on a task whose generations are excluded
+        # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
+        # and the agent's own operations stay open.
+        if method in _HUMAN_STEERING_COMMAND_METHODS and (
+            one_shot_response := self._one_shot_analysis_response(task_id)
+        ):
+            return one_shot_response
         task_runtime = tasks_facade.task_runtime(task_id, self.team_id, self._user_id(), for_control=True)
         if (
             method.startswith("pi/") or method in {"queue_get", "queue_clear"}

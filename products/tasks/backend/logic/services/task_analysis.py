@@ -1,6 +1,8 @@
 """Server-side creation of PostHog-funded task-analysis runs."""
 
+import re
 import uuid
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -39,7 +41,45 @@ TASK_ANALYSIS_ORIGIN_KEY_PREFIX = "task_analysis"
 MAX_ANALYSIS_LOG_BYTES = 128 * 1024 * 1024
 
 MAX_INSIGHTS_PER_RUN = 5
+
+# A genuine re-analysis after a failure is intended, but a caller who can drive an analysis to a
+# non-blocking status could otherwise buy an unbounded number of funded runs for one target.
+MAX_ANALYSES_PER_TARGET_RUN = 3
 TASK_ANALYSIS_INSIGHT_SCHEMA_VERSION = 1
+
+# Mirrors the report_insight tool's patterns. The tool checks first for a usable error message,
+# but the endpoint is reachable directly with the sandbox token, so this is the check that holds.
+SECRET_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{12,}"),
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"\bphx_[A-Za-z0-9]{20,}"),
+    re.compile(r"bearer\s+[A-Za-z0-9._~+/=-]{16,}", re.IGNORECASE),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+]
+
+
+def _iter_strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_strings(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_strings(item)
+
+
+def find_secret_like(finding: Any) -> str | None:
+    """The first credential-shaped pattern any string in the finding matches."""
+    for text in _iter_strings(finding):
+        for pattern in SECRET_PATTERNS:
+            if pattern.search(text):
+                return pattern.pattern
+    return None
+
 
 ANALYSIS_PROMPT_TEMPLATE = """Use the analyzing-task-runs skill from the PostHog MCP to analyze task {target_task_id} run {target_run_id} for inefficiencies. The run's log is attached to this task as {artifact_name}.
 
@@ -162,6 +202,10 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
     if existing is not None:
         return existing, False
 
+    attempt = _next_analysis_attempt(team_id=team.id, target_run_id=str(target_run.id))
+    if attempt >= MAX_ANALYSES_PER_TARGET_RUN:
+        raise TaskAnalysisError("This run has been analyzed as many times as allowed.")
+
     log_keys = _analysis_log_sources(target_run)
     if not log_keys:
         raise TaskAnalysisError("The run has no log to analyze yet.")
@@ -180,9 +224,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         "reasoning_effort": TASK_ANALYSIS_REASONING_EFFORT,
     }
 
-    origin_key = _analysis_origin_key(
-        str(target_run.id), _next_analysis_attempt(team_id=team.id, target_run_id=str(target_run.id))
-    )
+    origin_key = _analysis_origin_key(str(target_run.id), attempt)
     try:
         with transaction.atomic():
             task = Task.create_and_run(
@@ -253,6 +295,8 @@ def append_analysis_insight(*, run: TaskRun, insight: dict[str, Any]) -> int:
     """
     if run.task.origin_product != Task.OriginProduct.TASK_ANALYSIS:
         raise TaskAnalysisError("Only task-analysis runs can report insights.")
+    if find_secret_like(insight) is not None:
+        raise TaskAnalysisError("The finding contains a credential-like token and was not stored.")
 
     with transaction.atomic():
         locked = TaskRun.objects.select_for_update().get(pk=run.pk)

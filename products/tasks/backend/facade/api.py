@@ -2615,6 +2615,16 @@ def update_task_run(
         return None
 
     validated_data = dict(validated_data)
+    if (
+        "status" in validated_data
+        and not caller_is_agent
+        and run.task.origin_product == Task.OriginProduct.TASK_ANALYSIS
+    ):
+        # A human-driven status write on an analysis run is a way to buy another funded analysis:
+        # marking it failed or cancelled frees the per-run idempotency slot. The workflow and the
+        # run's own agent write status through paths that do not pass through here.
+        validated_data.pop("status")
+
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
     if has_state_merge:
@@ -2678,7 +2688,14 @@ def update_task_run(
             next_state = dict(run.state) if isinstance(run.state, dict) else {}
             for append_key, item in state_append.items():
                 current = next_state.get(append_key)
-                next_state[append_key] = [*current, item] if isinstance(current, list) else [item]
+                if isinstance(current, list):
+                    next_state[append_key] = [*current, item]
+                elif current is None:
+                    next_state[append_key] = [item]
+                else:
+                    # Appending to a key that holds a scalar used to drop the scalar. Keeping it as
+                    # the first element loses nothing, and this path has no way to return a 400.
+                    next_state[append_key] = [current, item]
             run.state = next_state
             update_fields.add("state")
 
@@ -4417,6 +4434,12 @@ def bootstrap_task_run(
     task = _get_task_for_run_control(task_id, team_id, user_id)
     if task is None:
         return None
+    if task.origin_product == Task.OriginProduct.TASK_ANALYSIS:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="detail", detail="An analysis task runs once. Start a new analysis instead."
+            )
+        )
     mode = validated_data.get("mode", "background")
     environment = validated_data.get("environment", TaskRun.Environment.LOCAL)
     branch = validated_data.get("branch")

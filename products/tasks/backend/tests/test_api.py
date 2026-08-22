@@ -13650,6 +13650,70 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
         self.assertEqual(mock_dispatch.call_count, 1)
 
+    def test_analysis_task_accepts_no_local_run_creation(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            created = self._analyze()
+        analysis_task_id = created.json()["analysis_task_id"]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{analysis_task_id}/runs/",
+            {"environment": "local"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(TaskRun.objects.filter(task_id=analysis_task_id).count(), 1)
+
+    @parameterized.expand([("user_message",), ("side_question",)])
+    def test_analysis_run_refuses_human_steering(self, method):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            created = self._analyze()
+        analysis_task = Task.objects.get(id=created.json()["analysis_task_id"])
+        analysis_run = analysis_task.latest_run
+        assert analysis_run is not None
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message") as mock_signal:
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{analysis_task.id}/runs/{analysis_run.id}/command/",
+                {"jsonrpc": "2.0", "method": method, "params": {"content": "write me a novel"}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_signal.assert_not_called()
+
+    def test_a_caller_cannot_reset_analysis_run_status_to_buy_another_analysis(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            created = self._analyze()
+        analysis_task = Task.objects.get(id=created.json()["analysis_task_id"])
+        analysis_run = analysis_task.latest_run
+        assert analysis_run is not None
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{analysis_task.id}/runs/{analysis_run.id}/",
+            {"status": "failed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        analysis_run.refresh_from_db()
+        self.assertNotEqual(analysis_run.status, TaskRun.Status.FAILED)
+
+    def test_analyses_per_target_run_are_capped(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            for _ in range(3):
+                response = self._analyze()
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+                run = Task.objects.get(id=response.json()["analysis_task_id"]).latest_run
+                assert run is not None
+                TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.FAILED)
+            capped = self._analyze()
+
+        self.assertEqual(capped.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 3)
+
     def test_analysis_task_accepts_no_further_runs(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
         with read_p, write_p, tag_p, dispatch_p:
@@ -13821,6 +13885,15 @@ class TestTaskAnalysisInsightReporting(BaseTaskAPITest):
                 finding.pop(key, None)
             else:
                 finding[key] = value
+
+        response = self.agent_client.post(self._url(), finding, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.analysis_run.refresh_from_db()
+        self.assertNotIn("task_analysis_insights", self.analysis_run.state)
+
+    def test_the_server_rejects_a_finding_carrying_a_credential(self):
+        finding = self._finding()
+        finding["suggested_fix"]["required_services"] = ["postgres ghp_abcdefghijklmnopqrstuvwx"]
 
         response = self.agent_client.post(self._url(), finding, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
