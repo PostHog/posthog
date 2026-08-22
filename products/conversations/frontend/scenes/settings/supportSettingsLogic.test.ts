@@ -90,6 +90,19 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('concurrent email config loads', () => {
+        it('collapses overlapping loads into a single request', async () => {
+            const getSpy = jest.spyOn(api, 'get').mockResolvedValue({ configs: [] })
+            logic = supportSettingsLogic()
+            logic.mount() // afterMount fires the first load
+            logic.actions.loadEmailConfigs() // second dispatch while the first is in flight
+            await expectLogic(logic).toFinishAllListeners()
+
+            const statusCalls = getSpy.mock.calls.filter(([url]) => String(url).includes('email/status'))
+            expect(statusCalls).toHaveLength(1)
+        })
+    })
+
     describe('aiResolutionChannels selector', () => {
         it('drops flag-gated channels that are no longer available', async () => {
             initKeaTests(true, {
