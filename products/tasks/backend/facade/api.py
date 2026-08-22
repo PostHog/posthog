@@ -2677,8 +2677,6 @@ def update_task_run(
             update_fields.add("state")
 
         if state_append:
-            # Applied under the row lock against the freshly-read row, so appends survive
-            # any concurrent writer that read state before this PATCH.
             next_state = dict(run.state) if isinstance(run.state, dict) else {}
             for append_key, item in state_append.items():
                 current = next_state.get(append_key)

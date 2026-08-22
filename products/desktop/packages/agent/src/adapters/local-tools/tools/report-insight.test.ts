@@ -12,8 +12,6 @@ vi.mock("../../../signed-commit-artefacts", () => ({
 
 import { INSIGHTS_STATE_KEY, reportInsightTool } from "./report-insight";
 
-// Mirrors the real attachment layout and the real JSONL shape: quoted text is
-// stored JSON-escaped inside string fields.
 const RUN_LOG = [
   JSON.stringify({
     type: "pi_event",
@@ -41,15 +39,12 @@ const RUN_LOG = [
       },
     },
   }),
-  // Crafted raw: pnpm wraps this error in   thin spaces, stored as literal
-  // escape sequences — the exact shape that rejected honest quotes in dogfood.
   '{"type":"pi_event","event":{"type":"tool_call_updated","toolCall":{"status":"failed","rawOutput":[{"type":"text","text":"ui:\\n\\u2009ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL\\u2009 Command \\"biome\\" not found\\n"}]}}}',
 ].join("\n");
 
 const LOG_RELATIVE_PATH = ".posthog/attachments/run-1/art-1/run-log.jsonl";
 
 function appendingUpdateMock(state: Record<string, unknown>) {
-  // Emulates the server's state_append semantics: append under the current state.
   return (_t: string, _r: string, updates: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(
       (updates.state_append ?? {}) as Record<string, unknown>,
@@ -137,8 +132,6 @@ describe("reportInsightTool", () => {
   });
 
   it("accepts a quote whose characters are stored as unicode escapes", async () => {
-    // The log stores thin spaces as literal   sequences and quotes as \";
-    // the model copies the rendered text with plain spaces and quotes.
     const result = await reportInsightTool.handler(
       ctx(cwd),
       validFinding({
@@ -237,9 +230,6 @@ describe("reportInsightTool", () => {
   });
 
   it("accumulates findings filed as parallel tool calls", async () => {
-    // Models issue parallel tool calls; unserialized read-modify-write kept
-    // only the last finding. Simulate the race: state reads reflect prior
-    // writes only because the handler serializes.
     const state: Record<string, unknown> = {};
     getTaskRun.mockImplementation(() => Promise.resolve({ state }));
     updateTaskRun.mockImplementation(appendingUpdateMock(state));
@@ -270,8 +260,6 @@ describe("reportInsightTool", () => {
   });
 
   it("accepts a quote whose newlines are stored JSON-escaped in the log", async () => {
-    // jq -r prints decoded text; the raw file stores `\n` escaped. The tool
-    // must match the decoded quote against the encoded file content.
     const result = await reportInsightTool.handler(
       ctx(cwd),
       validFinding({

@@ -3671,7 +3671,6 @@ export class PostHogAPIClient {
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
     > & {
-      /** Append each value to the list stored at that state key, atomically server-side. */
       state_append?: Record<string, unknown>;
     },
   ): Promise<TaskRun> {
@@ -3690,9 +3689,6 @@ export class PostHogAPIClient {
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
-  /**
-   * Create (or return the existing) PostHog-funded analysis task for a run.
-   */
   async analyzeTaskRun(
     taskId: string,
     runId: string,

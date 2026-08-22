@@ -756,8 +756,6 @@ class TaskWriteSerializer(serializers.Serializer):
             # Attributes the task to a workflow, which the workflow_tasks endpoint proves
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
-            # PostHog-funded analysis runs: excluded from customer billing, so a forged
-            # origin would be free model access. Only the run analyze endpoint sets it.
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:

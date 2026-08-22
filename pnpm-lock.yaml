@@ -2702,9 +2702,6 @@ importers:
       '@tiptap/extensions':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)
-      '@tiptap/html':
-        specifier: 3.20.6
-        version: 3.20.6(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(happy-dom@20.9.0)
       '@tiptap/pm':
         specifier: 3.20.6
         version: 3.20.6

@@ -24,7 +24,6 @@ export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 
-/** Gates the "Analyze run" task action that creates a PostHog-funded task-analysis run. */
 export const TASK_ANALYSIS_FLAG = "posthog-code-task-analysis";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */

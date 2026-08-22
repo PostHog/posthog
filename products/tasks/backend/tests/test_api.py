@@ -13444,6 +13444,7 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         assert run is not None
         self.assertEqual(run.state["analysis_target_task_id"], str(self.target_task.id))
         self.assertEqual(run.state["analysis_target_run_id"], str(self.target_run.id))
+        self.assertEqual(run.state["reasoning_effort"], "high")
         artifact = run.artifacts[0]
         self.assertEqual(artifact["name"], "run-log.jsonl")
         self.assertEqual(run.state["pending_user_artifact_ids"], [artifact["id"]])
@@ -13469,8 +13470,6 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
             first = self._analyze()
             stuck_run = Task.objects.get(id=first.json()["analysis_task_id"]).latest_run
             assert stuck_run is not None
-            # A sandbox that never boots leaves the run non-terminal forever; only
-            # its age can tell a dead run from a live one.
             TaskRun.objects.filter(id=stuck_run.id).update(created_at=django_timezone.now() - timedelta(hours=1))
             second = self._analyze()
 

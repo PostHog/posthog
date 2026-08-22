@@ -119,7 +119,6 @@ export type TaskRunUpdate = Partial<
   >
 > & {
   state_remove_keys?: string[];
-  /** Append each value to the list stored at that state key, atomically server-side. */
   state_append?: Record<string, unknown>;
 };
 

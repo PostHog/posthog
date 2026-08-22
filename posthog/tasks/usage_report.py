@@ -1687,9 +1687,6 @@ POSTHOG_AI_PRODUCTS = [
 ]
 
 # ai_product values billed as PostHog Desktop credits.
-# Task origins whose LLM spend PostHog funds; their generations are excluded from every
-# customer AI-credits rollup. Keep in sync with the reserved origins in the tasks create
-# serializer (products/tasks/backend/presentation/serializers.py, validate_origin_product).
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 

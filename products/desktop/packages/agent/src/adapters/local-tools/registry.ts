@@ -53,10 +53,6 @@ export interface LocalToolGateMeta {
    * endpoints re-check authorization server-side on every call.
    */
   peerMessaging?: boolean;
-  /**
-   * The task's origin product (e.g. "task_analysis"): lets origin-specific
-   * tools (report_insight) gate on the kind of run they belong to.
-   */
   taskOriginProduct?: string;
 }
 

@@ -4780,8 +4780,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
-        # PostHog-funded task-analysis run — same ai_product, but the origin is excluded
-        # from customer billing (PostHog pays for these).
         _create_event(
             event="$ai_generation",
             team=analytics_team,
@@ -4803,8 +4801,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
 
         # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
-        # posthog_code event; not the signals one (wrong ai_product) and not the
-        # task_analysis one (PostHog-funded origin).
         self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
 
     @parameterized.expand(

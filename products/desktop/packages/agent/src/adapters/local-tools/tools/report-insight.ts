@@ -4,21 +4,11 @@ import { z } from "zod";
 import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 
-/**
- * Reporting channel for task-analysis runs (origin `task_analysis`): the agent
- * files one verified finding per call. The handler is the validator the skill
- * promises — every evidence quote is checked against the attached raw run log,
- * and rejections carry a specific fix so the retry converges. Findings
- * accumulate in the run's own state, where analytics collects them.
- */
-
 export const INSIGHTS_STATE_KEY = "task_analysis_insights";
 const MAX_INSIGHTS_PER_RUN = 5;
 const ATTACHMENTS_DIR = ".posthog/attachments";
 const MAX_LOG_BYTES = 128 * 1024 * 1024;
 
-// Conservative credential shapes only — a false positive blocks an honest
-// finding, so each pattern needs a distinctive prefix, not just entropy.
 const SECRET_PATTERNS: RegExp[] = [
   /ghp_[A-Za-z0-9]{20,}/,
   /github_pat_[A-Za-z0-9_]{20,}/,
@@ -90,9 +80,6 @@ interface StoredInsight {
   [key: string]: unknown;
 }
 
-// Models issue parallel tool calls; the handler does a read-modify-write on run
-// state, so concurrent calls would each read the same baseline and the last
-// write would win, silently dropping findings. Serialize executions instead.
 let reportQueue: Promise<unknown> = Promise.resolve();
 function enqueueReport<T>(run: () => Promise<T>): Promise<T> {
   const result = reportQueue.then(run, run);
@@ -104,8 +91,6 @@ function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
-// Strip ANSI sequences too: command output in logs carries color codes the
-// model never sees in rendered jq output, so they must not break a match.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ESC byte is the point
 const ANSI_PATTERN = /(?:\u001b|\\u001b)\[[0-9;]*m/g;
 
@@ -152,12 +137,6 @@ interface LogHaystacks {
 
 let haystackCache: { key: string; haystacks: LogHaystacks } | null = null;
 
-// The model quotes text as jq rendered it, but the file stores every string
-// JSON-escaped — including \uXXXX for characters like thin spaces, which no
-// amount of re-encoding the quote reproduces. So match against two views: the
-// raw bytes (for quotes copied from `jq -c` output, which is escaped the same
-// way) and the decoded string values of every line (for quotes copied from
-// `jq -r` output, which is fully unescaped).
 async function readLogHaystacks(cwd: string): Promise<LogHaystacks | null> {
   const logPath = await findAttachedLog(cwd);
   if (!logPath) return null;
@@ -190,15 +169,11 @@ function quoteCandidates(quote: string): string[] {
   const candidates = new Set([normalizeForMatch(quote)]);
   candidates.add(normalizeForMatch(JSON.stringify(quote).slice(1, -1)));
   try {
-    // A quote pasted from `jq -c` output is itself escaped; decode it once so
-    // it can also match the decoded haystack.
     const unescaped = JSON.parse(`"${quote.replace(/(?<!\\)"/g, '\\"')}"`);
     if (typeof unescaped === "string") {
       candidates.add(normalizeForMatch(unescaped));
     }
-  } catch {
-    // Not a valid escaped fragment; the other candidates cover it.
-  }
+  } catch {}
   return [...candidates].filter((candidate) => candidate.length > 0);
 }
 
@@ -344,7 +319,6 @@ export const reportInsightTool = defineLocalTool({
         };
       }
 
-      // A finding: validate the conditional shape with specific, fixable errors.
       if (!args.observation || !args.evidence || !args.category) {
         return errorResult(
           "A finding requires observation, evidence, and category (or use only no_findings_reason for a clean run).",
@@ -440,9 +414,6 @@ export const reportInsightTool = defineLocalTool({
         suggested_fix: args.suggested_fix,
         reported_at: new Date().toISOString(),
       };
-      // state_append: the server appends under its row lock, so a concurrent
-      // writer holding a stale state snapshot cannot clobber earlier findings
-      // (this lost a finding in dogfood when the tool sent the whole array).
       await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
         state_append: { [INSIGHTS_STATE_KEY]: insight },
       });
