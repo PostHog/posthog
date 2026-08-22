@@ -27,6 +27,7 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    distinct_id_case_collision: 'Split a user into duplicate persons whose distinct IDs differ only by letter case',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
@@ -103,6 +104,22 @@ export const WARNING_TYPE_RENDERER = {
                     {details.targetPersonDistinctId}
                 </Link>{' '}
                 via an $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    distinct_id_case_collision: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            distinctId: string
+            existingDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Distinct ID <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> created a
+                new person that duplicates{' '}
+                <Link to={urls.personByDistinctId(details.existingDistinctId)}>{details.existingDistinctId}</Link>,
+                which differs only by letter case. Distinct IDs are case-sensitive, so the two never merge and this user
+                is split across duplicate person records (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },

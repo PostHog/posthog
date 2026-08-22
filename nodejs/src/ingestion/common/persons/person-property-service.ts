@@ -1,5 +1,6 @@
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { defaultRetryConfig, promiseRetry } from '~/common/utils/retries'
+import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
@@ -48,6 +49,8 @@ export class PersonPropertyService {
             return [person, false]
         }
 
+        await this.warnOnCaseInsensitiveDistinctIdCollision()
+
         let properties = {}
         let propertiesOnce = {}
         if (this.context.processPerson) {
@@ -66,6 +69,42 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+    }
+
+    /**
+     * Warn when a fresh distinct id is about to create a new person while a
+     * lowercased twin already exists for the team. Distinct ids are case-sensitive
+     * keys, so the two never merge and the user splits across duplicate persons.
+     * The event still ingests normally; this only reports the split.
+     *
+     * The lookup runs only when the incoming id has upper-case letters, so the
+     * common all-lowercase id skips it and pays no extra read. It matches against
+     * the lowercased form, which catches the dominant case where the first-seen
+     * twin was already lowercase; a differently-cased twin is not detected.
+     */
+    private async warnOnCaseInsensitiveDistinctIdCollision(): Promise<void> {
+        const distinctId = this.context.distinctId
+        const lowercased = distinctId.toLowerCase()
+        if (lowercased === distinctId) {
+            return
+        }
+
+        const twin = await this.context.personStore.fetchForChecking(this.context.team.id, lowercased)
+        if (!twin) {
+            return
+        }
+
+        await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            type: 'distinct_id_case_collision',
+            details: {
+                distinctId,
+                existingDistinctId: lowercased,
+                personId: twin.uuid,
+                eventUuid: this.context.event.uuid,
+            },
+            pipelineStep: 'person-property',
+            key: distinctId,
+        })
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {

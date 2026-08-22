@@ -39,10 +39,15 @@ export const INGESTION_WARNING_TYPES = {
     group_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_key_too_long: { category: 'size', severity: 'error' },
 
-    // Person merges — rejected $identify / $create_alias / $merge_dangerously operations
+    // Person merges & identity — rejected $identify / $create_alias / $merge_dangerously
+    // operations, and split-identity signals found while resolving a person.
     cannot_merge_already_identified: { category: 'merge', severity: 'warning' },
     cannot_merge_with_illegal_distinct_id: { category: 'merge', severity: 'warning' },
     merge_race_condition: { category: 'merge', severity: 'error' },
+    // A fresh distinct id created a new person while a case-only twin already
+    // exists for the team, so one user is split across duplicate person records.
+    // Distinct ids are case-sensitive keys, so nothing is merged; this only reports.
+    distinct_id_case_collision: { category: 'merge', severity: 'info' },
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },

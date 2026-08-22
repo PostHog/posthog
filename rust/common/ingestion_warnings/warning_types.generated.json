@@ -50,6 +50,12 @@
       "captureProduced": false
     },
     {
+      "type": "distinct_id_case_collision",
+      "category": "merge",
+      "severity": "info",
+      "captureProduced": false
+    },
+    {
       "type": "distinct_id_too_large",
       "category": "event",
       "severity": "error",
