@@ -90,6 +90,13 @@ class TestResolver(BaseTest):
             "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
         )
 
+    def test_resolve_without_database_raises_query_error(self):
+        expr = self._select("SELECT event FROM events")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=None)
+        with self.assertRaises(QueryError) as context_manager:
+            resolve_types(expr, context, dialect="clickhouse")
+        self.assertEqual(str(context_manager.exception), "Database needs to be defined")
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
