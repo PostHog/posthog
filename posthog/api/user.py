@@ -959,6 +959,11 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class VerifyEmailSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="UUID of the user whose email address is being verified.")
+    token = serializers.CharField(help_text="Email verification token sent to the user's email address.")
+
+
 class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
@@ -1136,13 +1141,13 @@ class UserViewSet(
         revoked_count = revoke_other_sessions(user, request.session.session_key)
         return Response({"revoked_count": revoked_count})
 
+    @extend_schema(request=VerifyEmailSerializer)
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
-        token = request.data["token"] if "token" in request.data else None
-        user_uuid = request.data["uuid"]
-
-        if not token:
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+        serializer = VerifyEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_uuid = serializer.validated_data["uuid"]
+        token = serializer.validated_data["token"]
 
         # Special handling for E2E tests
         if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
