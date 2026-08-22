@@ -19,6 +19,7 @@ import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStr
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
+import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
@@ -296,20 +297,18 @@ function RootLayout() {
   // ContentHeader is mounted only where that layout isn't.
   const shellOwnsHeader = useShellOwnsHeader();
 
-  // The space routes stay registered regardless of the flag, so a stale URL, a
-  // restored session, or a persisted browser tab could strand a flag-off user
-  // on the space layout with no way back. Once flags resolve, send them back to
-  // a new task.
-  const onSpacePath = useRouterState({
-    select: (s) =>
-      s.location.pathname === "/spaces" ||
-      s.location.pathname.startsWith("/spaces/"),
+  // The bluebird routes stay registered regardless of the flag, so a stale URL,
+  // a restored session, or a persisted browser tab could strand a flag-off user
+  // on chrome they have no way back out of. Once flags resolve, send them back
+  // to a new task.
+  const onBluebirdOnlyPath = useRouterState({
+    select: (s) => isBluebirdOnlyPath(s.location.pathname),
   });
   useEffect(() => {
-    if (flagsLoaded && !bluebirdEnabled && onSpacePath) {
+    if (flagsLoaded && !bluebirdEnabled && onBluebirdOnlyPath) {
       openTaskInput();
     }
-  }, [flagsLoaded, bluebirdEnabled, onSpacePath]);
+  }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
   // A blank browser tab (the "+" new-tab page) shows an empty placeholder — but
   // ONLY on the spaces index. Inside a space (`/spaces/$channelId…`) the route

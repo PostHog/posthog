@@ -54,6 +54,12 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Anything a destination does besides navigating must live in its route
   component, not its `onPick`: the restore path navigates by href and never
   reaches the navigation bridge.
+- **Testing flag-off locally:** dev builds default `project-bluebird` and
+  `code-spaces-layout` on, and that default beats posthog's own override. Force
+  them off with
+  `localStorage.setItem("ph-dev-flags-off", "project-bluebird,code-spaces-layout")`
+  and reload (see `devFlagOverrides.ts`). Bluebird-only paths are listed in
+  `bluebirdRoutes.ts`; a flag-off user who restores one lands on a new task.
 - Routes are flat, and the ones wearing the spaces chrome are grouped under the
   **pathless** `_shell` layout rather than a URL prefix.
   Match `fullPath` (the route's own pattern) rather than the resolved URL when

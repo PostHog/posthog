@@ -1,6 +1,5 @@
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 
 /**
@@ -14,7 +13,7 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
  */
 export function useChannelsWorld(): boolean {
   const layout = useChannelsLayout();
-  const bluebird = useFeatureFlag(PROJECT_BLUEBIRD_FLAG, import.meta.env.DEV);
+  const bluebird = useBluebirdFlag();
   const toggledOn = useSidebarStore((s) => s.channelsEnabled);
   return layout || (toggledOn && bluebird);
 }
