@@ -95,13 +95,18 @@ export function legacyUiShouldBeMinimized(releases: WebRelease[], hasV2Groups: b
 
 /**
  * Mobile SDKs read only the V1 sample rate, never V2 trigger groups. So a team that samples through
- * trigger groups keeps recording every mobile session. True when a trigger group samples below 100%
- * but the V1 sample rate still records every session — the case that silently over-bills mobile.
+ * trigger groups keeps recording every mobile session. True when recording is on and a trigger group
+ * samples below 100% but the V1 sample rate still records every session — the case that silently
+ * over-bills mobile. Recording being off means nothing records at all, so there is nothing to warn about.
  */
 export function triggerGroupSamplingMissedOnMobile(
     triggerGroups: SessionRecordingTriggerGroupsConfig | null | undefined,
-    v1SampleRate: string | null | undefined
+    v1SampleRate: string | null | undefined,
+    recordingOptIn: boolean | null | undefined
 ): boolean {
+    if (!recordingOptIn) {
+        return false
+    }
     const groupsSampleBelowFull = (triggerGroups?.groups ?? []).some(
         (group) => typeof group.sampleRate === 'number' && group.sampleRate < 1
     )
@@ -577,7 +582,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
                 triggerGroupSamplingMissedOnMobile(
                     currentTeam?.session_recording_trigger_groups,
-                    currentTeam?.session_recording_sample_rate
+                    currentTeam?.session_recording_sample_rate,
+                    currentTeam?.session_recording_opt_in
                 ),
         ],
         shouldMinimizeLegacyConditions: [

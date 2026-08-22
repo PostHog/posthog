@@ -136,15 +136,16 @@ describe('replayTriggersLogic', () => {
     })
 
     describe('triggerGroupSamplingMissedOnMobile', () => {
-        it.each<[string, SessionRecordingTriggerGroupsConfig | null, string | null, boolean]>([
-            ['no trigger groups', null, null, false],
-            ['group samples below full, mobile unset', triggerGroups(0.1), null, true],
-            ['group samples below full, mobile at 100%', triggerGroups(0.1), '1', true],
-            ['group samples below full, mobile already sampled', triggerGroups(0.1), '0.1', false],
-            ['groups all at 100%', triggerGroups(1), null, false],
-            ['one of several groups samples below full', triggerGroups(1, 0.5), null, true],
-        ])('%s -> %s', (_description, groups, v1SampleRate, expected) => {
-            expect(triggerGroupSamplingMissedOnMobile(groups, v1SampleRate)).toBe(expected)
+        it.each<[string, SessionRecordingTriggerGroupsConfig | null, string | null, boolean, boolean]>([
+            ['no trigger groups', null, null, true, false],
+            ['group samples below full, mobile unset', triggerGroups(0.1), null, true, true],
+            ['group samples below full, mobile at 100%', triggerGroups(0.1), '1', true, true],
+            ['group samples below full, mobile already sampled', triggerGroups(0.1), '0.1', true, false],
+            ['groups all at 100%', triggerGroups(1), null, true, false],
+            ['one of several groups samples below full', triggerGroups(1, 0.5), null, true, true],
+            ['group samples below full but recording is off', triggerGroups(0.1), null, false, false],
+        ])('%s -> %s', (_description, groups, v1SampleRate, recordingOptIn, expected) => {
+            expect(triggerGroupSamplingMissedOnMobile(groups, v1SampleRate, recordingOptIn)).toBe(expected)
         })
     })
 
