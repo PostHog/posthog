@@ -576,6 +576,8 @@ export interface ExternalDataSource {
   // The generated `ExternalDataSourceSerializers` types this as `string`,
   // but the actual API returns an array of schema objects
   schemas?: ExternalDataSourceSchema[] | string;
+  /** Non-secret connection settings, e.g. a GitHub source's `repositories`. */
+  job_inputs?: Record<string, unknown> | null;
 }
 
 /**
@@ -2256,6 +2258,36 @@ export class PostHogAPIClient {
   }
 
   /**
+   * `PATCH .../external_data_sources/{id}/`. `job_inputs` merges into the stored inputs, so
+   * changing a GitHub source's repositories only needs `{ repositories: [...] }`.
+   */
+  async updateExternalDataSource(
+    projectId: number,
+    sourceId: string,
+    payload: { job_inputs: Record<string, unknown> },
+  ): Promise<ExternalDataSource> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        body: payload as unknown as Schemas.PatchedExternalDataSourceSerializers,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data source: ${response.statusText}`,
+      );
+    }
+    return response.data as unknown as ExternalDataSource;
+  }
+
+  /**
    * Fetch the connect-form field schema for external data source types from the
    * warehouse wizard endpoint. Pass `sourceType` (e.g. `"Jira"`) to scope to one
    * source; omit to fetch every source's config. Returns a map keyed by the
@@ -2330,6 +2362,39 @@ export class PostHogAPIClient {
       throw new Error(
         errorData.detail ??
           `Failed to update external data schema: ${response.statusText}`,
+      );
+    }
+  }
+
+  /**
+   * Update several of a source's schemas in one request. The backend commits each schema on its
+   * own, so one schema failing still applies the rest and the error names the ones it could not
+   * save — unlike a client-side loop, where the first failure skips everything after it.
+   */
+  async bulkUpdateExternalDataSchemas(
+    projectId: number,
+    sourceId: string,
+    schemas: { id: string; should_sync?: boolean; sync_type?: string }[],
+  ): Promise<void> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        query: {},
+        body: {
+          schemas,
+        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data schemas: ${response.statusText}`,
       );
     }
   }
