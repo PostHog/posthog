@@ -380,7 +380,11 @@ export function SavedInsights(): JSX.Element {
                     <LemonTable
                         loading={insightsLoading}
                         columns={columns}
-                        dataSource={draftInsightRow ? [draftInsightRow, ...insights.results] : insights.results}
+                        dataSource={
+                            draftInsightRow && !(insightsLoadFailed && insights.results.length < 1)
+                                ? [draftInsightRow, ...insights.results]
+                                : insights.results
+                        }
                         rowClassName={(record) => (isDraftInsightRow(record) ? 'bg-warning-highlight' : null)}
                         pagination={pagination}
                         noSortingCancellation
