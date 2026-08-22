@@ -110,6 +110,8 @@ export function createMlMirrorReplayPipeline(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true,
+                                        // Mirrors replay, which never reads or writes persons.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 .pipe(createValidateSessionReplayHeadersStep())

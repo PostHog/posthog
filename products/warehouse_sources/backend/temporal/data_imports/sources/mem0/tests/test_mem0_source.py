@@ -98,6 +98,17 @@ class TestMem0SourceVersions:
         assert source.resolve_api_version(None) == MEM0_API_VERSION_V3
         assert source.resolve_api_version(UNVERSIONED_API_VERSION) == UNVERSIONED_API_VERSION
 
+    def test_v1_is_deprecated_without_sunset_and_v3_is_not(self):
+        # The in-product deprecation banner and the repin migration both key off this metadata; the
+        # registry invariant test only checks generic relationships, not the v1-deprecated/v3-current
+        # split or the (absent) sunset date this PR pins.
+        source = Mem0Source()
+
+        deprecation = source.get_version_deprecation(UNVERSIONED_API_VERSION)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation(MEM0_API_VERSION_V3) is None
+
 
 class TestMem0SourceCredentials:
     @patch(f"{_SOURCE_MODULE}.validate_mem0_credentials", return_value=True)

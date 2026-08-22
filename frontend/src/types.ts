@@ -294,6 +294,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',

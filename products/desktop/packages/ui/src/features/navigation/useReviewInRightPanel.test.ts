@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   channelsLayout: true,
   routeParams: {} as { taskId?: string; channelId?: string },
+  routeId: "/website/$channelId/tasks/$taskId",
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -11,17 +12,21 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => mocks.routeParams,
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { matches: { routeId: string }[] }) => unknown;
+  }) => select({ matches: [{ routeId: mocks.routeId }] }),
 }));
 
 import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
-import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useReviewInRightPanel } from "./useReviewInRightPanel";
 
 describe("useReviewInRightPanel", () => {
   beforeEach(() => {
     mocks.channelsLayout = true;
     mocks.routeParams = {};
-    useNavRailStore.setState({ pane: "spaces" });
+    mocks.routeId = "/website/$channelId/tasks/$taskId";
     useActivityDetailStore.setState({ selected: null });
   });
 
@@ -33,7 +38,7 @@ describe("useReviewInRightPanel", () => {
 
   // The regression: no channel in the URL left both surfaces drawing the diff.
   it("hands it over for a task read from the activity feed too", () => {
-    useNavRailStore.setState({ pane: "activity" });
+    mocks.routeId = "/website/activity";
     useActivityDetailStore.setState({
       selected: { id: "a1", taskId: "task-1", channelId: null },
     });

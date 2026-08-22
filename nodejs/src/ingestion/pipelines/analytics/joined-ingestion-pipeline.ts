@@ -190,6 +190,7 @@ export function createJoinedIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    pipelineWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.

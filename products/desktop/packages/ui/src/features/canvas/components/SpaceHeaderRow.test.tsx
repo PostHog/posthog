@@ -30,14 +30,22 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@tanstack/react-router", () => ({
-  Outlet: () => null,
+  // The route's own pane, which is where the header's writer lives.
+  Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
-  useParams: () => ({}),
+  useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
   useRouterState: ({
     select,
   }: {
-    select: (s: { location: { pathname: string } }) => string;
-  }) => select({ location: { pathname: "/website/home" } }),
+    select: (s: {
+      location: { pathname: string };
+      matches: { routeId: string }[];
+    }) => unknown;
+  }) =>
+    select({
+      location: { pathname: "/website/chan-1/tasks/task-1" },
+      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+    }),
 }));
 vi.mock(
   "@posthog/ui/features/task-detail/components/TaskHeaderActions",
@@ -109,15 +117,14 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
 }));
 
 import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
-import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import { ActivityDetailPane } from "./ActivityDetailPane";
 import { WebsiteLayout } from "./WebsiteLayout";
 
 describe("SpaceHeaderRow", () => {
   it("keeps the header store off the layout that renders its writer", () => {
-    useNavRailStore.setState({ pane: "activity" });
     useActivityDetailStore.setState({
-      selected: { id: "a1", taskId: "task-1", channelId: "chan-1" } as never,
+      selected: { id: "a1", taskId: "task-1", channelId: "chan-1" },
     });
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
