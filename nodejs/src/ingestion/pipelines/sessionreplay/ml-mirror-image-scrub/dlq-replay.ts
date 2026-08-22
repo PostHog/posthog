@@ -5,6 +5,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { REPLAY_COUNT_HEADER } from './image-batcher'
+import { CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 
 /**
@@ -29,10 +30,9 @@ export interface ReplayOutcome {
  * exercise is to put it through a fixed sidecar exactly as it arrived the first time. The key is the
  * ref, so it lands on the partition the rest of that image's copies hash to.
  *
- * Diagnostic headers from the park are deliberately dropped: they describe the failure that put the
- * image here, and carrying them onto a topic where every other message has none would leave the
- * scrub consumer reading stale reasons on a fresh attempt. Only the replay count survives, because
- * it is what stops an image circling between the two topics.
+ * Diagnostic headers from the park are deliberately dropped because they describe an old failure.
+ * The content headers survive because the consumer needs them to decode and validate fetched images.
+ * The replay count also survives because it stops an image circling between the two topics.
  */
 export async function replayBatch(
     messages: Message[],
@@ -59,7 +59,13 @@ export async function replayBatch(
             topic: sourceTopic,
             key: Buffer.from(ref),
             value: message.value,
-            headers: { [REPLAY_COUNT_HEADER]: String(replayCount + 1) },
+            headers: {
+                ...(headers[CONTENT_TYPE_HEADER] ? { [CONTENT_TYPE_HEADER]: headers[CONTENT_TYPE_HEADER] } : {}),
+                ...(headers[CONTENT_ENCODING_HEADER]
+                    ? { [CONTENT_ENCODING_HEADER]: headers[CONTENT_ENCODING_HEADER] }
+                    : {}),
+                [REPLAY_COUNT_HEADER]: String(replayCount + 1),
+            },
         })
         outcome.replayed += 1
         ImageScrubConsumerMetrics.incReplayed()

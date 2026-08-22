@@ -22,17 +22,15 @@ Resolve the URL ref before rendering and tokenization. Use the sibling attribute
 
 ## Fetcher-to-scrubber record
 
-The mirror currently sends an image to the scrub topic with the ref as the Kafka key and the raw image bytes as the Kafka value. It sends no JSON envelope. The scrubber accepts `image:` refs and rejects `imageurl:` refs.
+The mirror currently sends an image to the scrub topic with the ref as the Kafka key and the raw image bytes as the Kafka value. It sends no JSON envelope. The scrubber accepts the current team-specific `imageurl:` refs but does not accept the global ref format.
 
 The fetcher does not publish images yet. The server enforces dry-run mode.
 
 Publish the fetched response body in the Kafka value and add the headers from section 17. The current fetcher requests `identity` and refuses another content coding. Change it to accept the codings it advertises and pass the encoded response body to Kafka.
 
-Change the scrubber to accept a global `imageurl:` ref. Decode its `content-encoding` with an uncompressed-size limit, then check its bytes against `content-type` before scrubbing it.
+Change the scrubber to accept a global `imageurl:` ref. The scrubber already decodes the current ref's `content-encoding` with an uncompressed-size limit. It checks the result against `content-type` before scrubbing it.
 
 The current scrubber writes every image into a binary shard and writes its location to a time-partitioned Parquet index. Store a URL-backed image at the deterministic object key from requirements 17.11 to 17.13 instead. Keep the shard and index path for inline images.
-
-The current dead-letter sink rebuilds the headers from diagnostic data, and its replay keeps only the replay counter. Change both paths to preserve `content-type` and `content-encoding`.
 
 The image-fetch producer currently uses the default Kafka message limit because its configuration has no `message.max.bytes` setting. Raise the configured response limit to 20 MiB and size the producer and both topics for that limit plus the maximum record overhead.
 

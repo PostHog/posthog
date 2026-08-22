@@ -1,6 +1,7 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
+import { gzipSync } from 'node:zlib'
 
-import { hashImageBytes, imageRef } from './content-ref'
+import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
 import { ScrubClient, ScrubPoisoned } from './scrub-client'
@@ -8,7 +9,14 @@ import { ScrubClient, ScrubPoisoned } from './scrub-client'
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
-function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
+function msg(
+    partition: number,
+    offset: number,
+    pseudoTeam: string,
+    bytes: Buffer,
+    keyOverride?: string,
+    headers?: MessageHeader[]
+): Message {
     const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(CONTENT_KEY, bytes))
     return {
         topic: 'session_replay_image_scrub',
@@ -16,6 +24,7 @@ function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffe
         offset,
         key: Buffer.from(ref),
         value: bytes,
+        headers,
     } as unknown as Message
 }
 
@@ -83,6 +92,63 @@ describe('ImageBatcher', () => {
 
         expect(store.writes).toHaveLength(1)
         expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
+    })
+
+    it('decodes and validates a URL image from its Kafka transport headers before scrubbing it', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const received: Buffer[] = []
+        const capturingClient = {
+            scrub: (bytes: Buffer) => {
+                received.push(bytes)
+                return Promise.resolve(bytes)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            capturingClient,
+            options,
+            0
+        )
+        const ref = urlRef(pt(1), hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 0, pt(1), gzipSync(png), ref, [
+                    { 'content-type': Buffer.from('image/png') },
+                    { 'content-encoding': Buffer.from('gzip') },
+                ]),
+            ],
+            1
+        )
+
+        expect(received).toEqual([png])
+        expect(store.writes.flat()).toHaveLength(1)
+    })
+
+    it('drops a URL image whose bytes do not match its Kafka content-type', async () => {
+        let scrubCalls = 0
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            {
+                scrub: () => {
+                    scrubCalls += 1
+                    return Promise.resolve(Buffer.from('scrubbed'))
+                },
+            } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(pt(1), hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [msg(0, 0, pt(1), Buffer.from([0xff, 0xd8, 0xff]), ref, [{ 'content-type': Buffer.from('image/png') }])],
+            1
+        )
+
+        expect(scrubCalls).toBe(0)
     })
 
     it('does not store offsets when the shard write fails (at-least-once replay)', async () => {
@@ -541,6 +607,51 @@ describe('ImageBatcher', () => {
         await batcher.handleBatch([replayed], 1)
 
         expect(parked[0].replayCount).toBe(1)
+    })
+
+    it('preserves URL transport headers when it parks the original compressed bytes', async () => {
+        const parked: { headers: Record<string, string>; bytes: Buffer }[] = []
+        const poisonClient = {
+            scrub: () =>
+                Promise.reject(
+                    new ScrubPoisoned('cannot process', {
+                        reason: 'rejected',
+                        lastError: 'sidecar responded 500',
+                        attempts: 12,
+                        waitedMs: 60_000,
+                    })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            poisonClient,
+            options,
+            0,
+            {
+                park: (image) => Promise.resolve(void parked.push({ headers: image.headers, bytes: image.bytes })),
+            }
+        )
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const compressed = gzipSync(png)
+        const ref = urlRef(pt(1), hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/poison.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 0, pt(1), compressed, ref, [
+                    { 'content-type': Buffer.from('image/png') },
+                    { 'content-encoding': Buffer.from('gzip') },
+                ]),
+            ],
+            1
+        )
+
+        expect(parked).toEqual([
+            {
+                bytes: compressed,
+                headers: { 'content-type': 'image/png', 'content-encoding': 'gzip' },
+            },
+        ])
     })
 
     it('refuses to start when concurrency is too low for dead-lettering to be reachable', () => {

@@ -19,6 +19,11 @@ const undecodable = new Counter({
     help: 'Inputs sharp could not decode (422) — permanently skipped, never retried',
     registers: [register],
 })
+const optedOut = new Counter({
+    name: 'ml_mirror_image_scrub_opted_out_total',
+    help: 'Images skipped because embedded PLUS metadata prohibits AI training',
+    registers: [register],
+})
 const rejected = new Counter({
     name: 'ml_mirror_image_scrub_rejected_total',
     help: 'Requests shed for concurrency (503)',
@@ -182,6 +187,7 @@ export const ScrubMetrics = {
     incScrubbed: () => scrubbed.inc(),
     incFailed: () => failed.inc(),
     incUndecodable: () => undecodable.inc(),
+    incOptedOut: () => optedOut.inc(),
     incRejected: () => rejected.inc(),
     incTooLarge: () => tooLarge.inc(),
     incAborted: () => aborted.inc(),

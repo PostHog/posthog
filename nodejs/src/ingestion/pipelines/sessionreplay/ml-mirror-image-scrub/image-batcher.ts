@@ -7,6 +7,12 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage } from './image-shard-store'
+import {
+    CONTENT_ENCODING_HEADER,
+    CONTENT_TYPE_HEADER,
+    InvalidImageTransportError,
+    prepareFetchedImage,
+} from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { POISON_MIN_OTHER_SUCCESSES, ScrubAborted, ScrubClient, ScrubPoisoned } from './scrub-client'
 
@@ -22,7 +28,12 @@ export interface OffsetStore {
  * the sidecar bug behind it unreproducible. Parking it keeps both properties.
  */
 export interface DeadLetterSink {
-    park(image: { ref: string; bytes: Buffer; detail: Record<string, unknown> }): Promise<void>
+    park(image: {
+        ref: string
+        bytes: Buffer
+        headers: Record<string, string>
+        detail: Record<string, unknown>
+    }): Promise<void>
 }
 
 /**
@@ -56,7 +67,9 @@ interface PlannedScrub {
     ref: string
     pseudoTeam: string
     hash: string
+    source: 'bytes' | 'url'
     value: Buffer
+    transportHeaders: Record<string, string>
     /** Where this image came from, carried only so a parked one can be traced back to its source. */
     sourceTopic: string
     sourcePartition: number
@@ -336,11 +349,7 @@ export class ImageBatcher {
             // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
             // trusts the producer (the topic's only writer) that the key names these bytes.
             const parsed = ref ? parseImageRef(ref) : null
-            // A URL ref names a URL, not these bytes. The shard store indexes by (pseudoTeam, hash)
-            // with the prefix dropped, so accepting one here would file URL-sourced bytes in the
-            // same slot as content-addressed ones. That is the silent mis-join the prefix exists
-            // to prevent, so it counts as an invalid key rather than being stored.
-            if (!ref || !parsed || parsed.source !== 'bytes' || !m.value) {
+            if (!ref || !parsed || !m.value) {
                 ImageScrubConsumerMetrics.incInvalidKey()
                 continue
             }
@@ -353,16 +362,27 @@ export class ImageBatcher {
                 ImageScrubConsumerMetrics.incDeduped('pod')
                 continue
             }
+            const headers = parseKafkaHeaders(m.headers)
+            const transportHeaders =
+                parsed.source === 'url'
+                    ? Object.fromEntries(
+                          [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER]
+                              .filter((header) => headers[header] !== undefined)
+                              .map((header) => [header, headers[header]])
+                      )
+                    : {}
             planned.push({
                 index,
                 ref,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
+                source: parsed.source,
                 value: m.value,
+                transportHeaders,
                 sourceTopic: m.topic,
                 sourcePartition: m.partition,
                 sourceOffset: m.offset,
-                replayCount: Number(parseKafkaHeaders(m.headers)[REPLAY_COUNT_HEADER] ?? 0) || 0,
+                replayCount: Number(headers[REPLAY_COUNT_HEADER] ?? 0) || 0,
             })
         }
         return planned
@@ -400,9 +420,27 @@ export class ImageBatcher {
     }
 
     private async scrubOne(planned: PlannedScrub, signal: AbortSignal): Promise<ScrubbedImage | null> {
+        let input = planned.value
+        if (planned.source === 'url') {
+            try {
+                input = await prepareFetchedImage(
+                    input,
+                    planned.transportHeaders[CONTENT_TYPE_HEADER],
+                    planned.transportHeaders[CONTENT_ENCODING_HEADER]
+                )
+            } catch (error) {
+                if (!(error instanceof InvalidImageTransportError)) {
+                    throw error
+                }
+                this.seenRefs.add(planned.ref)
+                ImageScrubConsumerMetrics.incSkipped()
+                return null
+            }
+        }
+
         let bytes: Buffer | null
         try {
-            bytes = await this.scrubClient.scrub(planned.value, signal, planned.ref)
+            bytes = await this.scrubClient.scrub(input, signal, planned.ref)
         } catch (error) {
             if (!(error instanceof ScrubPoisoned) || !this.deadLetters) {
                 throw error
@@ -451,6 +489,7 @@ export class ImageBatcher {
                 await this.deadLetters!.park({
                     ref: planned.ref,
                     bytes: planned.value,
+                    headers: planned.transportHeaders,
                     detail: {
                         ...poisoned.detail,
                         pseudoTeam: planned.pseudoTeam,
