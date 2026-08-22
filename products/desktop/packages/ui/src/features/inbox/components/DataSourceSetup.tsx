@@ -240,10 +240,10 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
   return (
     <SetupFormContainer title="Connect GitHub">
       <Flex direction="column" gap="3">
-        <Text className="text-gray-11 text-sm">
+        <span className="text-gray-11 text-sm">
           Pick the repositories whose issues should feed Self-driving. You can
           add or remove repositories later.
-        </Text>
+        </span>
         <GitHubRepoMultiPicker
           value={repos}
           onChange={setRepos}
@@ -260,9 +260,9 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
           onSearchQueryChange={handleRepoPickerSearchChange}
         />
         {mixedInstallations ? (
-          <Text className="text-(--amber-11) text-sm">
+          <span className="text-(--amber-11) text-sm">
             Pick repositories from one GitHub installation per source.
-          </Text>
+          </span>
         ) : null}
 
         <Flex gap="2" justify="end">
