@@ -1773,6 +1773,11 @@ export class PostHogAPIClient {
       url,
       path: urlPath,
     });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
     const data =
       (await response.json()) as Partial<GithubInstallRequestsResponse>;
     return {
