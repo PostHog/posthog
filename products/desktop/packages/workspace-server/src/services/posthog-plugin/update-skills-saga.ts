@@ -62,6 +62,12 @@ export class UpdateSkillsSaga extends Saga<
   ): Promise<UpdateSkillsOutput> {
     const newSkillsDir = `${input.runtimeSkillsDir}.new`;
 
+    // Reason each source produced no skills this cycle. Only surfaced when the
+    // whole cycle produces nothing and there is no cache to fall back on. The
+    // Saga boundary keeps only the thrown error's `message`, so the reasons ride
+    // in the message rather than in a `cause` that would be dropped.
+    const failures: string[] = [];
+
     // Step 1: create staging dir
     await this.step({
       name: "create-staging-dir",
@@ -77,33 +83,48 @@ export class UpdateSkillsSaga extends Saga<
 
     // Step 2: download skills (non-fatal)
     await this.readOnlyStep("download-skills", async () => {
+      if (!input.skillsZipUrl) {
+        failures.push("skills source URL is not configured");
+        return;
+      }
       try {
-        await this.downloadAndMergeSkills(
+        const merged = await this.downloadAndMergeSkills(
           input.skillsZipUrl,
           input.tempDir,
           newSkillsDir,
           input.downloadFile,
         );
+        if (merged === 0) {
+          failures.push("skills archive contained no skills");
+        }
       } catch (err) {
-        this.log.warn("Failed to download skills", {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const reason = err instanceof Error ? err.message : String(err);
+        failures.push(`skills download failed: ${reason}`);
+        this.log.warn("Failed to download skills", { error: reason });
       }
     });
 
     // Step 2b: download context-mill omnibus skills (non-fatal)
     await this.readOnlyStep("download-context-mill-skills", async () => {
-      if (!input.contextMillZipUrl) return;
+      if (!input.contextMillZipUrl) {
+        failures.push("context-mill source URL is not configured");
+        return;
+      }
       try {
-        await this.downloadAndMergeContextMillSkills(
+        const merged = await this.downloadAndMergeContextMillSkills(
           input.contextMillZipUrl,
           input.tempDir,
           newSkillsDir,
           input.downloadFile,
         );
+        if (merged === 0) {
+          failures.push("context-mill archive contained no skills");
+        }
       } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        failures.push(`context-mill download failed: ${reason}`);
         this.log.warn("Failed to download context-mill skills", {
-          error: err instanceof Error ? err.message : String(err),
+          error: reason,
         });
       }
     });
@@ -143,17 +164,21 @@ export class UpdateSkillsSaga extends Saga<
         return { updated: false };
       }
 
-      // Nothing downloaded and no cache to fall back on. Surface a clear,
-      // actionable message rather than the opaque "No skills found from any
-      // source" — it tells the user what happened, that they're not stuck
-      // (bundled skills still work), and that it will recover on its own.
+      // Nothing downloaded and no cache to fall back on. Name the real reason
+      // for each source — an empty URL, a failed download (with its HTTP
+      // status), or an archive with no skills — so the failure is diagnosable
+      // instead of a blanket "network issue". The message still tells the user
+      // they are not stuck (bundled skills still work) and that it recovers on
+      // its own.
+      const detail =
+        failures.length > 0
+          ? failures.join("; ")
+          : "both sources returned nothing";
       throw new Error(
-        "Couldn't download skills from PostHog (the skills and context-mill " +
-          "sources both returned nothing, likely a temporary network or " +
-          "server issue) and no previously downloaded skills were cached. " +
-          "The skills bundled with this version of PostHog are still " +
-          "available, and PostHog will retry automatically on the next " +
-          "update.",
+        `Couldn't download skills from PostHog (${detail}) and no previously ` +
+          "downloaded skills were cached. The skills bundled with this version " +
+          "of PostHog are still available, and PostHog will retry automatically " +
+          "on the next update.",
       );
     }
 
@@ -203,14 +228,16 @@ export class UpdateSkillsSaga extends Saga<
   }
 
   /**
-   * Downloads a skills zip from `url`, extracts it, and merges skill directories into `destDir`.
+   * Downloads a skills zip from `url`, extracts it, and merges skill directories
+   * into `destDir`. Returns the number of skill directories merged; 0 means the
+   * archive had no recognisable skills layout.
    */
   private async downloadAndMergeSkills(
     url: string,
     tempDir: string,
     destDir: string,
     downloadFile: (url: string, destPath: string) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<number> {
     const zipPath = join(tempDir, "skills.zip");
     await downloadFile(url, zipPath);
 
@@ -220,19 +247,21 @@ export class UpdateSkillsSaga extends Saga<
 
     const skillsSource = await this.findSkillsDir(extractDir);
     if (!skillsSource) {
-      this.log.warn("No skills directory found in archive");
-      return;
+      return 0;
     }
 
     const entries = await readdir(skillsSource, { withFileTypes: true });
+    let merged = 0;
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const src = join(skillsSource, entry.name);
         const dest = join(destDir, entry.name);
         await rm(dest, { recursive: true, force: true });
         await cp(src, dest, { recursive: true });
+        merged++;
       }
     }
+    return merged;
   }
 
   /**
@@ -269,13 +298,14 @@ export class UpdateSkillsSaga extends Saga<
   /**
    * Downloads context-mill zip-of-zips, extracts omnibus-* inner zips,
    * strips the "omnibus-" prefix, patches SKILL.md, and merges into destDir.
+   * Returns the number of omnibus skills merged; 0 means the archive held none.
    */
   private async downloadAndMergeContextMillSkills(
     url: string,
     tempDir: string,
     destDir: string,
     downloadFile: (url: string, destPath: string) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<number> {
     const zipPath = join(tempDir, "context-mill.zip");
     await downloadFile(url, zipPath);
 
@@ -284,6 +314,7 @@ export class UpdateSkillsSaga extends Saga<
     await extractZip(zipPath, extractDir);
 
     const files = await readdir(extractDir);
+    let merged = 0;
     for (const file of files) {
       if (!file.startsWith("omnibus-") || !file.endsWith(".zip")) continue;
 
@@ -309,6 +340,8 @@ export class UpdateSkillsSaga extends Saga<
           }
         }
       }
+      merged++;
     }
+    return merged;
   }
 }
