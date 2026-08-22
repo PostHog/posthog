@@ -60,7 +60,10 @@ export function useGitHubIntegrationCallback({
   const hasConsumedPendingRef = useRef(false);
 
   const optsRef = useRef({ onSuccess, onError, onPending, onTimedOut });
-  optsRef.current = { onSuccess, onError, onPending, onTimedOut };
+  // Declared before the subscription effects so the commit order keeps the ref ahead of them.
+  useEffect(() => {
+    optsRef.current = { onSuccess, onError, onPending, onTimedOut };
+  });
 
   useEffect(() => {
     const callbackSubscription = client.githubIntegration.onCallback.subscribe(
