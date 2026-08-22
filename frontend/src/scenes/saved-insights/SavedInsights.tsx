@@ -397,7 +397,7 @@ export function SavedInsights(): JSX.Element {
                         nouns={['insight', 'insights']}
                         hideSortingIndicatorWhenInactive
                         emptyState={
-                            !insightsLoading && insightsLoadFailed && insights.count < 1 ? (
+                            !insightsLoading && insightsLoadFailed && insights.results.length < 1 ? (
                                 <div className="py-8">
                                     <SavedInsightsErrorState onRetry={() => loadInsights(false)} />
                                 </div>
