@@ -35,8 +35,18 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': {
                     count: 2,
                     results: [
-                        { id: '0192aaaa-0000-7000-8000-000000000001', name: 'Checkout confusion' },
-                        { id: '0192bbbb-0000-7000-8000-000000000002', name: 'Signup drop-off' },
+                        {
+                            id: '0192aaaa-0000-7000-8000-000000000001',
+                            name: 'Checkout confusion',
+                            scanner_type: 'classifier',
+                            observations_this_month: 128,
+                        },
+                        {
+                            id: '0192bbbb-0000-7000-8000-000000000002',
+                            name: 'Signup drop-off',
+                            scanner_type: 'summarizer',
+                            observations_this_month: 12,
+                        },
                     ],
                 },
             },

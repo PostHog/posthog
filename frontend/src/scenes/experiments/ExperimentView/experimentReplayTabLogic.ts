@@ -61,6 +61,7 @@ import type {
     ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -86,6 +87,8 @@ export interface ExperimentReplayTabLogicProps {
 export interface LinkedScanner {
     id: string
     name: string
+    scannerType: ScannerTypeEnumApi
+    observationsThisMonth: number
 }
 
 /** One experiment metric offered in the recordings tab's "Metric events" dropdown. */
@@ -285,12 +288,16 @@ export interface experimentReplayTabLogicActions {
         linkedScanners: {
             id: string
             name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
         }[],
         payload?: unknown
     ) => {
         linkedScanners: {
             id: string
             name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
         }[]
         payload?: unknown
     }
@@ -552,7 +559,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                             experiment_id: String(props.experiment.id),
                         })
                         breakpoint()
-                        return response.results.map((scanner) => ({ id: scanner.id, name: scanner.name }))
+                        return response.results.map((scanner) => ({
+                            id: scanner.id,
+                            name: scanner.name,
+                            scannerType: scanner.scanner_type,
+                            observationsThisMonth: scanner.observations_this_month,
+                        }))
                     } catch {
                         return []
                     }

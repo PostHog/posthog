@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -27,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { Experiment } from '~/types'
 
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { isLaunched } from '../experimentStatus'
@@ -36,6 +37,7 @@ import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
+    LinkedScanner,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
@@ -172,6 +174,49 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
     },
 ]
 
+/** The scanners already watching this experiment, one row each, with a link and a monthly count. */
+function LinkedScannersCard({
+    scanners,
+    addAnotherUrl,
+    onAddAnother,
+}: {
+    scanners: LinkedScanner[]
+    addAnotherUrl: string
+    onAddAnother: () => void
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners">
+            <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-semibold">Scanners watching this experiment</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={addAnotherUrl}
+                    onClick={() => onAddAnother()}
+                    data-attr="experiment-recordings-scanner-add-another"
+                >
+                    Add another
+                </LemonButton>
+            </div>
+            <div className="flex flex-col gap-1">
+                {scanners.map((scanner) => (
+                    <div key={scanner.id} className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-2 min-w-0">
+                            <Link to={urls.replayVision(scanner.id)} className="truncate">
+                                {scanner.name}
+                            </Link>
+                            <LemonTag type="muted">{scannerTypeLabel(scanner.scannerType)}</LemonTag>
+                        </span>
+                        <span className="text-muted shrink-0">
+                            {pluralize(scanner.observationsThisMonth, 'observation')} this month
+                        </span>
+                    </div>
+                ))}
+            </div>
+        </LemonCard>
+    )
+}
+
 export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
     const logic = experimentReplayTabLogic({ experiment })
     const {
@@ -251,25 +296,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         <div data-attr="experiment-recordings-tab">
             {scannerCrossSellEnabled &&
                 (linkedScanners.length > 0 ? (
-                    <LemonBanner
-                        type="info"
-                        className="mb-2"
-                        action={{
-                            children: 'Add another',
-                            to: scannerSetupUrl,
-                            onClick: () => scannerCrossSellClicked(),
-                            'data-attr': 'experiment-recordings-scanner-add-another',
-                        }}
-                    >
-                        {pluralize(linkedScanners.length, 'scanner')} {linkedScanners.length === 1 ? 'is' : 'are'}{' '}
-                        watching recordings from this experiment:{' '}
-                        {linkedScanners.map((scanner, index) => (
-                            <Fragment key={scanner.id}>
-                                {index > 0 && ', '}
-                                <Link to={urls.replayVision(scanner.id)}>{scanner.name}</Link>
-                            </Fragment>
-                        ))}
-                    </LemonBanner>
+                    <LinkedScannersCard
+                        scanners={linkedScanners}
+                        addAnotherUrl={scannerSetupUrl}
+                        onAddAnother={scannerCrossSellClicked}
+                    />
                 ) : (
                     <LemonBanner
                         type="info"

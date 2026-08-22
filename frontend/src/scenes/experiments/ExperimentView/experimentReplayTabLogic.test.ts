@@ -936,12 +936,12 @@ describe('experimentReplayTabLogic', () => {
     it('loads the scanners watching this experiment, scoped by experiment_id', async () => {
         // Guards the back-link on the Recordings tab: it must query the scanners endpoint with this
         // experiment's id (dropping the filter would list every scanner in the project) and surface
-        // the results for the banner.
+        // the name, type, and monthly observation count each row shows.
         logic.unmount()
         ;(visionScannersList as jest.Mock).mockResolvedValue({
             results: [
-                { id: 's1', name: 'Checkout confusion' },
-                { id: 's2', name: 'Rage clicks' },
+                { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
+                { id: 's2', name: 'Rage clicks', scanner_type: 'summarizer', observations_this_month: 3 },
             ],
         })
         const withScanners = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -951,8 +951,8 @@ describe('experimentReplayTabLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({
                 linkedScanners: [
-                    { id: 's1', name: 'Checkout confusion' },
-                    { id: 's2', name: 'Rage clicks' },
+                    { id: 's1', name: 'Checkout confusion', scannerType: 'classifier', observationsThisMonth: 50 },
+                    { id: 's2', name: 'Rage clicks', scannerType: 'summarizer', observationsThisMonth: 3 },
                 ],
             })
         expect(visionScannersList).toHaveBeenCalledWith(expect.any(String), { experiment_id: '42' })
