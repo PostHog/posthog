@@ -76,10 +76,12 @@ export const connectedAppsLogic = kea<connectedAppsLogicType>([
                 loadConnectedApps: async () => {
                     return await api.get('api/oauth/connected-apps/')
                 },
-                revokeApp: async ({ id }) => {
+                revokeApp: async ({ id }, breakpoint) => {
+                    const remainingApps = values.connectedApps.filter((app) => app.id !== id)
                     await api.create(`api/oauth/connected-apps/${id}/revoke/`)
+                    breakpoint()
                     lemonToast.success('App access revoked')
-                    return values.connectedApps.filter((app) => app.id !== id)
+                    return remainingApps
                 },
             },
         ],
