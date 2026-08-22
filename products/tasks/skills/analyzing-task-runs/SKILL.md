@@ -37,8 +37,11 @@ to read the raw log "to check something", run the extractor again with the log p
    ```
 
    It emits ordered tool calls with titles, final statuses, and user/agent messages, collapses
-   streaming-status repeats, and trims oversized runs (marked `TRANSCRIPT TRIMMED`). Typical output
-   is a few hundred lines. If it prints `EXTRACTION EMPTY`, go to the failure protocol.
+   streaming-status repeats, and trims oversized runs (marked `TRANSCRIPT TRIMMED`). It understands
+   both log formats (ACP session updates and pi events). Typical output is a few hundred lines.
+   If it prints `EXTRACTION EMPTY`, go straight to the failure protocol — do NOT inspect the raw
+   log, do NOT write your own extractor, and do NOT improvise another way to read the run. An
+   unsupported log format is a bug in this skill, and the failure report is what gets it fixed.
 
 3. **Read `transcript.md` only.** If it is still long, read it in ranged chunks. Everything you
    claim must be visible in this file.
@@ -57,8 +60,9 @@ to read the raw log "to check something", run the extractor again with the log p
 7. **If there are zero findings**, make exactly one `report_insight` call carrying only
    `no_findings_reason` (`run_was_efficient`, `too_short_to_judge`, or `insufficient_visibility`).
    Zero findings is a valid, complete analysis — never invent one.
-8. **Finish** with a one-paragraph summary of what you reported (or that there was nothing to
-   report and why).
+8. **End the run**: write a one-paragraph summary of what you reported (or that there was
+   nothing to report and why), then call the `finish` tool with status `completed`. Without the
+   `finish` call the sandbox idles until it times out.
 
 ## Finding taxonomy
 
@@ -81,8 +85,8 @@ Only flag retries where nothing changed or where only the environment changed.
 ## Failure protocol
 
 If the attachment is missing, the extractor fails, or the transcript is empty: do not improvise an
-analysis. Make one `report_insight` call with `no_findings_reason: "insufficient_visibility"` and
-finish by stating plainly which step failed and why.
+analysis. Make one `report_insight` call with `no_findings_reason: "insufficient_visibility"`,
+state plainly which step failed and why, then call the `finish` tool with status `failed`.
 
 ## Judgment notes
 

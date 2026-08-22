@@ -78,6 +78,16 @@ interface StoredInsight {
   [key: string]: unknown;
 }
 
+// Models issue parallel tool calls; the handler does a read-modify-write on run
+// state, so concurrent calls would each read the same baseline and the last
+// write would win, silently dropping findings. Serialize executions instead.
+let reportQueue: Promise<unknown> = Promise.resolve();
+function enqueueReport<T>(run: () => Promise<T>): Promise<T> {
+  const result = reportQueue.then(run, run);
+  reportQueue = result.catch(() => undefined);
+  return result;
+}
+
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
@@ -143,148 +153,154 @@ export const reportInsightTool = defineLocalTool({
     meta?.taskOriginProduct === "task_analysis" &&
     !!ctx.taskId &&
     !!ctx.taskRunId,
-  handler: async (ctx, args): Promise<LocalToolResult> => {
-    if (!ctx.taskId || !ctx.taskRunId) {
-      return errorResult("Insight reporting is not available in this session.");
-    }
-    const client = createSandboxPosthogClient();
-    if (!client) {
-      return errorResult(
-        "PostHog is not configured in this sandbox; the report cannot be saved.",
-      );
-    }
-
-    const run = await client.getTaskRun(ctx.taskId, ctx.taskRunId);
-    const state = (run.state ?? {}) as Record<string, unknown>;
-    const existing = Array.isArray(state[INSIGHTS_STATE_KEY])
-      ? (state[INSIGHTS_STATE_KEY] as StoredInsight[])
-      : [];
-
-    if (args.no_findings_reason) {
-      const findingFields = [
-        args.observation,
-        args.evidence,
-        args.category,
-        args.suggested_fix,
-      ].filter((value) => value !== undefined);
-      if (findingFields.length > 0) {
+  handler: (ctx, args): Promise<LocalToolResult> =>
+    enqueueReport(async () => {
+      if (!ctx.taskId || !ctx.taskRunId) {
         return errorResult(
-          "no_findings_reason cannot be combined with a finding. Either report the finding (drop no_findings_reason) or report no findings (drop every other field).",
+          "Insight reporting is not available in this session.",
         );
       }
-      if (existing.length > 0) {
+      const client = createSandboxPosthogClient();
+      if (!client) {
         return errorResult(
-          "Findings were already reported for this run, so a no-findings report is contradictory. Stop reporting.",
+          "PostHog is not configured in this sandbox; the report cannot be saved.",
         );
       }
-      await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-        state: {
-          [INSIGHTS_STATE_KEY]: [
-            { schema_version: 1, no_findings_reason: args.no_findings_reason },
+
+      const run = await client.getTaskRun(ctx.taskId, ctx.taskRunId);
+      const state = (run.state ?? {}) as Record<string, unknown>;
+      const existing = Array.isArray(state[INSIGHTS_STATE_KEY])
+        ? (state[INSIGHTS_STATE_KEY] as StoredInsight[])
+        : [];
+
+      if (args.no_findings_reason) {
+        const findingFields = [
+          args.observation,
+          args.evidence,
+          args.category,
+          args.suggested_fix,
+        ].filter((value) => value !== undefined);
+        if (findingFields.length > 0) {
+          return errorResult(
+            "no_findings_reason cannot be combined with a finding. Either report the finding (drop no_findings_reason) or report no findings (drop every other field).",
+          );
+        }
+        if (existing.length > 0) {
+          return errorResult(
+            "Findings were already reported for this run, so a no-findings report is contradictory. Stop reporting.",
+          );
+        }
+        await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
+          state: {
+            [INSIGHTS_STATE_KEY]: [
+              {
+                schema_version: 1,
+                no_findings_reason: args.no_findings_reason,
+              },
+            ],
+          },
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Recorded: no findings for this run. Do not call report_insight again; summarize and finish.",
+            },
           ],
-        },
+        };
+      }
+
+      // A finding: validate the conditional shape with specific, fixable errors.
+      if (!args.observation || !args.evidence || !args.category) {
+        return errorResult(
+          "A finding requires observation, evidence, and category (or use only no_findings_reason for a clean run).",
+        );
+      }
+      if (existing.some((entry) => "no_findings_reason" in entry)) {
+        return errorResult(
+          "This run was already reported as having no findings; a finding now is contradictory. Stop reporting.",
+        );
+      }
+      if (existing.length >= MAX_INSIGHTS_PER_RUN) {
+        return errorResult(
+          `The ${MAX_INSIGHTS_PER_RUN}-finding cap for this run is reached. Stop reporting; summarize what you filed.`,
+        );
+      }
+      if (args.category === "other" && !args.other_justification) {
+        return errorResult(
+          "category 'other' requires other_justification (50-200 chars).",
+        );
+      }
+      if (
+        WASTED_EFFORT_REQUIRED_CATEGORIES.has(args.category) &&
+        !args.wasted_effort
+      ) {
+        return errorResult(
+          `category '${args.category}' requires wasted_effort ({metric, amount}).`,
+        );
+      }
+      if (!args.recurrence || !args.confidence_basis || !args.suggested_fix) {
+        return errorResult(
+          "A finding requires recurrence, confidence_basis, and suggested_fix.",
+        );
+      }
+      for (const command of args.suggested_fix.setup_commands ?? []) {
+        if (command.includes("\n")) {
+          return errorResult(
+            "setup_commands entries must be single-line. Chain steps with '&&'.",
+          );
+        }
+      }
+      for (const name of args.suggested_fix.env_var_names ?? []) {
+        if (name.includes("=")) {
+          return errorResult(
+            "env_var_names carries names only — an entry contains '='. Remove the value; never report secrets.",
+          );
+        }
+      }
+
+      const transcript = await readTranscript(ctx.cwd);
+      if (transcript === null) {
+        return errorResult(
+          `${TRANSCRIPT_FILENAME} was not found in the working directory (or is too large). Run the extractor from the analyzing-task-runs skill first; evidence is verified against that file.`,
+        );
+      }
+      const normalizedTranscript = normalizeForMatch(transcript);
+      for (const [index, item] of args.evidence.entries()) {
+        if (!normalizedTranscript.includes(normalizeForMatch(item.quote))) {
+          return errorResult(
+            `evidence[${index}].quote was not found in ${TRANSCRIPT_FILENAME} — copy the text exactly as it appears in the transcript, not from memory.`,
+          );
+        }
+      }
+
+      const insight: StoredInsight = {
+        schema_version: 1,
+        observation: args.observation,
+        evidence: args.evidence,
+        occurrence_count: args.occurrence_count ?? 1,
+        category: args.category,
+        ...(args.other_justification && {
+          other_justification: args.other_justification,
+        }),
+        ...(args.wasted_effort && { wasted_effort: args.wasted_effort }),
+        recurrence: args.recurrence,
+        confidence_basis: args.confidence_basis,
+        suggested_fix: args.suggested_fix,
+        reported_at: new Date().toISOString(),
+      };
+      await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
+        state: { [INSIGHTS_STATE_KEY]: [...existing, insight] },
       });
+
+      const remaining = MAX_INSIGHTS_PER_RUN - existing.length - 1;
       return {
         content: [
           {
             type: "text",
-            text: "Recorded: no findings for this run. Do not call report_insight again; summarize and finish.",
+            text: `Recorded finding ${existing.length + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
           },
         ],
       };
-    }
-
-    // A finding: validate the conditional shape with specific, fixable errors.
-    if (!args.observation || !args.evidence || !args.category) {
-      return errorResult(
-        "A finding requires observation, evidence, and category (or use only no_findings_reason for a clean run).",
-      );
-    }
-    if (existing.some((entry) => "no_findings_reason" in entry)) {
-      return errorResult(
-        "This run was already reported as having no findings; a finding now is contradictory. Stop reporting.",
-      );
-    }
-    if (existing.length >= MAX_INSIGHTS_PER_RUN) {
-      return errorResult(
-        `The ${MAX_INSIGHTS_PER_RUN}-finding cap for this run is reached. Stop reporting; summarize what you filed.`,
-      );
-    }
-    if (args.category === "other" && !args.other_justification) {
-      return errorResult(
-        "category 'other' requires other_justification (50-200 chars).",
-      );
-    }
-    if (
-      WASTED_EFFORT_REQUIRED_CATEGORIES.has(args.category) &&
-      !args.wasted_effort
-    ) {
-      return errorResult(
-        `category '${args.category}' requires wasted_effort ({metric, amount}).`,
-      );
-    }
-    if (!args.recurrence || !args.confidence_basis || !args.suggested_fix) {
-      return errorResult(
-        "A finding requires recurrence, confidence_basis, and suggested_fix.",
-      );
-    }
-    for (const command of args.suggested_fix.setup_commands ?? []) {
-      if (command.includes("\n")) {
-        return errorResult(
-          "setup_commands entries must be single-line. Chain steps with '&&'.",
-        );
-      }
-    }
-    for (const name of args.suggested_fix.env_var_names ?? []) {
-      if (name.includes("=")) {
-        return errorResult(
-          "env_var_names carries names only — an entry contains '='. Remove the value; never report secrets.",
-        );
-      }
-    }
-
-    const transcript = await readTranscript(ctx.cwd);
-    if (transcript === null) {
-      return errorResult(
-        `${TRANSCRIPT_FILENAME} was not found in the working directory (or is too large). Run the extractor from the analyzing-task-runs skill first; evidence is verified against that file.`,
-      );
-    }
-    const normalizedTranscript = normalizeForMatch(transcript);
-    for (const [index, item] of args.evidence.entries()) {
-      if (!normalizedTranscript.includes(normalizeForMatch(item.quote))) {
-        return errorResult(
-          `evidence[${index}].quote was not found in ${TRANSCRIPT_FILENAME} — copy the text exactly as it appears in the transcript, not from memory.`,
-        );
-      }
-    }
-
-    const insight: StoredInsight = {
-      schema_version: 1,
-      observation: args.observation,
-      evidence: args.evidence,
-      occurrence_count: args.occurrence_count ?? 1,
-      category: args.category,
-      ...(args.other_justification && {
-        other_justification: args.other_justification,
-      }),
-      ...(args.wasted_effort && { wasted_effort: args.wasted_effort }),
-      recurrence: args.recurrence,
-      confidence_basis: args.confidence_basis,
-      suggested_fix: args.suggested_fix,
-      reported_at: new Date().toISOString(),
-    };
-    await client.updateTaskRun(ctx.taskId, ctx.taskRunId, {
-      state: { [INSIGHTS_STATE_KEY]: [...existing, insight] },
-    });
-
-    const remaining = MAX_INSIGHTS_PER_RUN - existing.length - 1;
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Recorded finding ${existing.length + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
-        },
-      ],
-    };
-  },
+    }),
 });

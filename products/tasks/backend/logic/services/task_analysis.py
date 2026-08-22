@@ -26,6 +26,9 @@ from products.tasks.backend.models import Task, TaskRun
 logger = structlog.get_logger(__name__)
 
 TASK_ANALYSIS_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+# An analysis is one bounded pass over one transcript; if the agent goes quiet
+# this long it is done or stuck, and the sandbox should not idle on our bill.
+TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS = 600
 TASK_ANALYSIS_RUNTIME_ADAPTER = "claude"
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
 ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
@@ -103,6 +106,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         model=TASK_ANALYSIS_MODEL,
         pending_user_message=prompt,
         extra_run_state=extra_run_state,
+        inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,
     )
     run = task.latest_run
     if run is None:  # pragma: no cover — create_and_run always creates a run

@@ -48,10 +48,18 @@ def text_of(content) -> str:
 
 def extract_lines(raw: str) -> list[str]:
     lines: list[str] = []
+    thought_buffer: list[str] = []
 
     def append_deduped(line: str) -> None:
         if not lines or lines[-1] != line:
             lines.append(line)
+
+    def flush_thoughts() -> None:
+        if thought_buffer:
+            text = " ".join(thought_buffer).strip()
+            if text:
+                append_deduped(f"AGENT {text[:TEXT_MAX - 100]}")
+            thought_buffer.clear()
 
     for raw_line in raw.splitlines():
         raw_line = raw_line.strip()
@@ -61,9 +69,36 @@ def extract_lines(raw: str) -> list[str]:
             entry = json.loads(raw_line)
         except json.JSONDecodeError:
             continue
+
+        # Pi-runtime logs wrap events as {"type": "pi_event", "event": {...}}
+        # instead of ACP sessionUpdate notifications.
+        if entry.get("type") == "pi_event" and isinstance(entry.get("event"), dict):
+            event = entry["event"]
+            event_type = event.get("type")
+            if event_type == "assistant_thought_chunk":
+                chunk = text_of(event.get("content") or {})
+                if chunk:
+                    thought_buffer.append(chunk)
+                continue
+            flush_thoughts()
+            if event_type == "tool_call_started":
+                call = event.get("toolCall") or {}
+                title = str(call.get("title") or call.get("id") or "")[:TITLE_MAX]
+                lines.append(f"TOOL  {call.get('kind', '')}: {title}")
+            elif event_type == "tool_call_updated":
+                status = (event.get("toolCall") or {}).get("status")
+                if status:
+                    append_deduped(f"      -> {status}")
+            elif event_type == "user_message":
+                text = text_of(event.get("content")).strip()
+                if text:
+                    lines.append(f"USER  {text[:TEXT_MAX]}")
+            continue
+
         update = find_update(entry)
         if not update:
             continue
+        flush_thoughts()
         kind = update["sessionUpdate"]
         if kind == "tool_call":
             title = str(update.get("title") or update.get("toolCallId") or "")[:TITLE_MAX]
@@ -80,6 +115,7 @@ def extract_lines(raw: str) -> list[str]:
             text = text_of(update.get("content")).strip()
             if text:
                 append_deduped(f"AGENT {text[:TEXT_MAX - 100]}")
+    flush_thoughts()
     return lines
 
 

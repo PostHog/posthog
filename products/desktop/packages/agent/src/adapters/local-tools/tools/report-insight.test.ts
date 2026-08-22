@@ -155,6 +155,30 @@ describe("reportInsightTool", () => {
     expect(contradictory.content[0].text).toMatch(/contradictory/);
   });
 
+  it("accumulates findings filed as parallel tool calls", async () => {
+    // Models issue parallel tool calls; unserialized read-modify-write kept
+    // only the last finding. Simulate the race: state reads reflect prior
+    // writes only because the handler serializes.
+    let state: Record<string, unknown> = {};
+    getTaskRun.mockImplementation(() => Promise.resolve({ state }));
+    updateTaskRun.mockImplementation((_t, _r, updates) => {
+      state = { ...state, ...updates.state };
+      return Promise.resolve({});
+    });
+
+    const second = validFinding({
+      observation:
+        "The agent retried the signed commit against a repository it had no write access to, twice, before switching.",
+      category: "wasted_retry",
+    });
+    const results = await Promise.all([
+      reportInsightTool.handler(ctx(cwd), validFinding()),
+      reportInsightTool.handler(ctx(cwd), second),
+    ]);
+    expect(results.every((result) => result.isError === undefined)).toBe(true);
+    expect(state[INSIGHTS_STATE_KEY]).toHaveLength(2);
+  });
+
   it("records a no-findings report once", async () => {
     const result = await reportInsightTool.handler(ctx(cwd), {
       no_findings_reason: "run_was_efficient",
