@@ -150,6 +150,24 @@ log lacks token records inside the span — then omit `tokens` from the finding:
 sed -n '<start>,<end>p' <log> | jq -rs '[.[] | if .type == "pi_event" and .event.type == "message_end" and .event.message.role == "assistant" then .event.message.usage.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage.totalTokens // .notification.params.used) else empty end | select(type == "number")] | if length > 0 then add else "insufficient token records in span" end'
 ```
 
+### Token-measurement examples
+
+Pi records usage on the completed assistant message. These two records fall inside a measured
+span, so the reported token waste is `1200 + 900 = 2100`:
+
+```jsonl
+{"type":"pi_event","event":{"type":"message_end","message":{"role":"assistant","usage":{"totalTokens":1200}}}}
+{"type":"pi_event","event":{"type":"message_end","message":{"role":"assistant","usage":{"totalTokens":900}}}}
+```
+
+ACP records usage in `_posthog/usage_update`. These two records fall inside a measured span, so
+the reported token waste is `800 + 600 = 1400`:
+
+```jsonl
+{"type":"notification","notification":{"method":"_posthog/usage_update","params":{"usage":{"totalTokens":800}}}}
+{"type":"notification","notification":{"method":"_posthog/usage_update","params":{"usage":{"totalTokens":600}}}}
+```
+
 Wasted tool calls are the count of tool-timeline rows between the two lines.
 
 ## Evidence quotes
