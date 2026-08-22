@@ -64,7 +64,11 @@ def drop_transient_connection_errors(event: dict[str, Any]) -> Optional[dict[str
         if event.get("event") != "$exception":
             return event
         exception_list = event.get("properties", {}).get("$exception_list") or []
-        if any(_is_transient_connection_event(entry) for entry in exception_list if isinstance(entry, dict)):
+        # Classify only the outermost (caught) exception. The SDK orders `$exception_list` with the
+        # caught exception at [0] and the root cause last, so a genuine defect that wraps a transient
+        # DB error (`raise RuntimeError(...) from OperationalError`) still reaches error tracking.
+        outermost = exception_list[0] if exception_list else None
+        if isinstance(outermost, dict) and _is_transient_connection_event(outermost):
             return None
     except Exception:
         return event

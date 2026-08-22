@@ -32,6 +32,38 @@ class TestDropTransientConnectionErrors:
         event = _exception_event(exc_type, value)
         assert drop_transient_connection_errors(event) is event
 
+    @parameterized.expand(
+        [
+            # A genuine defect that wraps a transient DB error keeps reaching error tracking: only
+            # the outermost ($exception_list[0]) exception decides the drop.
+            (
+                "wrapper_over_transient_cause_kept",
+                [
+                    {"type": "RuntimeError", "value": "Unable to ensure catalog exists"},
+                    {"type": "OperationalError", "value": 'connection to server at "db" failed: Connection refused'},
+                ],
+                False,
+            ),
+            # The boot-race failure Django re-raises as OperationalError, chaining the driver error
+            # as its cause, is still dropped: the outermost entry is the transient connection error.
+            (
+                "transient_outermost_dropped",
+                [
+                    {"type": "OperationalError", "value": 'connection to server at "db" failed: Connection refused'},
+                    {"type": "OperationalError", "value": "connection refused"},
+                ],
+                True,
+            ),
+        ]
+    )
+    def test_classifies_only_outermost_exception(self, _name: str, exception_list: list[dict], dropped: bool) -> None:
+        event = {"event": "$exception", "properties": {"$exception_list": exception_list}}
+        result = drop_transient_connection_errors(event)
+        if dropped:
+            assert result is None
+        else:
+            assert result is event
+
     def test_passes_through_non_exception_events(self) -> None:
         event = {"event": "$pageview", "properties": {}}
         assert drop_transient_connection_errors(event) is event
