@@ -96,6 +96,7 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
+from products.tasks.backend.facade.task_query import TaskQueryError
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -183,7 +184,6 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResponseSerializer,
     WizardCloudRunSerializer,
 )
-from products.tasks.backend.task_query import TaskQueryError
 
 from ee.hogai.utils.aio import async_to_sync
 

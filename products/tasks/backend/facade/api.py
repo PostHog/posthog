@@ -80,6 +80,7 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.facade.task_query import filter_tasks_by_query
 from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
@@ -125,7 +126,6 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
-from products.tasks.backend.task_query import filter_tasks_by_query
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
