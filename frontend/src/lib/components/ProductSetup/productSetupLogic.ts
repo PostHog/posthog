@@ -271,24 +271,22 @@ export const productSetupLogic = kea<productSetupLogicType>([
                     return false
                 }
 
-                // Resolve completion once per task, then reuse it for both the checkmark and the dependency gate.
-                const completedById: Record<string, boolean> = {}
-                const skippedById: Record<string, boolean> = {}
-                for (const task of allTasks) {
-                    completedById[task.id] =
-                        isAutoCompleted(task.id) || savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED
-                    // Completion wins over a stale skip: a task the user skipped but later actually finished is
-                    // genuinely done, so it counts once instead of as both completed and skipped.
-                    skippedById[task.id] =
-                        !completedById[task.id] && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED
-                }
+                // Resolve completion for any task id, including a dependency that this product's list does not
+                // show, so the checkmark and the dependency gate read one completion rule.
+                const isCompleted = (taskId: SetupTaskId): boolean =>
+                    isAutoCompleted(taskId) || savedOnboardingTasks[taskId] === ActivationTaskStatus.COMPLETED
+                // Completion wins over a stale skip: a task the user skipped but later actually finished is
+                // genuinely done, so it counts once instead of as both completed and skipped.
+                const isSkipped = (taskId: SetupTaskId): boolean =>
+                    !isCompleted(taskId) && savedOnboardingTasks[taskId] === ActivationTaskStatus.SKIPPED
 
                 return allTasks.map((task) => {
-                    // A dependency is satisfied when it is completed or skipped. This matches the checkmark rule.
+                    // A dependency is satisfied when it is completed or skipped, even when the dependency is not
+                    // itself one of this product's tasks. This matches the checkmark rule.
                     let lockedReason: string | undefined
                     if (task.dependsOn) {
                         for (const depId of task.dependsOn) {
-                            if (!completedById[depId] && !skippedById[depId]) {
+                            if (!isCompleted(depId) && !isSkipped(depId)) {
                                 const depTask = allTasks.find((t) => t.id === depId)
                                 lockedReason = depTask
                                     ? `Complete "${depTask.title}" first`
@@ -300,8 +298,8 @@ export const productSetupLogic = kea<productSetupLogicType>([
 
                     return {
                         ...task,
-                        completed: completedById[task.id],
-                        skipped: skippedById[task.id],
+                        completed: isCompleted(task.id),
+                        skipped: isSkipped(task.id),
                         lockedReason,
                     }
                 })

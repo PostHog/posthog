@@ -86,4 +86,31 @@ describe('productSetupLogic', () => {
         expect(task(SetupTaskId.IngestFirstEvent).skipped).toBe(false)
         expect(logic.values.completedCount).toBe(logic.values.completedTasks.length)
     })
+
+    // AI observability's ViewFirstTrace/TrackCosts depend on ingest_first_event, which is not one of that
+    // product's own tasks. The dependency must still gate and unlock them.
+    it('resolves a dependency that lives outside the product task list', async () => {
+        const aiLogic = productSetupLogic({ productKey: ProductKey.AI_OBSERVABILITY })
+        aiLogic.mount()
+        const aiTask = (id: SetupTaskId): SetupTaskWithState =>
+            aiLogic.values.tasksWithState.find((t) => t.id === id) as SetupTaskWithState
+        try {
+            // Unmet: no event and no saved status keeps the dependents locked.
+            await setTeam({ ingested_event: false, onboarding_tasks: {} })
+            expect(aiTask(SetupTaskId.ViewFirstTrace).lockedReason).not.toBeUndefined()
+
+            // A saved COMPLETED unlocks even though ingest_first_event is not in this product's list.
+            await setTeam({
+                ingested_event: false,
+                onboarding_tasks: { [SetupTaskId.IngestFirstEvent]: ActivationTaskStatus.COMPLETED },
+            })
+            expect(aiTask(SetupTaskId.ViewFirstTrace).lockedReason).toBeUndefined()
+
+            // The ingested_event auto-completion also reaches it.
+            await setTeam({ ingested_event: true, onboarding_tasks: {} })
+            expect(aiTask(SetupTaskId.TrackCosts).lockedReason).toBeUndefined()
+        } finally {
+            aiLogic.unmount()
+        }
+    })
 })
