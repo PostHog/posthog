@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -742,3 +743,30 @@ class TestHandleNonRetryableError:
 
         assert isinstance(exc_info.value, NonReportableError)
         assert exc_info.value.__cause__ is original_error
+
+    def test_redis_error_after_successful_ping_fails_fast(self):
+        # A successful ping doesn't guarantee `.incr()` still reaches Redis - if it raises, this
+        # must take the same fast-fail path as a `None` client instead of surfacing unwrapped and
+        # masking the already-classified `error` behind an ordinary retryable activity failure.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+        redis_client = MagicMock(
+            incr=AsyncMock(side_effect=redis_exceptions.ConnectionError("Connect call failed")),
+            expire=AsyncMock(),
+        )
+
+        @asynccontextmanager
+        async def fake_get_redis():
+            yield redis_client
+
+        with (
+            patch(f"{_EXTRACT_MODULE}._get_redis", fake_get_redis),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_called_once()
