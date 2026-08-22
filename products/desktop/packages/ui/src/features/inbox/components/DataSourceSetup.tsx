@@ -1,3 +1,4 @@
+import { GITHUB_INSTALL_PENDING_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import { Button } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
@@ -7,6 +8,7 @@ import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { DynamicSourceSetup } from "@posthog/ui/features/inbox/components/DynamicSourceSetup";
+import { GithubInstallRequestsBanner } from "@posthog/ui/features/integrations/components/GithubInstallRequestsBanner";
 import {
   describeGithubConnectError,
   useGithubConnect,
@@ -102,6 +104,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
     isConnecting: connecting,
     isTimedOut: timedOut,
     hasError: hasConnectError,
+    isPending: awaitingApproval,
     connect: handleConnectGitHub,
   } = useGithubConnect({
     projectId,
@@ -180,11 +183,13 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
   if (!hasGithubIntegration) {
     const statusMessage = hasConnectError
       ? describeGithubConnectError(connectError)
-      : timedOut
-        ? "We didn't hear back from GitHub. If the browser tab was closed, click Try again."
-        : connecting
-          ? "Waiting for GitHub… finish authorizing in your browser, then return here."
-          : "Connect your GitHub account to import issues as Self-driving signals.";
+      : awaitingApproval
+        ? GITHUB_INSTALL_PENDING_MESSAGE
+        : timedOut
+          ? "We didn't hear back from GitHub. If the browser tab was closed, click Try again."
+          : connecting
+            ? "Waiting for GitHub… finish authorizing in your browser, then return here."
+            : "Connect your GitHub account to import issues as Self-driving signals.";
     return (
       <SetupFormContainer title="Connect GitHub">
         <Flex direction="column" gap="3">
@@ -197,6 +202,12 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
           >
             {statusMessage}
           </Text>
+          {projectId != null ? (
+            <GithubInstallRequestsBanner
+              onFinishConnecting={() => void handleConnectGitHub()}
+              isConnecting={connecting}
+            />
+          ) : null}
           <Flex gap="2" justify="end">
             <Button
               type="button"
