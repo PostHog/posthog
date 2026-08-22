@@ -49,6 +49,7 @@ from posthog.event_usage import groups
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.customer_events import CUSTOMER_STRUCTURED_OUTPUT_EVENT
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,8 @@ MAX_SUBJECT_LENGTH = 200
 # here so the schema validator and the write path agree on one constant.
 MAX_SCHEMA_BYTES = 20_000
 
-# Customer-facing per-record event (see `tools/report.py` for the `$`-prefix convention:
-# a PostHog-generated event kept out of the customer's own custom-event namespace).
-CUSTOMER_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
+# The customer-facing per-record event name lives in `scout_harness/customer_events.py` alongside
+# the report-channel ones, so the full set of scout-emitted events has a single home.
 _STRUCTURED_OUTPUT_EVENT_SOURCE = "signals_scout_structured_output"
 
 # `SignalScoutRun.metadata` key holding how many records this run has had accepted, bumped

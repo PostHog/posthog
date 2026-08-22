@@ -111,6 +111,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
+from products.workflows.backend.api.run_scout_validation import validate_run_scout_flow
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -2224,6 +2225,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                             )
                         }
                     )
+
+        # A "Run scout" node turns each matching event into an LLM sandbox run, and scouts write
+        # events back into the same project — so an event-triggered flow containing one needs
+        # masking and a trigger that scout output can't satisfy. Skipped for drafts like the check
+        # above: a half-wired draft is legitimate, and this fires on the save that activates it.
+        if not is_draft:
+            validate_run_scout_flow(
+                actions=actions,
+                trigger_config=data["trigger"],
+                trigger_masking=data.get("trigger_masking", instance.trigger_masking if instance else None),
+            )
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES
