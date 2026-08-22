@@ -43,11 +43,14 @@ configs and a detector-selection guide, read the `anomaly-alerts`, `signals-aler
 - **Breakdown insights return a per-series block per breakdown value plus a meaningless
   rolled-up total.** `series_index` does not cleanly isolate one breakdown value — read the
   per-series sub-blocks, or prefer a non-breakdown insight for a clean read.
-- **Only points with ≥ `window` history get scored.** On a short series, simulate with a
-  smaller `window` (e.g. ≤ 168) to get scored points; `date_from` controls how far back to go.
+- **Only points with ≥ `window` history get scored.** Give the series at least `window` buckets
+  of history so the latest bucket has a full baseline — widen `date_from` (it controls how far
+  back to go). If the series is too short to reach the recommended `window`, mark the item
+  `low-data` and skip; don't shrink the `window` to force scored points — that over-fires (see
+  below).
 - **A short `window` over-fires.** The detector scores the latest bucket against the last
   `window` points, so a small window makes ordinary day-to-day movement look anomalous. Keep the
-  daily `window` near 90 and the hourly near 336; do not shrink it to a week or two to fit a
+  daily `window` near 90 and the hourly near 336; do not shrink it below those to fit a
   short series. Widen `date_from` for more history, or mark the item `low-data` and skip.
 - **The simulator has no low-count or minimum-volume guard.** The production detectors score the
   value series alone — they never see a rate's denominator or a count's absolute volume. The
