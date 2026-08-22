@@ -91,8 +91,8 @@ step failed and why, then call the `finish` tool with status `failed`.
   below it.
 - `wasted_effort` is measured, never estimated: bracket the wasted span with its start and end
   line numbers, then count the tool calls between them, subtract the timestamps for `seconds`,
-  and sum per-turn usage records for `tokens`. Report every dimension you can measure; omit the
-  ones you cannot.
+  and sum completed turns wholly inside the span for `tokens`. Report every dimension you can
+  measure; omit the ones you cannot.
 - Logs from some runtimes lack the agent's narration; do not treat missing narration as evidence
   of anything.
 - The log contains user code and prompts. Use them only to classify; never copy source code,

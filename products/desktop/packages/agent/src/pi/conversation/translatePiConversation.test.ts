@@ -66,18 +66,27 @@ describe("createPiConversationTranslator", () => {
     expect(ended).toEqual([]);
   });
 
-  it("keeps assistant token usage in the translated event stream", () => {
+  it("records assistant token usage on the completed turn", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
     const translator = createPiConversationTranslator();
-    const message = assistant([{ type: "text", text: "complete" }]);
-    message.usage.totalTokens = 1_234;
+    const first = assistant([{ type: "text", text: "first" }]);
+    first.usage.totalTokens = 1_200;
+    const second = assistant([{ type: "text", text: "second" }]);
+    second.usage.totalTokens = 900;
 
-    expect(
-      translator.translateEvent({ type: "message_end", message }),
-    ).toContainEqual({
-      type: "usage_update",
-      timestamp: 10,
-      totalTokens: 1_234,
-    });
+    translator.translateEvent({ type: "message_end", message: first });
+    translator.translateEvent({ type: "message_end", message: second });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 2_100,
+      },
+    ]);
+    vi.useRealTimers();
   });
 
   it("appends content missing from the streamed deltas at message_end", () => {

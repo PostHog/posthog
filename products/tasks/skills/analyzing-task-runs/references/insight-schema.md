@@ -51,8 +51,9 @@ specific error when something does not check out; fix and retry once, then drop 
   and you include each one you can measure (at least one):
   - `tool_calls` — count distinct wasted call IDs between the span's start and end lines.
   - `seconds` — subtract the event timestamp at the span's start from the one at its end.
-  - `tokens` — sum the measured per-turn usage records inside the span. Pi records them in
-    `pi_event` usage updates; ACP records them in `_posthog/usage_update`.
+  - `tokens` — sum completed turns wholly inside the wasted span. Pi records `totalTokens` on
+    `turn_completed`; ACP may record it in `_posthog/turn_complete`. Omit tokens for a partial
+    turn or a completion without usage.
     If a dimension cannot be measured from the log or its measured value is zero, leave it out —
     do not estimate.
 - `recurrence` anchors: `every_run_in_this_repo` — structural, any agent in this repo hits it;

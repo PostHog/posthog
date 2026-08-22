@@ -86,34 +86,6 @@ describe("buildAgentConversationItems", () => {
     });
   });
 
-  it("ignores a mid-turn usage_update without completing the turn early", () => {
-    const events: AgentConversationEvent[] = [
-      {
-        type: "user_message",
-        id: "user-1",
-        timestamp: 1,
-        content: [{ type: "text", text: "Do it" }],
-      },
-      {
-        type: "assistant_message_chunk",
-        timestamp: 2,
-        content: { type: "text", text: "Working." },
-      },
-      // Pi emits a usage_update on every assistant message_end, so one lands
-      // mid-turn while tools still run, before the real turn_completed.
-      { type: "usage_update", timestamp: 3, totalTokens: 1200 },
-      { type: "turn_completed", timestamp: 8, stopReason: "stop" },
-    ];
-
-    const result = buildAgentConversationItems(events, false);
-
-    // A turn completed early by the usage_update would drop the real stopReason.
-    expect(result.lastTurnInfo).toMatchObject({
-      isComplete: true,
-      stopReason: "stop",
-    });
-  });
-
   it("keeps inline Pi images on the rendered user message", () => {
     const result = buildAgentConversationItems(
       [

@@ -120,6 +120,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
+  let turnTotalTokens = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
   let settledStopReason: string | undefined;
   let retrying = false;
@@ -513,13 +514,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         );
       }
 
-      if (event.message.usage.totalTokens > 0) {
-        visibleEvents.push({
-          type: "usage_update",
-          timestamp: event.message.timestamp,
-          totalTokens: event.message.usage.totalTokens,
-        });
-      }
+      turnTotalTokens += event.message.usage.totalTokens;
 
       return visibleEvents;
     }
@@ -629,9 +624,18 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
       settledStopReason = undefined;
+      const totalTokens = turnTotalTokens;
+      turnTotalTokens = 0;
 
       return hadRuntimeActivity
-        ? [{ type: "turn_completed", timestamp, stopReason }]
+        ? [
+            {
+              type: "turn_completed",
+              timestamp,
+              stopReason,
+              ...(totalTokens > 0 ? { totalTokens } : {}),
+            },
+          ]
         : [];
     }
 
