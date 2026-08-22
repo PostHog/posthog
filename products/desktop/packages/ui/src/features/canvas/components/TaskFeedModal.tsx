@@ -148,7 +148,10 @@ export function TaskFeedModal({
             the command palette.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex min-w-0 flex-col gap-5">
+        <DialogBody
+          render={<div />}
+          className="flex min-w-0 flex-col gap-4 overflow-y-auto py-4"
+        >
           <div className="flex flex-col gap-1.5">
             <label htmlFor="task-feed-name" className="font-medium text-sm">
               Name
@@ -204,7 +207,7 @@ export function TaskFeedModal({
                     : "Free text searches task titles. Repeat a filter to match either value. Use - to exclude a filter."))}
             </div>
           </div>
-          <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border bg-muted/40">
+          <div className="flex min-h-24 flex-1 basis-40 flex-col overflow-hidden rounded-lg border border-border bg-muted/40">
             <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b px-3 text-muted-foreground text-xs">
               <span className="font-medium">Matches</span>
               <span className="ml-auto flex items-center gap-1.5 tabular-nums">
@@ -222,6 +225,7 @@ export function TaskFeedModal({
                   </Button>
                 ) : preview.error ? null : (
                   hasPreview &&
+                  preview.tasks.length > 0 &&
                   (preview.isComplete
                     ? preview.tasks.length === 1
                       ? "1 task matches"
