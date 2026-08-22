@@ -17,7 +17,9 @@ const mocks = vi.hoisted(() => ({
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
-  routeId: "/website/$channelId/",
+  searchFrom: undefined as string | undefined,
+  searchChannel: undefined as string | undefined,
+  routeId: "/spaces/$channelId/",
   markChannelSeen: vi.fn(),
 }));
 
@@ -84,6 +86,7 @@ vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ channelId: mocks.routeChannelId }),
+  useSearch: () => ({ from: mocks.searchFrom, channel: mocks.searchChannel }),
   useRouterState: ({
     select,
   }: {
@@ -136,7 +139,7 @@ describe("ChannelsSidebar", () => {
     mocks.archivedTaskIds = new Set();
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
-    mocks.routeId = "/website/$channelId/";
+    mocks.routeId = "/spaces/$channelId/";
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
     // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
@@ -164,7 +167,7 @@ describe("ChannelsSidebar", () => {
     // never be what a reader finds under the Activity destination.
     it("hands the column to the activity feed on the Activity route", () => {
       mocks.routeChannelId = undefined;
-      mocks.routeId = "/website/activity";
+      mocks.routeId = "/_channels/activity";
       renderSidebar();
 
       expect(screen.getByTestId("activity-feed")).toBeInTheDocument();

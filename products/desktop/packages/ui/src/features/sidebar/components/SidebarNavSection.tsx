@@ -19,14 +19,12 @@ import {
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops,
-  navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { Box, Flex } from "@radix-ui/themes";
-import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
@@ -50,12 +48,9 @@ interface SidebarNavSectionProps {
 // The sidebar navigation section shared by the Code pane (above the task list)
 // and the Channels pane. It is fully self-contained — every item's active
 // state, badge count, and click handler is wired here — so it can be dropped
-// into either layout. In the Channels space, destinations with a /website
-// mirror (Command Center) stay in that space; Inbox and New task have
-// no mirror yet and jump back to Code.
-// Configure opens the shared settings UI. Search opens the command menu in
-// place and defaults to the collapsible More row; the Customize sidebar
-// dialog controls which items show at the top level.
+// into either layout. Configure opens the shared settings UI. Search opens the
+// command menu in place and defaults to the collapsible More row; the Customize
+// sidebar dialog controls which items show at the top level.
 export function SidebarNavSection({
   commandCenterActiveCount: providedActiveCount,
 }: SidebarNavSectionProps = {}) {
@@ -68,18 +63,11 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  // When this section renders inside the Channels space, the destinations that
-  // have a /website mirror stay in that space; everything else (and the whole
-  // section in the Code space) uses the canonical routes. Inbox and New task
-  // have no mirror yet, so they intentionally jump back to Code.
-  const inChannels = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
-  });
-  const goNewTask = () =>
-    openTaskInput(inChannels ? { space: "website" } : undefined);
-  const goCommandCenter = inChannels
-    ? navigateToWebsiteCommandCenter
-    : navigateToCommandCenter;
+  // One canonical address per destination now — the channels mirrors are gone,
+  // so this section navigates identically whichever pane it renders inside.
+  // New task still scopes to the current channel when one is set.
+  const goNewTask = () => openTaskInput();
+  const goCommandCenter = navigateToCommandCenter;
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.

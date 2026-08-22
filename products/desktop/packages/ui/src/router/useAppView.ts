@@ -44,62 +44,56 @@ function deriveFromMatches(matches: Match[]): AppView {
   if (!last) return { type: "task-input" };
 
   switch (last.routeId) {
-    // Both the /code task detail and the channels-space task detail render the
-    // same task-detail view, so consumers (active-state highlighting, archive's
-    // navigate-away-if-active check) treat them identically.
-    case "/code/tasks/$taskId":
-    case "/website/$channelId/tasks/$taskId": {
+    // One canonical task detail route; consumers (active-state highlighting,
+    // archive's navigate-away-if-active check) key off the view type.
+    case "/_channels/tasks/$taskId": {
       const taskId = last.params.taskId;
       if (!taskId) return { type: "task-input" };
       // Intentionally no `data` snapshot: consumers read live task state via
       // their own query hooks (e.g. useTasks) keyed on `taskId`.
       return { type: "task-detail", taskId };
     }
-    case "/code/tasks/pending/$key":
+    case "/tasks/pending/$key":
       return { type: "task-pending", pendingTaskKey: last.params.key };
-    // Channels-space new-task screen — same task-input view (and prefill merge
-    // below) as the /code/ index, so the New task item highlights identically.
-    case "/website/new":
+    // Canonical new-task screen.
+    case "/_channels/new":
       return { type: "task-input" };
     case "/folders/$folderId":
       return { type: "folder-settings", folderId: last.params.folderId };
-    case "/website/activity":
+    case "/_channels/activity":
       return { type: "activity" };
-    case "/website/home":
+    case "/_channels/home":
       return { type: "home" };
-    case "/code/inbox":
+    case "/inbox":
       return { type: "inbox" };
-    case "/code/agents":
+    case "/agents":
       return { type: "agents" };
-    case "/code/loops":
+    case "/loops":
       return { type: "loops" };
-    case "/code/archived":
+    case "/archive":
       return { type: "archived" };
     case "/command-center":
-    case "/website/command-center":
       return { type: "command-center" };
     case "/skills":
-    case "/website/skills":
       return { type: "skills" };
     case "/mcp-servers":
-    case "/website/mcp-servers":
       return { type: "mcp-servers" };
     case "/settings/$category":
     case "/settings/":
       return { type: "settings" };
     default:
-      if (last.routeId.startsWith("/code/inbox")) {
+      if (last.routeId.startsWith("/inbox")) {
         return { type: "inbox" };
       }
-      // /code/agents is now an Outlet layout; the view lives at the index
-      // child (/code/agents/) and scout detail routes nest deeper, so match
+      // /agents has an Outlet layout; the view lives at the index
+      // child (/agents/) and scout detail routes nest deeper, so match
       // the whole subtree rather than only the bare layout route.
-      if (last.routeId.startsWith("/code/agents")) {
+      if (last.routeId.startsWith("/agents")) {
         return { type: "agents" };
       }
-      // /code/loops covers the list, create form, and the per-loop detail /
+      // /loops covers the list, create form, and the per-loop detail /
       // edit subtree ($loopId is an Outlet layout), so match the prefix.
-      if (last.routeId.startsWith("/code/loops")) {
+      if (last.routeId.startsWith("/loops")) {
         return { type: "loops" };
       }
       return { type: "task-input" };

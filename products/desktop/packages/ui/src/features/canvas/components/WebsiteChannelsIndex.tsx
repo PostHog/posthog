@@ -32,7 +32,7 @@ export function WebsiteChannelsIndex() {
   // index path may redirect; otherwise this redirect hijacks the in-flight
   // navigation back to channels[0] (the browser-tabs blank-tab race).
   const onIndexPath = useRouterState({
-    select: (s) => s.location.pathname === "/website",
+    select: (s) => s.location.pathname === "/spaces",
   });
 
   if (isLoading) return null;
@@ -44,7 +44,7 @@ export function WebsiteChannelsIndex() {
     if (hasNoTabs) return <BlankTabView />;
     return (
       <Navigate
-        to="/website/$channelId"
+        to="/spaces/$channelId"
         params={{ channelId: channels[0].id }}
         replace
       />

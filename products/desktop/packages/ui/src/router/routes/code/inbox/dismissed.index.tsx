@@ -1,6 +1,6 @@
-import { DismissedTab } from "@posthog/ui/features/inbox/components/DismissedTab";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/inbox/dismissed/")({
-  component: DismissedTab,
-});
+export const Route = createFileRoute("/code/inbox/dismissed/")(
+  legacyRedirect({ to: "/inbox/dismissed" }),
+);

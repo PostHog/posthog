@@ -9,7 +9,7 @@ import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/curre
 import { requestSpaceSearchFocus } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { navigateToChannel } from "@posthog/ui/router/navigationBridge";
+import { openSpace } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHotkeys } from "react-hotkeys-hook";
 
@@ -44,7 +44,7 @@ export function ChannelHotkeys() {
       // request to be in the space, and the effect skips the slide for a
       // navigation the list asked to stay out of.
       showChannelPane();
-      navigateToChannel(channel.id);
+      openSpace(channel.id);
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "open_channel",
         surface: "sidebar",

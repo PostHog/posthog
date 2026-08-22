@@ -1,6 +1,6 @@
-import { AgentsView } from "@posthog/ui/features/agents/components/AgentsView";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/agents/scouts/")({
-  component: AgentsView,
-});
+export const Route = createFileRoute("/code/agents/scouts/")(
+  legacyRedirect({ to: "/agents/scouts" }),
+);

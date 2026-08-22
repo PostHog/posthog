@@ -1,11 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/website/$channelId/artifacts")({
-  beforeLoad: ({ params }) => {
-    throw redirect({
-      to: "/website/$channelId",
-      params: { channelId: params.channelId },
-      replace: true,
-    });
-  },
-});
+export const Route = createFileRoute("/website/$channelId/artifacts")(
+  legacyRedirect({ to: "/spaces/$channelId/artifacts" }),
+);

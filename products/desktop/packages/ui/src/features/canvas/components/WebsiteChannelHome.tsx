@@ -192,8 +192,9 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const handleOpenFull = useCallback(
     (taskId: string) => {
       void navigate({
-        to: "/website/$channelId/tasks/$taskId",
-        params: { channelId, taskId },
+        to: "/tasks/$taskId",
+        params: { taskId },
+        search: { from: channelId },
       });
     },
     [channelId, navigate],

@@ -1,6 +1,6 @@
-import { RunsTab } from "@posthog/ui/features/inbox/components/RunsTab";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/inbox/runs/")({
-  component: RunsTab,
-});
+export const Route = createFileRoute("/code/inbox/runs/")(
+  legacyRedirect({ to: "/inbox/runs" }),
+);

@@ -84,11 +84,11 @@ import {
   goBackInHistory,
   goForwardInHistory,
   navigateToArchived,
-  navigateToChannel,
   navigateToCommandCenter,
   navigateToFeed,
   navigateToInbox,
   navigateToLoops,
+  openSpace,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -648,7 +648,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           channelId: channel.id,
           onRun: () => {
             closeSettingsDialog();
-            navigateToChannel(channel.id);
+            openSpace(channel.id);
           },
         })),
       },

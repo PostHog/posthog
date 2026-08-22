@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  routeId: "/website/home",
+  routeId: "/_channels/home",
   navigateToActivity: vi.fn(),
   navigateToCanvas: vi.fn(),
-  navigateToChannel: vi.fn(),
+  openSpace: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
 }));
@@ -42,11 +42,11 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ routeId: mocks.routeId }],
   navigateToActivity: (...args: unknown[]) => mocks.navigateToActivity(...args),
   navigateToCanvas: (...args: unknown[]) => mocks.navigateToCanvas(...args),
-  navigateToChannel: (...args: unknown[]) => mocks.navigateToChannel(...args),
+  openSpace: (...args: unknown[]) => mocks.openSpace(...args),
   navigateToHome: (...args: unknown[]) => mocks.navigateToHome(...args),
   navigateToInbox: (...args: unknown[]) => mocks.navigateToInbox(...args),
   navigateToLoops: vi.fn(),
-  navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToCommandCenter: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
@@ -65,7 +65,7 @@ import { NavRail } from "./NavRail";
 describe("NavRail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.routeId = "/website/home";
+    mocks.routeId = "/_channels/home";
     useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
@@ -75,14 +75,15 @@ describe("NavRail", () => {
   // The route is the whole answer, so a destination can never be lit over a
   // screen that isn't it.
   it.each([
-    ["/website/home", "Home"],
-    ["/website/activity", "Activity"],
-    ["/code/inbox/pulls/$reportId", "Inbox"],
-    ["/website/command-center", "Command Center"],
-    ["/website/$channelId/loops", "Spaces"],
-    ["/website/$channelId/context", "Spaces"],
-    ["/website/$channelId/", "Spaces"],
-    ["/website/$channelId/tasks/$taskId", "Spaces"],
+    ["/_channels/home", "Home"],
+    ["/_channels/activity", "Activity"],
+    ["/inbox/pulls/$reportId", "Inbox"],
+    ["/command-center", "Command Center"],
+    ["/settings/$category", "Settings"],
+    ["/spaces/$channelId/loops", "Spaces"],
+    ["/spaces/$channelId/context", "Spaces"],
+    ["/spaces/$channelId/", "Spaces"],
+    ["/_channels/tasks/$taskId", "Spaces"],
   ])("lights %s as %s", (routeId, label) => {
     mocks.routeId = routeId;
     render(<NavRail />);
@@ -95,7 +96,7 @@ describe("NavRail", () => {
 
   it("routes to Activity from a screen that has no column for it", async () => {
     const user = userEvent.setup();
-    mocks.routeId = "/code/inbox";
+    mocks.routeId = "/inbox";
     render(<NavRail />);
 
     await user.click(screen.getByLabelText("Activity"));
@@ -110,7 +111,7 @@ describe("NavRail", () => {
 
     await user.click(screen.getByLabelText("Spaces"));
 
-    expect(mocks.navigateToChannel).toHaveBeenCalledWith("chan-1");
+    expect(mocks.openSpace).toHaveBeenCalledWith("chan-1");
     // Arriving at the space would otherwise slide straight past the list the
     // pick asked for.
     expect(shouldKeepListForRoute("chan-1")).toBe(true);
@@ -124,19 +125,19 @@ describe("NavRail", () => {
     await user.click(screen.getByLabelText("Spaces"));
 
     expect(mocks.navigateToCanvas).toHaveBeenCalledOnce();
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
   });
 
   it("only slides back to the list when a space is already on screen", async () => {
     const user = userEvent.setup();
-    mocks.routeId = "/website/$channelId/tasks/$taskId";
+    mocks.routeId = "/_channels/tasks/$taskId";
     useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
     render(<NavRail />);
 
     await user.click(screen.getByLabelText("Spaces"));
 
     expect(useChannelPaneStore.getState().pane).toBe("list");
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
     expect(mocks.navigateToCanvas).not.toHaveBeenCalled();
   });
 
@@ -153,7 +154,7 @@ describe("NavRail", () => {
 
   it("drops the peek once Activity is the destination", async () => {
     const user = userEvent.setup();
-    mocks.routeId = "/website/activity";
+    mocks.routeId = "/_channels/activity";
     render(<NavRail />);
 
     const bell = screen.getByLabelText("Activity");

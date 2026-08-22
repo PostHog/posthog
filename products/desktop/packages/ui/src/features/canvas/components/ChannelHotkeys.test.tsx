@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   channelsLayout: true,
   slots: [] as { id: string; name: string; path: string }[],
-  navigateToChannel: vi.fn(),
+  openSpace: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
@@ -18,7 +18,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useStarredChannelSlots", () => ({
   }),
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToChannel: (...args: unknown[]) => mocks.navigateToChannel(...args),
+  openSpace: (...args: unknown[]) => mocks.openSpace(...args),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
@@ -56,41 +56,41 @@ describe("ChannelHotkeys", () => {
 
     press("1", { metaKey: true });
 
-    expect(mocks.navigateToChannel).toHaveBeenCalledWith("me-id");
+    expect(mocks.openSpace).toHaveBeenCalledWith("me-id");
     expect(useCurrentChannelStore.getState().currentChannelId).toBe("me-id");
   });
 
   it("maps slot 2 to the first starred channel", () => {
     render(<ChannelHotkeys />);
     press("2", { metaKey: true });
-    expect(mocks.navigateToChannel).toHaveBeenCalledWith("eng-id");
+    expect(mocks.openSpace).toHaveBeenCalledWith("eng-id");
   });
 
   // mod+0 belongs to the host's "Actual Size" accelerator.
   it("ignores mod+0", () => {
     render(<ChannelHotkeys />);
     press("0", { metaKey: true });
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
   });
 
   // ctrl+1-9 is the editor-panel tab switcher on every platform.
   it("leaves pure ctrl presses to the panel tab switcher", () => {
     render(<ChannelHotkeys />);
     press("1", { ctrlKey: true });
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
   });
 
   it("does nothing for a slot with no channel behind it", () => {
     mocks.slots = [{ id: "me-id", name: "me", path: "/me" }];
     render(<ChannelHotkeys />);
     press("5", { metaKey: true });
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
   });
 
   it("stays out of the way when the layout is off", () => {
     mocks.channelsLayout = false;
     render(<ChannelHotkeys />);
     press("1", { metaKey: true });
-    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+    expect(mocks.openSpace).not.toHaveBeenCalled();
   });
 });

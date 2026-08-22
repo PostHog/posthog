@@ -1,11 +1,6 @@
-import { TaskPendingView } from "@posthog/ui/features/task-detail/components/TaskPendingView";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/tasks/pending/$key")({
-  component: TaskPendingRoute,
-});
-
-function TaskPendingRoute() {
-  const { key } = Route.useParams();
-  return <TaskPendingView pendingTaskKey={key} />;
-}
+export const Route = createFileRoute("/code/tasks/pending/$key")(
+  legacyRedirect({ to: "/tasks/pending/$key" }),
+);

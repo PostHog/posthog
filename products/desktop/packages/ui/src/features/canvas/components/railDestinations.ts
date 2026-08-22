@@ -30,11 +30,11 @@ import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
   navigateToCanvas,
-  navigateToChannel,
+  navigateToCommandCenter,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
-  navigateToWebsiteCommandCenter,
+  openSpace,
 } from "@posthog/ui/router/navigationBridge";
 import type { ComponentType } from "react";
 
@@ -76,7 +76,7 @@ export function showSpaces(): void {
   // Arriving at a space pulls the slider to that space. This pick asked for the
   // list, so latch it across the navigation it is about to make.
   keepListForRoute(channelId);
-  navigateToChannel(channelId);
+  openSpace(channelId);
 }
 
 export const RAIL_DESTINATIONS: readonly RailDestination[] = [
@@ -119,7 +119,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Command Center",
     analyticsId: "command_center",
     Icon: Lightning,
-    onPick: navigateToWebsiteCommandCenter,
+    onPick: navigateToCommandCenter,
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
   },

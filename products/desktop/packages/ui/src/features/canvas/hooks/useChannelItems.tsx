@@ -156,13 +156,14 @@ export function useChannelItems(channelId: string): {
       open: (item) => {
         if (item.kind === "canvas") {
           void navigate({
-            to: "/website/$channelId/dashboards/$dashboardId",
+            to: "/spaces/$channelId/dashboards/$dashboardId",
             params: { channelId, dashboardId: item.id },
           });
         } else {
           void navigate({
-            to: "/website/$channelId/tasks/$taskId",
-            params: { channelId, taskId: item.id },
+            to: "/tasks/$taskId",
+            params: { taskId: item.id },
+            search: { from: channelId },
           });
         }
       },

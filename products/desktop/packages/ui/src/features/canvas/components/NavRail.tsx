@@ -251,9 +251,14 @@ export function NavRail() {
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {settingsVisible && (
             <NavIcon
-              icon={<GearSix size={16} />}
+              icon={
+                <GearSix
+                  size={16}
+                  weight={railPane === "settings" ? "fill" : "regular"}
+                />
+              }
               label="Settings"
-              isActive={false}
+              isActive={railPane === "settings"}
               onClick={() => {
                 track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
                   item: "configure",

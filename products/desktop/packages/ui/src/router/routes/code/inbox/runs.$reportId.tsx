@@ -1,11 +1,6 @@
-import { AgentRunDetail } from "@posthog/ui/features/inbox/components/AgentRunDetail";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/inbox/runs/$reportId")({
-  component: RunDetailRoute,
-});
-
-function RunDetailRoute() {
-  const { reportId } = Route.useParams();
-  return <AgentRunDetail reportId={reportId} />;
-}
+export const Route = createFileRoute("/code/inbox/runs/$reportId")(
+  legacyRedirect({ to: "/inbox/runs/$reportId" }),
+);

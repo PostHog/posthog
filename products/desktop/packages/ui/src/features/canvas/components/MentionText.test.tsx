@@ -5,7 +5,7 @@ import { MentionText } from "./MentionText";
 const navigateToChannelDashboard = vi.fn();
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToChannel: vi.fn(),
+  openSpace: vi.fn(),
   navigateToChannelDashboard: (...args: unknown[]) =>
     navigateToChannelDashboard(...args),
   navigateToChannelTask: vi.fn(),

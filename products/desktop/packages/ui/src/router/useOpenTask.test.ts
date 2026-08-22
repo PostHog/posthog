@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigateToChannelNewTask = vi.fn();
-const navigateToWebsiteNew = vi.fn();
 const navigateToCode = vi.fn();
 
 vi.mock("./navigationBridge", () => ({
   navigateToChannelNewTask: (...args: unknown[]) =>
     navigateToChannelNewTask(...args),
-  navigateToWebsiteNew: () => navigateToWebsiteNew(),
   navigateToCode: () => navigateToCode(),
   navigateToChannelTask: vi.fn(),
   navigateToTaskDetail: vi.fn(),
@@ -45,8 +43,10 @@ describe("openTaskInput channel scoping", () => {
   });
 
   it("still honours an explicit website space when no channel is current", () => {
+    // The website mirror is gone: unscoped creates land on the one canonical
+    // new-task route regardless of the caller's space hint.
     openTaskInput({ space: "website" });
-    expect(navigateToWebsiteNew).toHaveBeenCalledTimes(1);
+    expect(navigateToCode).toHaveBeenCalledTimes(1);
     expect(navigateToChannelNewTask).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
-import { ScratchpadView } from "@posthog/ui/features/scouts/components/ScratchpadView";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/agents/scouts/scratchpad")({
-  component: ScratchpadView,
-});
+export const Route = createFileRoute("/code/agents/scouts/scratchpad")(
+  legacyRedirect({ to: "/agents/scouts/scratchpad" }),
+);

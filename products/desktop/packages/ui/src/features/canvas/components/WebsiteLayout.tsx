@@ -111,7 +111,7 @@ function FreeformEditControls({
       invalidate: invalidateDashboards,
     });
     void navigate({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId },
     });
   };
@@ -360,7 +360,7 @@ export function WebsiteLayout() {
   const { taskId, channelId: taskChannelId } = useActiveSession();
 
   const rightPanelOpen = useRightPanelOpen(taskId);
-  const base = channelId ? `/website/${channelId}` : "/website";
+  const base = channelId ? `/spaces/${channelId}` : "/spaces";
 
   const { data: tasks } = useTasks();
   const { tasks: filedTasks } = useChannelTasks(taskChannelId);
@@ -391,6 +391,13 @@ export function WebsiteLayout() {
   // canvas (so Edit lives here too).
   const showToolbar =
     Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
+
+  // Outside the spaces tree, the legacy (non-spaces) layout renders these
+  // destinations bare — the global ContentHeader owns their chrome. Only the
+  // spaces tree keeps this layout's header in both worlds.
+  if (!spacesLayout && !pathname.startsWith("/spaces")) {
+    return <Outlet />;
+  }
 
   return (
     <Flex direction="column" height="100%" overflow="hidden">

@@ -30,7 +30,7 @@ export function ReportTasksSection({ report }: ReportTasksSectionProps) {
             purposeLabel={purposeLabel}
             onOpen={() =>
               navigate({
-                to: "/code/inbox/runs/$reportId",
+                to: "/inbox/runs/$reportId",
                 params: { reportId: report.id },
               })
             }

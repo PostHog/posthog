@@ -112,7 +112,7 @@ describe("ChannelBreadcrumb", () => {
     expect(root).not.toHaveAttribute("aria-disabled", "true");
     fireEvent.click(root);
     expect(router.navigate).toHaveBeenCalledWith({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: "team" },
     });
   });
@@ -141,7 +141,7 @@ describe("ChannelBreadcrumb", () => {
   });
 
   it("disables the root segment on the space's own index", () => {
-    router.pathname = "/website/team";
+    router.pathname = "/spaces/team";
     render(
       <Theme>
         <ChannelBreadcrumb

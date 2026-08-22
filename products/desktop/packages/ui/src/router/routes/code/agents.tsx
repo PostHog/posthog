@@ -1,14 +1,6 @@
-import {
-  AppPageSkeleton,
-  withRouteSkeleton,
-} from "@posthog/ui/router/routeSkeletons";
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/agents")({
-  component: AgentsLayout,
-  ...withRouteSkeleton(AppPageSkeleton),
-});
-
-function AgentsLayout() {
-  return <Outlet />;
-}
+export const Route = createFileRoute("/code/agents")(
+  legacyRedirect({ to: "/agents" }),
+);

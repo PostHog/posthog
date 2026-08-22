@@ -1,11 +1,10 @@
-import { WebsiteNewTask } from "@posthog/ui/features/canvas/components/WebsiteNewTask";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/website/$channelId/new")({
-  component: NewTaskRoute,
-});
-
-function NewTaskRoute() {
-  const { channelId } = Route.useParams();
-  return <WebsiteNewTask channelId={channelId} />;
-}
+// The space becomes `?channel=` on the canonical new-task screen.
+export const Route = createFileRoute("/website/$channelId/new")(
+  legacyRedirect({
+    to: "/new",
+    search: (prev, params) => ({ ...prev, channel: params.channelId }),
+  }),
+);

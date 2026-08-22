@@ -1,17 +1,6 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/loops/$loopId/edit")({
-  component: EditLoopRoute,
-});
-
-function EditLoopRoute() {
-  const { loopId } = Route.useParams();
-  return (
-    <Navigate
-      replace
-      to="/code/loops/$loopId"
-      params={{ loopId }}
-      search={{ edit: true }}
-    />
-  );
-}
+export const Route = createFileRoute("/code/loops/$loopId/edit")(
+  legacyRedirect({ to: "/loops/$loopId/edit" }),
+);

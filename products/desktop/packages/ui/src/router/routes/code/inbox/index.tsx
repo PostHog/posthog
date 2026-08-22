@@ -1,9 +1,6 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/inbox/")({
-  component: InboxIndexRedirect,
-});
-
-function InboxIndexRedirect() {
-  return <Navigate to="/code/inbox/pulls" replace />;
-}
+export const Route = createFileRoute("/code/inbox/")(
+  legacyRedirect({ to: "/inbox" }),
+);

@@ -1,6 +1,6 @@
-import { LoopsListView } from "@posthog/ui/features/loops/components/LoopsListView";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/loops/")({
-  component: LoopsListView,
-});
+export const Route = createFileRoute("/code/loops/")(
+  legacyRedirect({ to: "/loops" }),
+);

@@ -1,11 +1,9 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/website/mcp-servers")({
-  beforeLoad: () => {
-    throw redirect({
-      to: "/settings/$category",
-      params: { category: "mcp-servers" },
-      replace: true,
-    });
-  },
-});
+export const Route = createFileRoute("/website/mcp-servers")(
+  legacyRedirect({
+    to: "/settings/$category",
+    params: { category: "mcp-servers" },
+  }),
+);

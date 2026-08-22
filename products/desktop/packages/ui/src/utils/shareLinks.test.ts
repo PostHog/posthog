@@ -4,12 +4,12 @@ import {
 } from "@posthog/ui/utils/shareLinks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const navigateToChannel = vi.fn();
+const openSpace = vi.fn();
 const navigateToChannelDashboard = vi.fn();
 const navigateToChannelTask = vi.fn();
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToChannel: (...args: unknown[]) => navigateToChannel(...args),
+  openSpace: (...args: unknown[]) => openSpace(...args),
   navigateToChannelDashboard: (...args: unknown[]) =>
     navigateToChannelDashboard(...args),
   navigateToChannelTask: (...args: unknown[]) => navigateToChannelTask(...args),
@@ -101,7 +101,7 @@ describe("handleShareLinkClick", () => {
 
     expect(handled).toBe(false);
     expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(navigateToChannel).not.toHaveBeenCalled();
+    expect(openSpace).not.toHaveBeenCalled();
     expect(navigateToChannelDashboard).not.toHaveBeenCalled();
     expect(navigateToChannelTask).not.toHaveBeenCalled();
   });

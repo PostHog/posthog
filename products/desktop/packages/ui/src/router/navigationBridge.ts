@@ -1,5 +1,6 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { track } from "@posthog/ui/shell/analytics";
 import { getRouterOrNull } from "./routerRef";
@@ -16,63 +17,69 @@ import { getRouterOrNull } from "./routerRef";
 // throw just because the router singleton hasn't been created.
 
 export function navigateToCode(): void {
-  void getRouterOrNull()?.navigate({ to: "/code" });
+  void getRouterOrNull()?.navigate({ to: "/new" });
 }
 
 export function navigateToTaskDetail(taskId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/tasks/$taskId",
+    to: "/tasks/$taskId",
     params: { taskId },
   });
 }
 
 export function navigateToPullRequestView(prUrl: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/pr",
+    to: "/pr",
     search: { prUrl },
   });
 }
 
 export function navigateToTaskPending(key: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/tasks/pending/$key",
+    to: "/tasks/pending/$key",
     params: { key },
   });
 }
 
 export function navigateToActivity(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/activity" });
+  void getRouterOrNull()?.navigate({ to: "/activity" });
 }
 
 export function navigateToHome(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/home" });
+  void getRouterOrNull()?.navigate({ to: "/home" });
 }
 
 export function navigateToFeed(feedId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/feeds/$feedId",
+    to: "/feeds/$feedId",
     params: { feedId },
   });
 }
 
-export function navigateToChannel(channelId: string): void {
+export function openSpace(channelId: string): void {
+  // Entering a space has always meant scoping the app to it as well as
+  // showing it — the sidebar, the composer, and the rail all read the scoped
+  // space. This used to ride on ChannelRouteSync reacting to the URL; doing it
+  // here is what makes deep links behave identically to clicks.
+  useCurrentChannelStore.getState().setCurrentChannel(channelId);
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId",
+    to: "/spaces/$channelId",
     params: { channelId },
   });
 }
 
 export function navigateToChannelTask(channelId: string, taskId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/tasks/$taskId",
-    params: { channelId, taskId },
+    to: "/tasks/$taskId",
+    params: { taskId },
+    search: { from: channelId },
   });
 }
 
 export function navigateToChannelNewTask(channelId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/new",
-    params: { channelId },
+    to: "/new",
+    search: { channel: channelId },
   });
 }
 
@@ -81,7 +88,7 @@ export function navigateToChannelDashboard(
   dashboardId: string,
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/dashboards/$dashboardId",
+    to: "/spaces/$channelId/dashboards/$dashboardId",
     params: { channelId, dashboardId },
   });
 }
@@ -123,26 +130,26 @@ export function openNotificationTarget(target: NotificationTarget): void {
 }
 
 export function navigateToInbox(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/inbox" });
+  void getRouterOrNull()?.navigate({ to: "/inbox" });
 }
 
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/inbox/pulls/$reportId",
+    to: "/inbox/pulls/$reportId",
     params: { reportId },
   });
 }
 
 export function navigateToInboxReportDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/inbox/reports/$reportId",
+    to: "/inbox/reports/$reportId",
     params: { reportId },
   });
 }
 
 export function navigateToInboxDismissedDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/inbox/dismissed/$reportId",
+    to: "/inbox/dismissed/$reportId",
     params: { reportId },
   });
 }
@@ -152,25 +159,25 @@ export function navigateToScoutDetail(
   findingId?: string,
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/agents/scouts/$skillName",
+    to: "/agents/scouts/$skillName",
     params: { skillName: skillSlug },
     search: findingId ? { finding: findingId } : {},
   });
 }
 
 export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/agents/scouts/findings" });
+  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/loops",
+    to: "/loops",
     ignoreBlocker: options?.ignoreBlocker,
   });
 }
 
 export function navigateToNewLoop(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/loops/new" });
+  void getRouterOrNull()?.navigate({ to: "/loops/new" });
 }
 
 export function navigateToLoopDetail(
@@ -178,7 +185,7 @@ export function navigateToLoopDetail(
   options?: { ignoreBlocker?: boolean; edit?: boolean },
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/code/loops/$loopId",
+    to: "/loops/$loopId",
     params: { loopId },
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
@@ -186,11 +193,11 @@ export function navigateToLoopDetail(
 }
 
 export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/agents" });
+  void getRouterOrNull()?.navigate({ to: "/agents" });
 }
 
 export function navigateToArchived(): void {
-  void getRouterOrNull()?.navigate({ to: "/code/archived" });
+  void getRouterOrNull()?.navigate({ to: "/archive" });
 }
 
 export function navigateToCommandCenter(): void {
@@ -208,32 +215,9 @@ export function navigateToMcpServers(): void {
   void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
 }
 
-// Channels-space mirrors. These render the same shared views as their /code (or
-// top-level) counterparts but under /website, so navigating from the channels
-// sidebar keeps the channels chrome instead of switching back to Code. The
-// SidebarNavSection picks the right variant based on the active space.
-
-export function navigateToWebsiteNew(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/new" });
-}
-
-// The Canvas workspace landing (the channels index, where canvases live).
+// The channels index (the space list landing).
 export function navigateToCanvas(): void {
-  void getRouterOrNull()?.navigate({ to: "/website" });
-}
-
-export function navigateToWebsiteSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/skills" });
-}
-
-export function navigateToWebsiteMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/mcp-servers" });
-}
-
-export function navigateToWebsiteCommandCenter(): void {
-  void getRouterOrNull()?.navigate({ to: "/website/command-center" });
-  // Parity with navigateToCommandCenter's analytics tracking.
-  track(ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED);
+  void getRouterOrNull()?.navigate({ to: "/spaces" });
 }
 
 export function navigateToSettings(

@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/agents/")({
-  beforeLoad: () => {
-    throw redirect({ to: "/code/agents/scouts" });
-  },
-});
+export const Route = createFileRoute("/code/agents/")(
+  legacyRedirect({ to: "/agents" }),
+);

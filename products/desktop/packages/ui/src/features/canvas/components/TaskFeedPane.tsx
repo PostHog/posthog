@@ -143,7 +143,7 @@ export function TaskFeedPane({
       feed_id: feed.id,
     });
     toast.success("Saved search deleted");
-    void navigate({ to: "/website" });
+    void navigate({ to: "/spaces" });
   };
 
   return (

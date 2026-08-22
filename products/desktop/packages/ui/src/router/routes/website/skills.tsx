@@ -1,11 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/website/skills")({
-  beforeLoad: () => {
-    throw redirect({
-      to: "/settings/$category",
-      params: { category: "skills" },
-      replace: true,
-    });
-  },
-});
+export const Route = createFileRoute("/website/skills")(
+  legacyRedirect({ to: "/settings/$category", params: { category: "skills" } }),
+);

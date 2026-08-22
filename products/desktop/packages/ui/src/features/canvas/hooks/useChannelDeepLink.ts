@@ -2,8 +2,8 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
-  navigateToChannel,
   navigateToChannelTask,
+  openSpace,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
@@ -57,7 +57,7 @@ export function useChannelDeepLink() {
     if (taskId) {
       navigateToChannelTask(channelId, taskId);
     } else {
-      navigateToChannel(channelId);
+      openSpace(channelId);
     }
   }, []);
 

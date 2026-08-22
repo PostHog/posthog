@@ -23,10 +23,9 @@ import * as nav from "./navigationBridge";
  * stale folder, we redirect to folder settings.
  *
  * When `opts.channelId` is provided (the task is filed to a Project Bluebird
- * channel), navigation targets the channel-organized view under /website,
- * keeping the channels chrome; otherwise it targets /code/tasks/$taskId. Every
- * other side effect is identical — channel tasks still need workspace
- * provisioning so TaskDetail resolves a cwd.
+ * channel), the space rides on the task URL as `?from=`, keeping the channels
+ * chrome; otherwise it opens bare. Every other side effect is identical —
+ * channel tasks still need workspace provisioning so TaskDetail resolves a cwd.
  *
  * Replaces the old `navigationStore.navigateToTask` action.
  */
@@ -134,7 +133,8 @@ export function openTaskInput(
   // creates inside the channel you're in. A current channel only exists while
   // that layout is on (ChannelsSidebar), so this needs no flag of its own.
   // Precedence: an explicit channel wins; asking for Code explicitly opts out
-  // of channel scoping; otherwise the scoped channel decides.
+  // of channel scoping; otherwise the scoped channel decides. The channel
+  // scope now travels as `?channel=` on the one canonical new-task route.
   const channelId =
     options.channelId ??
     (options.space === "code"
@@ -142,8 +142,6 @@ export function openTaskInput(
       : useCurrentChannelStore.getState().currentChannelId);
   if (channelId) {
     nav.navigateToChannelNewTask(channelId);
-  } else if (options.space === "website") {
-    nav.navigateToWebsiteNew();
   } else {
     nav.navigateToCode();
   }

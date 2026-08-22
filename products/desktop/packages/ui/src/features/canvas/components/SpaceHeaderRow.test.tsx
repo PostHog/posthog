@@ -34,6 +34,7 @@ vi.mock("@tanstack/react-router", () => ({
   Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
   useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
+  useSearch: () => ({ from: "chan-1" }),
   useRouterState: ({
     select,
   }: {
@@ -43,8 +44,8 @@ vi.mock("@tanstack/react-router", () => ({
     }) => unknown;
   }) =>
     select({
-      location: { pathname: "/website/chan-1/tasks/task-1" },
-      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+      location: { pathname: "/tasks/task-1" },
+      matches: [{ routeId: "/_channels/tasks/$taskId" }],
     }),
 }));
 vi.mock(

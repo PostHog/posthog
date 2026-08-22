@@ -1,10 +1,13 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { useChannelsLayoutFlag } = vi.hoisted(() => ({
+  useChannelsLayoutFlag: vi.fn(() => false),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => false,
+  useChannelsLayout: () => useChannelsLayoutFlag(),
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
@@ -13,19 +16,27 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
-const { useChannelTasks, useDashboard, useParams, usePathname, useTasks } =
-  vi.hoisted(() => ({
-    useChannelTasks: vi.fn(),
-    useDashboard: vi.fn(),
-    useParams: vi.fn(),
-    usePathname: vi.fn(),
-    useTasks: vi.fn(),
-  }));
+const {
+  useChannelTasks,
+  useDashboard,
+  useParams,
+  usePathname,
+  useTasks,
+  useSearch,
+} = vi.hoisted(() => ({
+  useChannelTasks: vi.fn(),
+  useDashboard: vi.fn(),
+  useParams: vi.fn(),
+  usePathname: vi.fn(),
+  useTasks: vi.fn(),
+  useSearch: vi.fn(() => ({})),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Outlet: () => null,
   useNavigate: () => vi.fn(),
   useParams,
+  useSearch,
   useRouterState: ({
     select,
   }: {
@@ -36,7 +47,7 @@ vi.mock("@tanstack/react-router", () => ({
   }) =>
     select({
       location: { pathname: usePathname() },
-      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+      matches: [{ routeId: "/_channels/tasks/$taskId" }],
     }),
 }));
 
@@ -109,6 +120,9 @@ vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
 vi.mock("@posthog/ui/features/canvas/freeform/CanvasFrameHost", () => ({
   CanvasFrameHost: () => null,
 }));
+vi.mock("@posthog/ui/features/navigation/components/RightPanel", () => ({
+  RightPanel: () => null,
+}));
 
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
@@ -150,6 +164,10 @@ function renderLayout({
 }
 
 describe("WebsiteLayout task header actions", () => {
+  beforeEach(() => {
+    useChannelsLayoutFlag.mockReturnValue(false);
+  });
+
   it.each([
     ["while generating", "task-1"],
     ["after generation", null],
@@ -157,7 +175,7 @@ describe("WebsiteLayout task header actions", () => {
     "shows the comment count and opens comments %s",
     (_label, generationTaskId) => {
       renderLayout({
-        pathname: "/website/chan-1/dashboards/canvas-1",
+        pathname: "/spaces/chan-1/dashboards/canvas-1",
         params: { channelId: "chan-1", dashboardId: "canvas-1" },
         dashboard: {
           name: "Launch",
@@ -180,7 +198,7 @@ describe("WebsiteLayout task header actions", () => {
 
   it("opens the chat panel when entering edit mode", () => {
     renderLayout({
-      pathname: "/website/chan-1/dashboards/canvas-1",
+      pathname: "/spaces/chan-1/dashboards/canvas-1",
       params: { channelId: "chan-1", dashboardId: "canvas-1" },
       dashboard: {
         name: "Launch",
@@ -199,8 +217,10 @@ describe("WebsiteLayout task header actions", () => {
   });
 
   it("renders the task action row on a channel task detail", () => {
+    // The task header lives in the spaces-layout chrome.
+    useChannelsLayoutFlag.mockReturnValue(true);
     renderLayout({
-      pathname: "/website/chan-1/tasks/task-1",
+      pathname: "/_channels/tasks/task-1",
       params: { channelId: "chan-1", taskId: "task-1" },
     });
     expect(screen.getByTestId("task-header-actions")).toHaveTextContent(
@@ -210,7 +230,7 @@ describe("WebsiteLayout task header actions", () => {
 
   it("does not render actions for a task filed to another channel", () => {
     renderLayout({
-      pathname: "/website/chan-1/tasks/task-1",
+      pathname: "/_channels/tasks/task-1",
       params: { channelId: "chan-1", taskId: "task-1" },
       channelTaskIds: ["other-task"],
     });
@@ -218,8 +238,8 @@ describe("WebsiteLayout task header actions", () => {
   });
 
   it.each([
-    ["channel home", "/website/chan-1", { channelId: "chan-1" }],
-    ["new task", "/website/chan-1/new", { channelId: "chan-1" }],
+    ["channel home", "/spaces/chan-1", { channelId: "chan-1" }],
+    ["new task", "/new", {}],
   ])("does not render the action row on %s", (_label, pathname, params) => {
     renderLayout({ pathname, params });
     expect(screen.queryByTestId("task-header-actions")).not.toBeInTheDocument();

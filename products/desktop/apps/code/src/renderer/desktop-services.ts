@@ -330,12 +330,11 @@ container.bind<IActiveView>(ACTIVE_VIEW_PROVIDER).toConstantValue({
     if (!last) return undefined;
     const params = last.params as Record<string, string | undefined>;
     switch (last.routeId) {
-      case "/code/tasks/$taskId":
-      case "/website/$channelId/tasks/$taskId":
+      case "/_channels/tasks/$taskId":
         return params.taskId
           ? { kind: "task", taskId: params.taskId }
           : undefined;
-      case "/website/$channelId/dashboards/$dashboardId":
+      case "/spaces/$channelId/dashboards/$dashboardId":
         return params.channelId && params.dashboardId
           ? {
               kind: "canvas",

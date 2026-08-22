@@ -1,16 +1,6 @@
-import { WebsiteChannelHome } from "@posthog/ui/features/canvas/components/WebsiteChannelHome";
-import {
-  ChannelSkeleton,
-  withRouteSkeleton,
-} from "@posthog/ui/router/routeSkeletons";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/website/$channelId/")({
-  component: ChannelHomeRoute,
-  ...withRouteSkeleton(ChannelSkeleton),
-});
-
-function ChannelHomeRoute() {
-  const { channelId } = Route.useParams();
-  return <WebsiteChannelHome channelId={channelId} />;
-}
+export const Route = createFileRoute("/website/$channelId/")(
+  legacyRedirect({ to: "/spaces/$channelId" }),
+);

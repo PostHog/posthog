@@ -37,7 +37,7 @@ function ConfigureAgentsButton() {
     <Button
       variant="primary"
       size="sm"
-      render={<Link to="/code/agents" />}
+      render={<Link to="/agents" />}
       className="shrink-0"
     >
       <RobotIcon size={14} />

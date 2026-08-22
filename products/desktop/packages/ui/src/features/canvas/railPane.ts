@@ -4,9 +4,10 @@ import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
  * Which rail destination the app is on, and whether that destination owns the
  * column beside the rail.
  *
- * The route is the only input. A destination the user could be "on" without the
- * URL saying so is what let the sidebar and the screen disagree — Home wearing
- * the space list, Activity drawn twice, a space page with no space nav.
+ * The route is the only input. After the URL standardization every destination
+ * owns exactly one URL root, so this table is a partition over the route tree:
+ * a route the table doesn't name gets no highlight rather than a wrong one
+ * (and legacy URLs never reach it — they redirect into the canonical tree).
  */
 export type NavRailPane =
   | "home"
@@ -14,35 +15,47 @@ export type NavRailPane =
   | "activity"
   | "inbox"
   | "command-center"
-  | "loops";
+  | "loops"
+  | "settings";
 
 /**
  * Route id prefixes each destination claims. Matched against the deepest route
- * in the match chain, so a destination claims its whole subtree (/code/inbox
- * covers /code/inbox/pulls/$reportId) without claiming a lookalike elsewhere
- * (/code/loops never covers /website/$channelId/loops).
+ * in the match chain, so a destination claims its whole subtree (/inbox
+ * covers /inbox/pulls/$reportId) without claiming a lookalike elsewhere
+ * (/loops never covers /spaces/$channelId/loops, which is Spaces content).
  */
-const PANE_BY_ROUTE_PREFIX: readonly (readonly [string, NavRailPane])[] = [
-  ["/website/home", "home"],
-  ["/website/activity", "activity"],
-  ["/website/command-center", "command-center"],
+export const PANE_BY_ROUTE_PREFIX = [
+  ["/_channels/home", "home"],
+  ["/_channels/activity", "activity"],
+  ["/_channels/feeds", "activity"],
   ["/command-center", "command-center"],
-  ["/code/inbox", "inbox"],
-  ["/code/loops", "loops"],
-];
+  ["/inbox", "inbox"],
+  ["/agents", "inbox"],
+  ["/loops", "loops"],
+  ["/settings", "settings"],
+  ["/folders", "settings"],
+  ["/spaces", "spaces"],
+  ["/_channels/new", "spaces"],
+  ["/_channels/tasks", "spaces"],
+  ["/tasks", "spaces"],
+  ["/archive", "spaces"],
+  ["/pr", "spaces"],
+] as const;
 
-/** Unclaimed routes belong to Spaces — the app's resting destination. */
-export function railPaneForRouteId(routeId: string): NavRailPane {
+/** No highlight is the honest answer on a route no destination owns. */
+export function railPaneForRouteId(routeId: string): NavRailPane | null {
   for (const [prefix, pane] of PANE_BY_ROUTE_PREFIX) {
     if (routeId === prefix || routeId.startsWith(`${prefix}/`)) return pane;
   }
-  return "spaces";
+  return null;
 }
 
 export function railPaneForMatches(
   matches: readonly { routeId: string }[],
 ): NavRailPane {
-  return railPaneForRouteId(matches[matches.length - 1]?.routeId ?? "");
+  return (
+    railPaneForRouteId(matches[matches.length - 1]?.routeId ?? "") ?? "spaces"
+  );
 }
 
 /** Read the destination outside React (event handlers, imperative picks). */
@@ -50,10 +63,10 @@ export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
-// Home, Inbox, Command Center and Loops are whole-screen destinations: no
-// route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed.
-const PANES_WITH_SIDEBAR = new Set<NavRailPane>(["spaces", "activity"]);
+// Home, Inbox, Command Center, Loops and Settings are whole-screen
+// destinations: no route under them puts a second nav on the screen. Spaces
+// owns the space tree, Activity owns the feed.
+export const PANES_WITH_SIDEBAR = new Set<NavRailPane>(["spaces", "activity"]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {
   return PANES_WITH_SIDEBAR.has(pane);

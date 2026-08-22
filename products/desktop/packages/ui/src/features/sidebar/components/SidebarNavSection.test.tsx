@@ -52,9 +52,6 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
-  navigateToWebsiteCommandCenter: vi.fn(),
-  navigateToWebsiteMcpServers: vi.fn(),
-  navigateToWebsiteSkills: vi.fn(),
 }));
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput: vi.fn() }));
 vi.mock("@posthog/ui/shell/commandMenuStore", () => ({

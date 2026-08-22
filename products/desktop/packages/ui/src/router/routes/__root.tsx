@@ -284,72 +284,59 @@ function RootLayout() {
   const [flagsLoaded, setFlagsLoaded] = useState(false);
   useEffect(() => onFeatureFlagsLoaded(() => setFlagsLoaded(true)), []);
 
-  // Settings is a full-page route — drop the app chrome (header/sidebar/
-  // space-switcher) so the panel occupies the full window.
-  const isSettingsRoute = useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+  // The space routes own their own in-pane header (WebsiteLayout): the
+  // channels chrome (space tree, in-pane headers incl. Home/Activity/the
+  // task and new-task screens) renders through the spaces layout and the
+  // pathless channels layout, so the shared ContentHeader mounts only
+  // outside those.
+  const onChannelsChromePath = useRouterState({
+    select: (s) => {
+      const p = s.location.pathname;
+      return (
+        p === "/spaces" ||
+        p.startsWith("/spaces/") ||
+        p === "/home" ||
+        p === "/activity" ||
+        p.startsWith("/feeds") ||
+        p === "/new" ||
+        p.startsWith("/tasks/")
+      );
+    },
   });
 
-  // The Bluebird chrome is the app shell for every non-settings route now. The
-  // /website (Channels) routes own their own in-pane header (WebsiteLayout), so
-  // the shared ContentHeader is mounted only outside that space.
-  const onWebsitePath = useRouterState({
-    select: (s) =>
-      s.location.pathname === "/website" ||
-      s.location.pathname.startsWith("/website/"),
+  // The space destinations stay registered regardless of the bluebird flag, so
+  // a stale URL, a restored session, or a persisted browser tab could strand a
+  // flag-off user on the space layout with no way back. Once flags resolve,
+  // send them to the new-task screen (the one screen that exists in both
+  // worlds). The same holds for the legacy /website URLs — they all redirect
+  // into the canonical tree, so the canonical paths are what must be guarded.
+  const onBluebirdOnlyPath = useRouterState({
+    select: (s) => {
+      const p = s.location.pathname;
+      return (
+        p === "/spaces" ||
+        p.startsWith("/spaces/") ||
+        p === "/home" ||
+        p === "/activity" ||
+        p.startsWith("/feeds")
+      );
+    },
   });
-
-  // The /website (Channels) routes stay registered regardless of the flag, so a
-  // stale URL, a restored session, or a persisted channel browser tab could
-  // strand a flag-off user on the channel layout with no way back (the Channels
-  // toggle is hidden and ContentHeader is suppressed on /website). Once flags
-  // resolve, send them back to Code.
   useEffect(() => {
-    if (flagsLoaded && !bluebirdEnabled && onWebsitePath) {
+    if (flagsLoaded && !bluebirdEnabled && onBluebirdOnlyPath) {
       openTaskInput();
     }
-  }, [flagsLoaded, bluebirdEnabled, onWebsitePath]);
+  }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
-  // A blank browser tab (the "+" new-tab page) shows an empty placeholder — but
-  // ONLY on the channels index. Inside a channel (`/website/$channelId…`) the
-  // route owns the content (channel home, inbox, artifacts, a canvas, …), so the
-  // placeholder must never replace it, otherwise channel navigation looks dead.
+  // A blank browser tab (the "+" new-tab page) shows an empty placeholder —
+  // but ONLY on the spaces index. Inside a space (/spaces/$channelId…) the
+  // route owns the content (space home, inbox, artifacts, a canvas, …), so the
+  // placeholder must never replace it, otherwise space navigation looks dead.
   const onChannelsIndex = useRouterState({
-    select: (s) => s.location.pathname === "/website",
+    select: (s) => s.location.pathname === "/spaces",
   });
   const activeTabBlank = useActiveTabIsBlank();
   const showBlankTab = onChannelsIndex && activeTabBlank;
-
-  if (isSettingsRoute) {
-    return (
-      <Flex direction="column" height="100%">
-        <ConnectivityBanner />
-        <AnnouncementBanner />
-        <Outlet />
-        <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
-        <GlobalFilePicker />
-        <KeyboardShortcutsSheet
-          open={shortcutsSheetOpen}
-          onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
-        />
-        <GlobalEventHandlers
-          allTasks={tasks ?? []}
-          onToggleCommandMenu={toggleCommandMenu}
-          onToggleShortcutsSheet={toggleShortcutsSheet}
-          visualTaskOrder={visualTaskOrder}
-        />
-        {/* The settings shell has never mounted the tab strip, so nothing here
-            was stopping Cmd+W from closing the window. */}
-        <TabShortcutFallback enabled />
-        {billingEnabled && <UsageLimitModal />}
-        <AnnouncementsHost />
-        <UpdateAvailableModal />
-        <WhatsNewModal />
-        <RemoteBranchCheckoutDialog />
-        <ExistingWorktreeDialog />
-      </Flex>
-    );
-  }
 
   return (
     // DnD scope for the tab strip's drag-to-reorder (pill sortables live in
@@ -499,10 +486,11 @@ function RootLayout() {
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
                 <AnnouncementBanner />
-                {/* The /website space renders its own header (WebsiteLayout);
-                      everywhere else the shared header carries the view title
-                      and, on a task, its action row. */}
-                {!onWebsitePath && <ContentHeader />}
+                {/* The space routes render their own header (WebsiteLayout
+                      via the spaces and pathless channels layouts); everywhere
+                      else the shared header carries the view title and, on a
+                      task, its action row. */}
+                {!onChannelsChromePath && <ContentHeader />}
                 <Box flexGrow="1" overflow="hidden">
                   {showBlankTab ? <BlankTabView /> : <Outlet />}
                 </Box>

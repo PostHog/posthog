@@ -1,6 +1,6 @@
-import { LoopForm } from "@posthog/ui/features/loops/components/LoopForm";
+import { legacyRedirect } from "@posthog/ui/router/legacyRedirect";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/code/loops/new")({
-  component: LoopForm,
-});
+export const Route = createFileRoute("/code/loops/new")(
+  legacyRedirect({ to: "/loops/new" }),
+);

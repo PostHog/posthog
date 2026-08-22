@@ -66,7 +66,7 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
       accent: "violet",
       onClick: () =>
         navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
+          to: "/spaces/$channelId/dashboards/$dashboardId",
           params: { channelId, dashboardId: d.id },
         }),
     }));
@@ -86,8 +86,9 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
             accent: "blue",
             onClick: () =>
               navigate({
-                to: "/website/$channelId/tasks/$taskId",
-                params: { channelId, taskId: f.taskId },
+                to: "/tasks/$taskId",
+                params: { taskId: f.taskId },
+                search: { from: channelId },
               }),
           },
         ];

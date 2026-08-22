@@ -266,7 +266,7 @@ export function useCreateAndOpenDashboard(
         const record = await createDashboard(targetChannelId, name, templateId);
         setEditing(record.id, true);
         await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
+          to: "/spaces/$channelId/dashboards/$dashboardId",
           params: { channelId: targetChannelId, dashboardId: record.id },
         });
       } catch (error) {

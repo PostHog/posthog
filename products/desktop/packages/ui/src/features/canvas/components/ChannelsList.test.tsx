@@ -507,7 +507,9 @@ describe("ChannelsList", () => {
 
       expect(mocks.navigate).toHaveBeenCalledWith(
         expect.objectContaining({
-          params: { channelId: ENG.id, taskId: "task-new" },
+          to: "/tasks/$taskId",
+          params: { taskId: "task-new" },
+          search: { from: ENG.id },
         }),
       );
       expect(useChannelPaneStore.getState().pane).toBe("list");

@@ -1,7 +1,7 @@
 import {
-  navigateToChannel,
   navigateToChannelDashboard,
   navigateToChannelTask,
+  openSpace,
 } from "@posthog/ui/router/navigationBridge";
 import {
   parseShareLink,
@@ -18,7 +18,7 @@ export function navigateToShareTarget(target: ShareLinkTarget): void {
       if (target.taskId) {
         navigateToChannelTask(target.channelId, target.taskId);
       } else {
-        navigateToChannel(target.channelId);
+        openSpace(target.channelId);
       }
       break;
   }

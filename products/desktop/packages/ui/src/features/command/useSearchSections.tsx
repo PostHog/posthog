@@ -5,9 +5,9 @@ import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
-  navigateToChannel,
   navigateToChannelTask,
   navigateToTaskDetail,
+  openSpace,
 } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { FileTextIcon } from "@radix-ui/react-icons";
@@ -125,7 +125,7 @@ export function useSearchSections({
             result.kind === "channel" &&
             result.channel_id
           ) {
-            navigateToChannel(result.channel_id);
+            openSpace(result.channel_id);
           } else if (task) {
             // PR matches intentionally open their containing task. Cmd+K is a
             // navigator for Desktop context, not an external-link launcher.
