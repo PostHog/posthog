@@ -86,6 +86,10 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                             The example below uses the AWS S3 exporter, which also writes to any S3-compatible store,
                             including Google Cloud Storage through its interoperability endpoint. Swap in the exporter for
                             your provider if you use a different one.
+
+                            The S3 exporter ships only in the Collector's contrib distribution, so run the
+                            \`otelcol-contrib\` image or a custom build that includes it. The core \`otelcol\` build does
+                            not have it and refuses to start with this config.
                         `}
                     </Markdown>
                     <CodeBlock
