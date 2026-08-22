@@ -6,18 +6,17 @@
 //! sibling attribute carries the content ref. The message also carries the original URL back to
 //! the caller.
 //!
-//! **Two URLs come out of this module. Do not confuse them.**
+//! **Two forms of one URL come out of this module. Do not confuse them.**
 //!
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL is canonical, and every parameter stays. The fetcher requests this one. A
-//! signed URL works only in this form, and it dedups only in the first form.
+//! The *fetch* URL is canonical, and every permitted parameter stays. The fetcher requests this
+//! one. URLs that carry credentials or signatures are refused before either form is created.
 //!
-//! That split is what makes the ref stable. A URL that carries a fresh signature on each page
-//! load would otherwise mint a new ref every time. A ref that appears once joins to nothing
-//! downstream. Removing the volatile parameters matters more for that than it does for
-//! the request count.
+//! That split is what makes the ref stable across non-credential cache busters. A ref that appears
+//! once joins to nothing downstream. Removing the volatile parameters matters more for that than
+//! it does for the request count.
 //!
 //! The hash is a *keyed* HMAC. The caller derives one global URL key from the KMS-held secret. The
 //! secret does not leave the ingester.
@@ -208,19 +207,13 @@ mod tests {
     }
 
     #[test]
-    fn two_signatures_of_one_image_share_a_ref() {
+    fn a_signed_url_produces_no_global_ref() {
         let mut c = collector();
-        let first = c
+        assert!(c
             .collect("https://cdn.example.com/a.png?X-Amz-Signature=aaa")
-            .unwrap();
-        let second = c
-            .collect("https://cdn.example.com/a.png?X-Amz-Signature=bbb")
-            .unwrap();
-        assert_eq!(first, second);
-        // One entry, and it keeps the URL of the first sighting, which is a URL that still works.
-        let urls = c.into_urls();
-        assert_eq!(urls.len(), 1);
-        assert!(urls[0].url.contains("X-Amz-Signature=aaa"));
+            .is_none());
+        assert_eq!(c.into_declines(), vec![("credential".to_string(), 1)]);
+        assert_eq!(c.into_urls(), Vec::new());
     }
 
     #[test]

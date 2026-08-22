@@ -273,47 +273,20 @@ fn srcset_stays_out_of_scope_and_keeps_the_placeholder() {
 }
 
 #[test]
-fn one_url_under_two_signatures_collects_once() {
-    // The whole reason canonicalization splits the dedup URL from the fetch URL.
-    let allow = AllowLists::default();
-    let mut bytes = json!({
-        "distinct_id": "d",
-        "data": json!({
-            "event": "$snapshot_items",
-            "properties": {
-                "$session_id": "s",
-                "$window_id": "w",
-                "$snapshot_items": [
-                    {"type": 3, "timestamp": TS0, "data": {"source": 0, "adds": [
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 1,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa"}, "childNodes": []}},
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 2,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=bbb"}, "childNodes": []}}
-                    ]}}
-                ]
-            }
-        }).to_string()
-    })
-    .to_string()
-    .into_bytes();
-
-    let msg = anonymize_kafka_payload_collecting(
-        &allow,
-        &mut bytes,
-        AnonymizeOpts::default(),
-        None,
-        None,
-        Some(UrlCollection {
-            url_key: URL_KEY.to_string(),
-        }),
-    )
-    .expect("anonymize should succeed");
-
-    assert_eq!(
-        msg.meta.urls.len(),
-        1,
-        "two signatures of one image are one URL to fetch"
-    );
+fn signed_urls_produce_no_ref_or_fetch_candidate() {
+    for (engine, result) in run(
+        json!({ "src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa" }),
+        true,
+    ) {
+        let (line, meta) = (&result[0], &result[1]);
+        assert!(
+            attrs_of(line).get("data-anon-image-ref-src").is_none(),
+            "{engine}: signed URLs must not produce a global ref"
+        );
+        assert!(meta.get("urls").is_none(), "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["reason"], "credential", "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["count"], 1, "{engine}");
+    }
 }
 
 #[test]
