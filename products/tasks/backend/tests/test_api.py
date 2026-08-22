@@ -13499,6 +13499,17 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         mock_dispatch.assert_not_called()
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
 
+    def test_analyze_nonterminal_run_returns_400(self):
+        self.target_run.status = TaskRun.Status.IN_PROGRESS
+        self.target_run.save(update_fields=["status"])
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_dispatch.assert_not_called()
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
     def test_analyze_requires_ai_data_processing_approval(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()

@@ -67,6 +67,9 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         enqueue_or_start_workflow,
     )
 
+    if not target_run.is_terminal:
+        raise TaskAnalysisError("The run must finish before it can be analyzed.")
+
     existing = find_existing_analysis_task(team_id=team.id, target_run_id=str(target_run.id))
     if existing is not None:
         return existing, False
