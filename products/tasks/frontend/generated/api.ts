@@ -81,6 +81,9 @@ import type {
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
+    TaskRunAnalysisInsightRequestApi,
+    TaskRunAnalysisInsightResponseApi,
+    TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -1608,6 +1611,49 @@ export const tasksRunsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedTaskRunUpdateApi),
+    })
+}
+
+export const getTasksRunsAnalysisInsightCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-insight/`
+}
+
+/**
+ * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis finding
+ */
+export const tasksRunsAnalysisInsightCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunAnalysisInsightRequestApi?: TaskRunAnalysisInsightRequestApi,
+    options?: RequestInit
+): Promise<TaskRunAnalysisInsightResponseApi> => {
+    return apiMutator<TaskRunAnalysisInsightResponseApi>(getTasksRunsAnalysisInsightCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunAnalysisInsightRequestApi),
+    })
+}
+
+export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analyze/`
+}
+
+/**
+ * Create a PostHog-funded analysis task that reviews this run's transcript for inefficiencies and reports findings. Idempotent per run: if an analysis task already exists for this run, it is returned instead of creating another. The analysis is not billed to the customer.
+ * @summary Analyze this run
+ */
+export const tasksRunsAnalyzeCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunAnalyzeResponseApi> => {
+    return apiMutator<TaskRunAnalyzeResponseApi>(getTasksRunsAnalyzeCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
