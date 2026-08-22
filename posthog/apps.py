@@ -8,6 +8,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.exception_autocapture_filter import drop_transient_connection_errors
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.utils import (
     _build_flag_provider,
@@ -66,6 +67,9 @@ class PostHogConfig(AppConfig):
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # Keep transient DB connection/DNS errors out of autocapture, so a self-hosted stack that
+        # boots before its Postgres hostname resolves does not flood error tracking.
+        posthoganalytics.before_send = drop_transient_connection_errors  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),

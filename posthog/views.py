@@ -91,6 +91,19 @@ except ImportError:
     get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
 
 
+# Once any user exists, an instance never returns to zero users, so the fresh-install check below
+# only needs the database until the first user is created. Cache the positive result process-wide
+# to keep the query off every authenticated render (and off the database when it briefly blips).
+_any_user_exists = False
+
+
+def any_user_exists() -> bool:
+    global _any_user_exists
+    if not _any_user_exists:
+        _any_user_exists = User.objects.exists()
+    return _any_user_exists
+
+
 def login_required(view):
     base_handler = base_login_required(view)
 
@@ -100,7 +113,7 @@ def login_required(view):
         # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
         if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
             return view(request, *args, **kwargs)
-        if not User.objects.exists():
+        if not any_user_exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
             user = User.objects.filter(is_active=True).first()

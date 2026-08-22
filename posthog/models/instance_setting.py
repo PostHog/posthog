@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from threading import Lock
 from typing import Any
 
-from django.db import models
+from django.db import DatabaseError, models
 
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
 
@@ -54,7 +54,13 @@ def get_instance_setting(key: str) -> Any:
             return cached[1]
 
     # Fetch outside the lock so a slow query doesn't block other readers.
-    saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    try:
+        saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    except DatabaseError:
+        # A transient setting-store blip must not fail the caller — this read sits inside the HogQL
+        # printer, so a raise there breaks query printing for every team. Fall back to the compiled
+        # default without caching it, so the next read tries the database again.
+        return CONSTANCE_CONFIG[key][0]
     value = saved_setting.value if saved_setting is not None else CONSTANCE_CONFIG[key][0]
 
     with _instance_setting_cache_lock:
