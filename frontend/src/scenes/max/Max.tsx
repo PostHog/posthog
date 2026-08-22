@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import React from 'react'
 
 import {
@@ -104,7 +105,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
-    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { canGoBack: panelCanGoBack, activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
@@ -117,6 +118,17 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const isNewView = effectivePhaiView === 'new'
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+
+    // In the new view the active chat is a task run held by `runnerPanelLogic`, not a legacy conversation,
+    // so the header links target the task detail page (with `?runId=`) rather than `urls.ai`.
+    const newViewChatUrl = activeCreation?.taskId
+        ? activeCreation.runId
+            ? combineUrl(urls.taskDetail(activeCreation.taskId), { runId: activeCreation.runId }).url
+            : urls.taskDetail(activeCreation.taskId)
+        : null
+    // The link is null when there is nothing to copy; the "open" fallback lands on the task list.
+    const chatShareUrl = isNewView ? newViewChatUrl : conversationId ? urls.ai(conversationId) : null
+    const openInFocusUrl = isNewView ? (newViewChatUrl ?? urls.taskTracker()) : urls.ai(conversationId ?? undefined)
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -201,16 +213,17 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltipPlacement="bottom"
                     />
                 )}
-                {conversationId && (
+                {chatShareUrl && (
                     <ButtonPrimitive
                         onClick={() => {
                             copyToClipboard(
-                                urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                urls.absolute(urls.currentProject(chatShareUrl)),
                                 'conversation sharing link'
                             )
                         }}
                         tooltip="Copy link to chat"
                         tooltipPlacement="bottom-end"
+                        data-attr="max-copy-chat-link"
                         iconOnly
                     >
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
@@ -221,13 +234,14 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={urls.ai(conversationId ?? undefined)}
+                    to={openInFocusUrl}
                     onClick={() => {
                         closeSidePanel()
                     }}
                     target="_blank"
                     tooltip="Open as main focus"
                     tooltipPlacement="bottom-end"
+                    data-attr="max-open-as-main-focus"
                 >
                     <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
                 </Link>
