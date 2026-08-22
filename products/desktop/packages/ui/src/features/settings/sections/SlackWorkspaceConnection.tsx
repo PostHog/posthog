@@ -15,23 +15,28 @@ import {
   type Integration,
   useIntegrationSelectors,
 } from "@posthog/ui/features/integrations/store";
-import { useSlackConnect } from "@posthog/ui/features/integrations/useSlackConnect";
+import {
+  type SlackConnectResult,
+  useSlackConnect,
+} from "@posthog/ui/features/integrations/useSlackConnect";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 interface SlackWorkspaceConnectionProps {
+  /** The page's single connect instance — see `useSlackConnect`. */
+  slackConnect: SlackConnectResult;
   isLoading?: boolean;
   /** When false, omit the connect-another button (a parent header renders it). */
   showConnectAnother?: boolean;
 }
 
 export function SlackWorkspaceConnection({
+  slackConnect,
   isLoading = false,
   showConnectAnother = true,
 }: SlackWorkspaceConnectionProps) {
   const { slackIntegrations, hasSlackIntegration } = useIntegrationSelectors();
-  const slackConnect = useSlackConnect();
 
   if (isLoading) {
     return (
@@ -192,9 +197,11 @@ function SlackWorkspaceRow({ integration }: { integration: Integration }) {
   );
 }
 
-export function SlackWorkspaceConnectionCallouts() {
-  const slackConnect = useSlackConnect();
-
+export function SlackWorkspaceConnectionCallouts({
+  slackConnect,
+}: {
+  slackConnect: SlackConnectResult;
+}) {
   if (!slackConnect.hasError && !slackConnect.isTimedOut) {
     return null;
   }
@@ -217,5 +224,27 @@ export function SlackWorkspaceConnectionCallouts() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The workspace rows plus their connect callouts, sharing one connect instance. For surfaces
+ * that render both together and have no connect action of their own in the header.
+ */
+export function SlackWorkspaceConnectionBlock({
+  isLoading = false,
+}: {
+  isLoading?: boolean;
+}) {
+  const slackConnect = useSlackConnect();
+
+  return (
+    <>
+      <SlackWorkspaceConnection
+        slackConnect={slackConnect}
+        isLoading={isLoading}
+      />
+      <SlackWorkspaceConnectionCallouts slackConnect={slackConnect} />
+    </>
   );
 }

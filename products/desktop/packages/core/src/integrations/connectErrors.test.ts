@@ -58,6 +58,14 @@ describe("isAlreadyDisconnectedError", () => {
       true,
     ],
     ["typed 500", new ApiRequestError(500, "boom"), false],
+    [
+      "typed 400 whose blocker detail reads like a 404",
+      new ApiRequestError(
+        400,
+        '{"detail":"Workflow not found alerts uses it"}',
+      ),
+      false,
+    ],
     ["unrelated error", new Error("network down"), false],
     ["not an error", "nope", false],
   ])("%s", (_name, error, expected) => {

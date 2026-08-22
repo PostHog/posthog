@@ -15,9 +15,14 @@ export const GITHUB_INSTALL_PENDING_MESSAGE =
  * A disconnect that 404s means the row is already gone, usually because the App was
  * uninstalled on GitHub and the webhook cleaned up first. That is the outcome the user
  * wanted, so callers treat it as success and refresh rather than surface a failure.
+ *
+ * A typed error carries its status, so that decides on its own. The message match is only
+ * for untyped callers — a 400 body that happens to read "not found" (the blocker names the
+ * pipelines and workflows still using the integration) is a real failure.
  */
 export function isAlreadyDisconnectedError(error: unknown): boolean {
-  if (requestErrorStatus(error) === 404) return true;
+  const status = requestErrorStatus(error);
+  if (status !== undefined) return status === 404;
   return (
     error instanceof Error &&
     /\[404\]|not found|No GitHub integration found/i.test(error.message)
