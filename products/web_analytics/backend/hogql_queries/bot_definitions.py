@@ -880,6 +880,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
     ),
+    "xspada-integration-docs": BotDefinition(
+        "xspada integration docs",
+        "search_crawler",
+        "Bot",
+        "xspada",
+        documentation_url="https://xspada.com",
+    ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
