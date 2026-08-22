@@ -37,15 +37,15 @@ export function TaskFeedDetailPane({ feedId }: { feedId: string }) {
 
   if (!task) return <TaskDetailSkeleton />;
 
-  const { channelId } = selected;
+  const channelId = task.channel ?? selected.channelId ?? undefined;
   const channelName = channels.find((c) => c.id === channelId)?.name;
 
   return (
     <div className="h-full min-w-0">
       <TaskDetail
         task={task}
-        channelName={channelName ?? "Space"}
-        channelId={channelId ?? undefined}
+        channelName={channelName}
+        channelId={channelName ? channelId : undefined}
       />
     </div>
   );
