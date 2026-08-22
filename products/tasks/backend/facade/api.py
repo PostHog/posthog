@@ -3651,6 +3651,27 @@ def read_task_run_artifact(
     return content, artifact, None
 
 
+def analyze_task_run(run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int) -> tuple[str, bool] | None:
+    """Create (or return the existing) PostHog-funded analysis task for a run.
+
+    Returns ``(analysis_task_id, created)``, or ``None`` when the run is not visible.
+    Raises ``TaskAnalysisError`` with a caller-safe message when the run cannot be analyzed
+    (for example, it has no log yet).
+    """
+    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage/temporal deps off the api import path
+        create_task_analysis,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    task = Task.objects.filter(id=run.task_id, team_id=team_id).first()
+    if task is None:
+        return None
+    analysis_task, created = create_task_analysis(team=task.team, user_id=user_id, target_task=task, target_run=run)
+    return str(analysis_task.id), created
+
+
 def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     """Concatenated JSONL logs across the run's resume chain (oldest ancestor first)."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path

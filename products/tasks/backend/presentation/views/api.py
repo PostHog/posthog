@@ -124,6 +124,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
+    TaskRunAnalyzeResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -2170,6 +2171,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if peers is None:
             raise NotFound()
         return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunAnalyzeResponseSerializer,
+                description="An analysis task already exists for this run",
+            ),
+            201: OpenApiResponse(
+                response=TaskRunAnalyzeResponseSerializer,
+                description="Analysis task created",
+            ),
+            400: OpenApiResponse(description="The run cannot be analyzed (for example, it has no log yet)"),
+            403: OpenApiResponse(description="AI data processing is not approved for this organization"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Analyze this run",
+        description=(
+            "Create a PostHog-funded analysis task that reviews this run's transcript for "
+            "inefficiencies and reports findings. Idempotent per run: if an analysis task already "
+            "exists for this run, it is returned instead of creating another. The analysis is not "
+            "billed to the customer."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="analyze", required_scopes=["task:write"])
+    def analyze(self, request, pk=None, **kwargs):
+        from products.tasks.backend.logic.services.task_analysis import TaskAnalysisError  # noqa: PLC0415
+
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            return Response(
+                {"error": "Enable AI data processing for this organization to analyze runs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        task_id = self._ensure_task_accessible()
+        try:
+            result = tasks_facade.analyze_task_run(pk, task_id, self.team_id, user_id=request.user.id)
+        except TaskAnalysisError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if result is None:
+            raise NotFound()
+        analysis_task_id, created = result
+        return Response(
+            TaskRunAnalyzeResponseSerializer({"analysis_task_id": analysis_task_id, "created": created}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     @validated_request(
         request_serializer=TaskRunPeerMessageRequestSerializer,

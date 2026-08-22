@@ -747,6 +747,9 @@ class TaskWriteSerializer(serializers.Serializer):
             # Attributes the task to a workflow, which the workflow_tasks endpoint proves
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
+            # PostHog-funded analysis runs: excluded from customer billing, so a forged
+            # origin would be free model access. Only the run analyze endpoint sets it.
+            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -1600,6 +1603,13 @@ class TaskRunPeerSerializer(serializers.Serializer):
         )
     )
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
+
+
+class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
+    analysis_task_id = serializers.UUIDField(help_text="Id of the analysis task to navigate to.")
+    created = serializers.BooleanField(
+        help_text="True when a new analysis task was created; false when an existing analysis for this run was returned."
+    )
 
 
 class TaskRunPeersResponseSerializer(serializers.Serializer):

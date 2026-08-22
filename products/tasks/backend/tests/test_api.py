@@ -1655,6 +1655,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SUPPORT_REPLY,),
             (Task.OriginProduct.ONBOARDING,),
             (Task.OriginProduct.SIGNALS_CHAT,),
+            (Task.OriginProduct.TASK_ANALYSIS,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -13397,3 +13398,82 @@ class TestTaskRunPeersAPI(BaseTaskAPITest):
         self.assertEqual(body["message_id"], str(row.id))
         self.assertEqual(row.outcome, AgentPeerMessage.Outcome.SIGNALED)
         mock_signal.assert_called_once()
+
+
+class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
+    def setUp(self):
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.target_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Fix pagination bug",
+            description="Fix it",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self.target_run = TaskRun.objects.create(task=self.target_task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+    def _analyze(self):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{self.target_task.id}/runs/{self.target_run.id}/analyze/"
+        )
+
+    def _patch_boundaries(self, log_content: bytes | None = b'{"x": 1}\n'):
+        read_patch = patch(
+            "products.tasks.backend.logic.services.task_analysis.object_storage.read_bytes",
+            return_value=log_content,
+        )
+        write_patch = patch("products.tasks.backend.logic.services.task_analysis.object_storage.write")
+        tag_patch = patch("products.tasks.backend.logic.services.task_analysis.tag_task_artifact")
+        dispatch_patch = patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow")
+        return read_patch, write_patch, tag_patch, dispatch_patch
+
+    def test_analyze_creates_posthog_funded_analysis_task(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p as mock_write, tag_p, dispatch_p as mock_dispatch:
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertTrue(body["created"])
+        analysis_task = Task.objects.get(id=body["analysis_task_id"])
+        self.assertEqual(analysis_task.origin_product, Task.OriginProduct.TASK_ANALYSIS)
+        self.assertIn("analyzing-task-runs", analysis_task.description)
+        run = analysis_task.latest_run
+        assert run is not None
+        self.assertEqual(run.state["analysis_target_task_id"], str(self.target_task.id))
+        self.assertEqual(run.state["analysis_target_run_id"], str(self.target_run.id))
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["name"], "run-log.jsonl")
+        self.assertEqual(run.state["pending_user_artifact_ids"], [artifact["id"]])
+        mock_write.assert_called_once()
+        self.assertEqual(mock_write.call_args.args[0], artifact["storage_path"])
+        mock_dispatch.assert_called_once()
+
+    def test_analyze_is_idempotent_per_run(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            first = self._analyze()
+            second = self._analyze()
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertFalse(second.json()["created"])
+        self.assertEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
+
+    def test_analyze_without_log_returns_400(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries(log_content=None)
+        with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
+            response = self._analyze()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_dispatch.assert_not_called()
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 0)
+
+    def test_analyze_requires_ai_data_processing_approval(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        response = self._analyze()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
