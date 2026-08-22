@@ -10,6 +10,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
@@ -618,6 +620,46 @@ class SetupWizardCloudRunTests(APIBaseTest):
     def tearDown(self):
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
+
+
+class SetupWizardGatewayTokenThrottleTests(APIBaseTest):
+    """The mint throttle must not key on anything the caller chooses.
+
+    request.user is anonymous at throttle time (this viewset carries only
+    session auth and the action authenticates in its own body), so the throttle
+    resolves the bearer itself and falls back to the trusted proxy chain.
+    """
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def test_key_ignores_a_caller_supplied_forwarded_for(self):
+        from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle
+
+        throttle = SetupWizardGatewayTokenRateThrottle()
+        factory = APIRequestFactory()
+
+        first = factory.post("/api/wizard/gateway_token", HTTP_X_FORWARDED_FOR="1.2.3.4")
+        second = factory.post("/api/wizard/gateway_token", HTTP_X_FORWARDED_FOR="5.6.7.8, 9.9.9.9")
+
+        # Same untrusted origin, two different forwarded headers: the bucket
+        # must not move, or the cap is bypassed by rotating the header.
+        assert throttle.get_cache_key(Request(first), None) == throttle.get_cache_key(Request(second), None)
+
+    @patch("posthog.rate_limit.OAuthAccessTokenAuthentication")
+    def test_key_follows_the_authenticated_user(self, mock_authentication):
+        from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle
+
+        throttle = SetupWizardGatewayTokenRateThrottle()
+        factory = APIRequestFactory()
+        mock_authentication.return_value.authenticate.return_value = (self.user, None)
+
+        keyed = throttle.get_cache_key(Request(factory.post("/api/wizard/gateway_token")), None)
+        mock_authentication.return_value.authenticate.return_value = None
+        anonymous = throttle.get_cache_key(Request(factory.post("/api/wizard/gateway_token")), None)
+
+        assert keyed != anonymous
 
 
 @override_settings(

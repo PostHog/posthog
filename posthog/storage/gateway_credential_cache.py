@@ -306,7 +306,10 @@ def _policy_for_credential(
         policy[BILLABLE_KEY] = False
     tier = _team_tier_overrides().get(str(team.id))
     if tier is not None:
-        if tier in GATEWAY_KNOWN_TIERS:
+        # isinstance first: an unhashable value (a list or dict from the JSON
+        # setting) would raise on the set membership below, inside a projection
+        # whose failure expires every credential blob.
+        if isinstance(tier, str) and tier in GATEWAY_KNOWN_TIERS:
             policy[TIER_KEY] = tier
         else:
             # Dropping it silently would also suppress the gateway's own

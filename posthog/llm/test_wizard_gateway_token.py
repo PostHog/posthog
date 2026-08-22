@@ -51,7 +51,7 @@ class TestMintWizardGatewayToken:
 
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
         assert post.call_args.kwargs["json"] == {
-            "cap_usd": "50",
+            "cap_usd": "50.000000",
             "ttl_seconds": 86400,
             "product": "wizard",
             "obo": "org_1",
@@ -127,6 +127,32 @@ class TestMintWizardGatewayToken:
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, payload)):
             with pytest.raises(WizardGatewayMintError):
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
+
+    @pytest.mark.parametrize(
+        "configured",
+        ["not a number", "0", "-5", "20000", ""],
+    )
+    def test_out_of_contract_cap_falls_back_to_the_default(self, configured):
+        # The gateway 400s any of these, and a 400 becomes a 503 for every
+        # wizard run, so a bad knob must not reach it.
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD=configured):
+            with patch(
+                "posthog.llm.wizard_gateway_token.requests.post",
+                return_value=_Response(201, minted),
+            ) as post:
+                mint_wizard_gateway_token(obo="org_1", user="user_1")
+        assert post.call_args.kwargs["json"]["cap_usd"] == "50.000000"
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
+    def test_in_contract_cap_is_sent_as_fixed_point(self):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with patch(
+            "posthog.llm.wizard_gateway_token.requests.post",
+            return_value=_Response(201, minted),
+        ) as post:
+            mint_wizard_gateway_token(obo="org_1", user="user_1")
+        assert post.call_args.kwargs["json"]["cap_usd"] == "12.500000"
 
     def test_secret_never_appears_in_the_error(self):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(403)):

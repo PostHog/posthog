@@ -1329,7 +1329,11 @@ WIZARD_GATEWAY_MINT_KEY = get_from_env("WIZARD_GATEWAY_MINT_KEY", "")
 # OAuth application client ids allowed to mint. Required: llm_gateway:read is an
 # internal scope stamped on every sandbox and agent token, so the scope alone does
 # not identify the wizard. Empty refuses every mint.
-WIZARD_GATEWAY_CLIENT_IDS = get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", ""))
+# Blank entries filtered: get_list keeps them, and a list of empty strings is
+# truthy, which would read as configured while matching no client id.
+WIZARD_GATEWAY_CLIENT_IDS = [
+    client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
+]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "50")
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 

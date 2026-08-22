@@ -13,6 +13,7 @@ settings, and interactive mints answer one attempt fast instead of retrying
 into the CLI's timeout.
 """
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
@@ -29,6 +30,12 @@ _MINT_TIMEOUT_SECONDS = 10
 # misconfigured setting should not turn every mint into a 503.
 _MIN_TTL_SECONDS = 60
 _MAX_TTL_SECONDS = 86400
+
+# The gateway parses the cap as a decimal and 400s anything non-positive, over
+# 6dp, or above its top-up ceiling. A bad knob should be a local default rather
+# than a 503 for every wizard run.
+_DEFAULT_CAP_USD = Decimal("50")
+_MAX_CAP_USD = Decimal("10000")
 
 WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
@@ -61,7 +68,7 @@ def mint_wizard_gateway_token(*, obo: str, user: str) -> dict[str, Any]:
     """
     base_url = wizard_gateway_base_url()
     body = {
-        "cap_usd": str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD),
+        "cap_usd": _cap_usd(),
         "ttl_seconds": _ttl_seconds(),
         "product": "wizard",
         "obo": obo,
@@ -102,3 +109,21 @@ def mint_wizard_gateway_token(*, obo: str, user: str) -> dict[str, Any]:
 def _ttl_seconds() -> int:
     """The requested token lifetime, clamped to the gateway's mint bounds."""
     return max(_MIN_TTL_SECONDS, min(int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS), _MAX_TTL_SECONDS))
+
+
+def _cap_usd() -> str:
+    """The per-token cap as a fixed-point string the gateway will accept.
+
+    An unparseable, non-positive, or over-ceiling setting falls back to the
+    default rather than making every mint a 503.
+    """
+    raw = str(settings.WIZARD_GATEWAY_TOKEN_CAP_USD)
+    try:
+        cap = Decimal(raw)
+    except (InvalidOperation, ValueError):
+        logger.warning("wizard_gateway_token: cap_usd is not a decimal, using the default", cap=raw)
+        cap = _DEFAULT_CAP_USD
+    if not cap.is_finite() or cap <= 0 or cap > _MAX_CAP_USD:
+        logger.warning("wizard_gateway_token: cap_usd out of range, using the default", cap=raw)
+        cap = _DEFAULT_CAP_USD
+    return f"{cap.quantize(Decimal('0.000001')):f}"

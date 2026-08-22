@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
     from rest_framework.views import APIView
 
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
@@ -29,7 +29,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.models.utils import hash_key_value
 from posthog.settings.utils import get_list
-from posthog.utils import patchable
+from posthog.utils import get_trusted_client_ip, patchable
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -1055,8 +1055,25 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return "120/day"
 
     def get_cache_key(self, request, view):
-        user = getattr(request, "user", None)
-        ident = str(user.pk) if user is not None and user.is_authenticated else self.get_ident(request)
+        # DRF resolves request.user from this viewset's authenticators, which are
+        # the project defaults (session only) — the bearer is authenticated in the
+        # action body, after throttling. So request.user is anonymous here and
+        # get_ident would fall back to the raw X-Forwarded-For header, which the
+        # caller chooses. Resolve the token instead, and key on the trusted proxy
+        # chain's client IP when there isn't one.
+        ident = None
+        try:
+            result = OAuthAccessTokenAuthentication().authenticate(request)
+        except Exception:
+            # Throttling must not turn a bad bearer into a 500; the action
+            # rejects it a moment later with the right status.
+            result = None
+        if result is not None:
+            user, _ = result
+            if user is not None:
+                ident = f"user:{user.pk}"
+        if ident is None:
+            ident = f"ip:{get_trusted_client_ip(request) or 'unknown'}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 

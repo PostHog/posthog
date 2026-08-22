@@ -72,6 +72,13 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
+WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
+    "posthog_wizard_gateway_token_requests_total",
+    "Wizard gateway-token mint requests, by outcome (minted/unconfigured/not_wizard_app/"
+    "scope_missing/team_ambiguous/team_missing/unauthorized/not_rolled_out/mint_failed)",
+    labelnames=["outcome"],
+)
+
 WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_cloud_run_requests_total",
     "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied/throttled)",
@@ -174,6 +181,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         # rate-limited users and throttle pressure is invisible in dashboards.
         if self.action == "cloud_run":
             WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
+        if self.action == "gateway_token":
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="throttled").inc()
         super().throttled(request, wait)
 
     @action(methods=["POST"], detail=False, url_path="initialize")
@@ -413,6 +422,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         release.
         """
         if not wizard_gateway_configured():
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unconfigured").inc()
             raise exceptions.NotFound("Wizard gateway tokens are not available.")
 
         authenticator = OAuthAccessTokenAuthentication()
@@ -431,26 +441,34 @@ class SetupWizardViewSet(viewsets.ViewSet):
         application = getattr(access_token, "application", None)
         client_id = getattr(application, "client_id", None)
         if not client_id or client_id not in settings.WIZARD_GATEWAY_CLIENT_IDS:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_wizard_app").inc()
             raise AuthenticationFailed("Access token was not issued to the wizard.")
 
         # The token's own scope text, matching credential_has_gateway_scope. The
         # `scopes` property filters through OAUTH2_PROVIDER["SCOPES"], so a
         # narrowing of that map would silently drop the scope.
         if RequiredGatewayScope not in (access_token.scope or "").split():
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="scope_missing").inc()
             raise AuthenticationFailed("Access token lacks the gateway scope.")
 
         scoped_team_ids = access_token.scoped_teams or []
         if len(scoped_team_ids) != 1:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_ambiguous").inc()
             raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
             raise exceptions.NotFound(ERROR_PROJECT_NOT_FOUND)
 
         # scoped_teams is frozen at consent, so re-check what it cannot see:
         # the user is still active, still a member, and still has project
         # access. The credential projection runs the same check for the same
-        # token class.
+        # token class, though it passes the organization's root team while this
+        # passes the scoped team itself, so the scoped-teams containment branch
+        # is a tautology here and the membership and RBAC branches are the ones
+        # doing work.
         if not oauth_credential_authorized(access_token, team):
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
             raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
 
         distinct_id = str(user.distinct_id)
@@ -462,14 +480,17 @@ class SetupWizardViewSet(viewsets.ViewSet):
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         ):
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_rolled_out").inc()
             raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
 
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id)
         except WizardGatewayMintError as e:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="mint_failed").inc()
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
         return Response(
             {
                 "token": minted["token"],
