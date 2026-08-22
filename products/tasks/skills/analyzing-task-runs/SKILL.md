@@ -90,7 +90,7 @@ step failed and why, then call the `finish` tool with status `failed`.
   below it.
 - `wasted_effort` is measured, never estimated: bracket the wasted span with its start and end
   line numbers, then count the tool calls between them, subtract the timestamps for `seconds`,
-  and subtract the cumulative usage counters for `tokens` (when the log carries usage updates).
+  and sum the per-turn usage records for `tokens` (when the log carries usage updates).
   Report every dimension you can measure; omit the ones you cannot.
 - Logs from some runtimes lack the agent's narration; do not treat missing narration as evidence
   of anything.

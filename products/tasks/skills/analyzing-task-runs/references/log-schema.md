@@ -118,10 +118,10 @@ Agent narration (what the agent said it was doing, and why):
 jq -c 'select(.notification.params.update.sessionUpdate=="agent_message") | {line: input_line_number, text: .notification.params.update.content.text[0:250]}' <log>
 ```
 
-What the run cost:
+Latest usage record (use the span recipe below to measure waste):
 
 ```sh
-jq -c 'select(.notification.method=="_posthog/usage_update") | .notification.params | {cost, used}' <log> | tail -1
+jq -c 'select(.notification.method=="_posthog/usage_update") | .notification.params | {cost, usage, used}' <log> | tail -1
 ```
 
 ## Both formats: context around a finding
@@ -147,7 +147,7 @@ per-turn total, so sum them rather than subtracting them. The command prints a m
 log lacks token records inside the span — then omit `tokens` from the finding:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | if .type == "pi_event" and .event.type == "message_end" and .event.message.role == "assistant" then .event.message.usage.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage.totalTokens // .notification.params.used) else empty end | select(type == "number")] | if length > 0 then add else "insufficient token records in span" end'
+sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "message_end" and .event.message.role == "assistant" then .event.message.usage.totalTokens elif .notification.method == "_posthog/usage_update" then (.notification.params.usage // .notification.params.used | token_total) else empty end | select(type == "number")] | if length > 0 then add else "insufficient token records in span" end'
 ```
 
 ### Token-measurement examples
@@ -160,15 +160,21 @@ span, so the reported token waste is `1200 + 900 = 2100`:
 {"type":"pi_event","event":{"type":"message_end","message":{"role":"assistant","usage":{"totalTokens":900}}}}
 ```
 
-ACP records usage in `_posthog/usage_update`. These two records fall inside a measured span, so
-the reported token waste is `800 + 600 = 1400`:
+ACP records usage in `_posthog/usage_update`. Codex provides `usage.totalTokens`; Claude provides
+the component counts under `used`. These two records fall inside a measured span, so the reported
+token waste is `800 + (300 + 100 + 150 + 50) = 1400`:
 
 ```jsonl
 {"type":"notification","notification":{"method":"_posthog/usage_update","params":{"usage":{"totalTokens":800}}}}
-{"type":"notification","notification":{"method":"_posthog/usage_update","params":{"usage":{"totalTokens":600}}}}
+{"type":"notification","notification":{"method":"_posthog/usage_update","params":{"used":{"inputTokens":300,"outputTokens":100,"cachedReadTokens":150,"cachedWriteTokens":50}}}}
 ```
 
-Wasted tool calls are the count of tool-timeline rows between the two lines.
+Count distinct tool-call IDs inside the span. ACP emits multiple updates for one call, so counting
+timeline rows can over-report waste:
+
+```sh
+sed -n '<start>,<end>p' <log> | jq -r 'if .type == "pi_event" and .event.type == "tool_call_started" then .event.toolCall.id elif .notification.params.update.sessionUpdate == "tool_call_update" then .notification.params.update.toolCallId else empty end' | sort -u | wc -l
+```
 
 ## Evidence quotes
 
