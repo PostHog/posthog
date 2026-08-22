@@ -49,11 +49,13 @@ specific error when something does not check out; fix and retry once, then drop 
 - `wasted_effort` is required for `environment_failure`, `missing_tool`, `verbose_output`,
   `redundant_work`, and `wasted_retry`. Every dimension is measured from the log, never guessed,
   and you include each one you can measure (at least one):
-  - `tool_calls` — count the wasted calls between the span's start and end lines.
+  - `tool_calls` — count distinct wasted call IDs between the span's start and end lines.
   - `seconds` — subtract the event timestamp at the span's start from the one at its end.
-  - `tokens` — when the log carries cumulative usage updates (ACP `_posthog/usage_update`),
-    subtract the counter total before the span from the total after it.
-    If a dimension cannot be measured from the log, leave it out — do not estimate.
+  - `tokens` — sum completed turns wholly inside the wasted span. Pi records `totalTokens` on
+    `turn_completed`; ACP may record it in `_posthog/turn_complete`. Omit tokens for a partial
+    turn or a completion without usage.
+    If a dimension cannot be measured from the log or its measured value is zero, leave it out —
+    do not estimate.
 - `recurrence` anchors: `every_run_in_this_repo` — structural, any agent in this repo hits it;
   `runs_touching_this_area` — conditional on the task area; `one_off` — specific to this run.
 - `confidence_basis`: `directly_observed` — visible in the transcript; `inferred` — plausible but
