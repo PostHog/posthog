@@ -284,7 +284,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
-                loadBillingSpend: async () => {
+                loadBillingSpend: async (_, breakpoint) => {
                     if (!values.canViewUsageAndSpend || values.isHobby) {
                         return null
                     }
@@ -300,8 +300,11 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         ...(interval ? { interval } : {}),
                     }
                     try {
-                        return await api.get(`api/billing/spend/?${toParams(params)}`)
+                        const response = await api.get(`api/billing/spend/?${toParams(params)}`)
+                        breakpoint()
+                        return response
                     } catch (error) {
+                        breakpoint()
                         const billingSpendError = getBillingUsageError(error)
                         if (billingSpendError?.code === BILLING_USAGE_QUERY_TOO_LARGE_CODE) {
                             actions.setBillingSpendError(billingSpendError)
