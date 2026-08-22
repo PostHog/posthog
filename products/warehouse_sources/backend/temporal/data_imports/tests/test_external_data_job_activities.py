@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    TRANSIENT_SOURCE_ERROR_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
@@ -27,17 +28,20 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 
 
 class TestCustomerFacingError(SimpleTestCase):
-    @parameterized.expand(
-        [
-            # Temporal wraps a retryable REST exhaustion / connection drop as an ApplicationError
-            # whose str() is "<ClassName>: <message>". The customer-facing latest_error must be the
-            # message alone, not the internal class name.
-            ("rest_retryable", "RESTClientRetryableError", "HTTP 429 for https://api.example.com/usage"),
-            ("driver_drop", "OperationalError", "connection failed: server closed the connection unexpectedly"),
-        ]
-    )
-    def test_strips_leaked_internal_exception_class_name(self, _name: str, exc_type: str, message: str) -> None:
-        assert _customer_facing_error(ApplicationError(message, type=exc_type)) == message
+    def test_strips_leaked_internal_exception_class_name(self) -> None:
+        # Temporal wraps a driver connection drop as an ApplicationError whose str() is
+        # "<ClassName>: <message>". The customer-facing latest_error must be the message alone,
+        # not the internal class name.
+        message = "connection failed: server closed the connection unexpectedly"
+        cause = ApplicationError(message, type="OperationalError")
+        assert _customer_facing_error(cause) == message
+
+    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+        # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
+        # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
+        # The customer must read a friendly message, not the raw HTTP status.
+        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
+        assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
         assert _customer_facing_error(ValueError("connection reset")) == "connection reset"

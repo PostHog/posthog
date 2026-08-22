@@ -180,6 +180,12 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
+)
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -201,6 +207,13 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
