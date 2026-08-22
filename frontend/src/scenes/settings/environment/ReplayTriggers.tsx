@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import {
+    MOBILE_SAMPLING_MIN_SDK_VERSIONS,
     ReplayPlatform,
     replayTriggersLogic,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
@@ -255,9 +256,9 @@ function Sampling(): JSX.Element {
                         Sample rate{' '}
                         <Since
                             web={{ version: '1.85.0' }}
-                            android={{ version: '3.34.0' }}
-                            ios={{ version: '3.42.0' }}
-                            reactNative={{ version: '4.37.0' }}
+                            android={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-android'].version }}
+                            ios={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-ios'].version }}
+                            reactNative={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-react-native'].version }}
                         />
                         {storedSampleRate == null && <span className="text-muted font-normal"> (default)</span>}
                     </LemonLabel>
@@ -269,6 +270,42 @@ function Sampling(): JSX.Element {
                 <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
             </div>
         </PayGateMini>
+    )
+}
+
+function MobileSamplingCompatibilityWarning(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const { mobileSamplingGaps } = useValues(replayTriggersLogic)
+
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+
+    // Only a sub-100% rate is at risk: old SDKs ignore the rate and record every session, so nothing is dropped.
+    if (sampleRate >= 100 || mobileSamplingGaps.length === 0) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>Some mobile sessions ignore your {sampleRate}% sample rate and record every session.</strong>
+            <p className="mt-2 mb-1">
+                Sampling arrived in later mobile SDKs. Recent traffic on older builds still records at 100% and is
+                billed at 100%:
+            </p>
+            <ul className="list-disc ml-4 space-y-1">
+                {mobileSamplingGaps.map((gap) => {
+                    const pct = gap.share < 0.01 ? '<1' : Math.round(gap.share * 100).toString()
+                    return (
+                        <li key={gap.label}>
+                            <strong>{gap.label}</strong>: {pct}% of recent traffic (
+                            {humanFriendlyNumber(gap.outdatedCount)}{' '}
+                            {pluralize(gap.outdatedCount, 'event', 'events', false)}) is on a version before v
+                            {gap.minVersion}
+                        </li>
+                    )
+                })}
+            </ul>
+            <p className="mt-2 mb-0">Upgrade these SDKs so the sample rate applies to mobile sessions.</p>
+        </LemonBanner>
     )
 }
 
@@ -285,9 +322,9 @@ function MobileSampling(): JSX.Element {
                     <LemonLabel className="text-base">
                         Sample rate{' '}
                         <Since
-                            android={{ version: '3.34.0' }}
-                            ios={{ version: '3.42.0' }}
-                            reactNative={{ version: '4.37.0' }}
+                            android={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-android'].version }}
+                            ios={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-ios'].version }}
+                            reactNative={{ version: MOBILE_SAMPLING_MIN_SDK_VERSIONS['posthog-react-native'].version }}
                         />
                         {storedSampleRate == null && <span className="text-muted font-normal"> (default)</span>}
                     </LemonLabel>
@@ -656,6 +693,7 @@ export function ReplayTriggers(): JSX.Element {
                     <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
                     <MobileEventTriggers />
                     <LinkedFlagSelector />
+                    <MobileSamplingCompatibilityWarning />
                     <MobileSampling />
                     <MobileMinimumDuration />
                 </div>

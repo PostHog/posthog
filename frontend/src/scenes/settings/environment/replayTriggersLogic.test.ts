@@ -1,11 +1,20 @@
+import type { AugmentedTeamSdkVersionsInfo } from '../../onboarding/shared/sdkHealth/sdkHealthLogic'
 import {
     hasOutdatedWebSdk,
     legacyConditionsAreInactive,
     legacyUiShouldBeMinimized,
+    mobileSamplingGaps,
     outdatedWebTrafficShare,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
     WebRelease,
 } from './replayTriggersLogic'
+
+// Only the version + count of each release matter to mobileSamplingGaps, so the rest is left off.
+function sdkData(releasesByLib: Record<string, WebRelease[]>): AugmentedTeamSdkVersionsInfo {
+    return Object.fromEntries(
+        Object.entries(releasesByLib).map(([lib, releases]) => [lib, { allReleases: releases }])
+    ) as unknown as AugmentedTeamSdkVersionsInfo
+}
 
 describe('replayTriggersLogic', () => {
     describe('legacyConditionsAreInactive', () => {
@@ -151,6 +160,43 @@ describe('replayTriggersLogic', () => {
             ]
             expect(hasOutdatedWebSdk(atThreshold)).toBe(true)
             expect(legacyConditionsAreInactive(atThreshold)).toBe(false)
+        })
+    })
+
+    describe('mobileSamplingGaps', () => {
+        it('flags each mobile SDK with traffic below its sampling floor', () => {
+            const gaps = mobileSamplingGaps(
+                sdkData({
+                    'posthog-android': [
+                        { version: '3.33.0', count: 30 },
+                        { version: '3.34.0', count: 70 },
+                    ],
+                    'posthog-ios': [{ version: '3.41.9', count: 50 }],
+                })
+            )
+            expect(gaps).toEqual([
+                { label: 'Android', minVersion: '3.34.0', outdatedCount: 30, totalCount: 100, share: 0.3 },
+                { label: 'iOS', minVersion: '3.42.0', outdatedCount: 50, totalCount: 50, share: 1 },
+            ])
+        })
+
+        it('ignores SDKs whose traffic is all at or above the floor', () => {
+            const gaps = mobileSamplingGaps(
+                sdkData({
+                    'posthog-android': [{ version: '3.34.0', count: 100 }],
+                    'posthog-react-native': [{ version: '5.0.0', count: 10 }],
+                })
+            )
+            expect(gaps).toEqual([])
+        })
+
+        it('counts unparseable versions as below the floor', () => {
+            const gaps = mobileSamplingGaps(sdkData({ 'posthog-ios': [{ version: 'unknown', count: 5 }] }))
+            expect(gaps).toEqual([{ label: 'iOS', minVersion: '3.42.0', outdatedCount: 5, totalCount: 5, share: 1 }])
+        })
+
+        it('returns no gaps when there is no mobile data', () => {
+            expect(mobileSamplingGaps(sdkData({ web: [{ version: '1.300.0', count: 100 }] }))).toEqual([])
         })
     })
 })
