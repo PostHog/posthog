@@ -116,7 +116,7 @@ describe("PiAgentServer", () => {
       timestamp: 2,
       totalTokens: 1_234,
     });
-    server.handleEvent({ type: "turn_completed", timestamp: 3 });
+    server.handleEvent({ type: "turn_completed", timestamp: 2 });
     await server.logFlushQueue;
 
     expect(appendTaskRunLog).toHaveBeenCalledWith("task-1", "run-1", [
@@ -148,7 +148,7 @@ describe("PiAgentServer", () => {
         timestamp: expect.any(String),
         event: {
           type: "turn_completed",
-          timestamp: 3,
+          timestamp: 2,
           sourceId: expect.any(String),
         },
       },
