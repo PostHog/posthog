@@ -128,15 +128,20 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 `event_retention_months` does not delete aged-out events.
 It hides them at read time.
 
-`retention_floor_for_table` in `posthog/hogql/printer/clickhouse.py` adds a mandatory `timestamp > now() - toIntervalMonth(N)` guard on every events-table scan, next to the `team_id` guard.
-A query can therefore never read an event older than the retention window, but the row stays on disk.
-Nothing in this deletion machinery removes it.
+`retention_floor_for_table` in `posthog/hogql/printer/clickhouse.py` can add a `timestamp > now() - toIntervalMonth(N)` guard to an events-table scan, next to the `team_id` guard.
+The guard is not universal.
+It applies only when retention is enforced for the team, and only to the events table.
+`should_enforce_events_retention` in `posthog/models/team/event_retention.py` is the gate: self-hosted instances never enforce, and cloud enables it per cohort during rollout, so most teams do not have it applied yet.
+A settings kill switch can turn it off fleet-wide, and server-side paths such as the GDPR deletion mutation opt out through `apply_events_retention_floor`.
+Where the guard is active, a query cannot read an event older than the retention window.
+Where it is not, queries can still read those older events.
+Either way the row stays on disk, and nothing in this deletion machinery removes it.
 The row expires only when its table's TTL reclaims it (see "Tables on TTL alone"), which may be much later than the retention window or, for the long-lived events tables, effectively never.
 
 The field is read-only on the API and is resynced from billing, so a customer cannot set it.
 Two consequences follow, and both reach support by hand today:
 
-- A shorter retention window makes old events invisible to queries at once, but does not shorten how long the data sits in storage.
+- Where retention is enforced, a shorter window makes old events invisible to queries at once, but does not shorten how long the data sits in storage.
 - Making an event unreachable by retention is not erasure. A privacy or GDPR request still needs a real deletion through the sweeps above.
 
 ## Related, and deliberately unchanged
