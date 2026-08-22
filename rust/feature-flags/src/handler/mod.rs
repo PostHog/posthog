@@ -8,6 +8,7 @@ pub mod decoding;
 pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
+pub mod override_property_defs;
 pub mod phases;
 pub mod properties;
 pub mod session_recording;
@@ -262,6 +263,28 @@ async fn process_request_inner(
                 tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
                 let property_overrides = properties::prepare_overrides(&context, &request)?;
+
+                // Register request-time person property keys as taxonomy metadata so they
+                // appear in the flag release-condition picker. Does not write person profiles.
+                // Off the response path; Redis + an in-process cache debounce repeats.
+                if !*context.state.config.skip_writes {
+                    if let Some(person_properties) = request.person_properties.as_ref() {
+                        let names = override_property_defs::eligible_override_property_names(
+                            person_properties.keys(),
+                        );
+                        if !names.is_empty() {
+                            let redis = context.state.redis_client.clone();
+                            let pg_writer = context.state.database_pools.non_persons_writer.clone();
+                            let team_id = team.id;
+                            let project_id = team.project_id.unwrap_or(i64::from(team.id));
+                            tokio::spawn(
+                                override_property_defs::register_override_person_properties(
+                                    redis, pg_writer, team_id, project_id, names,
+                                ),
+                            );
+                        }
+                    }
+                }
 
                 // Evaluate flags (this will return empty if is_flags_disabled is true)
                 let response = {

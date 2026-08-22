@@ -1,3 +1,8 @@
+// Best-effort writes of person property definitions harvested from request-time
+// `person_properties` overrides, so override-only keys show up in the release-condition picker.
+// Labels: result="success" | "error".
+pub const OVERRIDE_PROPERTY_DEF_WRITES_COUNTER: &str = "flags_override_property_def_writes_total";
+
 // Group type cache metrics
 pub const GROUP_TYPE_CACHE_HIT_COUNTER: &str = "flags_group_type_cache_hit_total";
 pub const GROUP_TYPE_CACHE_MISS_COUNTER: &str = "flags_group_type_cache_miss_total";
