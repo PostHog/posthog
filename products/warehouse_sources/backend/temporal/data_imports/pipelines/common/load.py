@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
+from django.db import OperationalError
 from django.db.models import F
 
 import pyarrow as pa
@@ -109,31 +110,34 @@ async def notify_revenue_analytics_that_sync_has_completed(
         CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     )
 
+    def _check_and_notify() -> None:
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and source.source_type == ExternalDataSourceType.STRIPE
+            and source.revenue_analytics_config.enabled
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            # For every admin in the org, send a revenue analytics ready event
+            # This will trigger a Campaign in PostHog and send an email
+            for user in schema.team.all_users_with_access():
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        distinct_id=user.distinct_id,
+                        event="revenue_analytics_ready",
+                        properties={"source_type": source.source_type},
+                    )
+
+            # Mark the team as notified, avoiding spamming emails
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+
     try:
-
-        @database_sync_to_async_pool
-        def _check_and_notify():
-            if (
-                schema.name == STRIPE_CHARGE_RESOURCE_NAME
-                and source.source_type == ExternalDataSourceType.STRIPE
-                and source.revenue_analytics_config.enabled
-                and not schema.team.revenue_analytics_config.notified_first_sync
-            ):
-                # For every admin in the org, send a revenue analytics ready event
-                # This will trigger a Campaign in PostHog and send an email
-                for user in schema.team.all_users_with_access():
-                    if user.distinct_id is not None:
-                        posthoganalytics.capture(
-                            distinct_id=user.distinct_id,
-                            event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
-                        )
-
-                # Mark the team as notified, avoiding spamming emails
-                schema.team.revenue_analytics_config.notified_first_sync = True
-                schema.team.revenue_analytics_config.save()
-
-        await _check_and_notify()
+        await database_sync_to_async_pool(retry_on_operational_error(_check_and_notify))()
+    except OperationalError as e:
+        # This config read lazily opens a new Postgres connection in the thread pool, so a closed
+        # idle connection or a saturated pooler surfaces here after retries are exhausted. It is a
+        # transient infra blip, not a bug - log it instead of filing an error tracking issue.
+        await logger.awarning(f"Transient database error notifying revenue analytics of sync completion: {e}")
     except Exception as e:
         # Silently fail, we don't want this to crash the pipeline
         # Sending an email is not critical to the pipeline

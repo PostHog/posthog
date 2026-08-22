@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.db import OperationalError
 
@@ -15,10 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
+    notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
@@ -404,3 +409,50 @@ class TestUpdateJobRowCount:
         assert update.call_count == 2
         close.assert_called_once()
         sleep.assert_called_once_with(2)
+
+
+class TestNotifyRevenueAnalytics:
+    @staticmethod
+    def _make_stripe_charge_schema_and_source(config_error: Exception) -> tuple[MagicMock, MagicMock]:
+        source = MagicMock()
+        source.source_type = ExternalDataSourceType.STRIPE
+        source.revenue_analytics_config.enabled = True
+
+        schema = MagicMock()
+        schema.name = STRIPE_CHARGE_RESOURCE_NAME
+        # Reading the config lazily opens a new Postgres connection in the thread pool; make that
+        # read raise so we exercise the transient-vs-real error branches.
+        type(schema.team).revenue_analytics_config = PropertyMock(side_effect=config_error)
+        return schema, source
+
+    @pytest.mark.asyncio
+    async def test_transient_db_error_is_logged_not_captured(self):
+        # A closed idle connection or saturated pooler surfaces as OperationalError. After retries
+        # are exhausted it must be logged, never sent to error tracking, or each new connectivity
+        # message fingerprints as a fresh issue.
+        schema, source = self._make_stripe_charge_schema_and_source(
+            OperationalError("server closed the connection unexpectedly")
+        )
+        logger = MagicMock(debug=MagicMock(), aexception=AsyncMock(), awarning=AsyncMock())
+
+        with (
+            patch(f"{_LOAD_MODULE}.capture_exception") as capture,
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections"),
+            patch(f"{_DB_RETRY_MODULE}.time.sleep"),
+        ):
+            await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
+
+        capture.assert_not_called()
+        logger.awarning.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_transient_error_is_captured(self):
+        # A genuine bug (not a connectivity blip) must still reach error tracking.
+        schema, source = self._make_stripe_charge_schema_and_source(ValueError("boom"))
+        logger = MagicMock(debug=MagicMock(), aexception=AsyncMock(), awarning=AsyncMock())
+
+        with patch(f"{_LOAD_MODULE}.capture_exception") as capture:
+            await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
+
+        capture.assert_called_once()
+        logger.awarning.assert_not_awaited()
