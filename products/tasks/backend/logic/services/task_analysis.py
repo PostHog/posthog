@@ -25,11 +25,14 @@ from products.tasks.backend.models import Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-TASK_ANALYSIS_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+# Cheap, high-context analyst. Unconditionally in the gateway's posthog_code model
+# allowlist (DeepSeek is gated behind a per-model feature flag there).
+TASK_ANALYSIS_MODEL = "gpt-5.6-luna"
 # An analysis is one bounded pass over one transcript; if the agent goes quiet
 # this long it is done or stuck, and the sandbox should not idle on our bill.
 TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS = 600
-TASK_ANALYSIS_RUNTIME_ADAPTER = "claude"
+# OpenAI-family models run under the codex adapter (see cloud-task-models.ts).
+TASK_ANALYSIS_RUNTIME_ADAPTER = "codex"
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
 ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
 RUN_LOG_ARTIFACT_NAME = "run-log.jsonl"
@@ -55,6 +58,9 @@ def find_existing_analysis_task(*, team_id: int, target_run_id: str) -> Task | N
             task__origin_product=Task.OriginProduct.TASK_ANALYSIS,
             state__analysis_target_run_id=str(target_run_id),
         )
+        # A failed or cancelled analysis must not block re-analysis — dedupe only
+        # against analyses that produced (or may still produce) findings.
+        .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
         .select_related("task")
         .order_by("-created_at")
         .first()

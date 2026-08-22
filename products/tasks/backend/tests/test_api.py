@@ -13463,6 +13463,20 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
 
+    def test_failed_analysis_does_not_block_reanalysis(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            first = self._analyze()
+            failed_run = Task.objects.get(id=first.json()["analysis_task_id"]).latest_run
+            assert failed_run is not None
+            failed_run.status = TaskRun.Status.FAILED
+            failed_run.save(update_fields=["status"])
+            second = self._analyze()
+
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(second.json()["created"])
+        self.assertNotEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
+
     def test_analyze_without_log_returns_400(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries(log_content=None)
         with read_p, write_p, tag_p, dispatch_p as mock_dispatch:
