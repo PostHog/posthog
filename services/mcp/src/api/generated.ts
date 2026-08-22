@@ -18137,6 +18137,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `directly_observed` - directly_observed
+     * * `inferred` - inferred
+     */
+    export type ConfidenceBasisEnum = typeof ConfidenceBasisEnum[keyof typeof ConfidenceBasisEnum];
+
+
+    export const ConfidenceBasisEnum = {
+      DirectlyObserved: 'directly_observed',
+      Inferred: 'inferred',
+    } as const;
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -32238,6 +32250,20 @@ export namespace Schemas {
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
       NeedsAttention: 'needs_attention',
+    } as const;
+
+    /**
+     * * `transcript_quote` - transcript_quote
+     * * `command_output` - command_output
+     * * `measured_count` - measured_count
+     */
+    export type EvidenceTypeEnum = typeof EvidenceTypeEnum[keyof typeof EvidenceTypeEnum];
+
+
+    export const EvidenceTypeEnum = {
+      TranscriptQuote: 'transcript_quote',
+      CommandOutput: 'command_output',
+      MeasuredCount: 'measured_count',
     } as const;
 
     export interface ExecuteTestClusterRequest {
@@ -49112,6 +49138,20 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    /**
+     * * `run_was_efficient` - run_was_efficient
+     * * `too_short_to_judge` - too_short_to_judge
+     * * `insufficient_visibility` - insufficient_visibility
+     */
+    export type NoFindingsReasonEnum = typeof NoFindingsReasonEnum[keyof typeof NoFindingsReasonEnum];
+
+
+    export const NoFindingsReasonEnum = {
+      RunWasEfficient: 'run_was_efficient',
+      TooShortToJudge: 'too_short_to_judge',
+      InsufficientVisibility: 'insufficient_visibility',
+    } as const;
+
     export interface NoMatchMetadata {
       /** Why no existing report matched. */
       reason: string;
@@ -50562,6 +50602,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
@@ -50586,6 +50627,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 
@@ -64099,6 +64141,11 @@ export namespace Schemas {
     }
 
     /**
+     * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
+     */
+    export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
+
+    /**
      * * `local` - local
      */
     export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
@@ -64134,6 +64181,8 @@ export namespace Schemas {
       state?: unknown;
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];
+      /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
+      state_append?: PatchedTaskRunUpdateStateAppend;
       /**
          * Error message if execution failed
          * @nullable
@@ -64182,6 +64231,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -70818,6 +70868,20 @@ export namespace Schemas {
       /** True once today's visit row exists for the user. */
       recorded: boolean;
     }
+
+    /**
+     * * `every_run_in_this_repo` - every_run_in_this_repo
+     * * `runs_touching_this_area` - runs_touching_this_area
+     * * `one_off` - one_off
+     */
+    export type RecurrenceEnum = typeof RecurrenceEnum[keyof typeof RecurrenceEnum];
+
+
+    export const RecurrenceEnum = {
+      EveryRunInThisRepo: 'every_run_in_this_repo',
+      RunsTouchingThisArea: 'runs_touching_this_area',
+      OneOff: 'one_off',
+    } as const;
 
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
@@ -79895,6 +79959,75 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskAnalysisEvidence {
+      /**
+         * Verbatim span copied from the analysed run log.
+         * @minLength 20
+         * @maxLength 300
+         */
+      quote: string;
+      /** What kind of log content the quote was taken from.
+       *
+       * * `transcript_quote` - transcript_quote
+       * * `command_output` - command_output
+       * * `measured_count` - measured_count */
+      evidence_type: EvidenceTypeEnum;
+    }
+
+    export interface TaskAnalysisSuggestedFix {
+      /**
+         * The specific change to make.
+         * @minLength 50
+         * @maxLength 400
+         */
+      change: string;
+      /**
+         * A checkable condition confirming the fix worked.
+         * @minLength 30
+         * @maxLength 200
+         */
+      done_when: string;
+      /**
+         * Single-line commands only; these may become image build steps.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 500
+         */
+      setup_commands?: string[];
+      /**
+         * Services the fix needs available.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 100
+         */
+      required_services?: string[];
+      /**
+         * Environment variable names only, never values.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 100
+         */
+      env_var_names?: string[];
+    }
+
+    export interface TaskAnalysisWastedEffort {
+      /**
+         * Wasted tool calls, counted from the log.
+         * @minimum 1
+         */
+      tool_calls?: number;
+      /**
+         * Wall-clock seconds across the wasted span.
+         * @minimum 1
+         */
+      seconds?: number;
+      /**
+         * Token delta across the wasted span.
+         * @minimum 1
+         */
+      tokens?: number;
+    }
+
     export interface TaskArtifact {
       /** Stable artifact id used to filter task comments. */
       id: string;
@@ -80088,6 +80221,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -80236,6 +80370,99 @@ export namespace Schemas {
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
+    }
+
+    /**
+     * * `environment_failure` - environment_failure
+     * * `missing_tool` - missing_tool
+     * * `verbose_output` - verbose_output
+     * * `redundant_work` - redundant_work
+     * * `missing_capability` - missing_capability
+     * * `instruction_gap` - instruction_gap
+     * * `wasted_retry` - wasted_retry
+     * * `other` - other
+     */
+    export type TaskRunAnalysisInsightRequestCategoryEnum = typeof TaskRunAnalysisInsightRequestCategoryEnum[keyof typeof TaskRunAnalysisInsightRequestCategoryEnum];
+
+
+    export const TaskRunAnalysisInsightRequestCategoryEnum = {
+      EnvironmentFailure: 'environment_failure',
+      MissingTool: 'missing_tool',
+      VerboseOutput: 'verbose_output',
+      RedundantWork: 'redundant_work',
+      MissingCapability: 'missing_capability',
+      InstructionGap: 'instruction_gap',
+      WastedRetry: 'wasted_retry',
+      Other: 'other',
+    } as const;
+
+    /**
+     * One analysis finding. The shape the server stores, independent of what the tool sent.
+     */
+    export interface TaskRunAnalysisInsightRequest {
+      /** Only for a run with zero findings; never combined with a finding.
+       *
+       * * `run_was_efficient` - run_was_efficient
+       * * `too_short_to_judge` - too_short_to_judge
+       * * `insufficient_visibility` - insufficient_visibility */
+      no_findings_reason?: NoFindingsReasonEnum;
+      /**
+         * What happened, 1-3 sentences.
+         * @minLength 80
+         * @maxLength 500
+         */
+      observation?: string;
+      /** Quotes from the analysed log backing the observation. */
+      evidence?: TaskAnalysisEvidence[];
+      /**
+         * How often this happened.
+         * @minimum 1
+         */
+      occurrence_count?: number;
+      /** The kind of inefficiency observed.
+       *
+       * * `environment_failure` - environment_failure
+       * * `missing_tool` - missing_tool
+       * * `verbose_output` - verbose_output
+       * * `redundant_work` - redundant_work
+       * * `missing_capability` - missing_capability
+       * * `instruction_gap` - instruction_gap
+       * * `wasted_retry` - wasted_retry
+       * * `other` - other */
+      category?: TaskRunAnalysisInsightRequestCategoryEnum;
+      /**
+         * Required when category is 'other'.
+         * @minLength 50
+         * @maxLength 200
+         */
+      other_justification?: string;
+      /** Effort measured from the log, never estimated. */
+      wasted_effort?: TaskAnalysisWastedEffort;
+      /** How widely this is expected to recur.
+       *
+       * * `every_run_in_this_repo` - every_run_in_this_repo
+       * * `runs_touching_this_area` - runs_touching_this_area
+       * * `one_off` - one_off */
+      recurrence?: RecurrenceEnum;
+      /** How the finding was established.
+       *
+       * * `directly_observed` - directly_observed
+       * * `inferred` - inferred */
+      confidence_basis?: ConfidenceBasisEnum;
+      /** The fix the finding argues for. */
+      suggested_fix?: TaskAnalysisSuggestedFix;
+    }
+
+    export interface TaskRunAnalysisInsightResponse {
+      /** Zero-based position of the stored finding on the run. */
+      insight_index: number;
+    }
+
+    export interface TaskRunAnalyzeResponse {
+      /** Id of the analysis task to navigate to. */
+      analysis_task_id: string;
+      /** True when a new analysis task was created; false when an existing analysis for this run was returned. */
+      created: boolean;
     }
 
     export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown };
@@ -81393,6 +81620,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -94303,6 +94531,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -94432,6 +94661,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 

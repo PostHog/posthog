@@ -3670,7 +3670,9 @@ export class PostHogAPIClient {
         TaskRun,
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
-    >,
+    > & {
+      state_append?: Record<string, unknown>;
+    },
   ): Promise<TaskRun> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -3685,6 +3687,25 @@ export class PostHogAPIClient {
       },
     );
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async analyzeTaskRun(
+    taskId: string,
+    runId: string,
+  ): Promise<{ analysis_task_id: string; created: boolean }> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      //@ts-expect-error this is not in the generated client
+      `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
+      {
+        path: {
+          project_id: teamId.toString(),
+          task_id: taskId,
+          id: runId,
+        },
+      },
+    );
+    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
