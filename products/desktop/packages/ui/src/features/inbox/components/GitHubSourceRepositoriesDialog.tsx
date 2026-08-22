@@ -58,13 +58,21 @@ export function GitHubSourceRepositoriesDialog({
   // picker to the installation the source stored, so it never offers repos the source's credential
   // can't reach. Null on a personal-access-token source, which has no installation to scope by.
   const sourceIntegrationId = githubSourceIntegrationId(source.job_inputs);
+  // Unscoped, `useGithubRepositories` lists every team installation, so a token-authenticated
+  // source would be offered repositories its token cannot read and save a sync that never runs.
+  // Nothing here can list what a token reaches, so show the current list read-only instead.
+  const canPickRepos = sourceIntegrationId !== null;
   const {
     repositories: visibleRepositories,
     isPending: visibleRepositoriesLoading,
     isFetchingMore,
     hasMore,
     loadMore,
-  } = useGithubRepositories(searchQuery, pickerOpen, sourceIntegrationId);
+  } = useGithubRepositories(
+    searchQuery,
+    pickerOpen && canPickRepos,
+    sourceIntegrationId,
+  );
 
   const save = useMutation({
     mutationFn: async () => {
@@ -144,42 +152,58 @@ export function GitHubSourceRepositoriesDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <div className="flex flex-col gap-2">
-            <GitHubRepoMultiPicker
-              value={repos}
-              onChange={setRepos}
-              repositories={pickerOpen ? visibleRepositories : repositories}
-              isLoading={
-                isLoadingRepos || (pickerOpen && visibleRepositoriesLoading)
-              }
-              isLoadingMore={isFetchingMore}
-              hasMore={hasMore}
-              onLoadMore={loadMore}
-              open={pickerOpen}
-              onOpenChange={(next) => {
-                setPickerOpen(next);
-                if (!next) setSearchQuery("");
-              }}
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              disabled={save.isPending}
-            />
-            {repos.length === 0 ? (
-              <Text size="xs" className="text-(--amber-11)">
-                Keep at least one repository, or turn the source off instead.
+          {!canPickRepos ? (
+            <div className="flex flex-col gap-2">
+              <Text size="sm">
+                {initialRepos.length > 0
+                  ? initialRepos.join(", ")
+                  : "No repositories selected"}
               </Text>
-            ) : null}
-          </div>
+              <Text size="xs" variant="muted">
+                This source connects with a personal access token, so PostHog
+                can't tell which repositories the token reaches. Change them
+                from Data pipelines in PostHog.
+              </Text>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <GitHubRepoMultiPicker
+                value={repos}
+                onChange={setRepos}
+                repositories={pickerOpen ? visibleRepositories : repositories}
+                isLoading={
+                  isLoadingRepos || (pickerOpen && visibleRepositoriesLoading)
+                }
+                isLoadingMore={isFetchingMore}
+                hasMore={hasMore}
+                onLoadMore={loadMore}
+                open={pickerOpen}
+                onOpenChange={(next) => {
+                  setPickerOpen(next);
+                  if (!next) setSearchQuery("");
+                }}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                disabled={save.isPending}
+              />
+              {repos.length === 0 ? (
+                <Text size="xs" className="text-(--amber-11)">
+                  Keep at least one repository, or turn the source off instead.
+                </Text>
+              ) : null}
+            </div>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={save.isPending}>
-            Cancel
+            {canPickRepos ? "Cancel" : "Close"}
           </Button>
           <Button
             variant="primary"
             onClick={() => save.mutate()}
             loading={save.isPending}
             disabled={
+              !canPickRepos ||
               save.isPending ||
               repos.length === 0 ||
               (unchanged && !hasSchemasToEnable)
