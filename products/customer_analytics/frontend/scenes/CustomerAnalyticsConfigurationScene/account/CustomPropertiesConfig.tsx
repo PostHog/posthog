@@ -13,11 +13,12 @@ import {
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -27,6 +28,7 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
+import { CustomPropertySyncRuns } from './CustomPropertySyncRuns'
 import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
@@ -37,14 +39,23 @@ const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
 }
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { filteredDefinitions, definitionsLoading, searchTerm, targetTypeFilter } =
-        useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter } =
+    const { featureFlags } = useValues(featureFlagLogic)
+    const {
+        filteredDefinitions,
+        definitionsLoading,
+        searchTerm,
+        targetTypeFilter,
+        runsBySourceId,
+        runsLoadingBySourceId,
+        runsLoadFailedBySourceId,
+    } = useValues(customPropertyDefinitionsLogic)
+    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const accountSyncHistoryEnabled = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC]
 
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
@@ -123,7 +134,16 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ),
         },
         {
-            title: 'Sync',
+            title: accountSyncHistoryEnabled ? (
+                <span className="flex items-center gap-1">
+                    Sync
+                    <Tooltip title="Expand a warehouse-backed account property to see staging, retries, and account updates.">
+                        <IconInfo className="text-secondary" />
+                    </Tooltip>
+                </span>
+            ) : (
+                'Sync'
+            ),
             render: (_, definition) => {
                 if (definition.is_canonical) {
                     return <span className="text-secondary">Auto</span>
@@ -212,6 +232,28 @@ export function CustomPropertiesConfig(): JSX.Element {
                 loading={definitionsLoading}
                 rowKey="id"
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                expandable={{
+                    rowExpandable: (definition) =>
+                        accountSyncHistoryEnabled &&
+                        definition.target_type === 'account' &&
+                        !!definition.source?.saved_query,
+                    onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    expandedRowRender: (definition) =>
+                        definition.source ? (
+                            <CustomPropertySyncRuns
+                                runs={runsBySourceId[definition.source.id] ?? []}
+                                loading={runsLoadingBySourceId[definition.source.id] ?? false}
+                                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
+                                targetType="account"
+                                syncsUrl={
+                                    definition.source.saved_query
+                                        ? urls.sqlEditor({ view_id: definition.source.saved_query })
+                                        : null
+                                }
+                                onReload={() => definition.source && loadRuns({ sourceId: definition.source.id })}
+                            />
+                        ) : null,
+                }}
                 emptyState={
                     searchTerm || targetTypeFilter !== 'all'
                         ? 'No custom properties match your filters.'

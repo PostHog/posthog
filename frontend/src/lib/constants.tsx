@@ -529,6 +529,7 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WAREHOUSE_ACCOUNT_PROPERTIES_S3_SYNC: 'warehouse-account-properties-s3-sync', // owner: @arthurdedeus #team-customer-analytics, gates staged account-property sync and its run history
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BACK_NAVIGATION_RESET: 'web-analytics-back-navigation-reset', // owner: @jordanm-posthog #team-web-analytics

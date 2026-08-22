@@ -256,6 +256,7 @@ export interface customPropertyDefinitionsLogicValues {
     personPropertyDefinitionsLoading: boolean
     profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
+    runsLoadFailedBySourceId: Record<string, boolean>
     runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
@@ -647,11 +648,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 removeTriggeringSource: (state, { sourceId }) => state.filter((id) => id !== sourceId),
             },
         ],
-        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        // Sync run history per source, loaded lazily when a row is expanded.
         runsBySourceId: [
             {} as Record<string, CustomPropertySyncRunApi[]>,
             {
                 runsLoaded: (state, { sourceId, runs }) => ({ ...state, [sourceId]: runs }),
+            },
+        ],
+        runsLoadFailedBySourceId: [
+            {} as Record<string, boolean>,
+            {
+                loadRuns: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoaded: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoadFailed: (state, { sourceId }) => ({ ...state, [sourceId]: true }),
             },
         ],
         // Per-source loading flag so expanding one row's history doesn't spin every expanded row.
@@ -1331,7 +1340,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             } catch (error) {
                 posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadRuns' })
                 actions.runsLoadFailed({ sourceId })
-                lemonToast.error('Failed to load run history')
             }
         },
         pollRunsStatus: ({ sourceId }) => {

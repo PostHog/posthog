@@ -132,7 +132,7 @@ export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: stri
     if (run.rows_read === 0) {
         return {
             label: 'no new rows',
-            tooltip: `This sync imported no rows for the table, so there was nothing to map onto ${entityPlural}.`,
+            tooltip: `This run read no warehouse rows, so there was nothing to map onto ${entityPlural}.`,
         }
     }
     if (run.changed === 0) {
