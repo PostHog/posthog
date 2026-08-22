@@ -41,7 +41,7 @@ export function TaskAnalysisButton({ task }: { task: Task }) {
         toast.success(
           result.created
             ? "Analyzing this run. The report will appear on the analysis task."
-            : "This run was already analyzed. Opening the analysis.",
+            : "An analysis for this run already exists. Opening it.",
         );
         navigateToTaskDetail(result.analysis_task_id);
       },

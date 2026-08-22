@@ -8,7 +8,11 @@ exclusions, so exposing it to API callers would hand out free model access.
 """
 
 import uuid
+from datetime import timedelta
 from typing import Any
+
+from django.db.models import Q
+from django.utils import timezone as django_timezone
 
 import structlog
 
@@ -51,7 +55,14 @@ class TaskAnalysisError(Exception):
     """A task analysis could not be created; ``message`` is safe to surface to the caller."""
 
 
+# A live analysis older than this is presumed dead: the inactivity timeout is enforced by
+# the sandbox itself, so a run whose sandbox never booted (worker restart, dispatch failure)
+# would otherwise stay non-terminal forever and block re-analysis.
+STALE_LIVE_ANALYSIS_AGE = timedelta(minutes=30)
+
+
 def find_existing_analysis_task(*, team_id: int, target_run_id: str) -> Task | None:
+    live_cutoff = django_timezone.now() - STALE_LIVE_ANALYSIS_AGE
     run = (
         TaskRun.objects.filter(
             team_id=team_id,
@@ -59,8 +70,9 @@ def find_existing_analysis_task(*, team_id: int, target_run_id: str) -> Task | N
             state__analysis_target_run_id=str(target_run_id),
         )
         # A failed or cancelled analysis must not block re-analysis — dedupe only
-        # against analyses that produced (or may still produce) findings.
+        # against completed analyses and ones that may still produce findings.
         .exclude(status__in=[TaskRun.Status.FAILED, TaskRun.Status.CANCELLED])
+        .filter(Q(status=TaskRun.Status.COMPLETED) | Q(created_at__gte=live_cutoff))
         .select_related("task")
         .order_by("-created_at")
         .first()

@@ -13463,6 +13463,20 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
 
+    def test_stale_live_analysis_does_not_block_reanalysis(self):
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            first = self._analyze()
+            stuck_run = Task.objects.get(id=first.json()["analysis_task_id"]).latest_run
+            assert stuck_run is not None
+            # A sandbox that never boots leaves the run non-terminal forever; only
+            # its age can tell a dead run from a live one.
+            TaskRun.objects.filter(id=stuck_run.id).update(created_at=django_timezone.now() - timedelta(hours=1))
+            second = self._analyze()
+
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(second.json()["analysis_task_id"], first.json()["analysis_task_id"])
+
     def test_failed_analysis_does_not_block_reanalysis(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
         with read_p, write_p, tag_p, dispatch_p:
