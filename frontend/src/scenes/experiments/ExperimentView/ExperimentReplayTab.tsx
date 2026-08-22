@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -174,6 +174,17 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
     },
 ]
 
+/** Placeholder for the watching-scanners card while the lookup is in flight, so the tab doesn't
+ * flash the cross-sell banner before the card resolves. */
+function LinkedScannersSkeletonCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="mb-2 p-3" data-attr="experiment-recordings-linked-scanners-loading">
+            <LemonSkeleton className="h-5 w-64 mb-2" />
+            <LemonSkeleton className="h-4 w-full" repeat={2} />
+        </LemonCard>
+    )
+}
+
 /** The scanners already watching this experiment, one row each, with a link and a monthly count. */
 function LinkedScannersCard({
     scanners,
@@ -231,6 +242,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketError,
         sessionBucketRequest,
         linkedScanners,
+        linkedScannersLoading,
     } = useValues(logic)
     const {
         setSelectedVariantKey,
@@ -295,7 +307,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     return (
         <div data-attr="experiment-recordings-tab">
             {scannerCrossSellEnabled &&
-                (linkedScanners.length > 0 ? (
+                (linkedScannersLoading ? (
+                    <LinkedScannersSkeletonCard />
+                ) : linkedScanners.length > 0 ? (
                     <LinkedScannersCard
                         scanners={linkedScanners}
                         addAnotherUrl={scannerSetupUrl}

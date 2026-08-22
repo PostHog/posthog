@@ -973,6 +973,22 @@ describe('experimentReplayTabLogic', () => {
         withoutFlag.unmount()
     })
 
+    it('marks the scanners lookup loading while in flight, so the tab shows a skeleton not the banner', async () => {
+        // The skeleton branch keys off linkedScannersLoading. Without the loading flag, the tab would
+        // flash the cross-sell banner (linkedScanners is [] until the fetch resolves) before the card.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        let resolve: (value: unknown) => void = () => {}
+        ;(visionScannersList as jest.Mock).mockReturnValue(new Promise((r) => (resolve = r)))
+        const loadingLogic = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        loadingLogic.mount()
+
+        await expectLogic(loadingLogic).toMatchValues({ linkedScannersLoading: true })
+        resolve({ results: [] })
+        await expectLogic(loadingLogic).toFinishAllListeners().toMatchValues({ linkedScannersLoading: false })
+        loadingLogic.unmount()
+    })
+
     it('degrades to no back-link when the scanner lookup fails', async () => {
         // The tab must render even if the lookup errors, so the loader swallows to an empty list.
         logic.unmount()
