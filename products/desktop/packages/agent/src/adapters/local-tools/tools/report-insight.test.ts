@@ -1,0 +1,175 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const getTaskRun = vi.fn();
+const updateTaskRun = vi.fn();
+
+vi.mock("../../../signed-commit-artefacts", () => ({
+  createSandboxPosthogClient: () => ({ getTaskRun, updateTaskRun }),
+}));
+
+import { INSIGHTS_STATE_KEY, reportInsightTool } from "./report-insight";
+
+const TRANSCRIPT = [
+  "# Transcript (4 lines)",
+  "TOOL  execute: docker compose up -d postgres",
+  "      -> failed",
+  "USER  fix the pagination bug",
+].join("\n");
+
+function ctx(cwd: string) {
+  return { cwd, taskId: "task-1", taskRunId: "run-1" };
+}
+
+function validFinding(overrides: Record<string, unknown> = {}) {
+  return {
+    observation:
+      "The test suite was started three times; the first two attempts failed while the agent installed and started Postgres.",
+    evidence: [
+      {
+        quote: "TOOL  execute: docker compose up -d postgres",
+        evidence_type: "transcript_quote",
+      },
+    ],
+    occurrence_count: 2,
+    category: "environment_failure",
+    wasted_effort: { metric: "tool_calls", amount: 14 },
+    recurrence: "every_run_in_this_repo",
+    confidence_basis: "directly_observed",
+    suggested_fix: {
+      change:
+        "Have Postgres already running in this repo's sandbox before the agent starts working.",
+      done_when:
+        "The test suite passes on its first attempt in a fresh sandbox.",
+      required_services: ["postgres"],
+    },
+    ...overrides,
+  };
+}
+
+describe("reportInsightTool", () => {
+  let cwd: string;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    cwd = await mkdtemp(path.join(os.tmpdir(), "report-insight-"));
+    await writeFile(path.join(cwd, "transcript.md"), TRANSCRIPT);
+    getTaskRun.mockResolvedValue({ state: {} });
+    updateTaskRun.mockResolvedValue({});
+  });
+
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("is gated to cloud task_analysis runs", () => {
+    const meta = {
+      environment: "cloud" as const,
+      taskOriginProduct: "task_analysis",
+    };
+    expect(reportInsightTool.isEnabled(ctx(cwd), meta)).toBe(true);
+    expect(
+      reportInsightTool.isEnabled(ctx(cwd), {
+        ...meta,
+        taskOriginProduct: "user_created",
+      }),
+    ).toBe(false);
+    expect(
+      reportInsightTool.isEnabled(ctx(cwd), { ...meta, environment: "local" }),
+    ).toBe(false);
+  });
+
+  it("persists a verified finding to run state", async () => {
+    const result = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(result.isError).toBeUndefined();
+    const savedState = updateTaskRun.mock.calls[0][2].state;
+    const saved = savedState[INSIGHTS_STATE_KEY][0];
+    expect(saved.category).toBe("environment_failure");
+    expect(saved.schema_version).toBe(1);
+  });
+
+  it.each([
+    [
+      "quote not in transcript",
+      validFinding({
+        evidence: [
+          {
+            quote: "this text never appeared in the run at all",
+            evidence_type: "transcript_quote",
+          },
+        ],
+      }),
+      /not found in transcript\.md/,
+    ],
+    [
+      "other without justification",
+      validFinding({ category: "other", wasted_effort: undefined }),
+      /other_justification/,
+    ],
+    [
+      "env var value smuggled in",
+      validFinding({
+        suggested_fix: {
+          change:
+            "Provide the database credentials to the sandbox before the test suite starts running.",
+          done_when: "Tests pass on the first attempt in a fresh sandbox.",
+          env_var_names: ["DATABASE_URL=postgres://secret"],
+        },
+      }),
+      /names only/,
+    ],
+    [
+      "finding combined with no_findings_reason",
+      validFinding({ no_findings_reason: "run_was_efficient" }),
+      /cannot be combined/,
+    ],
+  ])("rejects %s with a coaching error", async (_name, args, message) => {
+    const result = await reportInsightTool.handler(ctx(cwd), args);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(message);
+    expect(updateTaskRun).not.toHaveBeenCalled();
+  });
+
+  it("enforces the per-run cap and the no-findings contradiction", async () => {
+    getTaskRun.mockResolvedValue({
+      state: {
+        [INSIGHTS_STATE_KEY]: Array(5).fill({ category: "missing_tool" }),
+      },
+    });
+    const capped = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(capped.isError).toBe(true);
+    expect(capped.content[0].text).toMatch(/cap/);
+
+    getTaskRun.mockResolvedValue({
+      state: {
+        [INSIGHTS_STATE_KEY]: [{ no_findings_reason: "run_was_efficient" }],
+      },
+    });
+    const contradictory = await reportInsightTool.handler(
+      ctx(cwd),
+      validFinding(),
+    );
+    expect(contradictory.isError).toBe(true);
+    expect(contradictory.content[0].text).toMatch(/contradictory/);
+  });
+
+  it("records a no-findings report once", async () => {
+    const result = await reportInsightTool.handler(ctx(cwd), {
+      no_findings_reason: "run_was_efficient",
+    });
+    expect(result.isError).toBeUndefined();
+    const savedState = updateTaskRun.mock.calls[0][2].state;
+    expect(savedState[INSIGHTS_STATE_KEY]).toEqual([
+      { schema_version: 1, no_findings_reason: "run_was_efficient" },
+    ]);
+  });
+
+  it("rejects a finding when the transcript is missing", async () => {
+    await rm(path.join(cwd, "transcript.md"));
+    const result = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/transcript\.md was not found/);
+  });
+});

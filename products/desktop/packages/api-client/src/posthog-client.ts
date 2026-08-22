@@ -3688,6 +3688,28 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Create (or return the existing) PostHog-funded analysis task for a run.
+   */
+  async analyzeTaskRun(
+    taskId: string,
+    runId: string,
+  ): Promise<{ analysis_task_id: string; created: boolean }> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      //@ts-expect-error this is not in the generated client
+      `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
+      {
+        path: {
+          project_id: teamId.toString(),
+          task_id: taskId,
+          id: runId,
+        },
+      },
+    );
+    return data as { analysis_task_id: string; created: boolean };
+  }
+
+  /**
    * Append events to a task run's S3 log file
    */
   async appendTaskRunLog(

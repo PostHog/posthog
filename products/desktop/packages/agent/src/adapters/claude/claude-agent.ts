@@ -2556,6 +2556,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
+    const taskOriginProduct =
+      typeof meta?.taskOriginProduct === "string"
+        ? meta.taskOriginProduct
+        : undefined;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2578,6 +2582,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           spokenNarration,
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+          taskOriginProduct,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};

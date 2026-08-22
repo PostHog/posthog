@@ -228,6 +228,8 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  /** Task origin product, for origin-gated local tools (e.g. task_analysis). */
+  taskOriginProduct?: string;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud
