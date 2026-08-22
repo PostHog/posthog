@@ -1528,6 +1528,7 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+  TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1715,6 +1716,11 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+  [ANALYTICS_EVENTS.TASK_ANALYSIS_REQUESTED]: {
+    task_id: string;
+    run_id: string;
+    created: boolean;
+  };
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;
