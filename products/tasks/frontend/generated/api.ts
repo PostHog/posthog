@@ -131,6 +131,7 @@ import type {
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksListParams,
+    TasksQueryRetrieveParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -2528,6 +2529,37 @@ export const tasksPinnedRetrieve = async (
     options?: RequestInit
 ): Promise<PinnedTaskIdsResponseApi> => {
     return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksQueryRetrieveUrl = (projectId: string, params: TasksQueryRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/query/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/query/`
+}
+
+/**
+ * Find tasks with the PostHog Desktop task query language.
+ * @summary Query tasks
+ */
+export const tasksQueryRetrieve = async (
+    projectId: string,
+    params: TasksQueryRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedTaskDetailDTOListApi> => {
+    return apiMutator<PaginatedTaskDetailDTOListApi>(getTasksQueryRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -5005,6 +5005,26 @@ export type TasksThreadMessagesListParams = {
     offset?: number
 }
 
+export type TasksQueryRetrieveParams = {
+    /**
+     * Maximum number of tasks to return. Defaults to 50 and cannot exceed 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Number of matching tasks to skip before returning results. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Task query text. Free text matches titles and descriptions. Filters use `key:value`; repeated statuses, people, spaces, repositories, origins, pull request states, and CI states are ORed, other filters are ANDed, and `-key:value` or `key:not:value` excludes results. Quote values that contain spaces. Supported keys are created-by, commented-by, mentions, involves, space, repo, status, origin, is, pr, and ci. Use @me for the current user.
+     * @minLength 1
+     * @maxLength 512
+     */
+    query: string
+}
+
 export type TasksRepositoryReadinessRetrieveParams = {
     refresh?: boolean
     /**

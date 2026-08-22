@@ -414,6 +414,45 @@ tools:
     tasks-models-retrieve:
         operation: tasks_models_retrieve
         enabled: false
+    tasks-query:
+        operation: tasks_query_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Query tasks
+        description: >
+            Find tasks with the same query language as PostHog Desktop's Command menu. Pass free text to search task
+            titles and descriptions, then add filters such as `created-by:@me`, `status:failed`, `-is:archived`,
+            `pr:open`, or `ci:failing`. Repeated statuses, people, spaces, repositories, origins, pull request states,
+            and CI states are ORed, other filters are ANDed, and quoted values can contain spaces. The `type:` and
+            `saved:` filters only control PostHog Desktop's interface. This tool does not support them.
+        include_params:
+            - query
+            - limit
+            - offset
+        feature_flag: tasks
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - channel
+                - created_by.first_name
+                - created_by.last_name
+                - latest_run.id
+                - latest_run.status
+                - created_at
+                - updated_at
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false

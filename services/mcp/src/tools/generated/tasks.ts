@@ -22,6 +22,7 @@ import {
     TaskChannelsRetrieveParams,
     TasksCreateBody,
     TasksListQueryParams,
+    TasksQueryRetrieveQueryParams,
     TasksRetrieveParams,
     TasksRunsListParams,
     TasksRunsListQueryParams,
@@ -581,6 +582,56 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
     },
 })
 
+const TasksQuerySchema = TasksQueryRetrieveQueryParams
+
+const tasksQuery = (): ToolBase<typeof TasksQuerySchema, WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>> => ({
+    name: 'tasks-query',
+    schema: TasksQuerySchema,
+    handler: async (context: Context, params: z.infer<typeof TasksQuerySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/query/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                query: params.query,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'task_number',
+                    'title',
+                    'description',
+                    'origin_product',
+                    'repository',
+                    'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
+                    'created_at',
+                    'updated_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/tasks/${item.id}`))
+                ),
+            },
+            '/tasks'
+        )
+    },
+})
+
 const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true })
 
 const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
@@ -707,6 +758,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-runs-retrieve': loopsRunsRetrieve,
     'tasks-create': tasksCreate,
     'tasks-list': tasksList,
+    'tasks-query': tasksQuery,
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,

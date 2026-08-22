@@ -242,6 +242,7 @@ export class ToolDomainExtractor {
         'patch',
         'pause',
         'publish',
+        'query',
         'record',
         'reset',
         'restore',

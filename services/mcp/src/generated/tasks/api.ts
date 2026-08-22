@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1238,4 +1238,45 @@ export const TasksRunsSessionLogsRetrieveQueryParams = /* @__PURE__ */ zod.objec
         .min(tasksRunsSessionLogsRetrieveQueryOffsetMin)
         .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
         .describe('Zero-based offset into the filtered log entries'),
+})
+
+/**
+ * Find tasks with the PostHog Desktop task query language.
+ * @summary Query tasks
+ */
+export const TasksQueryRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksQueryRetrieveQueryLimitDefault = 50
+export const tasksQueryRetrieveQueryLimitMax = 100
+
+export const tasksQueryRetrieveQueryOffsetDefault = 0
+export const tasksQueryRetrieveQueryOffsetMin = 0
+
+export const tasksQueryRetrieveQueryQueryMax = 512
+
+export const TasksQueryRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(tasksQueryRetrieveQueryLimitMax)
+        .default(tasksQueryRetrieveQueryLimitDefault)
+        .describe('Maximum number of tasks to return. Defaults to 50 and cannot exceed 100.'),
+    offset: zod
+        .number()
+        .min(tasksQueryRetrieveQueryOffsetMin)
+        .default(tasksQueryRetrieveQueryOffsetDefault)
+        .describe('Number of matching tasks to skip before returning results. Defaults to 0.'),
+    query: zod
+        .string()
+        .min(1)
+        .max(tasksQueryRetrieveQueryQueryMax)
+        .describe(
+            'Task query text. Free text matches titles and descriptions. Filters use `key:value`; repeated statuses, people, spaces, repositories, origins, pull request states, and CI states are ORed, other filters are ANDed, and `-key:value` or `key:not:value` excludes results. Quote values that contain spaces. Supported keys are created-by, commented-by, mentions, involves, space, repo, status, origin, is, pr, and ci. Use @me for the current user.'
+        ),
 })

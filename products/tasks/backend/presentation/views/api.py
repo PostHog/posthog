@@ -124,6 +124,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
+    TaskQuerySerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAnalysisInsightRequestSerializer,
     TaskRunAnalysisInsightResponseSerializer,
@@ -182,6 +183,7 @@ from products.tasks.backend.presentation.serializers import (
     WarmTaskResponseSerializer,
     WizardCloudRunSerializer,
 )
+from products.tasks.backend.task_query import TaskQueryError
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -442,6 +444,39 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             bypass_visibility=_can_bypass_visibility(request, self.team_id),
         )
         return Response(TaskSearchResultSerializer(results, many=True).data)
+
+    @extend_schema(operation_id="tasks_query_retrieve")
+    @validated_request(
+        query_serializer=TaskQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer(many=True), description="Tasks matching the query"),
+        },
+        summary="Query tasks",
+        description="Find tasks with the PostHog Desktop task query language.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="query",
+        required_scopes=["task:read"],
+        filter_backends=[],
+        pagination_class=TasksPagination,
+    )
+    def query(self, request, *args, **kwargs):
+        try:
+            tasks = tasks_facade.query_tasks_queryset(
+                self.team_id,
+                self.team.organization_id,
+                self._user_id(),
+                query=request.validated_query_data["query"],
+            )
+        except TaskQueryError as error:
+            raise ValidationError({"query": str(error)}) from error
+        page = self.paginate_queryset(tasks)
+        assert page is not None, "TaskViewSet query requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},

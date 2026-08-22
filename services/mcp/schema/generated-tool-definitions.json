@@ -10358,6 +10358,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-query": {
+        "description": "Find tasks with the same query language as PostHog Desktop's Command menu. Pass free text to search task titles and descriptions, then add filters such as `created-by:@me`, `status:failed`, `-is:archived`, `pr:open`, or `ci:failing`. Repeated statuses, people, spaces, repositories, origins, pull request states, and CI states are ORed, other filters are ANDed, and quoted values can contain spaces. The `type:` and `saved:` filters only control PostHog Desktop's interface. This tool does not support them.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Query tasks",
+        "title": "Query tasks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-retrieve": {
         "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
         "category": "Tasks",

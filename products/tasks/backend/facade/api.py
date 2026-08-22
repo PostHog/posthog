@@ -125,6 +125,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.task_query import filter_tasks_by_query
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
@@ -5233,6 +5234,27 @@ def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDe
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+
+
+def query_tasks_queryset(
+    team_id: int,
+    organization_id: UUID,
+    user_id: int | None,
+    *,
+    query: str,
+) -> QuerySet[Task]:
+    tasks = _list_tasks_queryset(
+        team_id,
+        user_id,
+        filters={"internal": "false", "archived": "all"},
+    )
+    return filter_tasks_by_query(
+        tasks,
+        query=query,
+        team_id=team_id,
+        organization_id=organization_id,
+        user_id=user_id,
+    )
 
 
 def search_tasks(

@@ -178,6 +178,11 @@ class TestTaskListFilterMatrix(TestCase):
         assert response.status_code == http_status.HTTP_200_OK, json.dumps(response.json())
         return {t["id"] for t in response.json()["results"]}
 
+    def _query(self, query: str) -> set[str]:
+        response = self.client.get("/api/projects/@current/tasks/query/", {"query": query})
+        assert response.status_code == http_status.HTTP_200_OK, json.dumps(response.json())
+        return {task["id"] for task in response.json()["results"]}
+
     def _ids(self, *keys: str) -> set[str]:
         return {str(self.tasks[key].id) for key in keys}
 
@@ -255,6 +260,39 @@ class TestTaskListFilterMatrix(TestCase):
 
     def test_search(self):
         assert self._list(search="billing") == self._ids("peter_mention_me", "peter_plain")
+
+    @parameterized.expand(
+        [
+            (
+                "creator_and_negated_status",
+                "created-by:peter -status:failed",
+                ["peter_plain", "peter_slack_mention_me", "peter_i_commented", "peter_legacy_mention"],
+            ),
+            (
+                "current_user_mention_and_origin_alias",
+                "mentions:@me origin:desktop status:failed",
+                ["peter_mention_me"],
+            ),
+            (
+                "pull_request_absence",
+                "pr:none",
+                [
+                    "peter_slack_mention_me",
+                    "adam_mention_peter",
+                    "scout_in_channel",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+            ("archived", "is:archived", ["mine_archived"]),
+        ]
+    )
+    def test_query(self, _name: str, query: str, expected: list[str]) -> None:
+        assert self._query(query) == self._ids(*expected)
+
+    def test_query_rejects_unknown_teammate(self) -> None:
+        response = self.client.get("/api/projects/@current/tasks/query/", {"query": "created-by:nobody"})
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
 
     def test_mentions_me_by_peter_user_created(self):
         # The feed query `mentions:@me origin:user_created created-by:peter`.

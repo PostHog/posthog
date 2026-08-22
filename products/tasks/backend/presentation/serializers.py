@@ -1903,6 +1903,33 @@ class TaskListQuerySerializer(serializers.Serializer):
     )
 
 
+class TaskQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        min_length=1,
+        max_length=512,
+        help_text=(
+            "Task query text. Free text matches titles and descriptions. Filters use `key:value`; repeated statuses, "
+            "people, spaces, repositories, origins, pull request states, and CI states are ORed, other filters are "
+            "ANDed, and `-key:value` or `key:not:value` excludes results. Quote values that contain spaces. "
+            "Supported keys are created-by, commented-by, mentions, involves, "
+            "space, repo, status, origin, is, pr, and ci. Use @me for the current user."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum number of tasks to return. Defaults to 50 and cannot exceed 100.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of matching tasks to skip before returning results. Defaults to 0.",
+    )
+
+
 class TaskSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(min_length=1, max_length=512, help_text="Text or exact identifier to search for.")
     limit = serializers.IntegerField(
