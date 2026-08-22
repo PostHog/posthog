@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
@@ -13,6 +14,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 export function RecentFeatureFlagInsights(): JSX.Element {
     const { relatedInsights, relatedInsightsLoading, featureFlag } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const [creatingInsight, setCreatingInsight] = useState(false)
     const query: InsightVizNode = {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -34,7 +36,10 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                 description: "Create an insight with this flag's breakdown to see it here.",
                 buttonText: 'Create insight',
                 buttonTo: urls.insightNew({ query }),
+                buttonDataAttr: 'feature-flag-related-insights-create-insight',
+                buttonLoading: creatingInsight,
                 buttonOnClick: () => {
+                    setCreatingInsight(true)
                     addProductIntentForCrossSell({
                         from: ProductKey.FEATURE_FLAGS,
                         to: ProductKey.PRODUCT_ANALYTICS,
