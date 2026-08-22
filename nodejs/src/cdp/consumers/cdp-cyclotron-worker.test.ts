@@ -560,7 +560,10 @@ describe('CdpCyclotronWorker', () => {
 
                 await new Promise((resolve) => setTimeout(resolve, 1))
 
-                expect(longestDelay).toBeLessThan(300) // Rough upper bound of the hog exec limiter
+                // Without relief the main thread blocks for the whole batch (~blockTime * numberToTest).
+                // Relief limits the longest stall to about one exec window. Half of the unrelieved time
+                // still fails if the yield breaks, but it tolerates CI CPU jitter.
+                expect(longestDelay).toBeLessThan((blockTime * numberToTest) / 2)
             })
         })
     })
