@@ -6,7 +6,7 @@ import {
 } from "@posthog/shared";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
+import { GitHubRepoMultiPicker } from "@posthog/ui/features/folder-picker/GitHubRepoMultiPicker";
 import { DynamicSourceSetup } from "@posthog/ui/features/inbox/components/DynamicSourceSetup";
 import { GithubInstallRequestsBanner } from "@posthog/ui/features/integrations/components/GithubInstallRequestsBanner";
 import {
@@ -97,7 +97,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
     hasMore: visibleRepositoriesHasMore,
     loadMore: loadMoreVisibleRepositories,
   } = useGithubRepositories(repoPickerSearchQuery, isRepoPickerOpen);
-  const [repo, setRepo] = useState<string | null>(null);
+  const [repos, setRepos] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const {
     error: connectError,
@@ -110,33 +110,34 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
     projectId,
     projectHasTeamIntegration: hasGithubIntegration,
   });
-  const selectedIntegrationId = repo
-    ? getIntegrationIdForRepo(repo)
+  // One warehouse source syncs through one installation, so every picked repo has to resolve to
+  // the same team integration; the first repo decides which.
+  const selectedIntegrationId = repos[0]
+    ? getIntegrationIdForRepo(repos[0])
     : undefined;
+  const mixedInstallations = repos.some(
+    (repo) => getIntegrationIdForRepo(repo) !== selectedIntegrationId,
+  );
 
   useEffect(() => {
-    if (isLoadingRepos || !repo || repositories.includes(repo)) {
-      return;
+    if (isLoadingRepos) return;
+    const known = repos.filter((repo) => repositories.includes(repo));
+    if (known.length !== repos.length) {
+      setRepos(known);
     }
-
-    setRepo(null);
-  }, [isLoadingRepos, repo, repositories]);
-
-  useEffect(() => {
-    if (repo === null && repositories.length > 0) {
-      setRepo(repositories[0]);
-    }
-  }, [repo, repositories]);
+  }, [isLoadingRepos, repos, repositories]);
 
   const handleSubmit = useCallback(async () => {
-    if (!projectId || !client || !repo || !selectedIntegrationId) return;
+    if (!projectId || !client || repos.length === 0 || !selectedIntegrationId) {
+      return;
+    }
 
     setLoading(true);
     try {
       await client.createExternalDataSource(projectId, {
         source_type: "Github",
         payload: {
-          repository: repo,
+          repositories: repos,
           auth_method: {
             selection: "oauth",
             github_integration_id: selectedIntegrationId,
@@ -153,7 +154,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
     } finally {
       setLoading(false);
     }
-  }, [projectId, client, onComplete, repo, selectedIntegrationId]);
+  }, [projectId, client, onComplete, repos, selectedIntegrationId]);
 
   const handleRefreshRepositories = useCallback(() => {
     void refreshRepositories()
@@ -239,27 +240,41 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
   return (
     <SetupFormContainer title="Connect GitHub">
       <Flex direction="column" gap="3">
-        <GitHubRepoPicker
-          value={repo}
-          onChange={setRepo}
+        <Text className="text-gray-11 text-sm">
+          Pick the repositories whose issues should feed Self-driving. You can
+          add or remove repositories later.
+        </Text>
+        <GitHubRepoMultiPicker
+          value={repos}
+          onChange={setRepos}
           repositories={isRepoPickerOpen ? visibleRepositories : repositories}
           isLoading={
             isLoadingRepos || (isRepoPickerOpen && visibleRepositoriesLoading)
           }
           isLoadingMore={visibleRepositoriesFetchingMore}
-          isRefreshing={isRefreshingRepos}
-          onRefresh={handleRefreshRepositories}
+          hasMore={visibleRepositoriesHasMore}
+          onLoadMore={loadMoreVisibleRepositories}
           open={isRepoPickerOpen}
           onOpenChange={handleRepoPickerOpenChange}
           searchQuery={repoPickerSearchQuery}
           onSearchQueryChange={handleRepoPickerSearchChange}
-          hasMore={visibleRepositoriesHasMore}
-          onLoadMore={loadMoreVisibleRepositories}
-          placeholder="Select repository..."
-          size="2"
         />
+        {mixedInstallations ? (
+          <Text className="text-(--amber-11) text-sm">
+            Pick repositories from one GitHub installation per source.
+          </Text>
+        ) : null}
 
         <Flex gap="2" justify="end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshRepositories}
+            disabled={isRefreshingRepos}
+          >
+            {isRefreshingRepos ? "Refreshing…" : "Refresh repositories"}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -274,7 +289,12 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
             variant="primary"
             size="sm"
             onClick={handleSubmit}
-            disabled={!repo || !selectedIntegrationId || loading}
+            disabled={
+              repos.length === 0 ||
+              !selectedIntegrationId ||
+              mixedInstallations ||
+              loading
+            }
           >
             {loading ? "Creating..." : "Create source"}
           </Button>

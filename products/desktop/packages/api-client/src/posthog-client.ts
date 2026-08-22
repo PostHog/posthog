@@ -576,6 +576,8 @@ export interface ExternalDataSource {
   // The generated `ExternalDataSourceSerializers` types this as `string`,
   // but the actual API returns an array of schema objects
   schemas?: ExternalDataSourceSchema[] | string;
+  /** Non-secret connection settings, e.g. a GitHub source's `repositories`. */
+  job_inputs?: Record<string, unknown> | null;
 }
 
 /**
@@ -2250,6 +2252,36 @@ export class PostHogAPIClient {
       throw new Error(
         errorData.detail ??
           `Failed to create external data source: ${response.statusText}`,
+      );
+    }
+    return response.data as unknown as ExternalDataSource;
+  }
+
+  /**
+   * `PATCH .../external_data_sources/{id}/`. `job_inputs` merges into the stored inputs, so
+   * changing a GitHub source's repositories only needs `{ repositories: [...] }`.
+   */
+  async updateExternalDataSource(
+    projectId: number,
+    sourceId: string,
+    payload: { job_inputs: Record<string, unknown> },
+  ): Promise<ExternalDataSource> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        body: payload as unknown as Schemas.PatchedExternalDataSourceSerializers,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data source: ${response.statusText}`,
       );
     }
     return response.data as unknown as ExternalDataSource;
