@@ -186,7 +186,7 @@ export function GitHubIntegrationSection({
               >
                 Manage
               </Button>
-            ) : showAdminHandoff ? null : (
+            ) : showAdminHandoff || awaitingApproval ? null : (
               <Button
                 type="button"
                 variant="outline"
