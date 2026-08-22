@@ -63,6 +63,8 @@ export interface supportSettingsLogicValues {
     domainInputValue: string
     editingDomainIndex: number | null
     emailConfigs: EmailConfigStatus[]
+    emailConfigsError: boolean
+    emailConfigsLoading: boolean
     emailConnected: boolean
     emailConnecting: boolean
     emailTestingConfigId: string | null
@@ -225,6 +227,9 @@ export interface supportSettingsLogicActions {
     }
     loadEmailConfigsDone: (configs: EmailConfigStatus[]) => {
         configs: EmailConfigStatus[]
+    }
+    loadEmailConfigsFailed: () => {
+        value: true
     }
     loadGithubIntegrations: () => any
     loadGithubIntegrationsFailure: (
@@ -637,6 +642,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
+        loadEmailConfigsFailed: true,
         setAddEmailFormVisible: (visible: boolean) => ({ visible }),
         setNewEmailFromEmail: (value: string) => ({ value }),
         setNewEmailFromName: (value: string) => ({ value }),
@@ -768,6 +774,22 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                             : c
                     )
                 },
+            },
+        ],
+        emailConfigsLoading: [
+            false,
+            {
+                loadEmailConfigs: () => true,
+                loadEmailConfigsDone: () => false,
+                loadEmailConfigsFailed: () => false,
+            },
+        ],
+        emailConfigsError: [
+            false,
+            {
+                loadEmailConfigs: () => false,
+                loadEmailConfigsDone: () => false,
+                loadEmailConfigsFailed: () => true,
             },
         ],
         addEmailFormVisible: [
@@ -1372,7 +1394,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 const response = await api.get('api/conversations/v1/email/status')
                 actions.loadEmailConfigsDone(response.configs || [])
             } catch {
-                actions.loadEmailConfigsDone([])
+                // Flag the failure instead of degrading to an empty list. An empty list reads as
+                // "no email channels connected", which hides a broken fetch and leaves selects
+                // that build their options from it looking like dead controls.
+                actions.loadEmailConfigsFailed()
             }
         },
         connectEmail: async () => {

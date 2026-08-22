@@ -190,10 +190,15 @@ export function HogFunctionFilters({
     }
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
-    const showSourcePicker =
-        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled || cdpDwhViewSourceEnabled) &&
-        type === 'destination' &&
-        !useMapping
+    const sourceOptions = [
+        { value: 'events', label: 'Events' },
+        ...(cdpPersonUpdatesEnabled ? [{ value: 'person-updates', label: 'Person updates' }] : []),
+        ...(cdpDwhTableSourceEnabled ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }] : []),
+        ...(cdpDwhViewSourceEnabled ? [{ value: 'data-warehouse-view', label: 'Materialized view' }] : []),
+    ]
+    // Only offer the picker when a real alternative exists. With one option it opens to its own
+    // value and reads as a dead control.
+    const showSourcePicker = sourceOptions.length > 1 && type === 'destination' && !useMapping
     const showEventMatchers = !useMapping && (isDataWarehouse || (filterSource ?? 'events') === 'events')
 
     const mainContent = (
@@ -224,18 +229,7 @@ export function HogFunctionFilters({
                     {({ value, onChange }) => {
                         return (
                             <LemonSelect
-                                options={[
-                                    { value: 'events', label: 'Events' },
-                                    ...(cdpPersonUpdatesEnabled
-                                        ? [{ value: 'person-updates', label: 'Person updates' }]
-                                        : []),
-                                    ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
-                                        : []),
-                                    ...(cdpDwhViewSourceEnabled
-                                        ? [{ value: 'data-warehouse-view', label: 'Materialized view' }]
-                                        : []),
-                                ]}
+                                options={sourceOptions}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
                                     onChange({ ...value, source: val })

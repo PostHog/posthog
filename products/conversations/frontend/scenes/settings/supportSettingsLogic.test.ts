@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -74,6 +75,18 @@ describe('supportSettingsLogic', () => {
             expect(logic.values.emailConfigs.map((c) => ({ id: c.id, is_default: c.is_default }))).toEqual([
                 { id: 'b', is_default: true },
             ])
+        })
+    })
+
+    describe('email configs load failure', () => {
+        it('flags an error instead of degrading to an empty list', async () => {
+            jest.spyOn(api, 'get').mockRejectedValue(new Error('boom'))
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEmailConfigsFailed'])
+
+            expect(logic.values.emailConfigsError).toBe(true)
+            expect(logic.values.emailConfigs).toEqual([])
         })
     })
 
