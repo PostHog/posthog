@@ -161,8 +161,8 @@ class TestQualityGateBranching:
             "job-1",
             materialize_result,
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
-            None,  # succeed
-            None,  # dispatch
+            None,
+            None,
         ]
         start_child = AsyncMock()
 
@@ -181,8 +181,6 @@ class TestQualityGateBranching:
         ]
 
     async def test_the_isolated_staging_child_wins_when_both_markers_are_present(self):
-        # A new execution records both markers; the staging-workflow marker takes precedence, so the
-        # legacy dispatch command must never be emitted alongside it.
         materialize_result = dataclasses.replace(
             _materialize_result("skip"),
             account_property_sync_enabled=True,
@@ -193,7 +191,7 @@ class TestQualityGateBranching:
             "job-1",
             materialize_result,
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
-            None,  # succeed
+            None,
         ]
         start_child = AsyncMock()
 

@@ -81,8 +81,6 @@ from products.warehouse_sources.backend.facade.hooks import (
 # warn-mode suite child.
 QUALITY_AUDIT_PATCH = "data-quality-audit-2026-08"
 ACCOUNT_PROPERTY_S3_SYNC_PATCH = "account-property-s3-sync-2026-08"
-# The isolated staging child replaces the inline dispatch that ACCOUNT_PROPERTY_S3_SYNC_PATCH
-# recorded. A new marker lets histories that already recorded the dispatch command keep replaying it.
 ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH = "account-property-staging-workflow-2026-08"
 
 # Covers the CDP producer child and the staging-cleanup activity. Both are new commands, so a
@@ -393,7 +391,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 if temporalio.workflow.patched(ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH):
                     await self._maybe_stage_account_properties(inputs, materialize_result, job_id)
                 elif temporalio.workflow.patched(ACCOUNT_PROPERTY_S3_SYNC_PATCH):
-                    await self._maybe_sync_account_properties(inputs, materialize_result, job_id)
+                    await self._replay_account_property_dispatch(inputs, materialize_result, job_id)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
@@ -638,18 +636,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 extra={"job_id": job_id, "error": str(e)},
             )
 
-    async def _maybe_sync_account_properties(
+    async def _replay_account_property_dispatch(
         self,
         inputs: MaterializeViewWorkflowInputs,
         materialize_result: MaterializeViewResult,
         job_id: str,
     ) -> None:
-        """Legacy inline dispatch, kept only so histories that recorded it replay deterministically.
-
-        New executions take the isolated staging child in ``_maybe_stage_account_properties``; this
-        path fires only when a history carries ACCOUNT_PROPERTY_S3_SYNC_PATCH but not the newer
-        staging-workflow marker.
-        """
         if not materialize_result.account_property_sync_enabled:
             return
         await temporalio.workflow.execute_activity(

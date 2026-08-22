@@ -1,11 +1,14 @@
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     DispatchAccountPropertySyncInput,
@@ -76,6 +79,43 @@ async def test_staging_workflow_stops_when_no_sources_remain() -> None:
         await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
 
     execute_activity.assert_awaited_once()
+
+
+async def test_staging_and_dispatch_recover_from_transient_activity_failures() -> None:
+    attempts: list[tuple[str, int]] = []
+
+    @activity.defn(name="stage-warehouse-account-property-files")
+    async def stage_files(_input: StageAccountPropertySyncInput) -> bool:
+        attempt = activity.info().attempt
+        attempts.append(("stage", attempt))
+        if attempt == 1:
+            raise RuntimeError("staging temporarily unavailable")
+        return True
+
+    @activity.defn(name="dispatch-warehouse-account-property-sync")
+    async def dispatch(_input: DispatchAccountPropertySyncInput) -> None:
+        attempt = activity.info().attempt
+        attempts.append(("dispatch", attempt))
+        if attempt == 1:
+            raise RuntimeError("Temporal temporarily unavailable")
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=task_queue,
+            workflows=[StageWarehouseAccountPropertiesWorkflow],
+            activities=[stage_files, dispatch],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await environment.client.execute_workflow(
+                StageWarehouseAccountPropertiesWorkflow.run,
+                _staging_input(),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert attempts == [("stage", 1), ("stage", 2), ("dispatch", 1), ("dispatch", 2)]
 
 
 async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -> None:
