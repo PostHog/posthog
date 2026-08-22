@@ -5,11 +5,6 @@ import {
   Spinner,
   Stack,
 } from "@phosphor-icons/react";
-import {
-  modelPriceTier,
-  modelPriceTierLabel,
-  modelPriceTierMarker,
-} from "@posthog/core/billing/modelPriceTiers";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -31,6 +26,10 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import {
+  ModelCostChip,
+  ModelCostFooter,
+} from "@posthog/ui/features/sessions/components/ModelCostChip";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
 import { useState } from "react";
 
@@ -209,32 +208,18 @@ export function PiModelSelector({
                 }
               }}
             >
-              {models.map((model) => {
-                const tier = modelPriceTier(model.id);
-                return (
-                  <DropdownMenuRadioItem
-                    key={modelKey(model)}
-                    value={modelKey(model)}
-                    closeOnClick={false}
-                  >
-                    <span className="whitespace-nowrap">
-                      {modelLabel(model)}
-                    </span>
-                    {tier !== null && (
-                      // Presentational so the item's accessible name stays the
-                      // model name; the title carries the meaning.
-                      <span
-                        className="ml-auto pl-3 text-[10px] text-muted-foreground tracking-tight"
-                        title={modelPriceTierLabel(tier)}
-                        aria-hidden="true"
-                      >
-                        {modelPriceTierMarker(tier)}
-                      </span>
-                    )}
-                  </DropdownMenuRadioItem>
-                );
-              })}
+              {models.map((model) => (
+                <DropdownMenuRadioItem
+                  key={modelKey(model)}
+                  value={modelKey(model)}
+                  closeOnClick={false}
+                >
+                  <span className="whitespace-nowrap">{modelLabel(model)}</span>
+                  <ModelCostChip modelId={model.id} />
+                </DropdownMenuRadioItem>
+              ))}
             </DropdownMenuRadioGroup>
+            <ModelCostFooter />
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {thinkingLevel &&

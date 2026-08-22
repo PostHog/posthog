@@ -5,8 +5,13 @@ import {
   type SpendLimitCrossing,
   spendLimitNoticeKey,
   spendTotalsFromDays,
+  utcDayIso,
 } from "@posthog/core/billing/spendLimits";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import {
+  fetchSpendWindow,
+  SPEND_TOTALS_QUERY_KEY,
+} from "@posthog/ui/features/billing/useSpendTotals";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
@@ -15,10 +20,6 @@ import { useEffect } from "react";
 import { toast } from "../../primitives/toast";
 
 const POLL_INTERVAL_MS = 5 * 60_000;
-// Matches the spend analysis page scope so lines and charts agree.
-const CODE_PRODUCT = "posthog_code";
-// 30 UTC calendar days including today: always covers the current month.
-const DATE_FROM = "-29dStart";
 
 /**
  * Watches the user's personal spend in this app against their configured
@@ -32,13 +33,10 @@ export function useSpendGuardrails(): void {
   const anyLimit = hasAnySpendLimit(spendLimits);
 
   const query = useQuery({
-    queryKey: ["billing", "spend-guardrails"],
+    queryKey: SPEND_TOTALS_QUERY_KEY,
     queryFn: () => {
       if (!client) throw new Error("Not authenticated");
-      return client.getPersonalSpendAnalysis({
-        dateFrom: DATE_FROM,
-        product: CODE_PRODUCT,
-      });
+      return fetchSpendWindow(client);
     },
     enabled: client !== null && spendAnalysisEnabled && anyLimit,
     refetchInterval: POLL_INTERVAL_MS,
@@ -49,7 +47,7 @@ export function useSpendGuardrails(): void {
 
   useEffect(() => {
     if (!days) return;
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = utcDayIso();
     const totals = spendTotalsFromDays(days, todayIso);
     const crossings = evaluateSpendLimits(spendLimits, totals, todayIso);
     // Read seen-state imperatively: marking a notice seen must not re-run
@@ -74,15 +72,15 @@ function showSpendNotice(crossing: SpendLimitCrossing): void {
     onClick: () => openSettings("plan-usage"),
   };
 
-  // Both levels are warnings, not errors: nothing failed and nothing stops.
-  // The alert line stays on screen until dismissed; the warning self-dismisses.
-  if (crossing.level === "alert") {
+  // Warning toasts self-dismiss; the stop notice stays until dismissed.
+  // Neither is an error toast: nothing failed, the stop is the user's own.
+  if (crossing.level === "stop") {
     toast.warning(
-      `${periodLabel} spend passed your ${formatUsd(crossing.limitUsd)} alert line`,
+      `${periodLabel} spend passed your ${formatUsd(crossing.limitUsd)} stop line`,
       {
-        id: `spend-limit-${crossing.period}-alert`,
-        description,
-        action,
+        id: `spend-limit-${crossing.period}-stop`,
+        description: `New agent messages are paused until you raise or clear the line.`,
+        action: { label: "Adjust limits", onClick: action.onClick },
         duration: Number.POSITIVE_INFINITY,
       },
     );

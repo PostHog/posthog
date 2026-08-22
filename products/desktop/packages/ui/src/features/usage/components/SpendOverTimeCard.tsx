@@ -151,7 +151,7 @@ function SpendTooltip({
 
 /** The user's daily spend lines as chart goal lines on the daily axis. */
 export function spendLimitGoalLines(
-  limits: Pick<SpendLimits, "dailyWarnUsd" | "dailyAlertUsd">,
+  limits: Pick<SpendLimits, "dailyWarnUsd" | "dailyStopUsd">,
 ): GoalLineConfig[] {
   const lines: GoalLineConfig[] = [];
   if (limits.dailyWarnUsd !== null) {
@@ -161,10 +161,10 @@ export function spendLimitGoalLines(
       color: "var(--amber-9)",
     });
   }
-  if (limits.dailyAlertUsd !== null) {
+  if (limits.dailyStopUsd !== null) {
     lines.push({
-      value: limits.dailyAlertUsd,
-      label: `Alert ${formatUsd(limits.dailyAlertUsd)}`,
+      value: limits.dailyStopUsd,
+      label: `Stop ${formatUsd(limits.dailyStopUsd)}`,
       color: "var(--red-9)",
     });
   }

@@ -7,6 +7,7 @@ describe("parseSpendLimitField", () => {
     ["   ", { ok: true, value: null }],
     ["20", { ok: true, value: 20 }],
     ["$20", { ok: true, value: 20 }],
+    ["8,950", { ok: true, value: 8950 }],
     ["12.345", { ok: true, value: 12.35 }],
     ["0", { ok: false }],
     ["-5", { ok: false }],

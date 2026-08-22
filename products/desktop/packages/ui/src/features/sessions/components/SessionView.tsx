@@ -12,6 +12,10 @@ import {
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
@@ -178,6 +182,7 @@ export function SessionView({
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions, warnOnMidSessionModelSwitch } =
     useSettingsStore();
+  const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
@@ -238,6 +243,8 @@ export function SessionView({
     configId: string;
     value: string;
     label: string;
+    fromValue: string;
+    fromLabel: string;
   } | null>(null);
 
   const handleConfigOptionChange = useCallback(
@@ -250,11 +257,17 @@ export function SessionView({
         sessionModelOption.id === configId &&
         sessionModelOption.currentValue !== value;
       if (isMidSessionModelSwitch) {
-        const label =
-          flattenSelectOptions(sessionModelOption.options).find(
-            (option) => option.value === value,
-          )?.name ?? value;
-        setPendingModelSwitch({ configId, value, label });
+        const modelOptions = flattenSelectOptions(sessionModelOption.options);
+        const nameOf = (modelValue: string) =>
+          modelOptions.find((option) => option.value === modelValue)?.name ??
+          modelValue;
+        setPendingModelSwitch({
+          configId,
+          value,
+          label: nameOf(value),
+          fromValue: sessionModelOption.currentValue,
+          fromLabel: nameOf(sessionModelOption.currentValue),
+        });
         return;
       }
       sessionService.setSessionConfigOption(taskId, configId, value);
@@ -789,7 +802,8 @@ export function SessionView({
                             handoffInProgress ||
                             !isOnline ||
                             attachmentsUploading ||
-                            attachmentUploadFailed
+                            attachmentUploadFailed ||
+                            spendStop !== null
                           }
                           clearOnSubmit={false}
                           submitTooltipOverride={
@@ -799,7 +813,9 @@ export function SessionView({
                                 ? "Uploading attachments…"
                                 : attachmentUploadFailed
                                   ? "Attachment upload failed"
-                                  : undefined
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                           }
                           isLoading={!!isPromptPending}
                           isActiveSession={isActiveSession}
@@ -860,6 +876,9 @@ export function SessionView({
       </ContextMenu.Trigger>
       <ModelSwitchCacheDialog
         open={pendingModelSwitch !== null}
+        fromModelId={pendingModelSwitch?.fromValue ?? ""}
+        fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
+        toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
         onConfirm={() => {
           if (taskId && pendingModelSwitch) {

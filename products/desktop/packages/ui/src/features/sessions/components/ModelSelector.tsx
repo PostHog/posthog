@@ -21,6 +21,7 @@ import {
 } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import {
@@ -142,6 +143,7 @@ export function ModelSelector({
             ))}
           </DropdownMenuRadioGroup>
         )}
+        <ModelCostFooter />
       </DropdownMenuContent>
     </DropdownMenu>
   );

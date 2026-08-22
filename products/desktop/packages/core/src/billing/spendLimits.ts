@@ -6,19 +6,19 @@ import type { SpendAnalysisDayRow } from "@posthog/api-client/spend-analysis";
  */
 export interface SpendLimits {
   dailyWarnUsd: number | null;
-  dailyAlertUsd: number | null;
+  dailyStopUsd: number | null;
   monthlyWarnUsd: number | null;
-  monthlyAlertUsd: number | null;
+  monthlyStopUsd: number | null;
 }
 
 export const EMPTY_SPEND_LIMITS: SpendLimits = {
   dailyWarnUsd: null,
-  dailyAlertUsd: null,
+  dailyStopUsd: null,
   monthlyWarnUsd: null,
-  monthlyAlertUsd: null,
+  monthlyStopUsd: null,
 };
 
-export type SpendLimitLevel = "warn" | "alert";
+export type SpendLimitLevel = "warn" | "stop";
 export type SpendLimitPeriod = "day" | "month";
 
 export interface SpendLimitCrossing {
@@ -33,15 +33,81 @@ export interface SpendLimitCrossing {
 export function hasAnySpendLimit(limits: SpendLimits): boolean {
   return (
     limits.dailyWarnUsd !== null ||
-    limits.dailyAlertUsd !== null ||
+    limits.dailyStopUsd !== null ||
     limits.monthlyWarnUsd !== null ||
-    limits.monthlyAlertUsd !== null
+    limits.monthlyStopUsd !== null
   );
 }
 
 export interface SpendTotals {
   todayUsd: number;
   monthUsd: number;
+}
+
+/** The UTC calendar day (`YYYY-MM-DD`) the spend endpoint's rows align to. */
+export function utcDayIso(date: Date = new Date()): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Mean spend per calendar day over the fetched window, zero days included,
+ * so the average reflects how the person actually spends across a week.
+ */
+export function averageDailySpend(
+  days: Pick<SpendAnalysisDayRow, "cost_usd">[],
+  windowDays: number,
+): number {
+  if (windowDays <= 0) return 0;
+  const total = days.reduce((sum, row) => sum + Math.max(0, row.cost_usd), 0);
+  return total / windowDays;
+}
+
+/**
+ * Month total the current 30-day average pace lands on: average per day
+ * times the number of days in `todayIso`'s UTC month. A pace estimate, so
+ * copy that shows it must frame it as approximate.
+ */
+export function projectedMonthUsd(
+  avgDailyUsd: number,
+  todayIso: string,
+): number {
+  const year = Number(todayIso.slice(0, 4));
+  const month = Number(todayIso.slice(5, 7));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return avgDailyUsd * daysInMonth;
+}
+
+/**
+ * Nearest 1/2/5 × 10^k, so suggested lines land on round numbers and the
+ * warn/stop pair never rounds onto near-identical values.
+ */
+export function niceRound(value: number): number {
+  if (value <= 0) return 0;
+  const exponent = Math.floor(Math.log10(value));
+  const base = 10 ** exponent;
+  const candidates = [1, 2, 5, 10].map((m) => m * base);
+  return candidates.reduce((best, candidate) =>
+    Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
+  );
+}
+
+/**
+ * Starting lines derived from the user's own history: the warning sits near
+ * a busy day, the stop well above one, and the monthly pair frames the
+ * current pace. Null without history to derive them from.
+ */
+export function suggestedSpendLimits(
+  avgDailyUsd: number,
+  todayIso: string,
+): SpendLimits | null {
+  if (avgDailyUsd <= 0) return null;
+  const projected = projectedMonthUsd(avgDailyUsd, todayIso);
+  return {
+    dailyWarnUsd: niceRound(avgDailyUsd * 1.5),
+    dailyStopUsd: niceRound(avgDailyUsd * 3),
+    monthlyWarnUsd: niceRound(projected * 1.25),
+    monthlyStopUsd: niceRound(projected * 2),
+  };
 }
 
 /**
@@ -64,7 +130,7 @@ export function spendTotalsFromDays(
 
 /**
  * Which lines the current totals sit past. At most one crossing per period:
- * the alert line supersedes the warn line so a single spike never stacks two
+ * the stop line supersedes the warn line so a single spike never stacks two
  * notices for the same period.
  */
 export function evaluateSpendLimits(
@@ -76,7 +142,7 @@ export function evaluateSpendLimits(
   const day = pickCrossing(
     "day",
     limits.dailyWarnUsd,
-    limits.dailyAlertUsd,
+    limits.dailyStopUsd,
     totals.todayUsd,
     todayIso,
   );
@@ -84,7 +150,7 @@ export function evaluateSpendLimits(
   const month = pickCrossing(
     "month",
     limits.monthlyWarnUsd,
-    limits.monthlyAlertUsd,
+    limits.monthlyStopUsd,
     totals.monthUsd,
     todayIso.slice(0, 7),
   );
@@ -95,15 +161,51 @@ export function evaluateSpendLimits(
 function pickCrossing(
   period: SpendLimitPeriod,
   warnUsd: number | null,
-  alertUsd: number | null,
+  stopUsd: number | null,
   spentUsd: number,
   anchor: string,
 ): SpendLimitCrossing | null {
-  if (alertUsd !== null && alertUsd > 0 && spentUsd >= alertUsd) {
-    return { period, level: "alert", limitUsd: alertUsd, spentUsd, anchor };
+  if (stopUsd !== null && stopUsd > 0 && spentUsd >= stopUsd) {
+    return { period, level: "stop", limitUsd: stopUsd, spentUsd, anchor };
   }
   if (warnUsd !== null && warnUsd > 0 && spentUsd >= warnUsd) {
     return { period, level: "warn", limitUsd: warnUsd, spentUsd, anchor };
+  }
+  return null;
+}
+
+export interface ActiveSpendStop {
+  period: SpendLimitPeriod;
+  limitUsd: number;
+  spentUsd: number;
+}
+
+/**
+ * The stop line currently holding new agent work, if any. The daily line
+ * wins when both are crossed since it resets first.
+ */
+export function activeSpendStop(
+  limits: SpendLimits,
+  totals: SpendTotals,
+): ActiveSpendStop | null {
+  const { dailyStopUsd, monthlyStopUsd } = limits;
+  if (
+    dailyStopUsd !== null &&
+    dailyStopUsd > 0 &&
+    totals.todayUsd >= dailyStopUsd
+  ) {
+    return { period: "day", limitUsd: dailyStopUsd, spentUsd: totals.todayUsd };
+  }
+  if (
+    monthlyStopUsd !== null &&
+    monthlyStopUsd > 0 &&
+    totals.monthUsd >= monthlyStopUsd
+  ) {
+    return {
+      period: "month",
+      limitUsd: monthlyStopUsd,
+      spentUsd: totals.monthUsd,
+    };
   }
   return null;
 }

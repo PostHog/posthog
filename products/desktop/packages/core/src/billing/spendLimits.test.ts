@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeSpendStop,
   EMPTY_SPEND_LIMITS,
   evaluateSpendLimits,
   hasAnySpendLimit,
+  niceRound,
+  projectedMonthUsd,
   pruneSpendNoticesSeen,
   type SpendLimits,
   spendLimitNoticeKey,
   spendTotalsFromDays,
+  suggestedSpendLimits,
 } from "./spendLimits";
 
 const TODAY = "2026-08-22";
@@ -53,18 +57,18 @@ describe("spendLimits", () => {
       expected: [{ period: "day", level: "warn", limitUsd: 20 }],
     },
     {
-      name: "alert supersedes warn for the same period",
-      limits: { dailyWarnUsd: 20, dailyAlertUsd: 50 },
+      name: "stop supersedes warn for the same period",
+      limits: { dailyWarnUsd: 20, dailyStopUsd: 50 },
       totals: { todayUsd: 60, monthUsd: 60 },
-      expected: [{ period: "day", level: "alert", limitUsd: 50 }],
+      expected: [{ period: "day", level: "stop", limitUsd: 50 }],
     },
     {
       name: "daily and monthly cross independently",
-      limits: { dailyWarnUsd: 20, monthlyAlertUsd: 200 },
+      limits: { dailyWarnUsd: 20, monthlyStopUsd: 200 },
       totals: { todayUsd: 25, monthUsd: 250 },
       expected: [
         { period: "day", level: "warn", limitUsd: 20 },
-        { period: "month", level: "alert", limitUsd: 200 },
+        { period: "month", level: "stop", limitUsd: 200 },
       ],
     },
     {
@@ -87,12 +91,12 @@ describe("spendLimits", () => {
   it("keys notices by period, level, anchor, and amount", () => {
     const key = spendLimitNoticeKey({
       period: "day",
-      level: "alert",
+      level: "stop",
       limitUsd: 50,
       spentUsd: 61,
       anchor: TODAY,
     });
-    expect(key).toBe("day:alert:2026-08-22:50");
+    expect(key).toBe("day:stop:2026-08-22:50");
   });
 
   it("re-arms a raised line within the same day via a distinct key", () => {
@@ -114,19 +118,57 @@ describe("spendLimits", () => {
       {
         "day:warn:2026-07-30:20": "2026-07-30",
         "month:warn:2026-07:200": "2026-07",
-        "day:alert:2026-08-22:50": "2026-08-22",
-        "month:alert:2026-08:200": "2026-08",
+        "day:stop:2026-08-22:50": "2026-08-22",
+        "month:stop:2026-08:200": "2026-08",
       },
       TODAY,
     );
     expect(Object.keys(pruned).sort()).toEqual([
-      "day:alert:2026-08-22:50",
-      "month:alert:2026-08:200",
+      "day:stop:2026-08-22:50",
+      "month:stop:2026-08:200",
     ]);
   });
 
   it("reports whether any line is set", () => {
     expect(hasAnySpendLimit(EMPTY_SPEND_LIMITS)).toBe(false);
     expect(hasAnySpendLimit(limits({ monthlyWarnUsd: 100 }))).toBe(true);
+  });
+
+  it("holds work on the daily stop line before the monthly one", () => {
+    const both = limits({ dailyStopUsd: 50, monthlyStopUsd: 400 });
+    expect(
+      activeSpendStop(both, { todayUsd: 60, monthUsd: 500 }),
+    ).toMatchObject({ period: "day", limitUsd: 50 });
+    expect(
+      activeSpendStop(both, { todayUsd: 10, monthUsd: 500 }),
+    ).toMatchObject({ period: "month", limitUsd: 400 });
+    expect(activeSpendStop(both, { todayUsd: 10, monthUsd: 100 })).toBeNull();
+    expect(
+      activeSpendStop(EMPTY_SPEND_LIMITS, { todayUsd: 999, monthUsd: 999 }),
+    ).toBeNull();
+  });
+
+  it("projects the month from the daily average and the month's length", () => {
+    expect(projectedMonthUsd(10, "2026-08-22")).toBe(310);
+    expect(projectedMonthUsd(10, "2026-02-10")).toBe(280);
+  });
+
+  it.each([
+    [18.6, 20],
+    [37.2, 50],
+    [2.6, 2],
+    [387.5, 500],
+  ] as const)("niceRound(%s) -> %s", (value, expected) => {
+    expect(niceRound(value)).toBe(expected);
+  });
+
+  it("suggests round lines from the user's history", () => {
+    expect(suggestedSpendLimits(12.4, "2026-08-22")).toEqual({
+      dailyWarnUsd: 20,
+      dailyStopUsd: 50,
+      monthlyWarnUsd: 500,
+      monthlyStopUsd: 1000,
+    });
+    expect(suggestedSpendLimits(0, "2026-08-22")).toBeNull();
   });
 });

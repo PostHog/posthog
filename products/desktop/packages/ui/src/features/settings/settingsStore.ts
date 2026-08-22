@@ -711,6 +711,43 @@ export const useSettingsStore = create<SettingsStore>()(
         ) {
           (merged as Record<string, unknown>).completionSound = "none";
         }
+        // Persisted blobs from before the stop-line rename carry alert keys;
+        // every line must come back as a positive number or null, never
+        // undefined.
+        {
+          const raw = (merged.spendLimits ?? {}) as unknown as Record<
+            string,
+            unknown
+          >;
+          const line = (...values: unknown[]): number | null => {
+            for (const value of values) {
+              if (
+                typeof value === "number" &&
+                Number.isFinite(value) &&
+                value > 0
+              ) {
+                return value;
+              }
+            }
+            return null;
+          };
+          const dailyStopUsd = line(raw.dailyStopUsd, raw.dailyAlertUsd);
+          const monthlyStopUsd = line(raw.monthlyStopUsd, raw.monthlyAlertUsd);
+          const cappedWarn = (
+            warn: number | null,
+            stop: number | null,
+          ): number | null =>
+            warn !== null && stop !== null ? Math.min(warn, stop) : warn;
+          merged.spendLimits = {
+            dailyWarnUsd: cappedWarn(line(raw.dailyWarnUsd), dailyStopUsd),
+            dailyStopUsd,
+            monthlyWarnUsd: cappedWarn(
+              line(raw.monthlyWarnUsd),
+              monthlyStopUsd,
+            ),
+            monthlyStopUsd,
+          };
+        }
         return merged;
       },
     },
