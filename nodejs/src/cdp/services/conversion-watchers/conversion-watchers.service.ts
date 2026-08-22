@@ -52,8 +52,13 @@ export class ConversionWatchersService {
         this.pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: maxConnections }) : null
     }
 
+    // Idempotent: pg rejects a second end() with "Called end on pool more than once", and several
+    // shutdown paths reach this one service — the base consumer teardown, CdpRerunWorkerConsumer's
+    // own stop(), and CdpApi.stop(). A consumer stopped twice must not fail its own shutdown.
     public async stop(): Promise<void> {
-        await this.pool?.end()
+        const pool = this.pool
+        this.pool = null
+        await pool?.end()
     }
 
     public queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
