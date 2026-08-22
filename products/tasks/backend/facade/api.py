@@ -2620,11 +2620,19 @@ def update_task_run(
     has_state_mutation = has_state_merge or bool(state_remove_keys)
     update_fields: set[str] = set()
 
+    from products.tasks.backend.logic.services.task_analysis import (  # noqa: PLC0415 — keep storage deps off the api import path
+        capture_new_insight_events,
+        task_analysis_insight_count,
+    )
+
+    prior_insight_count = 0
     with transaction.atomic():
         if has_output_merge or has_state_mutation or only_if_non_terminal:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
             return _task_run_detail_to_dto(run)
+        if has_state_merge:
+            prior_insight_count = task_analysis_insight_count(run)
 
         old_status = run.status
         old_environment = run.environment
@@ -2671,6 +2679,9 @@ def update_task_run(
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
         run.publish_stream_state_event()
+
+    if has_state_merge:
+        capture_new_insight_events(run, prior_insight_count)
 
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an
     # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping

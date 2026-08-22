@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,12 +12,38 @@ vi.mock("../../../signed-commit-artefacts", () => ({
 
 import { INSIGHTS_STATE_KEY, reportInsightTool } from "./report-insight";
 
-const TRANSCRIPT = [
-  "# Transcript (4 lines)",
-  "TOOL  execute: docker compose up -d postgres",
-  "      -> failed",
-  "USER  fix the pagination bug",
+// Mirrors the real attachment layout and the real JSONL shape: quoted text is
+// stored JSON-escaped inside string fields.
+const RUN_LOG = [
+  JSON.stringify({
+    type: "pi_event",
+    event: {
+      type: "tool_call_started",
+      toolCall: {
+        kind: "execute",
+        title: "bash",
+        rawInput: { command: "docker compose up -d postgres" },
+      },
+    },
+  }),
+  JSON.stringify({
+    type: "pi_event",
+    event: {
+      type: "tool_call_updated",
+      toolCall: {
+        status: "failed",
+        rawOutput: [
+          {
+            type: "text",
+            text: 'connection to server at "localhost", port 5432 failed\nConnection refused',
+          },
+        ],
+      },
+    },
+  }),
 ].join("\n");
+
+const LOG_RELATIVE_PATH = ".posthog/attachments/run-1/art-1/run-log.jsonl";
 
 function ctx(cwd: string) {
   return { cwd, taskId: "task-1", taskRunId: "run-1" };
@@ -29,7 +55,7 @@ function validFinding(overrides: Record<string, unknown> = {}) {
       "The test suite was started three times; the first two attempts failed while the agent installed and started Postgres.",
     evidence: [
       {
-        quote: "TOOL  execute: docker compose up -d postgres",
+        quote: "docker compose up -d postgres",
         evidence_type: "transcript_quote",
       },
     ],
@@ -55,7 +81,9 @@ describe("reportInsightTool", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     cwd = await mkdtemp(path.join(os.tmpdir(), "report-insight-"));
-    await writeFile(path.join(cwd, "transcript.md"), TRANSCRIPT);
+    const logPath = path.join(cwd, LOG_RELATIVE_PATH);
+    await mkdir(path.dirname(logPath), { recursive: true });
+    await writeFile(logPath, RUN_LOG);
     getTaskRun.mockResolvedValue({ state: {} });
     updateTaskRun.mockResolvedValue({});
   });
@@ -101,7 +129,24 @@ describe("reportInsightTool", () => {
           },
         ],
       }),
-      /not found in transcript\.md/,
+      /not found in the run log/,
+    ],
+    [
+      "credential-like token in evidence",
+      validFinding({
+        evidence: [
+          {
+            quote: "docker compose up -d postgres",
+            evidence_type: "transcript_quote",
+          },
+        ],
+        suggested_fix: {
+          change:
+            "Provide the API token ghp_abcdefghijklmnopqrstuvwx to the sandbox before the run starts working.",
+          done_when: "Tests pass on the first attempt in a fresh sandbox.",
+        },
+      }),
+      /credential-like token/,
     ],
     [
       "other without justification",
@@ -190,10 +235,27 @@ describe("reportInsightTool", () => {
     ]);
   });
 
-  it("rejects a finding when the transcript is missing", async () => {
-    await rm(path.join(cwd, "transcript.md"));
+  it("accepts a quote whose newlines are stored JSON-escaped in the log", async () => {
+    // jq -r prints decoded text; the raw file stores `\n` escaped. The tool
+    // must match the decoded quote against the encoded file content.
+    const result = await reportInsightTool.handler(
+      ctx(cwd),
+      validFinding({
+        evidence: [
+          {
+            quote: "port 5432 failed\nConnection refused",
+            evidence_type: "command_output",
+          },
+        ],
+      }),
+    );
+    expect(result.isError).toBeUndefined();
+  });
+
+  it("rejects a finding when no run log is attached", async () => {
+    await rm(path.join(cwd, ".posthog"), { recursive: true, force: true });
     const result = await reportInsightTool.handler(ctx(cwd), validFinding());
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/transcript\.md was not found/);
+    expect(result.content[0].text).toMatch(/No run log was found/);
   });
 });

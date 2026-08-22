@@ -13477,3 +13477,51 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.organization.save()
         response = self._analyze()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestTaskAnalysisInsightEvents(BaseTaskAPITest):
+    def _make_run(self, origin_product: str, state: dict) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Task analysis: fix pagination",
+            description="analyze",
+            origin_product=origin_product,
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state)
+
+    def test_state_patch_emits_one_event_per_newly_appended_insight(self):
+        existing = {"schema_version": 1, "category": "missing_tool", "observation": "old finding"}
+        run = self._make_run(Task.OriginProduct.TASK_ANALYSIS, {"task_analysis_insights": [existing]})
+        new_insight = {
+            "schema_version": 1,
+            "category": "environment_failure",
+            "observation": "tests failed until postgres was started",
+            "wasted_effort": {"metric": "tool_calls", "amount": 3},
+            "suggested_fix": {"change": "start postgres before the run", "done_when": "tests pass first try"},
+        }
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            tasks_facade.update_task_run(
+                run.id,
+                run.task_id,
+                self.team.id,
+                validated_data={"state": {"task_analysis_insights": [existing, new_insight]}},
+            )
+        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
+        self.assertEqual(len(events), 1)
+        props = events[0]["properties"]
+        self.assertEqual(props["category"], "environment_failure")
+        self.assertEqual(props["wasted_effort_amount"], 3)
+        self.assertEqual(props["insight_index"], 1)
+
+    def test_state_patch_on_non_analysis_run_emits_no_insight_events(self):
+        run = self._make_run(Task.OriginProduct.USER_CREATED, {})
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
+            tasks_facade.update_task_run(
+                run.id,
+                run.task_id,
+                self.team.id,
+                validated_data={"state": {"task_analysis_insights": [{"category": "missing_tool"}]}},
+            )
+        events = [c.kwargs for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_analysis_insight"]
+        self.assertEqual(events, [])

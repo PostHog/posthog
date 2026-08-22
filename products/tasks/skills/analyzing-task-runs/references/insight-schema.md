@@ -2,7 +2,7 @@
 
 Each `report_insight` call carries exactly one finding (or, once per run, a no-findings report).
 Field order matters: state the observation before you classify it — reasoning first, conclusion
-second. The tool verifies every quote against the extracted transcript and rejects the call with a
+second. The tool verifies every quote against the raw run log and rejects the call with a
 specific error when something does not check out; fix and retry once, then drop the finding.
 
 ## A finding
@@ -12,7 +12,7 @@ specific error when something does not check out; fix and retry once, then drop 
   "observation": "<what happened, 1-3 sentences, 80-500 chars>",
   "evidence": [
     {
-      "quote": "<verbatim span from transcript.md, 20-300 chars>",
+      "quote": "<verbatim span copied from your jq query output, 20-300 chars>",
       "evidence_type": "transcript_quote | command_output | measured_count"
     }
   ],
@@ -41,10 +41,11 @@ specific error when something does not check out; fix and retry once, then drop 
 ## Rules
 
 - One finding per call, at most 5 calls per run, largest wasted effort first.
-- `evidence` holds 1-3 items. Every `quote` must appear verbatim in `transcript.md` — the tool
-  checks and rejects mismatches. Verify with `grep -F` before calling.
+- `evidence` holds 1-3 items. Every `quote` must appear in the raw run log — the tool checks
+  (JSON escaping is handled) and rejects mismatches. Copy quotes exactly from your jq output,
+  never from memory.
 - `occurrence_count` is how many times the pattern happened in this run and must be consistent
-  with the transcript.
+  with the log.
 - `wasted_effort` is required for `environment_failure`, `missing_tool`, `verbose_output`,
   `redundant_work`, and `wasted_retry`. Use `tool_calls` when countable from the transcript;
   `minutes_estimated` only when it is not.
@@ -63,8 +64,11 @@ specific error when something does not check out; fix and retry once, then drop 
 {
   "observation": "The test suite was started three times. The first two attempts failed while the agent installed and started Postgres; only the third attempt exercised the code change.",
   "evidence": [
-    { "quote": "-> failed", "evidence_type": "command_output" },
-    { "quote": "TOOL  execute: docker compose up -d postgres", "evidence_type": "transcript_quote" }
+    {
+      "quote": "connection to server at \"localhost\", port 5432 failed: Connection refused",
+      "evidence_type": "command_output"
+    },
+    { "quote": "docker compose up -d postgres", "evidence_type": "transcript_quote" }
   ],
   "occurrence_count": 2,
   "category": "environment_failure",

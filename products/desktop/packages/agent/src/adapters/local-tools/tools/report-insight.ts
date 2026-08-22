@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
@@ -7,16 +7,28 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
 /**
  * Reporting channel for task-analysis runs (origin `task_analysis`): the agent
  * files one verified finding per call. The handler is the validator the skill
- * promises — every evidence quote is checked verbatim against the extracted
- * transcript on disk, and rejections carry a specific fix so the retry
- * converges. Findings accumulate in the run's own state, where the app renders
- * them and analytics collects them.
+ * promises — every evidence quote is checked against the attached raw run log,
+ * and rejections carry a specific fix so the retry converges. Findings
+ * accumulate in the run's own state, where analytics collects them.
  */
 
 export const INSIGHTS_STATE_KEY = "task_analysis_insights";
 const MAX_INSIGHTS_PER_RUN = 5;
-const TRANSCRIPT_FILENAME = "transcript.md";
-const MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024;
+const ATTACHMENTS_DIR = ".posthog/attachments";
+const MAX_LOG_BYTES = 128 * 1024 * 1024;
+
+// Conservative credential shapes only — a false positive blocks an honest
+// finding, so each pattern needs a distinctive prefix, not just entropy.
+const SECRET_PATTERNS: RegExp[] = [
+  /ghp_[A-Za-z0-9]{20,}/,
+  /github_pat_[A-Za-z0-9_]{20,}/,
+  /\bsk-[A-Za-z0-9_-]{16,}/,
+  /\bAKIA[0-9A-Z]{12,}/,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
+  /\bphx_[A-Za-z0-9]{20,}/,
+  /bearer\s+[A-Za-z0-9._~+/=-]{16,}/i,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+];
 
 const CATEGORIES = [
   "environment_failure",
@@ -43,7 +55,7 @@ const evidenceSchema = z.object({
     .min(20)
     .max(300)
     .describe(
-      "Verbatim span copied from transcript.md. Checked against the file; a paraphrase is rejected.",
+      "Verbatim span copied from your jq query output. Checked against the raw run log; a paraphrase is rejected.",
     ),
   evidence_type: z.enum([
     "transcript_quote",
@@ -96,15 +108,58 @@ function normalizeForMatch(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-async function readTranscript(cwd: string): Promise<string | null> {
+async function findAttachedLog(cwd: string): Promise<string | null> {
   try {
-    const transcriptPath = path.join(cwd, TRANSCRIPT_FILENAME);
-    const content = await readFile(transcriptPath, "utf8");
-    if (content.length > MAX_TRANSCRIPT_BYTES) return null;
-    return content;
+    const root = path.join(cwd, ATTACHMENTS_DIR);
+    const entries = await readdir(root, { recursive: true });
+    const candidates = entries
+      .map(String)
+      .filter((entry) => entry.endsWith(".jsonl"))
+      .sort(
+        (a, b) =>
+          Number(b.endsWith("run-log.jsonl")) -
+          Number(a.endsWith("run-log.jsonl")),
+      );
+    return candidates.length > 0 ? path.join(root, candidates[0]) : null;
   } catch {
     return null;
   }
+}
+
+async function readLogForMatching(cwd: string): Promise<string | null> {
+  const logPath = await findAttachedLog(cwd);
+  if (!logPath) return null;
+  try {
+    const { size } = await stat(logPath);
+    if (size > MAX_LOG_BYTES) return null;
+    return normalizeForMatch(await readFile(logPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// The model copies quotes from jq output: `jq -c` re-encodes strings, so the
+// quote may already carry the file's escaped form (`\n` as two characters),
+// while `jq -r` prints the decoded text whose newlines and quotes are stored
+// escaped in the raw JSONL. Accept either by also matching the JSON-encoded
+// variant of the quote.
+function quoteAppearsInLog(quote: string, normalizedLog: string): boolean {
+  const decoded = normalizeForMatch(quote);
+  const encoded = normalizeForMatch(JSON.stringify(quote).slice(1, -1));
+  return (
+    normalizedLog.includes(decoded) ||
+    (encoded !== decoded && normalizedLog.includes(encoded))
+  );
+}
+
+function findSecretLike(values: Array<string | undefined>): string | null {
+  for (const value of values) {
+    if (!value) continue;
+    for (const pattern of SECRET_PATTERNS) {
+      if (pattern.test(value)) return pattern.source;
+    }
+  }
+  return null;
 }
 
 export const reportInsightTool = defineLocalTool({
@@ -112,7 +167,7 @@ export const reportInsightTool = defineLocalTool({
   description:
     "File one verified inefficiency finding from a task-run analysis. Call once per finding (at most " +
     `${MAX_INSIGHTS_PER_RUN} per run), largest wasted effort first. Every evidence quote must appear ` +
-    `verbatim in ${TRANSCRIPT_FILENAME} in the working directory — the tool checks and rejects mismatches. ` +
+    "in the attached run log — copy quotes exactly from your jq query output; the tool checks and rejects mismatches. " +
     "If the run has no findings, call once with only no_findings_reason. Zero findings is a valid result.",
   schema: {
     no_findings_reason: z
@@ -259,17 +314,29 @@ export const reportInsightTool = defineLocalTool({
         }
       }
 
-      const transcript = await readTranscript(ctx.cwd);
-      if (transcript === null) {
+      const secretField = findSecretLike([
+        args.observation,
+        ...args.evidence.map((item) => item.quote),
+        args.suggested_fix.change,
+        args.suggested_fix.done_when,
+        ...(args.suggested_fix.setup_commands ?? []),
+      ]);
+      if (secretField) {
         return errorResult(
-          `${TRANSCRIPT_FILENAME} was not found in the working directory (or is too large). Run the extractor from the analyzing-task-runs skill first; evidence is verified against that file.`,
+          "The finding contains a credential-like token. Never include secrets — redact the token and keep only the non-secret part of the evidence.",
         );
       }
-      const normalizedTranscript = normalizeForMatch(transcript);
+
+      const normalizedLog = await readLogForMatching(ctx.cwd);
+      if (normalizedLog === null) {
+        return errorResult(
+          `No run log was found under ${ATTACHMENTS_DIR} (or it is too large to verify against). Evidence is verified against the attached .jsonl log; check the attachment exists.`,
+        );
+      }
       for (const [index, item] of args.evidence.entries()) {
-        if (!normalizedTranscript.includes(normalizeForMatch(item.quote))) {
+        if (!quoteAppearsInLog(item.quote, normalizedLog)) {
           return errorResult(
-            `evidence[${index}].quote was not found in ${TRANSCRIPT_FILENAME} — copy the text exactly as it appears in the transcript, not from memory.`,
+            `evidence[${index}].quote was not found in the run log — copy the text exactly as your jq query printed it, not from memory.`,
           );
         }
       }
