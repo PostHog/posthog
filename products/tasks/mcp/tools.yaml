@@ -459,6 +459,12 @@ tools:
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
+    tasks-runs-analysis-insight-create:
+        operation: tasks_runs_analysis_insight_create
+        enabled: false
+    tasks-runs-analyze-create:
+        operation: tasks_runs_analyze_create
+        enabled: false
     tasks-runs-append-log-create:
         operation: tasks_runs_append_log_create
         enabled: false

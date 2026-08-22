@@ -18137,6 +18137,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `directly_observed` - directly_observed
+     * * `inferred` - inferred
+     */
+    export type ConfidenceBasisEnum = typeof ConfidenceBasisEnum[keyof typeof ConfidenceBasisEnum];
+
+
+    export const ConfidenceBasisEnum = {
+      DirectlyObserved: 'directly_observed',
+      Inferred: 'inferred',
+    } as const;
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -23306,6 +23318,9 @@ export namespace Schemas {
      * * `Airwallex` - Airwallex
      * * `Polymarket` - Polymarket
      * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24615,6 +24630,9 @@ export namespace Schemas {
       Airwallex: 'Airwallex',
       Polymarket: 'Polymarket',
       Kalshi: 'Kalshi',
+      Capterra: 'Capterra',
+      GooglePostmasterTools: 'GooglePostmasterTools',
+      Growi: 'Growi',
     } as const;
 
     /**
@@ -25937,7 +25955,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27954,7 +27975,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31178,6 +31202,25 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+     * this blob at query time, so it is the only place an experiment can enter a scanner's
+     * targeting — which is what lets the write-side access check and read-side redaction cover it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Narrow to sessions of people exposed to this variant. Null means every variant.
+         * @maxLength 400
+         * @nullable
+         */
+      variant?: string | null;
+    }
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -31206,6 +31249,8 @@ export namespace Schemas {
        * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
+      /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
+      experiment_targeting?: ScannerExperimentTargeting | null;
     }
 
     /**
@@ -31441,6 +31486,9 @@ export namespace Schemas {
       readonly provider_key_name: string | null;
     }
 
+    /**
+     * An evaluation that scores LLM generations, traces, or sessions.
+     */
     export interface Evaluation {
       readonly id: string;
       /**
@@ -31497,6 +31545,11 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -32197,6 +32250,20 @@ export namespace Schemas {
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
       NeedsAttention: 'needs_attention',
+    } as const;
+
+    /**
+     * * `transcript_quote` - transcript_quote
+     * * `command_output` - command_output
+     * * `measured_count` - measured_count
+     */
+    export type EvidenceTypeEnum = typeof EvidenceTypeEnum[keyof typeof EvidenceTypeEnum];
+
+
+    export const EvidenceTypeEnum = {
+      TranscriptQuote: 'transcript_quote',
+      CommandOutput: 'command_output',
+      MeasuredCount: 'measured_count',
     } as const;
 
     export interface ExecuteTestClusterRequest {
@@ -35909,7 +35976,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37252,7 +37322,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -38041,6 +38114,8 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+      /** Optional first evidence item to create for the selected account. */
+      evidence?: FeatureRequestEvidencePayload | null;
     }
 
     export interface FeatureRequestEvidenceCreate {
@@ -39272,6 +39347,16 @@ export namespace Schemas {
          * @nullable
          */
       installation_id?: string | null;
+      /**
+         * GitHub organization or user login the installation was approved under, once known.
+         * @nullable
+         */
+      account_login?: string | null;
+      /**
+         * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+         * @nullable
+         */
+      account_type?: string | null;
       /** When the install approval was requested. */
       requested_at: string;
       /**
@@ -39284,6 +39369,11 @@ export namespace Schemas {
     export interface GitHubInstallRequestListResponse {
       /** The user's GitHub App install-approval requests, newest first. */
       results: GitHubInstallRequestItem[];
+      /**
+         * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+         * @nullable
+         */
+      install_url?: string | null;
     }
 
     export interface GitHubLinkExistingRequest {
@@ -39340,15 +39430,34 @@ export namespace Schemas {
       can_push?: boolean;
     }
 
+    /**
+     * * `connected` - connected
+     * * `unavailable` - unavailable
+     */
+    export type InstallationStatusEnum = typeof InstallationStatusEnum[keyof typeof InstallationStatusEnum];
+
+
+    export const InstallationStatusEnum = {
+      Connected: 'connected',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface GitHubReposRefreshResponse {
       /** The refreshed repository cache. */
       repositories: GitHubRepo[];
+      /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+       *
+       * * `connected` - connected
+       * * `unavailable` - unavailable */
+      installation_status: InstallationStatusEnum;
     }
 
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+      /** Total number of repositories matching the search query, across all pages. */
+      total: number;
     }
 
     export interface GitHubSource {
@@ -44340,6 +44449,13 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
     }
 
     export interface RecommendedAction {
@@ -49063,6 +49179,20 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    /**
+     * * `run_was_efficient` - run_was_efficient
+     * * `too_short_to_judge` - too_short_to_judge
+     * * `insufficient_visibility` - insufficient_visibility
+     */
+    export type NoFindingsReasonEnum = typeof NoFindingsReasonEnum[keyof typeof NoFindingsReasonEnum];
+
+
+    export const NoFindingsReasonEnum = {
+      RunWasEfficient: 'run_was_efficient',
+      TooShortToJudge: 'too_short_to_judge',
+      InsufficientVisibility: 'insufficient_visibility',
+    } as const;
+
     export interface NoMatchMetadata {
       /** Why no existing report matched. */
       reason: string;
@@ -50513,6 +50643,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
@@ -50537,6 +50668,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 
@@ -52823,25 +52955,6 @@ export namespace Schemas {
     export const ScannerProviderEnum = {
       Google: 'google',
     } as const;
-
-    /**
-     * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
-     */
-    export interface ScannerExperimentTargeting {
-      /**
-         * The experiment the scanner watches.
-         * @minimum 1
-         */
-      experiment_id: number;
-      /**
-         * Targeted experiment variants. Empty means every variant.
-         * @maxItems 50
-         * @items.maxLength 400
-         */
-      variant_keys: string[];
-      /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-      use_exposure_fallback: boolean;
-    }
 
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
@@ -56093,6 +56206,13 @@ export namespace Schemas {
       github_login?: string | null;
       /** True when this installation id matches a team-level GitHub integration on the active project. */
       uses_shared_installation: boolean;
+      /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+      installation_shared: boolean;
+      /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+       *
+       * * `connected` - connected
+       * * `unavailable` - unavailable */
+      installation_status: InstallationStatusEnum;
       /** When this integration row was created. */
       created_at: string;
     }
@@ -58957,6 +59077,9 @@ export namespace Schemas {
       max_age_seconds?: number;
     };
 
+    /**
+     * An evaluation that scores LLM generations, traces, or sessions.
+     */
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -59013,6 +59136,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** Set to true to soft-delete the evaluation. */
       deleted?: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEvaluationDirectory {
@@ -60419,6 +60547,13 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared?: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status?: InstallationStatusEnum | null;
     }
 
     export interface PatchedIntervieweeContext {
@@ -64061,6 +64196,11 @@ export namespace Schemas {
     }
 
     /**
+     * State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.
+     */
+    export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
+
+    /**
      * * `local` - local
      */
     export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
@@ -64096,6 +64236,8 @@ export namespace Schemas {
       state?: unknown;
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];
+      /** State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race. */
+      state_append?: PatchedTaskRunUpdateStateAppend;
       /**
          * Error message if execution failed
          * @nullable
@@ -64144,6 +64286,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -70781,6 +70924,20 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    /**
+     * * `every_run_in_this_repo` - every_run_in_this_repo
+     * * `runs_touching_this_area` - runs_touching_this_area
+     * * `one_off` - one_off
+     */
+    export type RecurrenceEnum = typeof RecurrenceEnum[keyof typeof RecurrenceEnum];
+
+
+    export const RecurrenceEnum = {
+      EveryRunInThisRepo: 'every_run_in_this_repo',
+      RunsTouchingThisArea: 'runs_touching_this_area',
+      OneOff: 'one_off',
+    } as const;
+
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
       rejection_reason?: string;
@@ -75674,7 +75831,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -77025,7 +77185,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -78366,7 +78529,10 @@ export namespace Schemas {
        * * `Profound` - Profound
        * * `Airwallex` - Airwallex
        * * `Polymarket` - Polymarket
-       * * `Kalshi` - Kalshi */
+       * * `Kalshi` - Kalshi
+       * * `Capterra` - Capterra
+       * * `GooglePostmasterTools` - GooglePostmasterTools
+       * * `Growi` - Growi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -79848,6 +80014,75 @@ export namespace Schemas {
       next_before_id?: string | null;
     }
 
+    export interface TaskAnalysisEvidence {
+      /**
+         * Verbatim span copied from the analysed run log.
+         * @minLength 20
+         * @maxLength 300
+         */
+      quote: string;
+      /** What kind of log content the quote was taken from.
+       *
+       * * `transcript_quote` - transcript_quote
+       * * `command_output` - command_output
+       * * `measured_count` - measured_count */
+      evidence_type: EvidenceTypeEnum;
+    }
+
+    export interface TaskAnalysisSuggestedFix {
+      /**
+         * The specific change to make.
+         * @minLength 50
+         * @maxLength 400
+         */
+      change: string;
+      /**
+         * A checkable condition confirming the fix worked.
+         * @minLength 30
+         * @maxLength 200
+         */
+      done_when: string;
+      /**
+         * Single-line commands only; these may become image build steps.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 500
+         */
+      setup_commands?: string[];
+      /**
+         * Services the fix needs available.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 100
+         */
+      required_services?: string[];
+      /**
+         * Environment variable names only, never values.
+         * @maxItems 10
+         * @items.minLength 1
+         * @items.maxLength 100
+         */
+      env_var_names?: string[];
+    }
+
+    export interface TaskAnalysisWastedEffort {
+      /**
+         * Wasted tool calls, counted from the log.
+         * @minimum 1
+         */
+      tool_calls?: number;
+      /**
+         * Wall-clock seconds across the wasted span.
+         * @minimum 1
+         */
+      seconds?: number;
+      /**
+         * Token delta across the wasted span.
+         * @minimum 1
+         */
+      tokens?: number;
+    }
+
     export interface TaskArtifact {
       /** Stable artifact id used to filter task comments. */
       id: string;
@@ -80041,6 +80276,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -80129,6 +80365,8 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+      /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
+      naming_source?: string;
       /**
          * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
          * @nullable
@@ -80187,6 +80425,99 @@ export namespace Schemas {
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
+    }
+
+    /**
+     * * `environment_failure` - environment_failure
+     * * `missing_tool` - missing_tool
+     * * `verbose_output` - verbose_output
+     * * `redundant_work` - redundant_work
+     * * `missing_capability` - missing_capability
+     * * `instruction_gap` - instruction_gap
+     * * `wasted_retry` - wasted_retry
+     * * `other` - other
+     */
+    export type TaskRunAnalysisInsightRequestCategoryEnum = typeof TaskRunAnalysisInsightRequestCategoryEnum[keyof typeof TaskRunAnalysisInsightRequestCategoryEnum];
+
+
+    export const TaskRunAnalysisInsightRequestCategoryEnum = {
+      EnvironmentFailure: 'environment_failure',
+      MissingTool: 'missing_tool',
+      VerboseOutput: 'verbose_output',
+      RedundantWork: 'redundant_work',
+      MissingCapability: 'missing_capability',
+      InstructionGap: 'instruction_gap',
+      WastedRetry: 'wasted_retry',
+      Other: 'other',
+    } as const;
+
+    /**
+     * One analysis finding. The shape the server stores, independent of what the tool sent.
+     */
+    export interface TaskRunAnalysisInsightRequest {
+      /** Only for a run with zero findings; never combined with a finding.
+       *
+       * * `run_was_efficient` - run_was_efficient
+       * * `too_short_to_judge` - too_short_to_judge
+       * * `insufficient_visibility` - insufficient_visibility */
+      no_findings_reason?: NoFindingsReasonEnum;
+      /**
+         * What happened, 1-3 sentences.
+         * @minLength 80
+         * @maxLength 500
+         */
+      observation?: string;
+      /** Quotes from the analysed log backing the observation. */
+      evidence?: TaskAnalysisEvidence[];
+      /**
+         * How often this happened.
+         * @minimum 1
+         */
+      occurrence_count?: number;
+      /** The kind of inefficiency observed.
+       *
+       * * `environment_failure` - environment_failure
+       * * `missing_tool` - missing_tool
+       * * `verbose_output` - verbose_output
+       * * `redundant_work` - redundant_work
+       * * `missing_capability` - missing_capability
+       * * `instruction_gap` - instruction_gap
+       * * `wasted_retry` - wasted_retry
+       * * `other` - other */
+      category?: TaskRunAnalysisInsightRequestCategoryEnum;
+      /**
+         * Required when category is 'other'.
+         * @minLength 50
+         * @maxLength 200
+         */
+      other_justification?: string;
+      /** Effort measured from the log, never estimated. */
+      wasted_effort?: TaskAnalysisWastedEffort;
+      /** How widely this is expected to recur.
+       *
+       * * `every_run_in_this_repo` - every_run_in_this_repo
+       * * `runs_touching_this_area` - runs_touching_this_area
+       * * `one_off` - one_off */
+      recurrence?: RecurrenceEnum;
+      /** How the finding was established.
+       *
+       * * `directly_observed` - directly_observed
+       * * `inferred` - inferred */
+      confidence_basis?: ConfidenceBasisEnum;
+      /** The fix the finding argues for. */
+      suggested_fix?: TaskAnalysisSuggestedFix;
+    }
+
+    export interface TaskRunAnalysisInsightResponse {
+      /** Zero-based position of the stored finding on the run. */
+      insight_index: number;
+    }
+
+    export interface TaskRunAnalyzeResponse {
+      /** Id of the analysis task to navigate to. */
+      analysis_task_id: string;
+      /** True when a new analysis task was created; false when an existing analysis for this run was returned. */
+      created: boolean;
     }
 
     export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown };
@@ -81344,6 +81675,7 @@ export namespace Schemas {
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
        * * `signals_chat` - Signals Chat
+       * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
@@ -89579,6 +89911,11 @@ export namespace Schemas {
      */
     archive_state?: FeatureRequestsListArchiveState;
     /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[];
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -94249,6 +94586,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * @minLength 1
      */
@@ -94378,6 +94716,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
     } as const;
 
