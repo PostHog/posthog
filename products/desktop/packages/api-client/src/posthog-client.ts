@@ -741,6 +741,7 @@ export interface ContextWikiPage {
   path: string;
   content: string;
   head_sha: string;
+  updated_at: string;
 }
 
 export interface ContextWikiHealthFinding {

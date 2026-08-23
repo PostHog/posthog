@@ -30,6 +30,7 @@ class WikiPageSerializer(serializers.Serializer):
     head_sha = serializers.CharField(
         help_text="Commit sha the content was read at; pass back as `base_head` on writes."
     )
+    updated_at = serializers.DateTimeField(help_text="When this page was last changed in the wiki history.")
 
 
 class WikiHealthFindingSerializer(serializers.Serializer):

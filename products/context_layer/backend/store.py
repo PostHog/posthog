@@ -17,6 +17,7 @@ import threading
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from django.utils import timezone
@@ -332,6 +333,10 @@ def checkout_repo(organization_id: uuid.UUID | str) -> Iterator[RepoCheckout]:
         workdir = tmpdir / "repo"
         _clone_from_bundle(bundle_path, workdir)
         yield RepoCheckout(path=workdir, head_sha=config.head_sha)
+
+
+def get_path_updated_at(checkout: RepoCheckout, path: str) -> datetime:
+    return datetime.fromisoformat(_run_git(["log", "-1", "--format=%cI", "--", path], checkout.path))
 
 
 def initialize_repo(

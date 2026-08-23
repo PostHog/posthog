@@ -11,6 +11,7 @@ import {
   ToggleGroupItem,
 } from "@posthog/quill";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { useState } from "react";
 import type { Components } from "react-markdown";
 import {
@@ -170,6 +171,9 @@ export function ContextWikiPagePane({
           {/* The page's location inside the wiki repo, for agents and deep
               links: this is the path harnesses see under the mounted wiki. */}
           <code className="truncate text-[12px] text-gray-10">{path}</code>
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-gray-10">
+            Updated <RelativeTimestamp timestamp={page.updated_at} />
+          </span>
         </div>
         {mode === "edit" ? (
           <div className="flex shrink-0 items-center gap-2">

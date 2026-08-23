@@ -8,7 +8,13 @@ const hoisted = vi.hoisted(() => ({
     path: "AGENTS.md",
     content: "original content",
     head_sha: "head-1",
-  } as { path: string; content: string; head_sha: string } | null,
+    updated_at: "2026-08-22T12:00:00Z",
+  } as {
+    path: string;
+    content: string;
+    head_sha: string;
+    updated_at: string;
+  } | null,
   saveError: null as Error | null,
   mutate: vi.fn(),
   reset: vi.fn(),
@@ -60,8 +66,16 @@ describe("ContextWikiPagePane", () => {
       path: "AGENTS.md",
       content: "original content",
       head_sha: "head-1",
+      updated_at: "2026-08-22T12:00:00Z",
     };
   });
+
+  it("shows when the page was last updated", () => {
+    render(<ContextWikiPagePane path="AGENTS.md" />);
+
+    expect(screen.getByText("Updated")).toBeVisible();
+  });
+
   it("saves against the head the draft was seeded from, not a head that moved under it mid-edit", async () => {
     const user = userEvent.setup();
 
@@ -79,6 +93,7 @@ describe("ContextWikiPagePane", () => {
       path: "AGENTS.md",
       content: "agent content",
       head_sha: "head-2",
+      updated_at: "2026-08-22T12:05:00Z",
     };
     rerender(<ContextWikiPagePane path="AGENTS.md" />);
 
@@ -110,6 +125,7 @@ describe("ContextWikiPagePane", () => {
       path: "AGENTS.md",
       content: "their content",
       head_sha: "head-9",
+      updated_at: "2026-08-22T12:10:00Z",
     };
     rerender(<ContextWikiPagePane path="AGENTS.md" />);
 

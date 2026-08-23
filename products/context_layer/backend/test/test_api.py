@@ -100,6 +100,7 @@ class TestContextLayerAPI(APIBaseTest):
         assert "AGENTS.md" in tree["paths"]
         assert "channels/growth.md" in tree["paths"]
         page = self.client.get(f"{self.base_url}/pages/", {"path": "channels/growth.md"}).json()
+        assert page["updated_at"]
         assert f"channel_id: {channel.id}" in page["content"]
         assert "Focus on activation." in page["content"]
 

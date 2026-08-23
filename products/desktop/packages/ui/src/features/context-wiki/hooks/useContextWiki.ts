@@ -79,7 +79,12 @@ export function useContextWikiPageMutation() {
       // instead of refetching content the client just uploaded.
       queryClient.setQueryData<ContextWikiPage>(
         CONTEXT_WIKI_PAGE_KEY(input.path),
-        { path: input.path, content: input.content, head_sha: result.head_sha },
+        {
+          path: input.path,
+          content: input.content,
+          head_sha: result.head_sha,
+          updated_at: new Date().toISOString(),
+        },
       );
       queryClient.setQueryData<ContextWikiTree | null>(
         CONTEXT_WIKI_TREE_KEY,
