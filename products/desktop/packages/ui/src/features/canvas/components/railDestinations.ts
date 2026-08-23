@@ -62,7 +62,7 @@ export interface RailDestination {
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: { loops: boolean }) => boolean;
+  enabled?: (flags: { home: boolean; loops: boolean }) => boolean;
 }
 
 /**
@@ -118,6 +118,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     analyticsId: "home",
     Icon: HouseSimple,
     onPick: navigateToHome,
+    enabled: (flags) => flags.home,
   },
   {
     pane: "spaces",
@@ -174,15 +175,17 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
 export function visibleRailDestinations({
   overrides,
   order,
+  home,
   loops,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
+  home: boolean;
   loops: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ loops }) ?? true) &&
+      (enabled?.({ home, loops }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

@@ -10,7 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { LOOPS_FLAG } from "@posthog/shared";
+import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
@@ -171,6 +171,7 @@ function ActivityNavItem({
  * that sidebar leaves the destinations reachable.
  */
 export function NavRail() {
+  const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
   const { counts: inboxCounts } = useInboxAllReports({
@@ -192,6 +193,7 @@ export function NavRail() {
   const destinations = visibleRailDestinations({
     overrides: navItemOverrides,
     order: navItemOrder,
+    home: homeEnabled,
     loops: loopsEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
