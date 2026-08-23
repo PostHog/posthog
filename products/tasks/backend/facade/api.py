@@ -7457,13 +7457,13 @@ def get_channel_instructions(
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
 
 
-def desktop_users_in_team(team_id: int, organization_id: UUID | str, exclude_user_id: int) -> list[str]:
+def desktop_users_in_team(team: Team, exclude_user_id: int) -> list[str]:
     channels = (
-        Channel.objects.for_team(team_id)
+        Channel.objects.for_team(team.id)
         .filter(
             personal_channel_q(),
             deleted=False,
-            created_by__organization_membership__organization_id=organization_id,
+            created_by__in=team.all_users_with_access(),
         )
         .exclude(created_by_id=exclude_user_id)
         .select_related("created_by")

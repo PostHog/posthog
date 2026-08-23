@@ -12,6 +12,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -32,6 +33,8 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+
+from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -1532,7 +1535,7 @@ class TestDesktopUsersInTeam(TestCase):
         OrganizationMembership.objects.filter(organization=organization, user=leaving).delete()
 
         with team_scope(team.id):
-            names = facade.desktop_users_in_team(team.id, organization.id, arriving.id)
+            names = facade.desktop_users_in_team(team, arriving.id)
 
         assert names == ["staying"]
 
@@ -1551,9 +1554,39 @@ class TestDesktopUsersInTeam(TestCase):
             Channel.objects.filter(team_id=team.id, created_by=settled).update(system_role=None)
 
         with team_scope(team.id):
-            names = facade.desktop_users_in_team(team.id, organization.id, arriving.id)
+            names = facade.desktop_users_in_team(team, arriving.id)
 
         assert names == ["settled"]
+
+    def test_someone_without_private_project_access_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(
+            name="Private Project Org",
+            available_product_features=[
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ],
+        )
+        team = Team.objects.create(organization=organization, name="Private Project")
+        arriving = User.objects.create(email="arriving-private@test.com", distinct_id="arriving-private")
+        revoked = User.objects.create(email="revoked@test.com", distinct_id="revoked")
+        for user in (arriving, revoked):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        OrganizationMembership.objects.filter(organization=organization, user=arriving).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        AccessControl.objects.create(
+            team=team,
+            resource="project",
+            resource_id=str(team.id),
+            access_level="none",
+        )
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == []
 
 
 class TestOrganizationHasContext(TestCase):
