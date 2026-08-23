@@ -6701,13 +6701,17 @@ snapshots:
     scenes-app-inbox-scoutmcpserverspicker--scout-settings-variant--light:
         hash: v1.k794b7964.2f1013abc412adb4544bca6a00209d3051c46969db69d4242ab201ecf5d189f3.YVfbrzpaRzPwuCbeFXmaVOLla0fvhHmAm1CkuaKWCLI
     scenes-app-inbox-scoutsroster--large-fleet--dark:
-        hash: v1.k794b7964.2edbcf914b5f961852835f1490dd17656f189e2c6453327846338df4e7254019.4vMqblPFx5vXbwrom8O_uEP_Qz6tJeyjhi9ciTIVvLU
+        hash: v1.k794b7964.718d781556e08dc7feb07a7adf0ef3f8b88b106b1625047d9c2af839df1ecb83.19wXi43f_KFsfpTkB30RoYw5c6_Brl7bz9d3A15R4b8
     scenes-app-inbox-scoutsroster--large-fleet--light:
-        hash: v1.k794b7964.7ab0f4823811e07dd11ab8df5d6ca380da32882d2ebc860fb5e5dcb19979a4c5.gGnZTgS_baawVjUk8Op2gnecTdx78A5k8vD0l3eVkUs
+        hash: v1.k794b7964.aae20045053cf353c3447d41c1bbce92aeabb3d6329664da69d05e0325c28346.u6zr3nk4cJN44mL2RSKmpuVTBsL1WmCqsaagwijmiSI
+    scenes-app-inbox-scoutsroster--narrow--dark:
+        hash: v1.k794b7964.1feb663b0f7c787baebbb5cb76112af14394d12564bcd84a10f74b4320ce6df7.S20hNzFMJwmUnCS2XnNbS2LL49lgymuQuOUkIWEqeJs
+    scenes-app-inbox-scoutsroster--narrow--light:
+        hash: v1.k794b7964.5a75dcc9a78a645e0ca0b5811453e6b975952a00a9ffc6280463b113ad94faea.ulBW3-DilRBC_cyXD6R2MH2g0k_S38zfhKnn3_jWK4I
     scenes-app-inbox-scoutsroster--roster--dark:
-        hash: v1.k794b7964.f1a62e97c92b9d013867516a202b6e851a3e98f0db73527490d81c03b0d01c43.Eo9e2d8VEXu3DbgxnzfcgVYlcoytILv9Ts3J8C3iiNA
+        hash: v1.k794b7964.1e60b96137099008eb0586a688a6e9778957d2bb22080717cb1b7e85b33914f2.hhm9E7xx3YoKpX0Q0OT_8p4RnX9DWaHcowqBSzbj6E4
     scenes-app-inbox-scoutsroster--roster--light:
-        hash: v1.k794b7964.d77ce79b5c591194555316bfd6a28ef4d590e8b79ca888dcec301f287ac6bf0b.-Wpf2QnPo3079sXvwc0w_metttiQCg3IdcKq_Z3AEms
+        hash: v1.k794b7964.43141512a651be54956bfc83ec43a719e32a20cd95f8ab36b618f5f13f2805d8.OKKyCevdY3MASfUtMhdnkY0ZCr2b8jB2cSdbGyFMY1I
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--dark:
         hash: v1.k794b7964.fc51db50c7d112ee96cfe4992358fca180bde9b993e6070c996eafb00df19426.D5c3L-swBUOALS-MsAbV5qUc9iNKrvrIOlyp4Rnoszc
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--light:
@@ -6833,9 +6837,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.66bd00443e2e711874ed527bf57144f29725e97fe6485bd851a5a08fc1312baa.tlLUxnCoHj_VOErbA4ZPNkryCh306EmzhqWZkD8heAU
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.a6429bcd1656dc70e30624f2e2f222d77d001a2a0e6fd49e0715598251e08e5e.GjorOUsq0kK5NJezAdyIBqFjJBIveAR3brvuMItSSYc
+        hash: v1.k794b7964.7e56525084d4787f75387ff2977d2c5871949141847d8aeaabe3f0c031dea5d1.xbYPGGVGgGHRAiaBBV8qoKBbczjZzTiE4hq9rW_ENgA
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.e3f760b8e3b6d5138169be92e3a8026a00e7ec2ee9e252e54b67218df282b804.z796JAdbdGr_wQgg7t4XD97z7nQoKC3qrjEVudqDDeU
+        hash: v1.k794b7964.c17cf8b6b9ca9b3fa5cd570116c12705ec424367a8cf0cbe3934f7057a64bad6.xV9MB_rar116TwlG94C5F8W9YaSMd7NPI_AOO1OD9Ic
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.ef18ee16bcec4b43d74979a5131a3f325f8e0542b6b4cba050746f6b02699ab9.kOLq5BxzD8AlGlxKgleq3uJTw_ddM6GTSmML4MNaZ5o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
