@@ -2143,6 +2143,46 @@ ticket_assignment_lazy_join: LazyJoin = LazyJoin(
 )
 
 
+# The AI reply pipeline records its terminal outcome in the `ai_triage` JSON field (result =
+# "persisted", "escalated_no_reply", "blocked_unsafe", etc.). The same-named `ai_resolved` and
+# `escalation_reason` Postgres columns are never written, so both are derived from `ai_triage.result`
+# here. `persisted` is the one outcome where the AI answered the ticket and auto-sent the reply
+# without handing off to a human.
+_AI_ESCALATION_RESULTS = ("escalated_with_best", "escalated_no_reply", "blocked_unsafe", "blocked_unsafe_reply")
+
+
+def _ticket_ai_result_expr() -> ast.Expr:
+    return ast.Call(name="JSONExtractString", args=[ast.Field(chain=["ai_triage"]), ast.Constant(value="result")])
+
+
+def _ticket_ai_resolved_expr() -> ast.Expr:
+    return ast.Call(
+        name="toInt",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=_ticket_ai_result_expr(),
+                right=ast.Constant(value="persisted"),
+            )
+        ],
+    )
+
+
+def _ticket_escalation_reason_expr() -> ast.Expr:
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=_ticket_ai_result_expr(),
+                right=ast.Tuple(exprs=[ast.Constant(value=result) for result in _AI_ESCALATION_RESULTS]),
+            ),
+            _ticket_ai_result_expr(),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
@@ -2170,14 +2210,23 @@ support_tickets: PostgresTable = PostgresTable(
         "anonymous_traits": StringJSONDatabaseField(
             name="anonymous_traits", description="JSON traits captured for an anonymous requester."
         ),
-        "_ai_resolved": BooleanDatabaseField(name="ai_resolved", hidden=True),
+        "ai_triage": StringJSONDatabaseField(
+            name="ai_triage",
+            description="JSON triage and outcome metadata the AI reply pipeline records. `result` holds the "
+            "terminal outcome, e.g. 'persisted', 'escalated_no_reply', 'blocked_unsafe'.",
+        ),
         "ai_resolved": ExpressionField(
             name="ai_resolved",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])]),
-            description="1 if the ticket was resolved by AI without human escalation, 0 otherwise.",
+            expr=_ticket_ai_resolved_expr(),
+            description="1 if the AI reply pipeline answered the ticket and auto-sent the reply without human "
+            "escalation (ai_triage.result = 'persisted'), 0 otherwise.",
         ),
-        "escalation_reason": StringDatabaseField(
-            name="escalation_reason", nullable=True, description="Why the ticket was escalated to a human, if it was."
+        "escalation_reason": ExpressionField(
+            name="escalation_reason",
+            nullable=True,
+            expr=_ticket_escalation_reason_expr(),
+            description="The AI reply pipeline outcome that sent the ticket to a human (ai_triage.result), if it "
+            "was escalated; NULL otherwise.",
         ),
         "message_count": IntegerDatabaseField(
             name="message_count", description="Total number of messages in the ticket."

@@ -1262,6 +1262,40 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
 
 
+class TestSystemTicketAIOutcome(NonAtomicBaseTest):
+    """Verify `ai_resolved` and `escalation_reason` are derived from the `ai_triage.result` outcome."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_ai_outcome_columns_derive_from_ai_triage(self):
+        cases = {
+            "persisted": {"result": "persisted", "confidence": 0.9},
+            "escalated": {"result": "escalated_no_reply"},
+            "blocked": {"result": "blocked_unsafe"},
+            "spam": {"result": "skipped_unactionable"},
+            "unprocessed": {},
+        }
+        ids = {}
+        for label, triage in cases.items():
+            ticket = _create_support_ticket(self.team, label)
+            ticket.ai_triage = triage
+            ticket.save(update_fields=["ai_triage"])
+            ids[label] = str(ticket.id)
+
+        response = execute_hogql_query(
+            "SELECT id, ai_resolved, escalation_reason FROM system.support_tickets",
+            team=self.team,
+            user=self.user,
+        )
+        rows = {str(row[0]): (row[1], row[2]) for row in response.results}
+
+        assert rows[ids["persisted"]] == (1, None)
+        assert rows[ids["escalated"]] == (0, "escalated_no_reply")
+        assert rows[ids["blocked"]] == (0, "blocked_unsafe")
+        assert rows[ids["spam"]] == (0, None)
+        assert rows[ids["unprocessed"]] == (0, None)
+
+
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
     """Verify the `support_tickets.tags` lazy join returns per-ticket tag names and stays team-isolated."""
 
