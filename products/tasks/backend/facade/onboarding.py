@@ -26,6 +26,7 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
 )
 from products.tasks.backend.facade.onboarding_prompt import load_onboarding_prompt, render_onboarding_prompt
+from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.models import Task
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
@@ -58,8 +59,19 @@ def _origin_key(user_id: int) -> str:
     return f"{ONBOARDING_ORIGIN_KEY_PREFIX}:{user_id}"
 
 
-def _started_session_id(team_id: int, origin_key: str) -> UUID | None:
-    return Task.objects.filter(team_id=team_id, origin_key=origin_key).values_list("id", flat=True).first()
+def _started_session_id(team_id: int, user_id: int) -> UUID | None:
+    # `origin_key` is one namespace per team, shared with any other caller that keys a task, so
+    # match on what this function actually writes rather than trusting whoever holds the string.
+    return (
+        Task.objects.filter(
+            team_id=team_id,
+            origin_key=_origin_key(user_id),
+            created_by_id=user_id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        .values_list("id", flat=True)
+        .first()
+    )
 
 
 def company_domain_from(email: str) -> str | None:
@@ -142,12 +154,19 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
-    origin_key = _origin_key(user.id)
+    # A deactivated organization fails compute quota inside sandbox provisioning, so without this
+    # the first thing a new user sees is a session that dies on its way up.
+    if organization_deactivated(team.id):
+        logger.info("onboarding_session_skipped", team_id=team.id, reason="organization_deactivated")
+        return None
+
     # Ahead of the scrape, so a retry costs nothing rather than reading the homepage again.
-    started = _started_session_id(team.id, origin_key)
+    started = _started_session_id(team.id, user.id)
     if started is not None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
         return started
+
+    origin_key = _origin_key(user.id)
 
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
@@ -182,7 +201,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         )
     except IntegrityError:
         # Two requests raced past the read above; the constraint picked a winner.
-        started = _started_session_id(team.id, origin_key)
+        started = _started_session_id(team.id, user.id)
         if started is None:
             raise
         logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")

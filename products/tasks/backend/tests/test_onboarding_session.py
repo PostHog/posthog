@@ -62,6 +62,28 @@ class TestOnboardingSessionIdempotency(TestCase):
         self.assertEqual(create_calls, 1)
         self.assertEqual(started, Task.objects.get(origin_key=_origin_key(self.user.id)).id)
 
+    def test_a_task_that_squatted_the_key_is_not_mistaken_for_the_session(self):
+        Task.objects.create(
+            team=self.team,
+            title="Someone else's task",
+            description="prompt",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            created_by=self.user,
+            origin_key=_origin_key(self.user.id),
+        )
+
+        with self.assertRaises(IntegrityError):
+            self._start(create_side_effect=IntegrityError("duplicate key"))
+
+    def test_a_deactivated_organization_gets_no_session(self):
+        self.organization.is_active = False
+        self.organization.save(update_fields=["is_active"])
+
+        started, create_calls = self._start(create_side_effect=AssertionError)
+
+        self.assertIsNone(started)
+        self.assertEqual(create_calls, 0)
+
     def test_a_first_request_starts_a_session_keyed_to_the_user(self):
         task_id = uuid4()
 
