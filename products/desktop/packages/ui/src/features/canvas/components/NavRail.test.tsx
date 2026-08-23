@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  featureFlags: new Map<string, boolean>(),
   fullPath: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock(
   () => ({ useCommandCenterActiveCount: () => 0 }),
 );
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
@@ -57,6 +58,7 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
 
+import { DESKTOP_HOME_FLAG } from "@posthog/shared";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
@@ -70,12 +72,22 @@ import { NavRail } from "./NavRail";
 describe("NavRail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.featureFlags.clear();
+    mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
     mocks.fullPath = "/";
     useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
     useRailHistoryStore.setState({ lastByPane: {} });
     clearKeepListForRoute();
+  });
+
+  it("hides Home when its feature flag is off", () => {
+    mocks.featureFlags.set(DESKTOP_HOME_FLAG, false);
+
+    render(<NavRail />);
+
+    expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
   });
 
   // The route is the whole answer, so a destination can never be lit over a

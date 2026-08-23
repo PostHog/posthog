@@ -18,6 +18,7 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
