@@ -680,7 +680,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         get_crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
         calculate_cohort.s(),
         name="recalculate cohorts day",
-        expires=60 * 1.5,
+        expires=120 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_DAY,),
     )
 
