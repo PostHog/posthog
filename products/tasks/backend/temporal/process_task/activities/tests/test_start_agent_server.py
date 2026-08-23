@@ -1,11 +1,12 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
+    _LaunchParams,
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
