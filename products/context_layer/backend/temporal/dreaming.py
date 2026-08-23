@@ -92,7 +92,14 @@ async def fetch_dream_candidates() -> list[str]:
     return await sync_to_async(_fetch_dream_candidates, thread_sensitive=False)()
 
 
-def _prepare_dispatch(organization_id: str) -> tuple[ContextLayerConfig, int, int] | None:
+@frozen
+class _DreamDispatchTarget:
+    config: ContextLayerConfig
+    team_id: int
+    user_id: int
+
+
+def _prepare_dispatch(organization_id: str) -> _DreamDispatchTarget | None:
     config = ContextLayerConfig.objects.filter(organization_id=organization_id).first()
     if config is None or config.dreaming_paused:
         return None
@@ -109,7 +116,7 @@ def _prepare_dispatch(organization_id: str) -> tuple[ContextLayerConfig, int, in
         # instead of tripping the circuit breaker for a human to look at.
         _record_dispatch_failure(config)
         return None
-    return config, home_team.id, user_id
+    return _DreamDispatchTarget(config=config, team_id=home_team.id, user_id=user_id)
 
 
 def _record_dispatch_success(config: ContextLayerConfig) -> None:
@@ -143,28 +150,27 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
         create_task_and_trigger,
     )
 
-    prepared = await sync_to_async(_prepare_dispatch, thread_sensitive=False)(input.organization_id)
-    if prepared is None:
+    target = await sync_to_async(_prepare_dispatch, thread_sensitive=False)(input.organization_id)
+    if target is None:
         return DispatchDreamRunOutput(dispatched=False)
-    config, team_id, user_id = prepared
 
     try:
         await create_task_and_trigger(
             _build_dream_prompt(),
             # Read-only MCP surface: the dream gathers from reads and lands its
             # branch through the commits endpoint, which accepts the run token's
-            # internal task:write scope — it never needs user-facing writes.
-            CustomPromptSandboxContext(team_id=team_id, user_id=user_id, posthog_mcp_scopes="read_only"),
+            # task:write + internal_run:read pair — it never needs user-facing writes.
+            CustomPromptSandboxContext(team_id=target.team_id, user_id=target.user_id, posthog_mcp_scopes="read_only"),
             step_name="context-layer-dream",
             internal=True,
             workflow_id_prefix="context-layer-dream",
         )
     except Exception:
         logger.exception("context_layer.dreaming.dispatch_failed", organization_id=input.organization_id)
-        await sync_to_async(_record_dispatch_failure, thread_sensitive=False)(config)
+        await sync_to_async(_record_dispatch_failure, thread_sensitive=False)(target.config)
         return DispatchDreamRunOutput(dispatched=False)
 
-    await sync_to_async(_record_dispatch_success, thread_sensitive=False)(config)
+    await sync_to_async(_record_dispatch_success, thread_sensitive=False)(target.config)
     return DispatchDreamRunOutput(dispatched=True)
 
 
