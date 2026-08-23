@@ -17886,13 +17886,14 @@ export namespace Schemas {
      * Request body for landing agent commits posted back as a git bundle.
      */
     export interface CommitBundle {
-      /** A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+      /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
       bundle: string;
       /**
-         * Optional run summary stored in the landed commit body.
-         * @maxLength 10000
+         * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
+         * @maxLength 64
+         * @nullable
          */
-      summary?: string;
+      branch?: string | null;
     }
 
     /**
@@ -83286,22 +83287,6 @@ export namespace Schemas {
       url: string;
       /** Commit sha of the bundle behind the URL. */
       head_sha: string;
-    }
-
-    export interface WikiHealthFinding {
-      /** Stable category used to group this finding. */
-      category: string;
-      /** Wiki page path associated with this finding. */
-      path: string;
-      /** Human-readable explanation of the finding. */
-      message: string;
-    }
-
-    export interface WikiHealthReport {
-      /** Commit sha inspected by the report. */
-      head_sha: string;
-      /** Health findings for the current wiki head. */
-      findings: WikiHealthFinding[];
     }
 
     /**
