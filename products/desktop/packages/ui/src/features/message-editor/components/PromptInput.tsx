@@ -12,6 +12,7 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { cycleModeOption } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { shouldFocusOnBackgroundClick } from "@posthog/ui/utils/backgroundClick";
 import { hasOpenOverlay } from "@posthog/ui/utils/overlay";
 import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { EditorContent } from "@tiptap/react";
@@ -35,6 +36,9 @@ import { AttachmentsBar, type AttachmentUploadStatus } from "./AttachmentsBar";
 import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
+
+/** Parts of the composer that answer a click themselves. */
+const COMPOSER_SELF_HANDLED_SELECTOR = 'button, [role="menu"], .ProseMirror';
 
 // How long the send button holds its own busy state when the surface never
 // reports one — long enough to register as a press, short enough that a send
@@ -374,11 +378,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
 
     const handleContainerClick = useCallback(
       (e: React.MouseEvent) => {
-        const target = e.target as HTMLElement;
         if (
-          !target.closest("button") &&
-          !target.closest('[role="menu"]') &&
-          !target.closest(".ProseMirror")
+          shouldFocusOnBackgroundClick(
+            e.target as HTMLElement,
+            COMPOSER_SELF_HANDLED_SELECTOR,
+          )
         ) {
           focus();
         }
