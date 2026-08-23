@@ -1,6 +1,7 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
   ContextWikiPage,
+  ContextWikiHealthReport,
   ContextWikiTree,
 } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
@@ -10,6 +11,7 @@ import { useQueryClient } from "@tanstack/react-query";
 export const CONTEXT_WIKI_TREE_KEY = ["context-wiki", "tree"] as const;
 export const CONTEXT_WIKI_PAGE_KEY = (path: string) =>
   ["context-wiki", "page", path] as const;
+export const CONTEXT_WIKI_REPORT_KEY = ["context-wiki", "report"] as const;
 
 /** `null` data means the wiki was never enabled for this organization (404). */
 export function useContextWikiTree() {
@@ -29,6 +31,14 @@ export function useContextWikiPage(path: string) {
     // The pane remounts per selection, so revisits inside this window render
     // from cache; a stale-head save still fails safe via the 409 conflict.
     { staleTime: 30_000 },
+  );
+}
+
+export function useContextWikiHealthReport() {
+  return useAuthenticatedQuery<ContextWikiHealthReport | null>(
+    CONTEXT_WIKI_REPORT_KEY,
+    (client) => client.getContextWikiHealthReport(),
+    { staleTime: 30_000, refetchOnMount: "always" },
   );
 }
 

@@ -2,6 +2,7 @@ import { BookOpenTextIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { ContextWikiUnavailableError } from "@posthog/api-client/posthog-client";
 import {
   Button,
+  Badge,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -9,6 +10,10 @@ import {
   EmptyMedia,
   EmptyTitle,
   Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { FileExplorer } from "@posthog/ui/primitives/FileExplorer";
@@ -22,10 +27,12 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import {
   useContextWikiTree,
+  useContextWikiHealthReport,
   useEnableContextWiki,
 } from "../hooks/useContextWiki";
 import { buildWikiTree } from "../wikiTree";
 import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
+import { ContextWikiHealthPane } from "./ContextWikiHealthPane";
 
 /**
  * The organization context wiki explorer: a tree of every wiki page on the
@@ -63,8 +70,10 @@ export function ContextWikiView() {
 // explorer.
 function ContextWikiBody() {
   const { data: tree, isLoading, error, refetch } = useContextWikiTree();
+  const { data: healthReport } = useContextWikiHealthReport();
   const enable = useEnableContextWiki();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("pages");
   // Drafts are keyed by path and held here rather than in the pane, which the
   // explorer remounts on every selection — so switching pages mid-edit, or
   // being moved off a page an agent deleted, no longer destroys the text.
@@ -171,28 +180,53 @@ function ContextWikiBody() {
   }
 
   return (
-    <FileExplorer
-      tree={wikiRoot}
-      selectedPath={effectivePath}
-      onSelectPath={setSelectedPath}
-      emptyMessage="The wiki has no pages yet."
-      storageKey="context-wiki-explorer"
+    <Tabs
+      value={activeTab}
+      onValueChange={setActiveTab}
+      className="flex h-full flex-col"
     >
-      {effectivePath ? (
-        // Keyed by path so view state never leaks across pages; the draft is
-        // held above this so the remount does not take it with it.
-        <ContextWikiPagePane
-          key={effectivePath}
-          path={effectivePath}
-          draft={drafts[effectivePath]}
-          onDraftChange={setDraft}
-          onDraftDiscard={discardDraft}
+      <TabsList variant="line">
+        <TabsTrigger value="pages">Pages</TabsTrigger>
+        <TabsTrigger value="health">
+          Health
+          {healthReport?.findings.length ? (
+            <Badge>{healthReport.findings.length}</Badge>
+          ) : null}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="pages" className="min-h-0 flex-1">
+        <FileExplorer
+          tree={wikiRoot}
+          selectedPath={effectivePath}
+          onSelectPath={setSelectedPath}
+          emptyMessage="The wiki has no pages yet."
+          storageKey="context-wiki-explorer"
+        >
+          {effectivePath ? (
+            // Keyed by path so view state never leaks across pages; the draft is
+            // held above this so the remount does not take it with it.
+            <ContextWikiPagePane
+              key={effectivePath}
+              path={effectivePath}
+              draft={drafts[effectivePath]}
+              onDraftChange={setDraft}
+              onDraftDiscard={discardDraft}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-[13px] text-gray-10">
+              The wiki has no pages yet.
+            </div>
+          )}
+        </FileExplorer>
+      </TabsContent>
+      <TabsContent value="health" className="min-h-0 flex-1">
+        <ContextWikiHealthPane
+          onOpenPage={(path) => {
+            setSelectedPath(path);
+            setActiveTab("pages");
+          }}
         />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-[13px] text-gray-10">
-          The wiki has no pages yet.
-        </div>
-      )}
-    </FileExplorer>
+      </TabsContent>
+    </Tabs>
   );
 }
