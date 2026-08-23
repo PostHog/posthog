@@ -249,7 +249,7 @@ export const reportInsightTool = defineLocalTool({
           .min(1)
           .optional()
           .describe(
-            "Token delta across the wasted span, from the log's cumulative usage counters.",
+            "Tokens consumed across the wasted span, measured from the run log.",
           ),
       })
       .optional()

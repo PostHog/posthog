@@ -154,9 +154,11 @@ function draftBadgeVariant(
 export function FreeformCanvasView({
   threadId,
   interactive,
+  embedded = false,
 }: {
   threadId: string;
   interactive: boolean;
+  embedded?: boolean;
 }) {
   const dashboardId = dashboardIdOf(threadId);
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
@@ -775,6 +777,7 @@ export function FreeformCanvasView({
     if (effectiveTaskId) setGeneratingPanelDismissed(false);
   }, [effectiveTaskId]);
   const generatingPanelOpen =
+    !embedded &&
     isGenerating &&
     !!effectiveTaskId &&
     !pinnedArtifact &&
@@ -788,7 +791,7 @@ export function FreeformCanvasView({
     hasContent,
     hasActiveTask: !!effectiveTaskId,
     generatingPanelOpen,
-    viewOpen: panelViewOpen,
+    viewOpen: embedded ? false : panelViewOpen,
     collapsed,
     hasCommentTask: !!commentTaskId,
   });
@@ -801,7 +804,7 @@ export function FreeformCanvasView({
     (hasActiveCanvasBuild(lifecycle) ||
       !!currentHeadBuildFailure(lifecycle) ||
       latestFinishedCanvasBuild(lifecycle)?.buildStatus === "failed");
-  const showToolbar = interactive || hasBuildSignal;
+  const showToolbar = !embedded && (interactive || hasBuildSignal);
 
   return (
     <Flex height="100%" overflow="hidden" position="relative">
@@ -1249,14 +1252,16 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      <CanvasSelectionCommentAction
-        selection={textSelection}
-        taskId={commentTaskId}
-        dashboardId={dashboardId}
-        canvasName={dashboard?.name ?? "Canvas"}
-        versionId={displayedVersionId}
-        onDismiss={dismissTextSelection}
-      />
+      {!embedded && (
+        <CanvasSelectionCommentAction
+          selection={textSelection}
+          taskId={commentTaskId}
+          dashboardId={dashboardId}
+          canvasName={dashboard?.name ?? "Canvas"}
+          versionId={displayedVersionId}
+          onDismiss={dismissTextSelection}
+        />
+      )}
 
       {/* The empty-canvas landing: a centered composer with suggestions,
           overlaying the canvas area. On submit it slides down; once it's gone

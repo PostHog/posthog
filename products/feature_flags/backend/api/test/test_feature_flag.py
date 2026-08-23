@@ -14274,6 +14274,37 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("error", response.json())
 
 
+class TestFeatureFlagMyFlags(APIBaseTest, ClickhouseTestMixin):
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_my_flags_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must scope both the flag definitions returned and the flags service call,
+        # otherwise the response lists every flag in the project. MCP clients JSON-stringify
+        # array query params into a single value, so that encoding must scope the same way.
+        FeatureFlag.objects.create(team=self.team, key="wanted")
+        FeatureFlag.objects.create(team=self.team, key="other")
+        mock_get_flags.return_value = {"flags": {"wanted": {"enabled": True, "variant": None}}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/my_flags/",
+            query_flag_keys,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted"])
+        # Must request all runtimes, otherwise the flags service reads the internal
+        # python-requests User-Agent as a server runtime and drops client-only flags,
+        # reporting a client-only flag that is on as false.
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+        returned_keys = {item["feature_flag"]["key"] for item in response.json()}
+        self.assertEqual(returned_keys, {"wanted"})
+
+
 class TestFeatureFlagFiltersMetrics(APIBaseTest):
     def _write_count(self, operation: str, outcome: str) -> float:
         return FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source="ui")._value.get()
