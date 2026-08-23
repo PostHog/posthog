@@ -45,20 +45,24 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             return MaterializeContextLayerOutput(mounted=False)
 
         mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
-        bundle_path = f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle"
+        bundle_path = shlex.quote(f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle")
+        url_path = f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle-url"
         # Clear any leftover checkout first so the mount is idempotent: a resumed
         # snapshot re-mounts /tmp/workspace (wiki included), and git clone refuses a
         # non-empty target, which would otherwise leave the previous run's stale wiki
-        # in place while reporting a fresh mount.
+        # in place while reporting a fresh mount. The presigned URL travels via
+        # write_file and is removed on every path, so a live credential never
+        # appears in command strings, sandbox logs, or error telemetry.
         command = (
-            f"rm -rf {mount_path} {shlex.quote(bundle_path)} && "
-            f"curl -fsSL {shlex.quote(mount.bundle_url)} -o {shlex.quote(bundle_path)} && "
-            f"git clone --quiet {shlex.quote(bundle_path)} {mount_path} && "
-            f"git -C {mount_path} checkout --quiet main && "
-            f"rm -f {shlex.quote(bundle_path)}"
+            f"rm -rf {mount_path} {bundle_path} && "
+            f'curl -fsSL "$(cat {shlex.quote(url_path)})" -o {bundle_path} && '
+            f"git clone --quiet {bundle_path} {mount_path} && "
+            f"git -C {mount_path} checkout --quiet main; "
+            f"status=$?; rm -f {bundle_path} {shlex.quote(url_path)}; exit $status"
         )
         try:
             sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox.write_file(url_path, mount.bundle_url.encode())
             result = sandbox.execute(command, timeout_seconds=MOUNT_TIMEOUT_SECONDS)
         except Exception as error:
             # Best-effort by contract: a failure reaching the sandbox (not running,

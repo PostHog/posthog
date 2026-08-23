@@ -128,6 +128,11 @@ def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | N
     """A short-lived bundle URL for cloning the wiki into a sandbox, or None
     when the organization has no wiki. The presign is minted here, at clone
     time, so the sandbox never holds storage credentials."""
+    if organization_has_private_projects(organization_id):
+        # The wiki API goes dark when any project turns private; the sandbox
+        # mount must go dark with it or excluded members could read restricted
+        # context from any task's sandbox.
+        return None
     try:
         export = store.get_bundle_export(organization_id)
     except store.ContextLayerStoreError:
