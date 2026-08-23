@@ -1777,17 +1777,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        # The patch keeps replays of pre-rollout histories deterministic; the env
-        # var (recorded activity output, set only when the org's context layer is
-        # enabled) decides whether this run mounts the wiki.
-        if workflow.patched("context-layer-mount"):
-            if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
-                await workflow.execute_activity(
-                    materialize_context_layer_in_sandbox,
-                    MaterializeContextLayerInput(context=self.context, sandbox_id=created.sandbox_id),
-                    start_to_close_timeout=timedelta(minutes=3),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
-                )
+        # Gated on recorded activity output, not workflow.patched: the env var only
+        # exists in histories written after the context layer shipped, so replays of
+        # pre-rollout histories skip this command deterministically.
+        if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
+            await workflow.execute_activity(
+                materialize_context_layer_in_sandbox,
+                MaterializeContextLayerInput(context=self.context, sandbox_id=created.sandbox_id),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
         if overlap and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)
