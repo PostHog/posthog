@@ -809,4 +809,10 @@ frontend_unauthenticated_routes = [
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
+# APPEND_SLASH is off, so a bare "/api" never matches "api/" and falls through to the
+# SPA catch-all, which renders a 404. Redirect it to the DRF root at "/api/".
+urlpatterns.append(
+    re_path(r"^api$", RedirectView.as_view(url="/api/", permanent=True, query_string=True)),
+)
+
 urlpatterns.append(re_path(r"^.*", home_with_region_redirect))
