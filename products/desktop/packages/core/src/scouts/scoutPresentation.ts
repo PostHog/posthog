@@ -559,6 +559,73 @@ export function computeFleetSummary(
   };
 }
 
+/** A scout waiting on a person, paired with a short reason for the wait. */
+export interface ScoutAttentionItem {
+  name: string;
+  reason: string;
+}
+
+function systemPausedReason(state: ScoutLifecycleState): string {
+  switch (state.reason) {
+    case "repeated_failures":
+      return `Paused itself — ${failureCountClause(state.consecutiveFailureCount)}`;
+    case "ignored":
+      return "Paused — nobody acted on its reports";
+    case "no_output":
+      return "Paused — it stopped surfacing anything";
+    default:
+      return "Paused — switch it back on to resume";
+  }
+}
+
+function pausingSoonReason(state: ScoutLifecycleState): string {
+  switch (state.reason) {
+    case "repeated_failures":
+      return `Pauses soon — ${failureCountClause(state.consecutiveFailureCount)}`;
+    case "ignored":
+      return "Pauses soon — nobody acted on its reports";
+    default:
+      return "Pauses soon — act to keep it running";
+  }
+}
+
+function listScoutsNeedingAttention(
+  configs: ScoutConfig[],
+  select: (state: ScoutLifecycleState) => boolean,
+  describe: (state: ScoutLifecycleState) => string,
+): ScoutAttentionItem[] {
+  return configs
+    .map((config) => ({ config, state: deriveScoutLifecycle(config) }))
+    .filter((entry) => select(entry.state))
+    .map((entry) => ({
+      name: prettifyScoutSkillName(entry.config.skill_name),
+      reason: describe(entry.state),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The scouts behind the fleet's auto-paused count, each with why it stopped. */
+export function listSystemPausedScouts(
+  configs: ScoutConfig[],
+): ScoutAttentionItem[] {
+  return listScoutsNeedingAttention(
+    configs,
+    (state) => state.isSystemPaused,
+    systemPausedReason,
+  );
+}
+
+/** The scouts behind the fleet's pausing-soon count, each with why it is flagged. */
+export function listPausingSoonScouts(
+  configs: ScoutConfig[],
+): ScoutAttentionItem[] {
+  return listScoutsNeedingAttention(
+    configs,
+    (state) => state.willPause,
+    pausingSoonReason,
+  );
+}
+
 export interface RunIntervalOption {
   minutes: number;
   label: string;
