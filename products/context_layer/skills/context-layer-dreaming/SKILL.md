@@ -1,11 +1,14 @@
 ---
 name: context-layer-dreaming
-description: Nightly synthesis of the organization's activity into its context wiki
+description: Add durable, sourced facts from recent organizational activity to a context wiki during a nightly dream run. Use this when you run a context-layer dream over an organization's wiki. Review completed tasks, merged pull requests, loop runs, and new event and property definitions, then update the owning page for each fact that passes the admission test. Runs inside the mounted wiki repository, where the `scripts/lint` and `scripts/publish` commands are available.
 ---
 
 # Context layer dreaming
 
 Improve the mounted context wiki with durable, sourced facts from recent organizational activity.
+
+You run inside the organization's mounted wiki repository.
+PostHog scaffolds the `scripts/lint` and `scripts/publish` commands into that repository when the organization enables the context layer; they are not part of the PostHog application repository.
 
 ## Protocol
 

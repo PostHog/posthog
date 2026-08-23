@@ -1,9 +1,12 @@
 ---
 name: context-layer-consolidation
-description: Keep the context wiki coherent using the deterministic lint report queue
+description: Keep a context wiki coherent by working the deterministic lint report queue. Use this on a context-layer dream branch to remove unsupported synthesis, expire stale priorities, mark superseded decisions, merge near-duplicate pages, and repair links. Runs inside the mounted wiki repository, where the `scripts/lint --report` command produces the queue.
 ---
 
 # Context layer consolidation
+
+You run inside the organization's mounted wiki repository.
+PostHog scaffolds the `scripts/lint` command into that repository when the organization enables the context layer; it is not part of the PostHog application repository.
 
 Start with `scripts/lint --report`. Work the queue on the current dream branch.
 
