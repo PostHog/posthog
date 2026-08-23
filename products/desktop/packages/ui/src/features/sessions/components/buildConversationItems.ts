@@ -774,7 +774,7 @@ function handleNotification(
     const params = msg.params as { level?: string; message?: string };
     if (!params?.message) return;
     const level = params.level ?? "info";
-    if (level === "debug" && !options?.showDebugLogs) return;
+    if (!options?.showDebugLogs) return;
     ensureImplicitTurn(b, ts);
     pushItem(b, {
       sessionUpdate: "console",
