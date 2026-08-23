@@ -75,3 +75,5 @@ export const BEDROCK_LLM_GATEWAY_FLAG = "bedrock-llm-gateway";
 export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
+/** Gates the organization context wiki: the Context explorer in the nav rails. */
+export const CONTEXT_LAYER_FLAG = "context-layer";
