@@ -396,13 +396,7 @@ export function InsightMeta({
         : undefined
 
     const copyInsightLink = (): void => {
-        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link', {
-            silent: true,
-        }).then((copied) => {
-            if (copied) {
-                lemonToast.success('Insight link copied to clipboard')
-            }
-        })
+        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
     }
 
     return (
