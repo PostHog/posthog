@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import structlog
+from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
@@ -118,7 +119,10 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
 
     def renew() -> None:
         while not stop.wait(LOCK_RENEW_INTERVAL_SECONDS):
-            client.eval(_RENEW_LOCK_SCRIPT, 1, key, token, LOCK_TTL_MS)
+            try:
+                client.eval(_RENEW_LOCK_SCRIPT, 1, key, token, LOCK_TTL_MS)
+            except RedisError:
+                break
 
     heartbeat = threading.Thread(target=renew, name=f"context-layer-lock-{organization_id}", daemon=True)
     heartbeat.start()
@@ -127,7 +131,12 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
     finally:
         stop.set()
         heartbeat.join(timeout=1)
-        client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
+        # The write has already landed by the time we release; a Redis error here
+        # must not mask the result. The TTL frees the key if Redis stays down.
+        try:
+            client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
+        except RedisError:
+            logger.warning("context_layer.repo_writer_lock.release_failed", organization_id=str(organization_id))
 
 
 def _run_git(args: list[str], cwd: Path) -> str:
