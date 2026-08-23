@@ -227,34 +227,17 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
         assert page["content"] == _page("From an agent")
 
-    def _bearer(self, scope: str) -> str:
-        app = OAuthApplication.objects.create(
-            name="sandbox",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-            organization=self.organization,
-            user=self.user,
-        )
-        token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=app,
-            token=f"pha_{scope.replace(':', '-').replace(' ', '_')}",
-            scope=scope,
-            expires=timezone.now() + timedelta(hours=1),
-            scoped_teams=[],
-            scoped_organizations=[],
-        )
-        return token.token
-
     def _post_bundle_with_bearer(self, scope: str):
+        # The project-nested agent route, with a token minted the way production
+        # mints a run token: scoped to a team. The org route refuses a
+        # scoped_teams token outright — see
+        # test_agent_route_accepts_the_run_token_the_org_route_refuses.
         self._enable()
         bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
-        token = self._bearer(scope)
+        token = self._bearer(scope, scoped_teams=[self.team.id])
         self.client.logout()
         return self.client.post(
-            f"{self.base_url}/commits/",
+            f"/api/projects/{self.team.id}/context_layer/commits/",
             {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
             format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {token}",

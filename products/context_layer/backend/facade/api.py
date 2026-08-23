@@ -111,16 +111,17 @@ def is_context_layer_enabled(*, organization_id: str, distinct_id: str) -> bool:
         return False
 
 
-def sandbox_environment_variables(organization_id: uuid.UUID | str) -> dict[str, str]:
+def sandbox_environment_variables(organization_id: uuid.UUID | str, team_id: int) -> dict[str, str]:
     """Env vars for a sandbox whose organization has a wiki; empty when it does
-    not exist yet. Callers gate on the feature flag."""
+    not exist yet. Callers gate on the feature flag.
+
+    The commits path is the project-nested agent route, because the run token
+    carries `scoped_teams` and the organization-nested route refuses it."""
     if not ContextLayerConfig.objects.filter(organization_id=organization_id).exists():
         return {}
     return {
         MOUNT_PATH_ENV_VAR: SANDBOX_MOUNT_PATH,
-        COMMITS_PATH_ENV_VAR: reverse(
-            "organization_context_layer-commits", kwargs={"parent_lookup_organization_id": str(organization_id)}
-        ),
+        COMMITS_PATH_ENV_VAR: reverse("project_context_layer-commits", kwargs={"parent_lookup_team_id": str(team_id)}),
     }
 
 

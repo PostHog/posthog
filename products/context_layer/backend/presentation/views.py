@@ -131,20 +131,11 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["status", "tree", "page", "report", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
-    def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
-        """Sandbox run tokens land agent commits with task:write instead of organization:write.
-
-        task:write alone is user-grantable, so it only counts here together with
-        internal_run:read — minted exclusively server-side for sandbox runs and rejected
-        by every user-facing scope validator, so it cannot be forged. Tokens without that
-        provenance marker keep the default organization:write requirement."""
-        if self.action != "commits":
-            return None
-        access_token = get_oauth_access_token(request)
-        token_scopes = set((getattr(access_token, "scope", "") or "").split())
-        if INTERNAL_RUN_SCOPE in token_scopes:
-            return ["task:write", INTERNAL_RUN_SCOPE]
-        return None
+    # No sandbox-token override here: a run token carries `scoped_teams`, which
+    # `APIScopePermission` refuses on this organization-nested route, so it never
+    # reaches these actions. Sandbox runs land commits through the project-nested
+    # `ContextLayerAgentViewSet` instead; this route serves humans and
+    # `organization:write` tokens.
 
     @extend_schema(
         request=None,

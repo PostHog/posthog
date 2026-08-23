@@ -508,7 +508,9 @@ def _build_environment_variables(
     # The flag was evaluated once in get_task_processing_context; presence of
     # the mount-path env var is what gates the materialize activity in the workflow.
     if ctx.context_layer_enabled:
-        environment_variables.update(context_layer_facade.sandbox_environment_variables(ctx.organization_id))
+        environment_variables.update(
+            context_layer_facade.sandbox_environment_variables(ctx.organization_id, ctx.team_id)
+        )
 
     return environment_variables
 
