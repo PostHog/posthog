@@ -318,6 +318,7 @@ class TestContextLayerAPI(APIBaseTest):
             )
         assert response.status_code == 409
         assert "at most 3" in response.json()["detail"]
+
     def test_commits_endpoint_lands_a_dream_branch_as_one_merge_commit(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("areas/dreamt.md", "# Dreamt\n", branch="dream/2026-08-18")

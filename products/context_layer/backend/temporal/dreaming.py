@@ -15,6 +15,7 @@ import datetime as dt
 import functools
 from pathlib import Path
 
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -64,7 +65,12 @@ class DispatchDreamRunOutput:
 def _fetch_dream_candidates() -> list[str]:
     today = timezone.now().date()
     candidates: list[str] = []
-    for config in ContextLayerConfig.objects.filter(dreaming_paused=False).order_by("created_at"):
+    # Least-recently-dreamt first (never-dreamt before that): when more orgs are
+    # due than the cap, the cap rotates through the fleet instead of permanently
+    # starving whoever sorts last.
+    for config in ContextLayerConfig.objects.filter(dreaming_paused=False).order_by(
+        F("last_dream_started_at").asc(nulls_first=True), "created_at"
+    ):
         if config.last_dream_started_at is not None and config.last_dream_started_at.date() >= today:
             continue
         organization_id = str(config.organization_id)
@@ -98,6 +104,10 @@ def _prepare_dispatch(organization_id: str) -> tuple[ContextLayerConfig, int, in
             organization_id=organization_id,
             has_team=home_team is not None,
         )
+        # A lane that cannot even name a dispatch target counts as a failed
+        # dispatch: without this it would retry silently every night forever
+        # instead of tripping the circuit breaker for a human to look at.
+        _record_dispatch_failure(config)
         return None
     return config, home_team.id, user_id
 
@@ -108,11 +118,15 @@ def _record_dispatch_success(config: ContextLayerConfig) -> None:
 
 def _record_dispatch_failure(config: ContextLayerConfig) -> None:
     streak = config.dream_failure_streak + 1
+    # Pause on every full threshold of consecutive failures, not once past it:
+    # a manually unpaused lane (streak left at the old value) gets a fresh
+    # threshold of attempts before re-pausing instead of re-tripping on one.
+    pause = streak % FAILURE_STREAK_PAUSE_THRESHOLD == 0
     ContextLayerConfig.objects.filter(pk=config.pk).update(
         dream_failure_streak=streak,
-        dreaming_paused=streak >= FAILURE_STREAK_PAUSE_THRESHOLD,
+        dreaming_paused=pause,
     )
-    if streak >= FAILURE_STREAK_PAUSE_THRESHOLD:
+    if pause:
         logger.warning(
             "context_layer.dreaming.lane_paused",
             organization_id=str(config.organization_id),
@@ -137,7 +151,10 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
     try:
         await create_task_and_trigger(
             _build_dream_prompt(),
-            CustomPromptSandboxContext(team_id=team_id, user_id=user_id),
+            # Read-only MCP surface: the dream gathers from reads and lands its
+            # branch through the commits endpoint, which accepts the run token's
+            # internal task:write scope — it never needs user-facing writes.
+            CustomPromptSandboxContext(team_id=team_id, user_id=user_id, posthog_mcp_scopes="read_only"),
             step_name="context-layer-dream",
             internal=True,
             workflow_id_prefix="context-layer-dream",

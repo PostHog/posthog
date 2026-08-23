@@ -997,19 +997,8 @@ from = [
     "products.experiments",
 ]
 
-# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
-
-[[interfaces]]
-expose = [
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
-]
-from = [
-    "products.billing_alerts",
-]
-
-# Context layer registers its dreaming coordinator and nightly schedule with the general-purpose worker.
+# Context layer exposes its cross-product facade, API registration surface, and
+# the dreaming coordinator it registers with the general-purpose worker.
 
 [[interfaces]]
 expose = [
@@ -1022,6 +1011,18 @@ expose = [
 ]
 from = [
     "products.context_layer",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
