@@ -358,6 +358,48 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.scoutSearch).toEqual('rev')
     })
 
+    it('resets the roster filters when Back or Forward reaches a bare URL', async () => {
+        // A filtered roster, reached by a shared link or by toggling the controls.
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled', scoutTags: 'revenue' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue'])
+
+        // Back or Forward onto the bare entry arrives as a POP carrying no roster params.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: urls.inbox('scouts'),
+                search: '',
+                searchParams: {},
+                hash: '',
+                hashParams: {},
+                url: urls.inbox('scouts'),
+            })
+        }).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('all')
+        expect(logic.values.selectedScoutTags).toEqual([])
+        expect(logic.values.scoutSearch).toEqual('')
+        // The bare entry is left as-is, so a second Back still reaches the entries beneath it.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+        expect(router.values.searchParams.scoutTags).toBeUndefined()
+    })
+
+    it('reflects a persisted filter back into a bare roster URL on fresh navigation', async () => {
+        // The user filtered the roster, then opened the bare roster URL afresh (a PUSH, not Back).
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+
+        router.actions.push(urls.inbox('scouts'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The filter persists and is written back so the restored view stays shareable.
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
     it('resets the in-flight chat type when the kickoff fails', async () => {
         mockSignalsScoutChatTasksCreate.mockRejectedValue(new Error('over the usage limit'))
 

@@ -1127,12 +1127,30 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     urlToAction(({ actions, values }) => {
-        const applyFromUrl = (_: unknown, searchParams: Record<string, any>): void => {
+        const applyFromUrl = (
+            _: unknown,
+            searchParams: Record<string, any>,
+            __: unknown,
+            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+        ): void => {
             const hasRosterParams =
                 'scoutSearch' in searchParams || 'scoutEnabled' in searchParams || 'scoutTags' in searchParams
             if (!hasRosterParams) {
-                // Bare URL: keep the persisted filters, but reflect any non-default one back so the
-                // current view is immediately shareable.
+                // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
+                // the filters and leave the URL bare so a second Back can still reach the entries
+                // beneath it. Reflecting the persisted filters back here would undo the navigation.
+                if (method === 'POP') {
+                    if (
+                        values.scoutSearch !== '' ||
+                        values.scoutEnabledFilter !== 'all' ||
+                        values.selectedScoutTags.length > 0
+                    ) {
+                        actions.hydrateRosterFilters('', 'all', [])
+                    }
+                    return
+                }
+                // Fresh navigation onto the bare URL keeps the persisted filters, reflecting any
+                // non-default one back so the current view is immediately shareable.
                 const desired = rosterFilterSearchParams({}, values)
                 if (Object.keys(desired).length > 0) {
                     router.actions.replace(
