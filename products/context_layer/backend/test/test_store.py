@@ -66,11 +66,11 @@ class TestPruneBundles(SimpleTestCase):
             storage.delete_objects.assert_not_called()
 
 
-@override_settings(OBJECT_STORAGE_ENABLED=True)
 def _page(title: str) -> str:
     return f"---\nsummary: {title} page for store tests.\nstatus: active\n---\n# {title}\n"
 
 
+@override_settings(OBJECT_STORAGE_ENABLED=True)
 class TestContextLayerStore(BaseTest):
     def setUp(self) -> None:
         super().setUp()
