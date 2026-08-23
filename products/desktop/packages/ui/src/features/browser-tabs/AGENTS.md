@@ -42,8 +42,8 @@ The feature is deliberately split so the rules are portable and testable:
   `TabsSnapshot` / `TabTarget`), the transforms (`openOrFocusTab`, `newBlankTab`,
   `setTabTarget`, `closeTab`, `closeTabs`, `setTabOrder`), `decideTabNavigation` (what a
   location change means for the strip), and the snapshot predicates
-  (`primaryWindow`, `activeTabIsBlank`, `primaryWindowHasNoTabs`) the `/spaces`
-  index uses to choose the new-tab screen over a first-channel redirect. No
+  (`primaryWindow`, `activeTabIsBlank`, `primaryWindowHasNoTabs`) — `activeTabIsBlank`
+  gates the blank new-tab placeholder on the `/spaces` index. No
   React, no I/O. This is where behaviour is unit-tested. Back/forward is driven by
   router history + `decideTabNavigation`, not a separate action stack.
 - **`@posthog/workspace-server` (`services/browser-tabs/`, `db/`)** — the
@@ -226,7 +226,7 @@ differ. Desktop ships first.
   stamp / noop decision the strip makes on every navigation (including "back
   returns to the previous tab" and the inherited-tag in-tab case) — plus the
   snapshot predicates (`activeTabIsBlank`, `primaryWindowHasNoTabs`,
-  `primaryWindow`) that gate the index's new-tab-screen-vs-redirect choice.
+  `primaryWindow`).
   `BrowserTabStrip`'s effect dispatches that decision, so the tested function is
   the one that runs.
 - **Presentational** rendering is tested in `TabStrip.test.tsx` (active styling,
