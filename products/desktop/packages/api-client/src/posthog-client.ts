@@ -730,6 +730,7 @@ export interface PostHogObjectReferenceInput {
   object_kind: string;
   object_id: string;
   source_message_id: string;
+}
 
 export interface ContextWikiTree {
   head_sha: string;
