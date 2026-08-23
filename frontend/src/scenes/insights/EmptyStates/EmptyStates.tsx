@@ -28,6 +28,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { getIncompleteFunnelDataWarehouseSteps } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
@@ -42,7 +43,6 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { VALIDATION_ERROR_STATUSES } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -873,33 +873,7 @@ export function FunnelDataWarehouseStepIncompleteState(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { series } = useValues(funnelDataLogic(insightProps))
 
-    const incompleteSteps = (series || [])
-        .map((step, index) => {
-            if (!isFunnelsDataWarehouseNode(step)) {
-                return null
-            }
-
-            const missingFields = [
-                !step.table_name ? 'Table' : null,
-                !step.id_field ? 'Unique ID' : null,
-                !step.timestamp_field ? 'Timestamp' : null,
-                !step.aggregation_target_field ? 'Aggregation target' : null,
-            ].filter((field): field is string => field !== null)
-
-            if (missingFields.length === 0) {
-                return null
-            }
-
-            const stepName = step.custom_name || step.name || step.table_name
-            const stepLabel = `Step ${index + 1}`
-
-            return {
-                index,
-                label: stepName ? `${stepLabel} — ` + stepName : stepLabel,
-                missingFields,
-            }
-        })
-        .filter((step): step is NonNullable<typeof step> => step !== null)
+    const incompleteSteps = getIncompleteFunnelDataWarehouseSteps(series)
 
     return (
         <div

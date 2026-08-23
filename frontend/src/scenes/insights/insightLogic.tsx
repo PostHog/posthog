@@ -32,6 +32,7 @@ import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getIncompleteFunnelDataWarehouseSteps } from 'scenes/funnels/funnelUtils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -1022,6 +1023,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     }),
     listeners(({ actions, values, props }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
+            const source = isNodeWithSource(values.query) ? values.query.source : values.query
+            if (isFunnelsQuery(source)) {
+                const incompleteSteps = getIncompleteFunnelDataWarehouseSteps(source.series)
+                if (incompleteSteps.length > 0) {
+                    const missingFields = Array.from(new Set(incompleteSteps.flatMap((step) => step.missingFields)))
+                    lemonToast.error(
+                        `Complete your data warehouse funnel step before saving. Add the missing ${missingFields
+                            .join(', ')
+                            .toLowerCase()} field${missingFields.length === 1 ? '' : 's'}.`
+                    )
+                    actions.saveInsightFailure()
+                    return
+                }
+            }
+
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
