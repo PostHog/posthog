@@ -95,7 +95,7 @@ interface UseTaskCreationOptions {
   channelId?: string;
   /**
    * Desktop file-system folder id that owns the channel's CONTEXT.md (the
-   * `/website/$channelId` id, distinct from the feed `channelId`). Lets the
+   * `/spaces/$channelId` id, distinct from the feed `channelId`). Lets the
    * injected context address CONTEXT.md upkeep writes by a stable id.
    */
   channelContextId?: string;

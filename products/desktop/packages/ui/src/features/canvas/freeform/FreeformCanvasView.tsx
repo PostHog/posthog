@@ -941,7 +941,7 @@ export function FreeformCanvasView({
                     </Text>
                     <RadixButton size="1" variant="soft" asChild>
                       <Link
-                        to="/website/$channelId/tasks/$taskId"
+                        to="/spaces/$channelId/tasks/$taskId"
                         params={{ channelId, taskId: effectiveTaskId }}
                       >
                         View task
@@ -1334,7 +1334,7 @@ function GeneratingState({
             size="default"
             render={
               <Link
-                to="/website/$channelId/tasks/$taskId"
+                to="/spaces/$channelId/tasks/$taskId"
                 params={{ channelId, taskId }}
               />
             }
