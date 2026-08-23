@@ -6,7 +6,6 @@ import {
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
-import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
   DropdownMenu,
@@ -26,6 +25,7 @@ import { RefundReportDialog } from "@posthog/ui/features/inbox/components/Refund
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 import { useCallback, useState } from "react";
@@ -157,7 +157,7 @@ export function ReportDetailActions({
         title="Chat with the agent about this report"
       >
         <ChatCircleIcon size={12} />
-        Discuss
+        Chat with this report
       </Button>
 
       {canvasActionEnabled && (
@@ -179,7 +179,7 @@ export function ReportDetailActions({
                 title="Have the agent build a canvas from this report"
               >
                 {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={12} />}
-                Canvas
+                Create canvas…
               </Button>
             }
           />
@@ -225,7 +225,22 @@ export function ReportDetailActions({
         </Popover>
       )}
 
-      {overflowMenu}
+      {/* An overflow menu earns its click only with something to hide; when
+          Copy link is the lone occasional action, it shows directly. */}
+      {!prUrl && !refund.canRefund ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label="Copy link to this report"
+          title="Copy link to this report"
+          onClick={() => copyInboxReportLink(report)}
+        >
+          <CopyIcon size={13} />
+        </Button>
+      ) : (
+        overflowMenu
+      )}
 
       {refund.canRefund && (
         <RefundReportDialog

@@ -10,7 +10,11 @@ import type { SignalReport } from "@posthog/shared/types";
  * Hidden once an implementation PR exists or the issue is already fixed.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
-  if (report.implementation_pr_url) return false;
+  // A merged PR doesn't block: a report that outlived its fix (evidence kept
+  // arriving) legitimately gets another attempt.
+  if (report.implementation_pr_url && !report.implementation_pr_merged) {
+    return false;
+  }
   if (report.already_addressed === true) return false;
   if (report.status === "pending_input") return true;
   if (report.status === "ready") {

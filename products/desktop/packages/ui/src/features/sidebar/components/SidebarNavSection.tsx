@@ -7,7 +7,8 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
@@ -39,8 +40,6 @@ import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
 import { SearchItem } from "./items/SearchItem";
-
-const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 interface SidebarNavSectionProps {
   // The Command Center badge counts how many command-center cells point at a
@@ -75,6 +74,8 @@ export function SidebarNavSection({
   // With channel reports on, spaces own reports (sidebar tab + feed) and the
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
+  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxDecisionCount = useInboxDecisionCount();
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -91,18 +92,6 @@ export function SidebarNavSection({
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
   const isContextActive = view.type === "context";
-
-  // Open pull requests in the inbox — the main CTA, and the same count the inbox
-  // Pull requests tab shows, so the badge and the tab always agree.
-  // `ignoreFilters` keeps the badge stable against the inbox's filter chrome;
-  // scope still follows the user's For-you / project choice.
-  // The sidebar mounts on every route, so its badge polls slowly; opening the
-  // inbox adds its own 3s observers and React Query uses the shortest interval.
-  const { counts: inboxCounts } = useInboxAllReports({
-    ignoreFilters: true,
-    refetchIntervalMs: SIDEBAR_INBOX_REFETCH_INTERVAL_MS,
-  });
-  const inboxPullRequestCount = inboxCounts.pulls;
 
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
@@ -136,7 +125,9 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    inbox: !channelReportsEnabled,
+    // The global reports inbox reclaims the slot from the channel-reports
+    // takeover; without it, spaces own reports and the entry goes away.
+    inbox: !channelReportsEnabled || reportsInboxEnabled,
     "command-center": true,
     contexts: contextEnabled,
     activity: bluebirdEnabled,
@@ -155,7 +146,7 @@ export function SidebarNavSection({
         depth={depth}
         isActive={isInboxActive}
         onClick={withNavTrack("inbox", navigateToInbox, depth)}
-        pullRequestCount={inboxPullRequestCount}
+        decisionCount={inboxDecisionCount}
       />
     ),
     "command-center": (depth) => (

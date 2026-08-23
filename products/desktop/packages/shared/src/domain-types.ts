@@ -657,6 +657,12 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /**
+   * Whether that PR merged (GitHub webhook). A merged PR is history, not work
+   * in flight: a report can outlive its fix when evidence keeps arriving, and
+   * its old PR must not read as reviewable or continuable.
+   */
+  implementation_pr_merged?: boolean;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */

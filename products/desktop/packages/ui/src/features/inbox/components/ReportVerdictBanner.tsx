@@ -1,4 +1,8 @@
-import { ArrowSquareOutIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  ArrowSquareOutIcon,
+  GitPullRequestIcon,
+} from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import {
@@ -16,6 +20,7 @@ import {
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
+import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
@@ -66,9 +71,14 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
     report.status,
   );
   const continuableTask = findContinuableImplementationTask(reportTasks);
+  // A merged PR is history, not live work: the report only still exists
+  // because evidence kept arriving after the fix, so it reads by its own
+  // state (usually "needs your decision" again) rather than "review the PR".
+  const livePrUrl = report.implementation_pr_merged
+    ? null
+    : report.implementation_pr_url;
   const existingPrUrl =
-    report.implementation_pr_url ??
-    (continuableTask ? getTaskPrUrl(continuableTask) : null);
+    livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
@@ -84,6 +94,18 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
 
   const [prOpen, setPrOpen] = useState(false);
   const [prFeedback, setPrFeedback] = useState("");
+
+  // Archive is the "no" beside Create PR's "yes" — a decision, so it lives in
+  // the decision row. Offered wherever the report is waiting on a person
+  // (several verdict bodies tell the reader to archive; the button should be
+  // right there). Running reports keep it out of the banner — the header's
+  // Dismiss covers that rare case.
+  const { dialog: dismissDialog, openDialog: openDismissDialog } =
+    useInboxReportDismissAction(report);
+  const canArchiveHere =
+    report.status === "ready" ||
+    report.status === "failed" ||
+    report.status === "pending_input";
 
   const handleCreatePr = useCallback(() => {
     const trimmed = prFeedback.trim();
@@ -130,7 +152,7 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
 
       {showActions && (
         <div className="flex flex-wrap items-center gap-2.5">
-          {hasExistingPr ? (
+          {report.status === "ready" && hasExistingPr ? (
             <>
               <Button
                 type="button"
@@ -144,7 +166,7 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
                 ) : (
                   <GitPullRequestIcon size={15} />
                 )}
-                Continue existing PR
+                Continue the task
               </Button>
               {existingPrUrl && (
                 <a
@@ -158,7 +180,7 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
                 </a>
               )}
             </>
-          ) : (
+          ) : report.status === "ready" && canCreatePr ? (
             <Popover
               open={prOpen}
               onOpenChange={(next) => {
@@ -222,9 +244,21 @@ export function ReportVerdictBanner({ report }: ReportVerdictBannerProps) {
                 </div>
               </PopoverContent>
             </Popover>
+          ) : null}
+          {canArchiveHere && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openDismissDialog}
+              className={BIG_BUTTON}
+            >
+              <ArchiveIcon size={15} />
+              Archive…
+            </Button>
           )}
         </div>
       )}
+      {dismissDialog}
     </div>
   );
 }

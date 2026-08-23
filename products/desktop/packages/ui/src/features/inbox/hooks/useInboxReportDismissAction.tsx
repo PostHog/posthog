@@ -16,6 +16,8 @@ const EMPTY_REPORTS: SignalReport[] = [];
 export function useInboxReportDismissAction(report: SignalReport): {
   actionButton: ReactElement;
   dialog: ReactElement | null;
+  /** Open the archive dialog directly — for menu items and keyboard paths. */
+  openDialog: () => void;
 } {
   const [open, setOpen] = useState(false);
   // Stable identity for the closed case so `useInboxBulkActions`'s memo doesn't
@@ -72,5 +74,6 @@ export function useInboxReportDismissAction(report: SignalReport): {
     />
   ) : null;
 
-  return { actionButton, dialog };
+  const openDialog = useCallback(() => setOpen(true), []);
+  return { actionButton, dialog, openDialog };
 }
