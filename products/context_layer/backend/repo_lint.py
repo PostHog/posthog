@@ -230,9 +230,15 @@ if ! git bundle create /tmp/context-layer-publish.bundle origin/main..main 2>/de
     echo "publish: nothing to publish; commit your edits first"
     exit 0
 fi
+if [ "$#" -gt 0 ]; then
+    set -- -F "summary=@$1"
+else
+    set --
+fi
 curl -fsS -X POST \\
     -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
     -F "bundle=@/tmp/context-layer-publish.bundle" \\
+    "$@" \\
     "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
 echo ""
 echo "publish: landed"
