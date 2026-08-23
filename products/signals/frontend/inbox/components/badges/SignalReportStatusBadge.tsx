@@ -23,7 +23,8 @@ export function isStatusRedundantWithActionability(
 
 export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.READY]: 'Research is complete. You can create a task from this report.',
-    [SignalReportStatus.PENDING_INPUT]: 'This report needs your input before it can proceed. Use the Ask AI button to answer.',
+    [SignalReportStatus.PENDING_INPUT]:
+        'This report needs your input before it can proceed. Use the Ask AI button to answer.',
     [SignalReportStatus.IN_PROGRESS]: "An AI agent is actively researching this report's signals.",
     [SignalReportStatus.CANDIDATE]: 'Queued for research. An agent will pick this up shortly.',
     [SignalReportStatus.POTENTIAL]: 'Gathering signals. The report will be queued once enough evidence accumulates.',
