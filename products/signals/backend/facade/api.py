@@ -366,6 +366,9 @@ _ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str], ...] = (
 _ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label in _ONBOARDING_NATIVE_SOURCES}
 
 
+_CONFIGURABLE_SOURCE_TYPES = frozenset(SignalSourceConfig.SourceType.values)
+
+
 def _syncing_warehouse_signal_sources(team_id: int) -> list[tuple[str, str, str]]:
     """``(source_product, source_type, label)`` for every warehouse source the team already syncs
     that has a signal emitter behind it.
@@ -386,6 +389,12 @@ def _syncing_warehouse_signal_sources(team_id: int) -> list[tuple[str, str, str]
                     continue
                 identity = get_signal_source_identity(source.source_type, schema.name)
                 if identity is None:
+                    continue
+                # The emitter registry carries the full signal taxonomy; SignalSourceConfig.SourceType
+                # is a narrower set, and `emit_signals_enabled` needs a row whose type is in it. A
+                # type outside that set cannot be enabled through the API either, so writing one here
+                # would only put a value the published schema forbids in front of every client.
+                if identity[1] not in _CONFIGURABLE_SOURCE_TYPES:
                     continue
                 found[identity] = SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(identity[0]), identity[0])
     except Exception:

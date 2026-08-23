@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -90,3 +91,23 @@ class TestOnboardingSignalSources(BaseTest):
         assert "health checks" not in sources.labels
         assert "error tracking" in sources.labels
         assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
+
+    def test_a_source_type_the_config_cannot_hold_is_skipped(self) -> None:
+        # The emitter registry carries the full taxonomy; a type outside SourceType would land as a
+        # row the published schema forbids, and one nobody can toggle back off through the API.
+        schema = SimpleNamespace(name="posts", should_sync=True)
+        source = SimpleNamespace(id="src-1", source_type="canny")
+        with (
+            patch("products.warehouse_sources.backend.facade.api.list_sources", return_value=[source]),
+            patch(
+                "products.warehouse_sources.backend.facade.api.list_schemas_for_source",
+                return_value=[schema],
+            ),
+            patch(
+                "products.signals.backend.emission.registry.get_signal_source_identity",
+                return_value=("conversations", "feedback"),
+            ),
+        ):
+            enable_onboarding_signal_sources(self.team.id, self.user.id)
+
+        assert ("conversations", "feedback") not in _enabled_pairs(self.team.id)

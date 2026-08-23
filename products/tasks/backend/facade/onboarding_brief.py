@@ -110,6 +110,7 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
 
     scraped = facts.research is not None and facts.research.outcome == "scraped"
     brief = [WELCOME_LINE]
+    asked_top_of_mind = False
 
     if scraped and facts.research is not None:
         brief.append(RESEARCH_LINE)
@@ -125,6 +126,9 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     else:
         # Either there was no company domain to read, or the failure was ours: no key configured,
         # or our own rate limit. None of that is their site's fault, and none of it is research.
+        # This branch's question is the top-of-mind one, so it stands in for TOP_OF_MIND below
+        # rather than preceding a near-duplicate of itself.
+        asked_top_of_mind = True
         brief.append(
             "Ask one real question so you can be useful rather than generic: what are they working on right now?"
         )
@@ -136,7 +140,8 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     offer = _offer_line(facts)
     if offer:
         brief.append(offer)
-    brief.append(TOP_OF_MIND)
+    if not asked_top_of_mind:
+        brief.append(TOP_OF_MIND)
 
     if scraped and facts.research is not None:
         brief.append(f"Last line, exactly: Sources: {facts.research.url}")

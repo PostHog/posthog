@@ -7092,6 +7092,31 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
     )
 
 
+# `system_role` was added after these rows already existed and is only ever stamped lazily, one team
+# at a time, by `_ensure_system_channel`. A read that matches the stamped shape alone therefore
+# misses every space nobody has opened Desktop on since. These mirror `isGeneralChannel` and
+# `isPersonalChannel` in `channelName.ts`; keep the three in step.
+def general_channel_q(prefix: str = "") -> Q:
+    field = f"{prefix}__" if prefix else ""
+    return Q(**{f"{field}system_role": Channel.SystemRole.GENERAL}) | Q(
+        **{
+            f"{field}system_role__isnull": True,
+            f"{field}channel_type": Channel.ChannelType.PUBLIC,
+            f"{field}name": Channel.GENERAL_CHANNEL_NAME,
+        }
+    )
+
+
+def personal_channel_q(prefix: str = "") -> Q:
+    field = f"{prefix}__" if prefix else ""
+    return Q(**{f"{field}system_role": Channel.SystemRole.PERSONAL}) | Q(
+        **{
+            f"{field}system_role__isnull": True,
+            f"{field}channel_type": Channel.ChannelType.PERSONAL,
+        }
+    )
+
+
 def find_general_channel_id(team_id: int) -> UUID | None:
     """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
     a product filing work into that space can gate on its existence instead of bringing the
@@ -7432,7 +7457,7 @@ def desktop_users_in_team(team_id: int, organization_id: UUID | str, exclude_use
     channels = (
         Channel.objects.for_team(team_id)
         .filter(
-            system_role=Channel.SystemRole.PERSONAL,
+            personal_channel_q(),
             deleted=False,
             created_by__organization_membership__organization_id=organization_id,
         )
@@ -7468,8 +7493,8 @@ def organization_has_context(organization_id: UUID | str) -> bool:
     contents = (
         ChannelInstructions.objects.unscoped()
         .filter(
+            general_channel_q("channel"),
             team__organization_id=organization_id,
-            channel__system_role=Channel.SystemRole.GENERAL,
             channel__deleted=False,
             deleted=False,
             is_latest=True,

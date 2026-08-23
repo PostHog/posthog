@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_brief import (
     RESEARCH_LINE,
+    TOP_OF_MIND,
     OnboardingFacts,
     build_followup,
     build_opening_brief,
@@ -67,6 +68,16 @@ class TestOpeningBrief(SimpleTestCase):
         assert "Summarize what the company does" not in joined
         assert "Sources:" not in joined
         assert any("what are they working on right now" in line for line in brief)
+
+    @parameterized.expand([("no_domain", None), ("not_configured", "not_configured"), ("busy", "busy")])
+    def test_the_no_research_brief_asks_about_their_work_once(self, _name: str, outcome: str | None) -> None:
+        research = DomainResearch(outcome=outcome, url="northwind.example") if outcome else None  # type: ignore[arg-type]
+        brief = build_opening_brief(_setup_facts(research=research))
+
+        # This branch's own question already is the top-of-mind one, so appending TOP_OF_MIND
+        # would make the message ask what they are working on twice.
+        assert sum("what are they working on right now" in line for line in brief) == 1
+        assert TOP_OF_MIND not in brief
 
     def test_the_first_thing_they_read_says_where_they_are(self) -> None:
         brief = build_opening_brief(_setup_facts())

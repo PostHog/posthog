@@ -2,6 +2,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
+from requests import RequestException
 
 from posthog.dataclasses import frozen
 from posthog.egress.firecrawl import (
@@ -48,7 +49,9 @@ def research_domain(url: str) -> DomainResearch:
         return DomainResearch(outcome="not_configured", url=url)
     except FirecrawlEgressBudgetExhausted:
         return DomainResearch(outcome="busy", url=url)
-    except FirecrawlScrapeFailed:
+    except (FirecrawlScrapeFailed, RequestException):
+        # The egress client only converts HTTP and body failures; a timeout or connection error
+        # comes through raw, and this call sits on the path that opens someone's first session.
         logger.warning("domain_research_scrape_failed", url=url)
         return DomainResearch(outcome="unreachable", url=url)
 

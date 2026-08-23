@@ -54,14 +54,16 @@ class TestOnboardingSessionIdempotency(TestCase):
         self.assertEqual(create_calls, 0)
 
     def test_a_racing_request_returns_the_session_the_winner_started(self):
-        def lose_the_race(**kwargs):
-            self._existing_session()
-            raise IntegrityError("duplicate key value violates unique constraint")
-
-        started, create_calls = self._start(create_side_effect=lose_the_race)
+        winner = self._existing_session()
+        # The winner commits in another transaction, which a TestCase cannot produce: the create
+        # now runs inside transaction.atomic(), so a row written by the mock would roll back with
+        # it. Standing in for the second connection is what the two reads are for.
+        with patch(f"{MODULE}._started_session_id", side_effect=[None, winner.id]) as lookup:
+            started, create_calls = self._start(create_side_effect=IntegrityError("duplicate key"))
 
         self.assertEqual(create_calls, 1)
-        self.assertEqual(started, Task.objects.get(origin_key=_origin_key(self.user.id)).id)
+        self.assertEqual(lookup.call_count, 2)
+        self.assertEqual(started, winner.id)
 
     def test_a_task_that_squatted_the_key_is_not_mistaken_for_the_session(self):
         Task.objects.create(

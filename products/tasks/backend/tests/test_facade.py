@@ -1536,6 +1536,25 @@ class TestDesktopUsersInTeam(TestCase):
 
         assert names == ["staying"]
 
+    def test_a_space_from_before_system_role_still_counts_as_a_member(self) -> None:
+        organization = Organization.objects.create(name="Legacy Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving2@test.com", distinct_id="arriving2")
+        settled = User.objects.create(email="settled@test.com", distinct_id="settled")
+        for user in (arriving, settled):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+        # system_role is stamped lazily, so a space nobody has opened Desktop on since the field
+        # landed still carries NULL.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id, created_by=settled).update(system_role=None)
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team.id, organization.id, arriving.id)
+
+        assert names == ["settled"]
+
 
 class TestOrganizationHasContext(TestCase):
     organization: ClassVar[Organization]
@@ -1560,6 +1579,16 @@ class TestOrganizationHasContext(TestCase):
         channel_id = self._provision_general(team)
         with team_scope(team.id):
             facade.publish_channel_instructions(channel_id, team.id, self.user.id, content=content)
+
+    def test_a_general_space_from_before_system_role_still_carries_context(self) -> None:
+        team = self._team("Legacy project")
+        self._publish_general(team, "We make climbing gear.")
+        # Same lazy stamping as personal spaces: an org-wide read that only matched the stamped
+        # shape would rescrape and re-ask a company that has already answered.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id).update(system_role=None)
+
+        self.assertTrue(facade.organization_has_context(self.organization.id))
 
     @parameterized.expand([("no_general_space", False), ("blank_general_space", True)])
     def test_context_in_one_team_answers_for_the_whole_org(self, _name: str, provision_sibling: bool) -> None:

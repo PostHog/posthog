@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 import structlog
 import posthoganalytics
@@ -190,29 +190,33 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
     )
 
     try:
-        created = create_and_run_task(
-            team=team,
-            title=ONBOARDING_SESSION_TITLE,
-            description=description,
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            channel_id=channel_id,
-            origin_key=origin_key,
-            # The run costs the same as any other Desktop session, so it meters like one. Without
-            # this the task is non-billable compute and PostHog absorbs every first run.
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
-            create_pr=False,
-            mode="interactive",
-            model=ONBOARDING_SESSION_MODEL,
-            reasoning_effort=ONBOARDING_SESSION_EFFORT,
-            # The session talks and writes the space's context, nothing else. Scoping the token to
-            # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
-            # which the untrusted `<homepage>` block cannot rule out on its own.
-            posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-            # The session only ever talks and writes the space's context, so a permission prompt
-            # would be the first thing a new user had to answer, about a tool they cannot see.
-            initial_permission_mode="auto",
-        )
+        # One transaction, matching create_workflow_task: the task row commits on its own, so a
+        # failure starting the run would otherwise strand a task holding this origin_key with no
+        # run behind it, and the guard above would hand that dead task back forever.
+        with transaction.atomic():
+            created = create_and_run_task(
+                team=team,
+                title=ONBOARDING_SESSION_TITLE,
+                description=description,
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                channel_id=channel_id,
+                origin_key=origin_key,
+                # The run costs the same as any other Desktop session, so it meters like one. Without
+                # this the task is non-billable compute and PostHog absorbs every first run.
+                client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                create_pr=False,
+                mode="interactive",
+                model=ONBOARDING_SESSION_MODEL,
+                reasoning_effort=ONBOARDING_SESSION_EFFORT,
+                # The session talks and writes the space's context, nothing else. Scoping the token to
+                # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
+                # which the untrusted `<homepage>` block cannot rule out on its own.
+                posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
+                # The session only ever talks and writes the space's context, so a permission prompt
+                # would be the first thing a new user had to answer, about a tool they cannot see.
+                initial_permission_mode="auto",
+            )
     except IntegrityError:
         # Two requests raced past the read above; the constraint picked a winner.
         started = _started_session_id(team.id, user.id)
