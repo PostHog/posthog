@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from products.context_layer.backend.pages import PAGE_MAX_BYTES
+from products.context_layer.backend.facade.api import PAGE_MAX_BYTES
 
 # A bundle carries a handful of Markdown commits; anything bigger is not a wiki write-back.
 COMMIT_BUNDLE_MAX_BYTES = 25_000_000
