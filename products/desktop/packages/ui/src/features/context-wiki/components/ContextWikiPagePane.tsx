@@ -35,13 +35,19 @@ export function ContextWikiPagePane({ path }: ContextWikiPagePaneProps) {
   const [mode, setMode] = useState<Mode>("rendered");
   const [draft, setDraft] = useState("");
   const [hasDraft, setHasDraft] = useState(false);
+  // The head the current draft was seeded from. Pinned once an edit starts so a
+  // background refetch (refetchOnWindowFocus fires on app-switch) can't move it
+  // under the draft — otherwise a save would adopt the moved head and silently
+  // overwrite the concurrent commit instead of coming back as a 409 conflict.
+  const [baseHead, setBaseHead] = useState<string | null>(null);
 
   // Seed the editor from the loaded page, and reseed on refetches, but never
   // over an edit in progress.
   useEffect(() => {
     if (hasDraft) return;
     setDraft(page?.content ?? "");
-  }, [page?.content, hasDraft]);
+    setBaseHead(page?.head_sha ?? null);
+  }, [page?.content, page?.head_sha, hasDraft]);
 
   if (isLoading) {
     return (
@@ -68,7 +74,7 @@ export function ContextWikiPagePane({ path }: ContextWikiPagePaneProps) {
 
   const onSave = () => {
     save.mutate(
-      { path, content: draft, baseHead: page.head_sha },
+      { path, content: draft, baseHead: baseHead ?? page.head_sha },
       {
         onSuccess: () => {
           setHasDraft(false);
