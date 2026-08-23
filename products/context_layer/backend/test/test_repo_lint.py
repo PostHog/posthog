@@ -54,6 +54,14 @@ def _oversized_page(root: Path) -> None:
     (root / "areas" / "huge.md").write_text("x" * 1_000_001)
 
 
+def _scripts_symlink(root: Path) -> None:
+    (root / "scripts" / "alias").symlink_to("/etc/hosts")
+
+
+def _scripts_extra_file(root: Path) -> None:
+    (root / "scripts" / "deploy.sh").write_text("#!/bin/sh\n")
+
+
 class TestRepoLint(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -84,6 +92,8 @@ class TestRepoLint(SimpleTestCase):
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
             ("stray_symlink", _stray_symlink),
             ("oversized_page", _oversized_page),
+            ("scripts_symlink", _scripts_symlink),
+            ("scripts_extra_file", _scripts_extra_file),
         ]
     )
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:
