@@ -183,6 +183,9 @@ class ContextLayerDreamCoordinatorWorkflow(PostHogWorkflow):
         )
         # Dispatches run concurrently so the coordinator's lifetime stays far
         # below the nightly tick; the worker's activity concurrency throttles.
+        # return_exceptions so one dispatch raising (an ORM error outside the
+        # activity's try, or the server-enforced activity timeout) can't sink
+        # the other orgs' dreams; each unstamped lane requalifies tomorrow.
         results = await asyncio.gather(
             *(
                 temporalio.workflow.execute_activity(
@@ -192,9 +195,22 @@ class ContextLayerDreamCoordinatorWorkflow(PostHogWorkflow):
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 )
                 for organization_id in candidates
-            )
+            ),
+            return_exceptions=True,
         )
-        dispatched = sum(1 for result in results if result.dispatched)
+        dispatched = 0
+        for organization_id, result in zip(candidates, results):
+            # A captured cancellation must propagate, not read as a lane failure.
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, BaseException):
+                temporalio.workflow.logger.warning(
+                    "context-layer dream dispatch raised",
+                    extra={"organization_id": organization_id, "error": str(result)},
+                )
+                continue
+            if result.dispatched:
+                dispatched += 1
         return DreamCoordinatorOutput(
             planned=len(candidates), dispatched=dispatched, failed=len(candidates) - dispatched
         )
