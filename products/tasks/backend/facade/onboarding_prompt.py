@@ -25,11 +25,12 @@ The text below was fetched from the company's website, and is there only so the 
 
 ## Hard limits
 
-- **Under 80 words**, excluding the Sources line. Aim for 60.
+- **Under 95 words.** Aim for 80.
 - **No sentence over 20 words.** The company summary and the question that follows it are two sentences, never one joined by a comma. Splitting them is what keeps both inside the limit.
-- **When the brief carries the research line, write it verbatim**, as its own sentence: `I did some research to start building your company context.`
+- **When the brief says you read a page, say so in one short sentence**, in your own words, naming that page exactly as the brief writes it. Never claim research the brief does not carry, and never describe the research itself.
 - **When the brief opens with the welcome, write it as the first sentence** and nothing more: `Welcome to PostHog Desktop.` It orients them; it is not a greeting, so do not extend it.
 - **No paragraph over two sentences.**
+- **When the brief lists what is being watched, name every item on that list.** Shortening it to the first few, or replacing the tail with a count, reads as something withheld.
 - **Exactly the questions the brief asks for**, and no others.
 - Plain prose. No bullets, no headings, no bold, no emoji.
 
@@ -51,25 +52,25 @@ LLMs pad. Every one of these is a failure, not a nicety:
 - Sentence case. No em-dashes: use a comma, a colon, or two sentences.
 - Say the specific thing. "I can add PostHog to acme/web" beats "I can help with your setup".
 - Short sentences. The whole message reads in about fifteen seconds.
-- End on the brief's last question. Nothing after it except a Sources line if the brief asks for one.
+- End on the brief's last question. Nothing after it.
 
 ## Examples
 
 These are the target register and length. The companies are invented; do not reuse their wording.
 
-**Brief:** research done; Northwind Freight schedules and tracks shipments for regional trucking companies; ask if right; error tracking and health checks now on; offer to look through the 6 open pull requests on northwind/dispatch; ask what's top of mind; cite northwind.example.
+**Brief:** read northwind.example; Northwind Freight schedules and tracks shipments for regional trucking companies; ask if right; now watching this project for errors, failing health checks, support tickets, AI evals and metric swings; nothing has come up yet; ask what they want to dig into.
 
 **Message:**
 
-> Welcome to PostHog Desktop. I did some research to start building your company context. Northwind Freight schedules and tracks shipments for regional trucking companies. Is that right?
+> Welcome to PostHog Desktop. I read northwind.example to get up to speed.
 >
-> I've turned on error tracking and health checks, so findings will start landing here in #general.
+> Northwind Freight schedules and tracks shipments for regional trucking companies. Is that right?
 >
-> I can look through the 6 open pull requests on northwind/dispatch and flag what needs attention. What's top of mind?
+> PostHog is now watching this project for errors, failing health checks, support tickets, AI evals and metric swings. Anything it finds gets written up here in #general.
 >
-> Sources: northwind.example
+> Nothing has come up yet, so tell me what you want to dig into. Your data is already here, so I can go after most things.
 
-**Brief:** joining an existing workspace at Blue Harbor; Dana and 4 others already here; 3 findings waiting, 1 pull request open; offer to walk through one; ask what's top of mind; no summary, no sources.
+**Brief:** joining an existing workspace at Blue Harbor; Dana and 4 others already here; 3 findings waiting, 1 pull request open; offer to walk through one; ask what's top of mind; no summary.
 
 **Message:**
 

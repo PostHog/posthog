@@ -342,21 +342,30 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 ).update(enabled=False)
 
 
-_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    (SignalSourceProduct.ERROR_TRACKING, ("issue_created", "issue_reopened", "issue_spiking"), "error tracking"),
-    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks"),
-    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets"),
-    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability"),
-    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics"),
+# Each source carries two names: the label, which is the product it comes from, and the watch, which
+# is the problem it catches. Onboarding copy needs the second one, because "error tracking" tells a
+# first-time reader nothing about what turning it on did for them.
+_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    (
+        SignalSourceProduct.ERROR_TRACKING,
+        ("issue_created", "issue_reopened", "issue_spiking"),
+        "error tracking",
+        "errors",
+    ),
+    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks", "failing health checks"),
+    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets", "support tickets"),
+    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability", "AI evals"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "metric swings"),
 )
 
 
-_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label in _ONBOARDING_NATIVE_SOURCES}
+_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label, _watch in _ONBOARDING_NATIVE_SOURCES}
 
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSources:
     labels: tuple[str, ...]
+    watches: tuple[str, ...]
     newly_enabled: bool
 
 
@@ -376,7 +385,8 @@ def _active_source_labels(team_id: int) -> tuple[str, ...]:
 def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSources:
     known = set(SignalSourceConfig.objects.filter(team_id=team_id).values_list("source_product", "source_type"))
     created: list[str] = []
-    for source_product, source_types, label in _ONBOARDING_NATIVE_SOURCES:
+    watches: list[str] = []
+    for source_product, source_types, label, watch in _ONBOARDING_NATIVE_SOURCES:
         missing = tuple(t for t in source_types if (source_product, t) not in known)
         if not missing:
             continue
@@ -392,9 +402,10 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSo
             logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
             continue
         created.append(label)
+        watches.append(watch)
     if created:
-        return OnboardingSources(labels=tuple(created), newly_enabled=True)
-    return OnboardingSources(labels=_active_source_labels(team_id), newly_enabled=False)
+        return OnboardingSources(labels=tuple(created), watches=tuple(watches), newly_enabled=True)
+    return OnboardingSources(labels=_active_source_labels(team_id), watches=(), newly_enabled=False)
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,

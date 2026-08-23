@@ -4,12 +4,13 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_brief import (
-    RESEARCH_LINE,
+    NOTHING_YET,
     TOP_OF_MIND,
     OnboardingFacts,
     build_followup,
     build_opening_brief,
     prose_list,
+    research_line,
 )
 from products.tasks.backend.facade.onboarding_prompt import BUNDLED_ONBOARDING_PROMPT, render_onboarding_prompt
 
@@ -22,6 +23,7 @@ def _setup_facts(**overrides: object) -> OnboardingFacts:
         "research": SCRAPED,
         "has_events": True,
         "sources_enabled": ("error tracking",),
+        "sources_watching": ("errors",),
         "sources_newly_enabled": True,
     }
     base.update(overrides)
@@ -37,14 +39,13 @@ class TestOpeningBrief(SimpleTestCase):
 
         joined = " ".join(brief)
         assert "Summarize what the company does" not in joined
-        assert "Sources:" not in joined
 
     def test_a_site_that_would_not_load_is_named_as_an_attempt_that_failed(self) -> None:
         brief = build_opening_brief(
             _setup_facts(research=DomainResearch(outcome="unreachable", url="northwind.example"))
         )
 
-        assert RESEARCH_LINE not in brief
+        assert research_line("northwind.example") not in brief
         assert any("tried to read northwind.example" in line and "could not reach it" in line for line in brief)
 
     @parameterized.expand(["not_configured", "busy"])
@@ -54,7 +55,7 @@ class TestOpeningBrief(SimpleTestCase):
         )
 
         joined = " ".join(brief)
-        assert RESEARCH_LINE not in joined
+        assert research_line("northwind.example") not in joined
         assert "northwind.example" not in joined
         assert "could not reach" not in joined
         assert any("what are they working on right now" in line for line in brief)
@@ -63,10 +64,9 @@ class TestOpeningBrief(SimpleTestCase):
         brief = build_opening_brief(_setup_facts(research=None))
 
         joined = " ".join(brief)
-        assert RESEARCH_LINE not in joined
+        assert research_line("northwind.example") not in joined
         assert "could not read their site" not in joined
         assert "Summarize what the company does" not in joined
-        assert "Sources:" not in joined
         assert any("what are they working on right now" in line for line in brief)
 
     @parameterized.expand([("no_domain", None), ("not_configured", "not_configured"), ("busy", "busy")])
@@ -84,11 +84,12 @@ class TestOpeningBrief(SimpleTestCase):
 
         assert brief[0] == "Open with: Welcome to PostHog Desktop."
 
-    def test_a_read_page_is_summarized_and_cited(self) -> None:
+    def test_a_read_page_is_named_where_it_is_used_rather_than_footnoted(self) -> None:
         brief = build_opening_brief(_setup_facts())
 
         assert any("Summarize what the company does" in line for line in brief)
-        assert brief[-1] == "Last line, exactly: Sources: northwind.example"
+        assert research_line("northwind.example") in brief
+        assert not any(line.startswith("Last line") for line in brief)
 
     def test_joining_an_existing_workspace_never_asks_about_the_company(self) -> None:
         brief = build_opening_brief(
@@ -102,7 +103,6 @@ class TestOpeningBrief(SimpleTestCase):
 
         joined = " ".join(brief)
         assert "Summarize what the company does" not in joined
-        assert "Sources:" not in joined
         assert "Dana and 4 others" in joined
 
     def test_joining_a_workspace_with_no_findings_yet_promises_none(self) -> None:
@@ -128,10 +128,13 @@ class TestOpeningBrief(SimpleTestCase):
         assert len(offers) == 1
         assert expected in offers[0]
 
-    def test_nothing_is_offered_when_there_is_nothing_useful_to_offer(self) -> None:
+    def test_a_quiet_project_ends_on_an_open_question_rather_than_a_bare_one(self) -> None:
         brief = build_opening_brief(_setup_facts(has_events=True, signal_reports_waiting=0))
 
+        # Nothing is waiting to offer, so the closing question has to carry the invitation itself.
         assert not any(line.startswith("Offer to") for line in brief)
+        assert brief[-1] == NOTHING_YET
+        assert TOP_OF_MIND not in brief
 
     def test_a_project_with_no_events_is_never_promised_findings(self) -> None:
         brief = build_opening_brief(_setup_facts(has_events=False, sources_enabled=("error tracking",)))
@@ -143,15 +146,31 @@ class TestOpeningBrief(SimpleTestCase):
         brief = build_opening_brief(_setup_facts(sources_newly_enabled=False))
 
         (status,) = [line for line in brief if "error tracking" in line]
-        assert "you are watching error tracking" in status
+        assert "PostHog is already watching error tracking" in status
         assert "turned on" not in status
 
-    def test_the_message_names_a_few_sources_rather_than_listing_every_one(self) -> None:
+    def test_every_new_watch_is_named_rather_than_counted(self) -> None:
         brief = build_opening_brief(
-            _setup_facts(sources_enabled=("error tracking", "health checks", "support tickets", "Linear", "Sentry"))
+            _setup_facts(
+                sources_watching=("errors", "failing health checks", "support tickets", "AI evals", "metric swings")
+            )
         )
 
-        (status,) = [line for line in brief if "you turned on" in line]
+        (status,) = [line for line in brief if "now watching" in line]
+        assert "errors, failing health checks, support tickets, AI evals and metric swings" in status
+        assert "others" not in status
+
+    def test_a_workspace_already_watching_a_long_list_counts_the_tail(self) -> None:
+        # Unlike the sources onboarding switches on itself, this list is whatever the team already
+        # runs, third-party sources included, so it has no bound worth spending the message on.
+        brief = build_opening_brief(
+            _setup_facts(
+                sources_newly_enabled=False,
+                sources_enabled=("error tracking", "health checks", "support tickets", "Linear", "Sentry"),
+            )
+        )
+
+        (status,) = [line for line in brief if "already watching" in line]
         assert "error tracking, health checks and 3 others" in status
         assert "Sentry" not in status
 
@@ -165,7 +184,7 @@ class TestOpeningBrief(SimpleTestCase):
             )
         )
 
-        assert any("you are watching error tracking and health checks" in line for line in brief)
+        assert any("already watching error tracking and health checks" in line for line in brief)
         assert not any("findings are waiting" in line for line in brief)
         assert not any(line.startswith("Offer to") for line in brief)
 

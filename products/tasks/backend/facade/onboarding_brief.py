@@ -8,7 +8,14 @@ TOP_OF_MIND = "Ask what's top of mind."
 
 WELCOME_LINE = "Open with: Welcome to PostHog Desktop."
 
-RESEARCH_LINE = "Say you did some research to start building their company context."
+NO_RESEARCH_QUESTION = (
+    "Ask one real question so you can be useful rather than generic: what are they working on right now?"
+)
+
+NOTHING_YET = (
+    "Say nothing has come up yet, then ask what they want to dig into. Their data is already in "
+    "PostHog, so say you can go after most of what they might name."
+)
 
 SAVE_CONTEXT = (
     "Save what the company does to this space's context, once they confirm your summary, correct it, "
@@ -33,25 +40,30 @@ class OnboardingFacts:
     has_events: bool = False
     signal_reports_waiting: int = 0
     sources_enabled: tuple[str, ...] = ()
+    sources_watching: tuple[str, ...] = ()
     sources_newly_enabled: bool = False
     other_members: str | None = None
 
 
-def prose_list(items: Sequence[str], *, limit: int = 3) -> str | None:
+def prose_list(items: Sequence[str], *, limit: int | None = 3) -> str | None:
     """``a``, ``a and b``, ``a, b and c``, then ``a, b and 4 others``.
 
     ``limit`` counts the whole phrase, so a list that overflows spends its last slot on the count
-    rather than on one more name.
+    rather than on one more name. ``None`` names every item however long the list runs.
     """
     if not items:
         return None
-    if len(items) <= limit:
+    if limit is None or len(items) <= limit:
         named = list(items)
     else:
         named = [*items[: limit - 1], f"{len(items) - limit + 1} others"]
     if len(named) == 1:
         return named[0]
     return f"{', '.join(named[:-1])} and {named[-1]}"
+
+
+def research_line(url: str) -> str:
+    return f"Say you read {url} to get up to speed. Your own words, one short sentence."
 
 
 def _joining_brief(facts: OnboardingFacts) -> list[str]:
@@ -64,7 +76,7 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
         brief.append(status)
     if facts.signal_reports_waiting:
         brief.append("Offer to walk them through one of the findings.")
-    brief.append(TOP_OF_MIND)
+    brief.append(_closing_question(facts, researched=True))
     return brief
 
 
@@ -77,12 +89,21 @@ def _status_line(facts: OnboardingFacts) -> str | None:
         return _findings_line(facts)
     if not facts.has_events:
         return "Say plainly that no PostHog data is arriving yet, because nothing is connected to send it."
+    if facts.sources_newly_enabled:
+        # Every watch gets named. A count of the tail reads as something withheld, and the product
+        # names these sources carry elsewhere ("error tracking") do not tell a first-time reader what
+        # having them on catches.
+        watching = prose_list(facts.sources_watching, limit=None)
+        if not watching:
+            return None
+        return (
+            f"Tell them PostHog is now watching this project for {watching}. Name every one of "
+            "those. Say anything it finds gets written up here in #general."
+        )
     enabled = prose_list(facts.sources_enabled, limit=_NAMED_SOURCE_LIMIT)
     if not enabled:
         return None
-    if facts.sources_newly_enabled:
-        return f"Tell them you turned on {enabled}, so findings will start landing in #general."
-    return f"Tell them you are watching {enabled}, and findings will land in #general as they come up."
+    return f"Tell them PostHog is already watching {enabled}, and writes up anything it finds here in #general."
 
 
 def _offer_line(facts: OnboardingFacts) -> str | None:
@@ -97,26 +118,30 @@ def _offer_line(facts: OnboardingFacts) -> str | None:
     return None
 
 
+def _closing_question(facts: OnboardingFacts, *, researched: bool) -> str:
+    """The one question the message ends on."""
+    if not researched:
+        return NO_RESEARCH_QUESTION
+    if facts.has_events and not facts.signal_reports_waiting:
+        return NOTHING_YET
+    return TOP_OF_MIND
+
+
 def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     if facts.org_has_context:
         return _joining_brief(facts)
 
     scraped = facts.research is not None and facts.research.outcome == "scraped"
+    unreachable = facts.research is not None and facts.research.outcome == "unreachable"
     brief = [WELCOME_LINE]
-    asked_top_of_mind = False
 
     if scraped and facts.research is not None:
-        brief.append(RESEARCH_LINE)
+        brief.append(research_line(facts.research.url))
         brief.append("Summarize what the company does, from the page below, and ask whether that is right.")
-    elif facts.research is not None and facts.research.outcome == "unreachable":
+    elif unreachable and facts.research is not None:
         brief.append(
-            f"Say you tried to read {facts.research.url} to start building their company context, "
+            f"Say you tried to read {facts.research.url} to get up to speed, "
             "but could not reach it. Then ask what the company does."
-        )
-    else:
-        asked_top_of_mind = True
-        brief.append(
-            "Ask one real question so you can be useful rather than generic: what are they working on right now?"
         )
 
     status = _status_line(facts)
@@ -126,12 +151,8 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     offer = _offer_line(facts)
     if offer:
         brief.append(offer)
-    if not asked_top_of_mind:
-        brief.append(TOP_OF_MIND)
 
-    if scraped and facts.research is not None:
-        brief.append(f"Last line, exactly: Sources: {facts.research.url}")
-
+    brief.append(_closing_question(facts, researched=scraped or unreachable))
     return brief
 
 

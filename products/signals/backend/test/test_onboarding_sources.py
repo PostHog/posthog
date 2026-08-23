@@ -28,6 +28,15 @@ class TestOnboardingSignalSources(BaseTest):
         }
         assert sources.newly_enabled
         assert sources.labels[:2] == ("error tracking", "health checks")
+        # Onboarding copy names these to a first-time reader, so they have to describe the problem
+        # caught rather than the product it came from.
+        assert sources.watches == (
+            "errors",
+            "failing health checks",
+            "support tickets",
+            "AI evals",
+            "metric swings",
+        )
 
     def test_a_source_the_team_switched_off_is_never_switched_back_on(self) -> None:
         SignalSourceConfig.objects.create(
@@ -78,5 +87,6 @@ class TestOnboardingSignalSources(BaseTest):
             sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
         assert "health checks" not in sources.labels
+        assert "failing health checks" not in sources.watches
         assert "error tracking" in sources.labels
         assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
