@@ -14,10 +14,7 @@ import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeRea
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
-import {
-  keepListForRoute,
-  showChannelList,
-} from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
@@ -122,8 +119,7 @@ function App({ devToolbar }: AppProps) {
           authenticatedClient,
         );
         if (firstRun) {
-          showChannelList();
-          keepListForRoute(firstRun.generalChannelId);
+          showChannelList(firstRun.generalChannelId);
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }
         router.history.replace(href);

@@ -14,6 +14,7 @@ import { LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
+  pickRailDestination,
   type RailCounts,
   type RailDestination,
   visibleRailDestinations,
@@ -195,16 +196,14 @@ export function NavRail() {
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
-  const pick =
-    ({ analyticsId, onPick }: RailDestination) =>
-    () => {
-      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-        item: analyticsId,
-        in_more: false,
-        layout: "channels",
-      });
-      onPick();
-    };
+  const pick = (destination: RailDestination) => () => {
+    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+      item: destination.analyticsId,
+      in_more: false,
+      layout: "channels",
+    });
+    pickRailDestination(destination, railPane);
+  };
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider
