@@ -104,8 +104,11 @@ class ActionabilityAssessment(BaseModel):
 
     explanation: str = Field(
         description=(
-            "2-3 sentence evidence-grounded explanation of your actionability assessment. "
-            "Reference specific code paths and data points from your research."
+            "2-3 sentences, evidence-grounded, referencing specific code paths and data points from "
+            "your research. When actionability is `requires_human_input`, the first sentence must state "
+            "the open decision as a plain-language question or a choice between named options that the "
+            "reader can answer (not a description of why the report is blocked). For other outcomes, "
+            "explain the assessment."
         ),
     )
     actionability: ActionabilityChoice = Field(
