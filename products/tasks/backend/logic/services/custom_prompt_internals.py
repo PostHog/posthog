@@ -239,6 +239,7 @@ async def create_task_and_trigger(
         model=context.model,
         runtime_adapter=context.runtime_adapter,
         runtime=context.runtime,
+        pending_user_message=description if context.runtime == "pi" else None,
         reasoning_effort=context.reasoning_effort,
         initial_permission_mode=context.initial_permission_mode,
         internal=internal,
