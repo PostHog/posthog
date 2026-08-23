@@ -10,6 +10,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -1341,8 +1342,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     LemonDialog.open({
                         maxWidth: '600px',
                         title: 'Billing limit warning',
-                        description:
-                            "The billing limit you set is below your current usage. If you proceed, your current period's limit will be set to your current usage (to prevent additional charges), and the new lower limit will go into effect in your next billing period. Are you sure you want to proceed?",
+                        description: `Your usage this period is already ${humanFriendlyCurrency(
+                            currentAmountUsd
+                        )}, above the ${humanFriendlyCurrency(
+                            input
+                        )} limit you entered. To prevent extra charges, this period keeps its limit at your current usage, so this change adds no headroom now. The ${humanFriendlyCurrency(
+                            input
+                        )} limit starts in your next billing period. Do you want to proceed?`,
                         primaryButton: {
                             status: 'danger',
                             children: 'Yes, I understand',
