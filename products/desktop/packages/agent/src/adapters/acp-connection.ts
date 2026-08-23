@@ -2,7 +2,11 @@ import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import type { Adapter } from "@posthog/shared";
 import type { ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
-import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
+import type {
+  ContextWikiEnv,
+  PostHogAPIConfig,
+  ProcessSpawnedCallback,
+} from "../types";
 import { Logger } from "../utils/logger";
 import {
   createBidirectionalStreams,
@@ -34,6 +38,8 @@ export type AcpConnectionConfig = {
   enricherEnabled?: boolean;
   /** Explicit gateway config for the Claude adapter — prevents global process.env mutation. */
   claudeGatewayEnv?: GatewayEnv;
+  /** Per-session context wiki mount — prevents global process.env mutation. */
+  contextWiki?: ContextWikiEnv;
 };
 
 export type AcpConnection = {
@@ -119,6 +125,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,
+      contextWiki: config.contextWiki,
     });
     return agent;
   }, agentStream);
@@ -228,6 +235,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,
+        contextWiki: config.contextWiki,
       },
       model: codexOptions.model,
       reasoningEffort: codexOptions.reasoningEffort,

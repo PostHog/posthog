@@ -830,6 +830,7 @@ rules:
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
+                              |ContextLayerConfig
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
@@ -902,6 +903,7 @@ rules:
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
+                        |ContextLayerConfig
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
