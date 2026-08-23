@@ -30,5 +30,11 @@ class ContextLayerConfig(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Nightly dreaming lane state: skip-overlap bookkeeping and a per-org
+    # circuit breaker that pauses the lane after repeated dispatch failures.
+    last_dream_started_at = models.DateTimeField(null=True, blank=True)
+    dream_failure_streak = models.PositiveIntegerField(default=0)
+    dreaming_paused = models.BooleanField(default=False)
+
     class Meta:
         db_table = "context_layer_config"

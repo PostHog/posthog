@@ -86,6 +86,7 @@ depends_on = [
     "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
+    "products.context_layer",
     "products.cdp",
     "products.conversations",
     "products.customer_analytics",
@@ -1006,6 +1007,21 @@ expose = [
 ]
 from = [
     "products.billing_alerts",
+]
+
+# Context layer registers its dreaming coordinator and nightly schedule with the general-purpose worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_context_layer_dream_schedule",
+]
+from = [
+    "products.context_layer",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface

@@ -318,6 +318,32 @@ class TestContextLayerAPI(APIBaseTest):
             )
         assert response.status_code == 409
         assert "at most 3" in response.json()["detail"]
+    def test_commits_endpoint_lands_a_dream_branch_as_one_merge_commit(self, _flag) -> None:
+        self._enable()
+        bundle_bytes = self._bundle_with_edit("areas/dreamt.md", "# Dreamt\n", branch="dream/2026-08-18")
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes), "branch": "dream/2026-08-18"},
+            format="multipart",
+        )
+        assert response.status_code == 200, response.content
+        page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/dreamt.md"}).json()
+        assert page["content"] == "# Dreamt\n"
+        with store.checkout_repo(self.organization.id) as checkout:
+            merges = subprocess.run(
+                ["git", "log", "--merges", "--format=%s"], cwd=checkout.path, capture_output=True, text=True
+            ).stdout
+            assert "dream: 2026-08-18" in merges
+
+    def test_commits_endpoint_rejects_non_dream_branches(self, _flag) -> None:
+        self._enable()
+        bundle_bytes = self._bundle_with_edit("areas/rogue-branch.md", "# Rogue\n", branch="dream/2026-08-18")
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes), "branch": "feature/anything"},
+            format="multipart",
+        )
+        assert response.status_code == 400
 
     def test_commits_endpoint_rejects_bundles_with_merge_commits(self, _flag) -> None:
         self._enable()
@@ -371,18 +397,20 @@ class TestContextLayerAPI(APIBaseTest):
         assert body["head_sha"] == head
         assert body["url"].startswith("http")
 
-    def _bundle_with_edit(self, path: str, content: str) -> bytes:
+    def _bundle_with_edit(self, path: str, content: str, branch: str = "main") -> bytes:
         """Clone the wiki the way a sandbox does, commit one edit, pack it as a thin bundle."""
         with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            if branch != "main":
+                subprocess.run([*env_git, "checkout", "--quiet", "-b", branch], cwd=checkout.path, check=True)
             target = checkout.path / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
-            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
             subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
             subprocess.run([*env_git, "commit", "--quiet", "-m", f"Edit {path}"], cwd=checkout.path, check=True)
             with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
                 subprocess.run(
-                    [*env_git, "bundle", "create", bundle_file.name, "origin/main..main"],
+                    [*env_git, "bundle", "create", bundle_file.name, f"origin/main..{branch}"],
                     cwd=checkout.path,
                     check=True,
                 )
