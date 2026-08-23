@@ -1,4 +1,5 @@
 import tempfile
+import subprocess
 from pathlib import Path
 
 from posthog.test.base import BaseTest
@@ -208,3 +209,45 @@ class TestContextLayerStore(BaseTest):
         with self.assertRaises(store.RepoNotFoundError):
             with store.checkout_repo(self.organization.id):
                 pass
+
+    def _bundle_with_commits(self, commits: list[dict[str, str]]) -> bytes:
+        with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            for index, files in enumerate(commits):
+                for path, content in files.items():
+                    target = checkout.path / path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(content)
+                subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+                subprocess.run([*env_git, "commit", "--quiet", "-m", f"Edit {index}"], cwd=checkout.path, check=True)
+            with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
+                subprocess.run(
+                    [*env_git, "bundle", "create", bundle_file.name, "origin/main..main"],
+                    cwd=checkout.path,
+                    check=True,
+                )
+                return Path(bundle_file.name).read_bytes()
+
+    def test_land_commit_bundle_rejects_a_tree_that_materializes_past_the_wiki_limit(self) -> None:
+        # One 5 KB blob at 20 paths: deduplicated the objects stay tiny, but the
+        # checkout writes 100 KB, so the limit only holds if it counts by path.
+        store.initialize_repo(self.organization.id)
+        bundle = self._bundle_with_commits([{f"areas/page-{index}.md": "x" * 5_000 for index in range(20)}])
+
+        with patch.object(repo_lint, "MAX_TOTAL_BYTES", 60_000):
+            # BundleConflictError rather than LintFailedError: an oversized tree
+            # has to be rejected before it is ever checked out.
+            with self.assertRaises(store.BundleConflictError) as caught:
+                store.land_commit_bundle(self.organization.id, bundle)
+
+        assert "checks out to more than" in str(caught.exception)
+
+    def test_land_commit_bundle_rejects_a_bundle_past_the_cumulative_tree_budget(self) -> None:
+        store.initialize_repo(self.organization.id)
+        bundle = self._bundle_with_commits([{f"areas/page-{index}.md": "y" * 6_000} for index in range(3)])
+
+        with patch.object(store, "BUNDLE_MAX_CUMULATIVE_TREE_BYTES", 30_000):
+            with self.assertRaises(store.BundleConflictError) as caught:
+                store.land_commit_bundle(self.organization.id, bundle)
+
+        assert "several smaller bundles" in str(caught.exception)

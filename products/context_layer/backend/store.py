@@ -36,6 +36,13 @@ BUNDLE_KEY_PREFIX = "context_layer"
 DEFAULT_BRANCH = "main"
 BUNDLE_MAX_COMMITS = 100
 BUNDLE_MAX_UNPACKED_BYTES = 200_000_000
+# Sits far above what a legitimate 100-commit history over a 2,000-file wiki
+# produces, and stops a flood of tiny objects from being sized at all.
+BUNDLE_MAX_OBJECTS = 500_000
+# Every incoming commit's tree is materialized and linted, so the cost is the
+# sum across commits rather than the size of any one of them. A prose wiki lands
+# far below this; a bundle that exceeds it has to be split.
+BUNDLE_MAX_CUMULATIVE_TREE_BYTES = 1_000_000_000
 LOCK_TTL_MS = 60_000
 LOCK_RENEW_INTERVAL_SECONDS = 20.0
 GIT_TIMEOUT_SECONDS = 60
@@ -171,7 +178,7 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
             logger.warning("context_layer.repo_writer_lock.release_failed", organization_id=str(organization_id))
 
 
-def _run_git(args: list[str], cwd: Path) -> str:
+def _run_git(args: list[str], cwd: Path, stdin_text: str | None = None) -> str:
     result = subprocess.run(
         [
             "git",
@@ -184,6 +191,7 @@ def _run_git(args: list[str], cwd: Path) -> str:
             *args,
         ],
         cwd=cwd,
+        input=stdin_text,
         capture_output=True,
         text=True,
         timeout=GIT_TIMEOUT_SECONDS,
@@ -422,9 +430,9 @@ def _assert_bundle_within_bounds(workdir: Path, fetched: str) -> None:
 
     The upload cap only bounds the compressed pack, so the limits here are
     measured on the incoming range's logical shape: commit count, merge shape,
-    and the sum of uncompressed object sizes (which is what checkouts and
-    caches actually pay for, and what a compression bomb hides). All limits sit
-    far above anything a legitimate write-back produces.
+    the sum of uncompressed object sizes (what a compression bomb hides), and
+    what each commit actually materializes on disk. All limits sit far above
+    anything a legitimate write-back produces.
     """
     incoming_range = f"{DEFAULT_BRANCH}..{fetched}"
     incoming_commits = int(_run_git(["rev-list", "--count", incoming_range], cwd=workdir))
@@ -440,15 +448,87 @@ def _assert_bundle_within_bounds(workdir: Path, fetched: str) -> None:
         raise BundleConflictError(
             "the posted bundle contains merge commits; rebase your clone onto its origin/main and repost"
         )
-    object_ids = _run_git(["rev-list", "--objects", incoming_range], cwd=workdir)
+    _assert_object_sizes_within_bounds(workdir, incoming_range)
+    _assert_trees_within_bounds(workdir, incoming_range)
+
+
+def _assert_object_sizes_within_bounds(workdir: Path, incoming_range: str) -> None:
+    """Bound the unique objects the incoming range adds.
+
+    Sizes come from one `cat-file --batch-check` process fed every object id, so
+    a bundle carrying tens of thousands of tiny objects costs one git process
+    rather than one per object.
+    """
+    object_ids = [
+        line.split(maxsplit=1)[0]
+        for line in _run_git(["rev-list", "--objects", incoming_range], cwd=workdir).splitlines()
+        if line
+    ]
+    if len(object_ids) > BUNDLE_MAX_OBJECTS:
+        raise BundleConflictError(
+            f"the posted bundle carries {len(object_ids)} objects; at most {BUNDLE_MAX_OBJECTS} can land at once"
+        )
+    if not object_ids:
+        return
+    sizes = _run_git(["cat-file", "--batch-check"], cwd=workdir, stdin_text="\n".join(object_ids) + "\n")
     incoming_bytes = 0
-    for line in object_ids.splitlines():
-        sha = line.split(maxsplit=1)[0]
-        incoming_bytes += int(_run_git(["cat-file", "-s", sha], cwd=workdir))
+    for line in sizes.splitlines():
+        fields = line.split()
+        # `<sha> missing` for anything unreadable; the fetch already proved the
+        # range is complete, so treat it as a malformed bundle rather than zero.
+        if len(fields) < 3:
+            raise BundleConflictError(f"could not size an object in the posted bundle: {line}")
+        incoming_bytes += int(fields[2])
         if incoming_bytes > BUNDLE_MAX_UNPACKED_BYTES:
             raise BundleConflictError(
                 f"the posted bundle unpacks past the {BUNDLE_MAX_UNPACKED_BYTES // 1_000_000} MB limit"
             )
+
+
+def _assert_trees_within_bounds(workdir: Path, incoming_range: str) -> None:
+    """Bound what the incoming commits materialize, per commit and in total.
+
+    The object-size sum counts a blob once, but a checkout pays for every path
+    that references it, so a small bundle can still materialize gigabytes. Each
+    commit's tree is measured by path before anything is checked out, and the
+    running total bounds the whole lint pass.
+    """
+    cumulative_bytes = 0
+    for sha in _run_git(["rev-list", "--reverse", incoming_range], cwd=workdir).split():
+        tree_bytes, entries = _tree_materialized_size(workdir, sha)
+        if entries > repo_lint.MAX_FILE_COUNT:
+            raise BundleConflictError(
+                f"commit {sha[:12]} carries {entries} files; the wiki allows {repo_lint.MAX_FILE_COUNT}"
+            )
+        if tree_bytes > repo_lint.MAX_TOTAL_BYTES:
+            raise BundleConflictError(
+                f"commit {sha[:12]} checks out to more than the "
+                f"{repo_lint.MAX_TOTAL_BYTES // 1_000_000} MB the wiki allows"
+            )
+        cumulative_bytes += tree_bytes
+        if cumulative_bytes > BUNDLE_MAX_CUMULATIVE_TREE_BYTES:
+            raise BundleConflictError(
+                f"the posted bundle's commits check out to more than the "
+                f"{BUNDLE_MAX_CUMULATIVE_TREE_BYTES // 1_000_000} MB that can be linted at once; "
+                "post it as several smaller bundles"
+            )
+
+
+def _tree_materialized_size(workdir: Path, sha: str) -> tuple[int, int]:
+    """Bytes and file count a commit's tree writes to disk, counted per path."""
+    listing = _run_git(["ls-tree", "-r", "--long", "--full-tree", sha], cwd=workdir)
+    total_bytes = 0
+    entries = 0
+    for line in listing.splitlines():
+        metadata, _, _ = line.partition("\t")
+        fields = metadata.split()
+        if len(fields) < 4:
+            continue
+        entries += 1
+        # Submodule entries (`commit`) report `-` and materialize nothing.
+        if fields[3].isdigit():
+            total_bytes += int(fields[3])
+    return total_bytes, entries
 
 
 def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
@@ -456,7 +536,8 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
 
     Landed history is exportable and clonable, so a hazardous intermediate
     commit (a secret, an oversized dump) must fail the land even when a later
-    commit removes it. The commit-count cap bounds this loop.
+    commit removes it. `_assert_trees_within_bounds` has already bounded the
+    total work this loop can do.
     """
     shas = _run_git(["rev-list", "--reverse", f"{base}..{tip}"], cwd=workdir).split()
     for sha in shas:
