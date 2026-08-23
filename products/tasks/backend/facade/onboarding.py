@@ -43,7 +43,7 @@ ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 
-SPACES_LAYOUT_FLAG = "code-spaces-layout"
+SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
@@ -113,15 +113,18 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
     organization_id = str(team.organization_id)
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SPACES_LAYOUT_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+        return all(
+            bool(
+                posthoganalytics.feature_enabled(
+                    flag,
+                    distinct_id=distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
             )
+            for flag in SPACES_FLAGS
         )
     except Exception:
         logger.warning("onboarding_session_flag_check_failed", team_id=team.id)

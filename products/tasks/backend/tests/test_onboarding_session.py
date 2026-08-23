@@ -6,13 +6,14 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.test.utils import override_settings
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
-from products.tasks.backend.facade.onboarding import _origin_key, start_onboarding_session
+from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
@@ -35,6 +36,16 @@ class TestOnboardingSessionIdempotency(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.user,
             origin_key=_origin_key(self.user.id),
+        )
+
+    @override_settings(DEBUG=False)
+    def test_both_spaces_flags_must_be_enabled(self) -> None:
+        with patch("posthoganalytics.feature_enabled", side_effect=[True, False]) as feature_enabled:
+            self.assertFalse(_session_enabled(self.team, self.user))
+
+        self.assertEqual(
+            [call.args[0] for call in feature_enabled.call_args_list],
+            ["code-spaces-layout", "project-bluebird"],
         )
 
     def _start(self, create_side_effect) -> tuple[UUID | None, int]:
