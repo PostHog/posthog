@@ -16752,6 +16752,14 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a channel's page identity in the wiki.
+     */
+    export interface ChannelWikiPage {
+      /** Repo-relative path of the wiki page whose frontmatter names the channel. */
+      path: string;
+    }
+
+    /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
      */
     export interface ChannelWrite {
