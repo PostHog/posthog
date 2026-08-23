@@ -17883,6 +17883,14 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Request body for landing agent commits posted back as a git bundle.
+     */
+    export interface CommitBundle {
+      /** A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+      bundle: string;
+    }
+
+    /**
      * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
      * repository default branch.
      */
@@ -18285,6 +18293,14 @@ export namespace Schemas {
       Rocket: 'rocket',
       Eyes: 'eyes',
     } as const;
+
+    /**
+     * Response shape for the wiki's current state.
+     */
+    export interface ContextLayerStatus {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -39775,6 +39791,16 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
+    /**
+     * 409 body when a guarded write was based on a stale head.
+     */
+    export interface HeadConflict {
+      /** What moved and what to do next. */
+      detail: string;
+      /** The wiki's current head sha; re-read pages at this head and retry. */
+      current_head: string;
+    }
+
     export type HealthCheckSignalExtraPayload = { [key: string]: unknown };
 
     export type HealthCheckSignalExtraSeverityEnum = typeof HealthCheckSignalExtraSeverityEnum[keyof typeof HealthCheckSignalExtraSeverityEnum];
@@ -45685,6 +45711,16 @@ export namespace Schemas {
       title: string | null;
       /** Current report status (e.g. `potential`, `ready`, `resolved`). */
       status: string;
+    }
+
+    /**
+     * 400 body when a write violates the wiki's structure rules.
+     */
+    export interface LintError {
+      /** What was rejected. */
+      detail: string;
+      /** One entry per structure violation found by the linter. */
+      errors: string[];
     }
 
     /**
@@ -83238,6 +83274,59 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a wiki bundle export.
+     */
+    export interface WikiExport {
+      /** Short-lived download URL for the wiki's current bundle. */
+      url: string;
+      /** Commit sha of the bundle behind the URL. */
+      head_sha: string;
+    }
+
+    /**
+     * Response shape for one wiki page.
+     */
+    export interface WikiPage {
+      /** Repo-relative path of the page, for example `areas/analytics.md`. */
+      path: string;
+      /** The page's Markdown content. */
+      content: string;
+      /** Commit sha the content was read at; pass back as `base_head` on writes. */
+      head_sha: string;
+    }
+
+    /**
+     * Request body for creating or replacing one wiki page.
+     */
+    export interface WikiPageWrite {
+      /**
+         * Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * The complete Markdown content for the page.
+         * @maxLength 1000000
+         */
+      content: string;
+      /**
+         * Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.
+         * @nullable
+         */
+      base_head?: string | null;
+    }
+
+    /**
+     * Response shape for the wiki's page listing.
+     */
+    export interface WikiTree {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** Repo-relative path of every Markdown page at the current head. */
+      paths: string[];
+    }
+
+    /**
      * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
@@ -85875,6 +85964,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ContextLayerPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string;
     };
 
     export type DomainsListParams = {
