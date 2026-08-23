@@ -22,6 +22,8 @@ const mockPrompt = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
 );
 
+const mockPrepareContextWiki = vi.hoisted(() => vi.fn());
+
 const mockAcpClient = vi.hoisted(() => ({
   current: undefined as
     | {
@@ -142,6 +144,10 @@ vi.mock("@posthog/agent/gateway-models", () => ({
 
 vi.mock("@posthog/agent/adapters/claude/session/jsonl-hydration", () => ({
   hydrateSessionJsonl: mockHydrateSessionJsonl,
+}));
+
+vi.mock("./context-wiki", () => ({
+  prepareContextWiki: mockPrepareContextWiki,
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -304,6 +310,58 @@ describe("AgentService", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  describe("context wiki mount", () => {
+    const credentials = {
+      apiHost: "https://app.posthog.test",
+      projectId: 1,
+    } as never;
+    const mount = {
+      path: "/mock/appData/context-wiki/org-1/head1",
+      commitsPath: "/api/organizations/org-1/context_layer/commits/",
+    };
+
+    beforeEach(() => {
+      for (const key of [
+        "POSTHOG_API_KEY",
+        "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_CONTEXT_LAYER_PATH",
+        "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
+      ]) {
+        delete process.env[key];
+      }
+    });
+
+    it("drops a previous session's publish token even when no wiki mounts", async () => {
+      process.env.POSTHOG_PERSONAL_API_KEY = "previous-account-token";
+      mockPrepareContextWiki.mockResolvedValueOnce(null);
+
+      await service["mountContextWiki"](credentials);
+
+      expect(process.env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    });
+
+    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
+    // absent while impersonating — so an impersonation credential must never
+    // reach the agent subprocess as a publish token.
+    it.each([
+      ["the auth sync wrote one", "synced-key", "synced-key"],
+      ["the session is impersonated", undefined, undefined],
+    ])(
+      "exposes a publish token only when %s",
+      async (_label, apiKey, expected) => {
+        if (apiKey) {
+          process.env.POSTHOG_API_KEY = apiKey;
+        }
+        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+
+        await service["mountContextWiki"](credentials);
+
+        expect(process.env.POSTHOG_PERSONAL_API_KEY).toBe(expected);
+        expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBe(mount.path);
+      },
+    );
   });
 
   it("includes Modal models in Claude preview options", async () => {
