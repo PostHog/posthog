@@ -89,7 +89,7 @@ class TestDreamingLane(BaseTest):
         assert "# Context layer dreaming" in prompt
         assert "# Context layer consolidation" in prompt
         assert "channel-list" in prompt
-        assert "channel-instructions-retrieve" in prompt
+        assert "channel-instructions-retrieve" not in prompt
         assert "name: context-layer-dreaming" not in prompt
 
     @parameterized.expand(
