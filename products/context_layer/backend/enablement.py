@@ -161,4 +161,4 @@ def _unique_channel_path(name: str, channel_id: str, taken: set[str]) -> str:
 
 
 def _channel_page(channel_id: str, channel_name: str, content: str) -> str:
-    return f"---\nchannel_id: {channel_id}\nsource: channel-instructions-import\n---\n\n# {channel_name}\n\n{content}\n"
+    return f"---\nchannel_id: {channel_id}\nsummary: Context imported from {channel_name}.\nstatus: active\nsources: channel-instructions-import\n---\n\n# {channel_name}\n\n{content}\n"

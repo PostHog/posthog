@@ -18,6 +18,7 @@ from products.context_layer.backend.presentation.serializers import (
     HeadConflictSerializer,
     LintErrorSerializer,
     WikiExportSerializer,
+    WikiHealthReportSerializer,
     WikiPageSerializer,
     WikiPageWriteSerializer,
     WikiTreeSerializer,
@@ -106,7 +107,9 @@ def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN00
     serializer.is_valid(raise_exception=True)
     bundle_bytes = serializer.validated_data["bundle"].read()
     try:
-        head_sha = facade.land_commit_bundle(organization_id, bundle_bytes)
+        head_sha = facade.land_commit_bundle(
+            organization_id, bundle_bytes, summary=serializer.validated_data.get("summary") or None
+        )
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
@@ -124,7 +127,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     @extend_schema(
@@ -177,6 +180,19 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(WikiTreeSerializer(wiki_tree).data)
+
+    @extend_schema(
+        responses={200: WikiHealthReportSerializer},
+        summary="Report wiki health findings",
+    )
+    @action(methods=["GET"], detail=False, url_path="wiki/report")
+    def report(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
+        try:
+            report = facade.get_health_report(self.organization.id)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        return Response(WikiHealthReportSerializer(report).data)
 
     @extend_schema(
         parameters=[

@@ -32,6 +32,17 @@ class WikiPageSerializer(serializers.Serializer):
     )
 
 
+class WikiHealthFindingSerializer(serializers.Serializer):
+    category = serializers.CharField(help_text="Stable category used to group this finding.")
+    path = serializers.CharField(help_text="Wiki page path associated with this finding.")
+    message = serializers.CharField(help_text="Human-readable explanation of the finding.")
+
+
+class WikiHealthReportSerializer(serializers.Serializer):
+    head_sha = serializers.CharField(help_text="Commit sha inspected by the report.")
+    findings = WikiHealthFindingSerializer(many=True, help_text="Health findings for the current wiki head.")
+
+
 class WikiPageWriteSerializer(serializers.Serializer):
     """Request body for creating or replacing one wiki page."""
 
@@ -63,6 +74,12 @@ class CommitBundleSerializer(serializers.Serializer):
             "A `git bundle` carrying the wiki's `main` ref, created in the agent's clone "
             "(for example `git bundle create out.bundle origin/main..main`)."
         )
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=10_000,
+        help_text="Optional run summary stored in the landed commit body.",
     )
 
     def validate_bundle(self, value):  # noqa: ANN001, ANN201

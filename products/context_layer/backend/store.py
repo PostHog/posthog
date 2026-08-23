@@ -22,13 +22,14 @@ import structlog
 from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 from posthog.storage import object_storage
 
 from products.context_layer.backend import repo_lint
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.repo_lint import lint_repo
-from products.context_layer.backend.scaffold import write_default_structure
+from products.context_layer.backend.scaffold import generate_index, write_default_structure
 
 logger = structlog.get_logger(__name__)
 
@@ -109,6 +110,15 @@ class BundleExport:
 
     url: str
     head_sha: str
+
+
+@frozen
+class LandingStats:
+    pages_added: int
+    pages_modified: int
+    pages_deleted: int
+    total_files: int
+    total_bytes: int
 
 
 SYSTEM_AUTHOR = CommitAuthor(name=COMMITTER_NAME, email=COMMITTER_EMAIL)
@@ -356,6 +366,7 @@ def _run_landing(
     *,
     prepare: Callable[[Path], str | None],
     required_head: str | None = None,
+    lane: str = "interactive",
 ) -> str:
     """The landing half of the writer protocol, shared by every writer.
 
@@ -381,7 +392,13 @@ def _run_landing(
                     return expected_head
                 if _refresh_canonical_scripts(workdir):
                     new_head = _commit_all(workdir, "Update wiki scripts to the current version", SYSTEM_AUTHOR)
+                index_path = workdir / "index.md"
+                generated_index = generate_index(workdir)
+                if not index_path.exists() or index_path.read_text(encoding="utf-8") != generated_index:
+                    index_path.write_text(generated_index, encoding="utf-8")
+                    new_head = _commit_all(workdir, "Refresh the generated wiki index", SYSTEM_AUTHOR)
                 _lint_or_raise(workdir)
+                stats = _landing_stats(workdir, expected_head, new_head)
                 _upload_bundle(organization_id, new_head, workdir)
 
                 updated = ContextLayerConfig.objects.filter(
@@ -389,6 +406,20 @@ def _run_landing(
                 ).update(head_sha=new_head)
                 if updated:
                     _prune_bundles_best_effort(organization_id, {new_head, expected_head})
+                    with ph_scoped_capture() as capture:
+                        capture(
+                            distinct_id=str(organization_id),
+                            event="context layer commits landed",
+                            properties={
+                                "organization_id": str(organization_id),
+                                "lane": lane,
+                                "pages_added": stats.pages_added,
+                                "pages_modified": stats.pages_modified,
+                                "pages_deleted": stats.pages_deleted,
+                                "total_files": stats.total_files,
+                                "total_bytes": stats.total_bytes,
+                            },
+                        )
                     return new_head
         logger.warning(
             "context_layer.landing.head_moved",
@@ -397,6 +428,22 @@ def _run_landing(
             attempt=attempt,
         )
     raise HeadMovedError(f"head moved twice while landing changes for organization {organization_id}")
+
+
+def _landing_stats(workdir: Path, old_head: str, new_head: str) -> LandingStats:
+    counts = {"A": 0, "M": 0, "D": 0}
+    for line in _run_git(["diff", "--name-status", old_head, new_head, "--", "*.md"], cwd=workdir).splitlines():
+        status = line.split("\t", 1)[0][0]
+        if status in counts:
+            counts[status] += 1
+    files = [path for path in workdir.rglob("*") if ".git" not in path.parts and path.is_file() and not path.is_symlink()]
+    return LandingStats(
+        pages_added=counts["A"],
+        pages_modified=counts["M"],
+        pages_deleted=counts["D"],
+        total_files=len(files),
+        total_bytes=sum(path.stat().st_size for path in files),
+    )
 
 
 def apply_changes(
@@ -551,7 +598,9 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
 
-def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) -> str:
+def land_commit_bundle(
+    organization_id: uuid.UUID | str, bundle_bytes: bytes, *, summary: str | None = None, lane: str = "dream"
+) -> str:
     """Land commits an agent made in its own clone, posted back as a bundle.
 
     The bundle must carry the wiki's `main` ref, with the commits based on some
@@ -579,12 +628,16 @@ def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) ->
         except ContextLayerStoreError as error:
             raise BundleConflictError(f"the posted commits conflict with the current head: {error}") from error
         rebased = _run_git(["rev-parse", "HEAD"], cwd=workdir)
+        if summary:
+            subject = _run_git(["log", "-1", "--format=%s"], cwd=workdir)
+            _run_git(["commit", "--amend", "--quiet", "-m", subject, "-m", summary], cwd=workdir)
+            rebased = _run_git(["rev-parse", "HEAD"], cwd=workdir)
         _lint_incoming_commits(workdir, DEFAULT_BRANCH, rebased)
         _run_git(["checkout", "--quiet", DEFAULT_BRANCH], cwd=workdir)
         _run_git(["merge", "--ff-only", "--quiet", rebased], cwd=workdir)
         return _run_git(["rev-parse", "HEAD"], cwd=workdir)
 
-    return _run_landing(organization_id, prepare=prepare)
+    return _run_landing(organization_id, prepare=prepare, lane=lane)
 
 
 def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purge wiki history") -> str:
