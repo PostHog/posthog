@@ -280,6 +280,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         return {
             key: '__bulk-selection__',
             width: 32,
+            className: 'LemonTable__bulk-selection-cell',
             title: (
                 <LemonCheckbox
                     checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}

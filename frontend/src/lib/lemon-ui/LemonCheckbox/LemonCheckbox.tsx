@@ -96,6 +96,7 @@ export function LemonCheckbox({
                     bordered && 'LemonCheckbox--bordered',
                     disabled && 'LemonCheckbox--disabled',
                     fullWidth && 'LemonCheckbox--full-width',
+                    !label && 'LemonCheckbox--no-label',
                     size && `LemonCheckbox--${size}`,
                     className
                 )}

@@ -251,6 +251,25 @@
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
                 }
+
+                // The whole bulk-selection cell toggles the row: stretch the checkbox's
+                // <label> (the native click target) to cover the cell, so the click area is
+                // the whole column, not just the 16px box in a field of dead space.
+                // Skip sticky/pinned cells, which need their own `position` to keep pinning.
+                &.LemonTable__bulk-selection-cell:not(.LemonTable__cell--sticky):not(.LemonTable__cell--pinned) {
+                    position: relative;
+                    padding: 0;
+
+                    > .LemonCheckbox {
+                        label {
+                            position: absolute;
+                            inset: 0;
+                            justify-content: center;
+                            margin: 0;
+                            padding: 0;
+                        }
+                    }
+                }
             }
         }
     }
