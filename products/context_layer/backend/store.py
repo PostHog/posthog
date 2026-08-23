@@ -393,6 +393,10 @@ def _run_landing(
                 if _refresh_canonical_scripts(workdir):
                     new_head = _commit_all(workdir, "Update wiki scripts to the current version", SYSTEM_AUTHOR)
                 index_path = workdir / "index.md"
+                if index_path.is_symlink():
+                    # Never write the generated index through a bundle-supplied
+                    # symlink; lint would reject it later, but the write happens first.
+                    index_path.unlink()
                 generated_index = generate_index(workdir)
                 if not index_path.exists() or index_path.read_text(encoding="utf-8") != generated_index:
                     index_path.write_text(generated_index, encoding="utf-8")

@@ -74,6 +74,10 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
                 errors.append(f"{entry.name}/: only {', '.join(sorted(ALLOWED_DIRECTORIES))} are allowed at the root")
         elif entry.name not in ALLOWED_ROOT_FILES:
             errors.append(f"{entry.name}: only {', '.join(sorted(ALLOWED_ROOT_FILES))} are allowed as root files")
+        elif entry.name != "CLAUDE.md" and entry.is_symlink():
+            # The server rewrites index.md on every landing, so a symlinked root
+            # file would let a bundle direct that write at an arbitrary path.
+            errors.append(f"{entry.name}: root files other than CLAUDE.md must be regular files")
 
     titles: dict[str, Path] = {}
     for directory in sorted(MARKDOWN_DIRECTORIES):

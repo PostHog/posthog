@@ -54,6 +54,11 @@ def _stray_symlink(root: Path) -> None:
     (root / "areas" / "alias.md").symlink_to("../AGENTS.md")
 
 
+def _index_symlink(root: Path) -> None:
+    (root / "index.md").unlink()
+    (root / "index.md").symlink_to("/tmp/victim")
+
+
 def _oversized_page(root: Path) -> None:
     (root / "areas").mkdir(exist_ok=True)
     (root / "areas" / "huge.md").write_text(
@@ -120,6 +125,7 @@ class TestRepoLint(SimpleTestCase):
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
             ("stray_symlink", _stray_symlink),
+            ("index_symlink", _index_symlink),
             ("scripts_symlink", _scripts_symlink),
             ("scripts_extra_file", _scripts_extra_file),
             ("scripts_tampered_lint", _scripts_tampered_lint),

@@ -187,6 +187,25 @@ class TestContextLayerStore(BaseTest):
             shipped = (checkout.path / "scripts" / "lint").read_text()
             assert shipped == repo_lint._canonical_scripts()["lint"]
 
+    def test_index_regeneration_never_writes_through_a_symlinked_index(self) -> None:
+        store.initialize_repo(self.organization.id)
+        victim = Path(tempfile.mkdtemp()) / "victim.txt"
+        victim.write_text("untouched")
+
+        def symlink_index(root: Path) -> None:
+            index = root / "index.md"
+            index.unlink()
+            index.symlink_to(victim)
+            (root / "areas").mkdir(exist_ok=True)
+            (root / "areas" / "note.md").write_text(_page("Note"))
+
+        store.apply_changes(self.organization.id, message="Symlink the index", mutate=symlink_index)
+
+        assert victim.read_text() == "untouched"
+        with store.checkout_repo(self.organization.id) as checkout:
+            landed = checkout.path / "index.md"
+            assert landed.is_file() and not landed.is_symlink()
+
     def test_refresh_never_writes_through_a_symlinked_script(self) -> None:
         store.initialize_repo(self.organization.id)
         victim = Path(tempfile.mkdtemp()) / "victim.txt"
