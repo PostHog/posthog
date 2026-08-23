@@ -89,11 +89,18 @@ const MOVED_LONGEST_FIRST = [...MOVED_PREFIXES].sort(
 
 /** A saved href on today's routes. Unrecognized hrefs are returned unchanged. */
 export function rewriteSavedLocation(href: string): string {
+  // Saved hrefs carry the query string and fragment. A `?` or `#` sitting right
+  // at a prefix boundary (`/code/pr?prUrl=…`) matches neither arm below, so the
+  // whole href would fall through to the `/code` → `/new` catch-all and land on
+  // a dead route. Match on the pathname only, then reattach the suffix untouched.
+  const boundary = href.search(/[?#]/);
+  const path = boundary === -1 ? href : href.slice(0, boundary);
+  const suffix = boundary === -1 ? "" : href.slice(boundary);
   for (const [from, to] of MOVED_LONGEST_FIRST) {
-    if (href === from) return to;
-    if (href.startsWith(`${from}/`)) {
-      const rest = href.slice(from.length);
-      return to === "/" ? rest : to + rest;
+    if (path === from) return to + suffix;
+    if (path.startsWith(`${from}/`)) {
+      const rest = path.slice(from.length);
+      return (to === "/" ? rest : to + rest) + suffix;
     }
   }
   return href;

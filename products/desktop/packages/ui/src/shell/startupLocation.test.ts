@@ -38,6 +38,14 @@ describe("rewriteSavedLocation", () => {
     ["/code/inbox/pulls/42", "/inbox/pulls/42"],
     ["/code/loops/abc/edit", "/loops/abc/edit"],
     ["/code/tasks/t1", "/tasks/t1"],
+    // Query/fragment right at the prefix boundary: rewrite the path, keep the
+    // rest — a saved PR view must not divert to the `/code` → `/new` catch-all.
+    [
+      "/code/pr?prUrl=https://github.com/o/r/pull/1",
+      "/pr?prUrl=https://github.com/o/r/pull/1",
+    ],
+    ["/code/loops/abc?edit=true", "/loops/abc?edit=true"],
+    ["/code/pr#section", "/pr#section"],
   ])("moves %s to %s", (saved, expected) => {
     expect(rewriteSavedLocation(saved)).toBe(expected);
   });
