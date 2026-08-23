@@ -36,6 +36,12 @@ TRAFFIC_STOP_WINDOW_DAYS = TRAFFIC_STOP_BASELINE_DAYS + TRAFFIC_STOP_RECENT_DAYS
 # Bounds of the same-length window one week before the recent window: [now-9d, now-7d].
 TRAFFIC_STOP_PRIOR_WEEK_FROM = TRAFFIC_STOP_RECENT_DAYS + TRAFFIC_STOP_SEASONALITY_DAYS
 TRAFFIC_STOP_PRIOR_WEEK_TO = TRAFFIC_STOP_SEASONALITY_DAYS
+# The prior-week window must carry real traffic, not a single stray hit, or the seasonality guard
+# is trivially defeated: one crawler visit, synthetic monitor, or internal pageview a week ago would
+# let an ordinary quiet weekend read as a critical stop. The floor is roughly the baseline-proportional
+# volume for this 2-day window (the baseline gate implies ~7 events/day). Tunable while the check
+# canaries at 1%.
+TRAFFIC_STOP_MIN_PRIOR_WEEK_EVENTS = 10
 
 TRAFFIC_STOP_SQL = """
 SELECT
@@ -51,7 +57,7 @@ HAVING baseline_events >= %(min_baseline_events)s
    AND baseline_active_days >= %(min_active_days)s
    AND countIf(timestamp >= now() - INTERVAL %(recent_days)s DAY) = 0
    AND countIf(timestamp >= now() - INTERVAL %(prior_week_from)s DAY
-               AND timestamp < now() - INTERVAL %(prior_week_to)s DAY) > 0
+               AND timestamp < now() - INTERVAL %(prior_week_to)s DAY) >= %(min_prior_week_events)s
 """
 
 
@@ -121,6 +127,7 @@ class TrafficStopCheck(HealthCheck):
                 "min_active_days": TRAFFIC_STOP_MIN_ACTIVE_DAYS,
                 "prior_week_from": TRAFFIC_STOP_PRIOR_WEEK_FROM,
                 "prior_week_to": TRAFFIC_STOP_PRIOR_WEEK_TO,
+                "min_prior_week_events": TRAFFIC_STOP_MIN_PRIOR_WEEK_EVENTS,
             },
         )
 
