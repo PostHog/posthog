@@ -34,24 +34,12 @@ from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
-
 ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
-
 ONBOARDING_SESSION_EFFORT = "medium"
-
-# Channel instructions live under the "task" scope object (ChannelViewSet.scope_object).
-# `canvas:read` is what lets the session point someone at a canvas that already exists in the
-# space, which it cannot do without first listing them.
 ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 
-# The session lands in #general, so it is gated on the flag that decides whether spaces exist
-# for this person at all. Nothing to gain from a second rollout dial.
 SPACES_LAYOUT_FLAG = "code-spaces-layout"
 
-# Callers fire the endpoint without awaiting it, so a client timeout during the homepage scrape
-# retries it. Task's unique (team, origin_key) constraint is what stops the retry paying for a
-# second interactive run. One key per user: the opening message is personalized, and provisioning
-# fires once per person even though the session lands in the shared #general space.
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
 
@@ -60,9 +48,6 @@ def _origin_key(user_id: int) -> str:
 
 
 def _quota_denial_reason(team: Team, user: User) -> str | None:
-    # An unsaved stub is enough: the check reads the team, the creator and the billing markers,
-    # all of which are decided before the row exists. Asking after the row exists would put the
-    # denial inside sandbox provisioning, where a new user watches their first session die.
     stub = Task(
         team=team,
         created_by=user,
@@ -73,8 +58,6 @@ def _quota_denial_reason(team: Team, user: User) -> str | None:
 
 
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
-    # `origin_key` is one namespace per team, shared with any other caller that keys a task, so
-    # match on what this function actually writes rather than trusting whoever holds the string.
     return (
         Task.objects.filter(
             team_id=team_id,
@@ -95,11 +78,6 @@ def company_domain_from(email: str) -> str | None:
 
 
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
-    """The facts behind the opening message, and the page text its summary is drawn from.
-
-    Turning the sources on happens here rather than after the message is written, so a session that
-    never reaches the user still leaves the team watched.
-    """
     sources = enable_onboarding_signal_sources(team.id, user.id)
 
     if organization_has_context(team.organization_id):
@@ -130,9 +108,6 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
 
 
 def _session_enabled(team: Team, user: User) -> bool:
-    # A dev instance self-captures, so it resolves flags against its own empty flag list rather
-    # than against the cloud project that defines this one. Gating on it there means the session
-    # can never start locally, which is the one place it most needs to be run by hand.
     if settings.DEBUG:
         return True
 
@@ -171,7 +146,6 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason=denial)
         return None
 
-    # Ahead of the scrape, so a retry costs nothing rather than reading the homepage again.
     started = _started_session_id(team.id, user.id)
     if started is not None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
@@ -190,9 +164,6 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
     )
 
     try:
-        # One transaction, matching create_workflow_task: the task row commits on its own, so a
-        # failure starting the run would otherwise strand a task holding this origin_key with no
-        # run behind it, and the guard above would hand that dead task back forever.
         with transaction.atomic():
             created = create_and_run_task(
                 team=team,
@@ -202,23 +173,15 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
                 user_id=user.id,
                 channel_id=channel_id,
                 origin_key=origin_key,
-                # The run costs the same as any other Desktop session, so it meters like one. Without
-                # this the task is non-billable compute and PostHog absorbs every first run.
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
                 create_pr=False,
                 mode="interactive",
                 model=ONBOARDING_SESSION_MODEL,
                 reasoning_effort=ONBOARDING_SESSION_EFFORT,
-                # The session talks and writes the space's context, nothing else. Scoping the token to
-                # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
-                # which the untrusted `<homepage>` block cannot rule out on its own.
                 posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-                # The session only ever talks and writes the space's context, so a permission prompt
-                # would be the first thing a new user had to answer, about a tool they cannot see.
                 initial_permission_mode="auto",
             )
     except IntegrityError:
-        # Two requests raced past the read above; the constraint picked a winner.
         started = _started_session_id(team.id, user.id)
         if started is None:
             raise

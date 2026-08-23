@@ -15,9 +15,6 @@ SAVE_CONTEXT = (
     "or tell you from scratch."
 )
 
-# What the team can actually be offered, which the agent cannot tell from the conversation. A team
-# with nothing flowing has no data to look at, so every analysis offer would be for a thing that
-# does not exist; instrumenting is the one real move, and the app ships a skill that does it.
 NO_DATA_YET = (
     "Their project has nothing flowing into PostHog yet, so anything you might look at does not "
     "exist. Adding PostHog is the only real offer. This app ships a skill for it, so offer a "
@@ -26,8 +23,6 @@ NO_DATA_YET = (
 
 HAS_DATA = "Their project has data flowing, so whatever they name is something you can act on now."
 
-# How many turned-on sources the message names before it starts counting. Naming all of them reads
-# as a feature list and eats the word budget the company summary needs.
 _NAMED_SOURCE_LIMIT = 3
 
 
@@ -87,8 +82,6 @@ def _status_line(facts: OnboardingFacts) -> str | None:
         return None
     if facts.sources_newly_enabled:
         return f"Tell them you turned on {enabled}, so findings will start landing in #general."
-    # Already watching when they arrived, so claiming to have turned it on would be a lie, and
-    # saying nothing leaves them waiting on findings they were never told to expect.
     return f"Tell them you are watching {enabled}, and findings will land in #general as they come up."
 
 
@@ -116,18 +109,11 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
         brief.append(RESEARCH_LINE)
         brief.append("Summarize what the company does, from the page below, and ask whether that is right.")
     elif facts.research is not None and facts.research.outcome == "unreachable":
-        # The one branch where their site really was tried and really did fail, so it is the only
-        # one that may say so. Naming the page also shows the guess behind it, which they can
-        # correct: it is their email domain, not something they told us.
         brief.append(
             f"Say you tried to read {facts.research.url} to start building their company context, "
             "but could not reach it. Then ask what the company does."
         )
     else:
-        # Either there was no company domain to read, or the failure was ours: no key configured,
-        # or our own rate limit. None of that is their site's fault, and none of it is research.
-        # This branch's question is the top-of-mind one, so it stands in for TOP_OF_MIND below
-        # rather than preceding a near-duplicate of itself.
         asked_top_of_mind = True
         brief.append(
             "Ask one real question so you can be useful rather than generic: what are they working on right now?"
@@ -150,8 +136,6 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
 
 
 def build_followup(facts: OnboardingFacts) -> list[str]:
-    """What the session owes them after the first message. Kept out of the brief so a line meant for
-    the agent can never be transcribed into the message as a point to cover."""
     followup = [] if facts.org_has_context else [SAVE_CONTEXT]
     followup.append(HAS_DATA if facts.has_events else NO_DATA_YET)
     return followup

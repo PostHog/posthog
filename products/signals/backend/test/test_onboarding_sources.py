@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -67,16 +66,6 @@ class TestOnboardingSignalSources(BaseTest):
         assert "error tracking" in sources.labels
         assert _enabled_pairs(self.team.id) == before
 
-    def test_a_warehouse_source_the_team_already_syncs_is_turned_on_too(self) -> None:
-        with patch(
-            "products.signals.backend.facade.api._syncing_warehouse_signal_sources",
-            return_value=[("linear", "issue", "Linear")],
-        ):
-            sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
-
-        assert ("linear", "issue") in _enabled_pairs(self.team.id)
-        assert "Linear" in sources.labels
-
     def test_one_source_failing_does_not_take_the_rest_down(self) -> None:
         real = SignalSourceConfig.objects.update_or_create
 
@@ -91,23 +80,3 @@ class TestOnboardingSignalSources(BaseTest):
         assert "health checks" not in sources.labels
         assert "error tracking" in sources.labels
         assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
-
-    def test_a_source_type_the_config_cannot_hold_is_skipped(self) -> None:
-        # The emitter registry carries the full taxonomy; a type outside SourceType would land as a
-        # row the published schema forbids, and one nobody can toggle back off through the API.
-        schema = SimpleNamespace(name="posts", should_sync=True)
-        source = SimpleNamespace(id="src-1", source_type="canny")
-        with (
-            patch("products.warehouse_sources.backend.facade.api.list_sources", return_value=[source]),
-            patch(
-                "products.warehouse_sources.backend.facade.api.list_schemas_for_source",
-                return_value=[schema],
-            ),
-            patch(
-                "products.signals.backend.emission.registry.get_signal_source_identity",
-                return_value=("conversations", "feedback"),
-            ),
-        ):
-            enable_onboarding_signal_sources(self.team.id, self.user.id)
-
-        assert ("conversations", "feedback") not in _enabled_pairs(self.team.id)

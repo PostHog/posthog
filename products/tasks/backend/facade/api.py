@@ -7058,11 +7058,6 @@ def _ensure_system_channel(
     return channel, created
 
 
-# `system_role` was added after these rows already existed and is only ever stamped lazily, one team
-# at a time, by `_ensure_system_channel`, so anything reading only the stamped shape misses every
-# space nobody has opened Desktop on since. This is the one definition of the unstamped shape:
-# the adopt lookups below, the query predicates, and `_is_general_channel` all derive from it.
-# Mirrors `isGeneralChannel` / `isPersonalChannel` in `channelName.ts`; keep them in step.
 PERSONAL_LEGACY_SHAPE: dict[str, Any] = {"channel_type": Channel.ChannelType.PERSONAL}
 GENERAL_LEGACY_SHAPE: dict[str, Any] = {
     "channel_type": Channel.ChannelType.PUBLIC,
@@ -7448,13 +7443,6 @@ def get_channel_instructions(
 
 
 def desktop_users_in_team(team_id: int, organization_id: UUID | str, exclude_user_id: int) -> list[str]:
-    """Who else in this team has opened Desktop, newest four last.
-
-    Keyed on personal spaces, which are provisioned the first time someone opens Desktop, so this
-    answers "who is here" rather than "who has a PostHog account". A personal space outlives the
-    membership that created it, so the join on ``OrganizationMembership`` is what keeps someone who
-    has left the organization out of a welcome message.
-    """
     channels = (
         Channel.objects.for_team(team_id)
         .filter(
@@ -7474,23 +7462,6 @@ def desktop_users_in_team(team_id: int, organization_id: UUID | str, exclude_use
 
 
 def organization_has_context(organization_id: UUID | str) -> bool:
-    """Whether anyone in this organization has already recorded what the company does.
-
-    Answered once for the whole organization, so an org with several projects is not
-    asked the same question once per project.
-
-    Known imprecision: a team that hand-wrote its #general instructions, with no research
-    having produced them, reads as ``True``. That costs one person an opening message
-    written for someone joining an established org rather than one written for first
-    setup, and it resolves itself when the organization-scoped flag replaces this read.
-    """
-    # The durable answer is a flag on the one-per-organization ContextLayerConfig row.
-    # Until that row exists, a #general space with published instructions is the only
-    # org-wide evidence that the research already ran, so the whole heuristic stays inside
-    # this function and swapping it later is a single edit here.
-    #
-    # Genuinely cross-team: one organization's teams are exactly the scope of the question, and
-    # asking each team in turn cost two queries per project on the path that opens a session.
     contents = (
         ChannelInstructions.objects.unscoped()
         .filter(
