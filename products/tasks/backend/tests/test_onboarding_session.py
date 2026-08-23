@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 from unittest.mock import patch
@@ -89,3 +91,29 @@ class TestOnboardingSessionIdempotency(TestCase):
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
+
+    def test_an_invalid_managed_prompt_uses_the_bundled_prompt_and_captures_the_fallback(self) -> None:
+        task_id = uuid4()
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertIn("<followup>", kwargs["description"])
+            self.assertNotIn("invalid managed prompt", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with (
+            patch(
+                f"{MODULE}.load_onboarding_prompt",
+                return_value=SimpleNamespace(prompt="invalid managed prompt", source="remote", version=7),
+            ),
+            patch(f"{MODULE}.posthoganalytics.capture") as capture,
+        ):
+            started, _ = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "Onboarding prompt fallback used")
+        self.assertEqual(capture.call_args.kwargs["properties"]["reason"], "missing_placeholders")
+        self.assertEqual(
+            capture.call_args.kwargs["properties"]["missing_placeholders"],
+            ("brief", "channel_id", "followup", "homepage"),
+        )

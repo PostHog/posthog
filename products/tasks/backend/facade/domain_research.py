@@ -36,7 +36,10 @@ def normalize_target(raw: str) -> str | None:
         return None
     if "://" not in candidate:
         candidate = f"https://{candidate}"
-    parts = urlsplit(candidate)
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:
+        return None
     if parts.scheme not in ("http", "https") or not parts.hostname or "." not in parts.hostname:
         return None
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))

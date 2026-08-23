@@ -3,6 +3,7 @@ from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 ONBOARDING_PROMPT_NAME = "posthog-desktop-onboarding-run"
 ONBOARDING_PROMPT_LABEL = "production"
+REQUIRED_ONBOARDING_PROMPT_PLACEHOLDERS = frozenset({"brief", "channel_id", "followup", "homepage"})
 
 BUNDLED_ONBOARDING_PROMPT = """\
 Write the first message someone sees in PostHog Desktop. They just installed it, they are looking at a space called #general, and this is the first thing they will ever read in the product.
@@ -134,6 +135,16 @@ def load_onboarding_prompt() -> PromptResult:
         with_metadata=True,
         label=ONBOARDING_PROMPT_LABEL,
         fallback=BUNDLED_ONBOARDING_PROMPT,
+    )
+
+
+def missing_onboarding_prompt_placeholders(template: str) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            placeholder
+            for placeholder in REQUIRED_ONBOARDING_PROMPT_PLACEHOLDERS
+            if f"{{{{{placeholder}}}}}" not in template
+        )
     )
 
 

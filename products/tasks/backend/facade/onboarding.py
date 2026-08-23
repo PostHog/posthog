@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 import structlog
 import posthoganalytics
 
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -25,7 +26,12 @@ from products.tasks.backend.facade.onboarding_brief import (
     build_opening_brief,
     prose_list,
 )
-from products.tasks.backend.facade.onboarding_prompt import load_onboarding_prompt, render_onboarding_prompt
+from products.tasks.backend.facade.onboarding_prompt import (
+    BUNDLED_ONBOARDING_PROMPT,
+    load_onboarding_prompt,
+    missing_onboarding_prompt_placeholders,
+    render_onboarding_prompt,
+)
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
@@ -142,8 +148,30 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
 
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
+    missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
+    prompt_template = prompt.prompt
+    if missing_placeholders:
+        logger.error(
+            "onboarding_prompt_missing_placeholders",
+            missing_placeholders=missing_placeholders,
+            prompt_source=prompt.source,
+            prompt_version=prompt.version,
+            team_id=team.id,
+        )
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="Onboarding prompt fallback used",
+            properties={
+                "reason": "missing_placeholders",
+                "missing_placeholders": missing_placeholders,
+                "prompt_source": prompt.source,
+                "prompt_version": prompt.version,
+            },
+            groups=groups(team.organization, team),
+        )
+        prompt_template = BUNDLED_ONBOARDING_PROMPT
     description = render_onboarding_prompt(
-        prompt.prompt,
+        prompt_template,
         brief=build_opening_brief(facts),
         followup=build_followup(facts),
         homepage=homepage,

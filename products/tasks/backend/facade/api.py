@@ -7095,23 +7095,38 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
     )
 
 
-def _system_channel_q(role: str, legacy: dict[str, Any], prefix: str) -> Q:
-    field = f"{prefix}__" if prefix else ""
-    return Q(**{f"{field}system_role": role}) | Q(
-        **{f"{field}system_role__isnull": True, **{f"{field}{key}": value for key, value in legacy.items()}}
-    )
-
-
 def _matches_legacy_shape(channel: Channel, legacy: dict[str, Any]) -> bool:
     return all(getattr(channel, key) == value for key, value in legacy.items())
 
 
 def general_channel_q(prefix: str = "") -> Q:
-    return _system_channel_q(Channel.SystemRole.GENERAL, GENERAL_LEGACY_SHAPE, prefix)
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.GENERAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+            channel__name=Channel.GENERAL_CHANNEL_NAME,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.GENERAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PUBLIC,
+        name=Channel.GENERAL_CHANNEL_NAME,
+    )
 
 
 def personal_channel_q(prefix: str = "") -> Q:
-    return _system_channel_q(Channel.SystemRole.PERSONAL, PERSONAL_LEGACY_SHAPE, prefix)
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.PERSONAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PERSONAL,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.PERSONAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PERSONAL,
+    )
 
 
 def find_general_channel_id(team_id: int) -> UUID | None:

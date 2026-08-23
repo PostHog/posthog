@@ -12,7 +12,11 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
     research_line,
 )
-from products.tasks.backend.facade.onboarding_prompt import BUNDLED_ONBOARDING_PROMPT, render_onboarding_prompt
+from products.tasks.backend.facade.onboarding_prompt import (
+    BUNDLED_ONBOARDING_PROMPT,
+    missing_onboarding_prompt_placeholders,
+    render_onboarding_prompt,
+)
 
 SCRAPED = DomainResearch(outcome="scraped", url="northwind.example", markdown="# Northwind")
 
@@ -228,6 +232,9 @@ class TestFollowup(SimpleTestCase):
 
 
 class TestBundledPromptRendering(SimpleTestCase):
+    def test_the_managed_prompt_requires_every_runtime_value(self) -> None:
+        assert missing_onboarding_prompt_placeholders("{{brief}} {{homepage}}") == ("channel_id", "followup")
+
     def test_rendering_leaves_no_placeholder_behind(self) -> None:
         facts = _setup_facts()
 
