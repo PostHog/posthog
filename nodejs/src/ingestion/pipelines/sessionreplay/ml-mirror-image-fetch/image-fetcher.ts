@@ -1,8 +1,6 @@
-import { getDomain } from 'tldts'
-
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
-import { responseOptOutReason } from './configuration-policy'
+import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl } from './politeness-key'
@@ -39,6 +37,9 @@ export type FetchOutcome =
     | 'timeout'
     | 'error'
 
+export type TransientFetchOutcome = Extract<FetchOutcome, 'timeout' | 'error' | 'rate_limited' | 'server_error'>
+export type FetchRefusalReason = OriginPolicyReason | ResponseOptOutReason | 'configuration_refused'
+
 export interface ImageFetchResult {
     outcome: FetchOutcome
     redirects: number
@@ -48,7 +49,7 @@ export interface ImageFetchResult {
     contentType?: ImageContentType
     contentEncoding?: string
     cache?: HttpCacheMetadata
-    refusalReason?: string
+    refusalReason?: FetchRefusalReason
     /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for that period. */
     retryAfterMs?: number
     schedulingReason?: RequestScheduleBlockReason
@@ -91,7 +92,7 @@ export type RequestScheduleBlockReason =
 
 export type RedirectTargetPolicy =
     | { allowed: true; tdmrepReservation: boolean }
-    | { allowed: false; transient: boolean; reason: string }
+    | { allowed: false; transient: boolean; reason: OriginPolicyReason | 'configuration_refused' }
 
 export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
@@ -213,7 +214,7 @@ export class HttpImageFetcher implements ImageFetcher {
     ): Promise<HopResult> {
         const requestTimeMs = Date.now()
         const canonical = canonicalizeUrl(url)
-        let requestOutcome = 'network_error'
+        let requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus()
         const headers: Record<string, string> = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
         if (previousCache?.etag) {
             headers['if-none-match'] = previousCache.etag
@@ -223,7 +224,7 @@ export class HttpImageFetcher implements ImageFetcher {
         try {
             const response = await fetchStreamed(url, { headers, timeoutMs })
             const status = response.status
-            requestOutcome = `http_${status}`
+            requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus(status)
             const cache = cacheMetadata(requestTimeMs, Date.now(), response.headerLines)
             const optOut = responseOptOutReason(response.headerLines, tdmrepReservation)
             if (optOut) {
@@ -280,13 +281,7 @@ export class HttpImageFetcher implements ImageFetcher {
             return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType, contentEncoding, cache } }
         } finally {
             if (canonical) {
-                ImageFetchRequestMetrics.observeRequest(
-                    requestOutcome,
-                    (Date.now() - requestTimeMs) / 1000,
-                    0,
-                    canonical.domain,
-                    getDomain(canonical.host, { allowPrivateDomains: false }) ?? canonical.host
-                )
+                ImageFetchRequestMetrics.observeRequest(requestOutcome, (Date.now() - requestTimeMs) / 1000)
             }
         }
     }

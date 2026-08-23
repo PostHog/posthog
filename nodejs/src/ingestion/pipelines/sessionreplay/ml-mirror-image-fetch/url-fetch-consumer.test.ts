@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
-import { DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
+import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { ImageFetchConsumerMetrics } from './metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
@@ -68,7 +68,7 @@ class FakeCrawlHistory implements CrawlHistoryStore {
     }
 }
 
-function terminal(candidate: FetchCandidate, outcome = 'ok'): FetchAttempt {
+function terminal(candidate: FetchCandidate, outcome: AttemptOutcome = 'ok'): FetchAttempt {
     return {
         candidate,
         outcome,

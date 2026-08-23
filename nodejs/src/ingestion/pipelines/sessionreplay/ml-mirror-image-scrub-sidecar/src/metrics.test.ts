@@ -33,7 +33,16 @@ async function stageCount(stage: string): Promise<number> {
     return values.find((v) => v.metricName?.endsWith('_count') && v.labels.stage === stage)?.value ?? 0
 }
 
+async function sourceFormatLabels(): Promise<string[]> {
+    const metric = (await register.getMetricsAsJSON()).find(
+        (candidate) => candidate.name === 'ml_mirror_image_scrub_source_format_total'
+    )
+    return (metric as { values: { labels: Record<string, string> }[] }).values.map((value) => value.labels.format)
+}
+
 describe('observeScrubOutcome', () => {
+    beforeEach(() => register.resetMetrics())
+
     // A frame that returned early never ran the stages below its exit, so recording their zeros
     // reports work that did not happen and pulls every one of those quantiles toward zero. The
     // damage scales with how common the early exit is, so it lands hardest exactly when the
@@ -53,5 +62,11 @@ describe('observeScrubOutcome', () => {
         for (const skipped of ['face', 'text', 'codes']) {
             expect(await stageCount(skipped)).toBe(0)
         }
+    })
+
+    it('coalesces unexpected source formats into the bounded other label', async () => {
+        ScrubMetrics.observeScrubOutcome(timings({ format: 'vendor-specific' }))
+
+        expect(await sourceFormatLabels()).toEqual(['other'])
     })
 })

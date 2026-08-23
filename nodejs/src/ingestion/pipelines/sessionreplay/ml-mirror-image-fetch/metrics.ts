@@ -1,57 +1,8 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-const TOP_DOMAIN_CAPACITY = 200
-const TOP_DOMAIN_EXPORTS = 20
-const TOP_DOMAIN_WINDOW_MS = 10 * 60 * 1000
-
-class WindowedSpaceSaving {
-    private counts = new Map<string, number>()
-    private total = 0
-    private windowStartedAtMs = Date.now()
-
-    public add(label: string, nowMs = Date.now()): void {
-        this.rotate(nowMs)
-        this.total += 1
-        const current = this.counts.get(label)
-        if (current !== undefined) {
-            this.counts.set(label, current + 1)
-            return
-        }
-        if (this.counts.size < TOP_DOMAIN_CAPACITY) {
-            this.counts.set(label, 1)
-            return
-        }
-        let smallestLabel = ''
-        let smallestCount = Number.POSITIVE_INFINITY
-        for (const [candidate, count] of this.counts) {
-            if (count < smallestCount) {
-                smallestLabel = candidate
-                smallestCount = count
-            }
-        }
-        this.counts.delete(smallestLabel)
-        this.counts.set(label, smallestCount + 1)
-    }
-
-    public top(nowMs = Date.now()): Array<{ label: string; count: number }> {
-        this.rotate(nowMs)
-        const top = [...this.counts]
-            .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-            .slice(0, TOP_DOMAIN_EXPORTS)
-            .map(([label, count]) => ({ label, count }))
-        const topCount = top.reduce((sum, item) => sum + item.count, 0)
-        return [...top, { label: 'other', count: Math.max(0, this.total - topCount) }]
-    }
-
-    private rotate(nowMs: number): void {
-        if (nowMs - this.windowStartedAtMs < TOP_DOMAIN_WINDOW_MS) {
-            return
-        }
-        this.counts.clear()
-        this.total = 0
-        this.windowStartedAtMs = nowMs
-    }
-}
+import type { RepublishReason, UrlDropReason } from './collected-urls-record'
+import type { AttemptOutcome } from './fetch-runner'
+import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
 export interface InFlightCount {
@@ -65,16 +16,11 @@ export interface BudgetCounts {
     blockedDomains(nowMs: number): number
 }
 
-export type UrlDropReason =
-    | 'malformed'
-    | 'unsupported_version'
-    | 'bad_ref'
-    | 'bad_url'
-    | 'foreign_domain'
-    | 'oversized_record'
-
 export type DedupScope = 'batch' | 'store'
 export type SchedulerWaitScope = 'origin_budget' | 'request_capacity'
+export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'network_error'
+export type RepublishDestination = 'frontier' | 'delay'
+type OriginStatusReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -192,8 +138,6 @@ export class ImageFetchConsumerMetrics {
  * logs of the runner. A URL is page content and belongs in no metric, log, or trace.
  */
 export class ImageFetchRequestMetrics {
-    private static readonly registrableDomains = new WindowedSpaceSaving()
-    private static readonly providerDomains = new WindowedSpaceSaving()
     private static readonly completedUrls = new Counter({
         name: 'ml_image_fetch_completed_urls_total',
         help: 'Completed URLs by final outcome and refusal reason',
@@ -219,34 +163,12 @@ export class ImageFetchRequestMetrics {
         help: 'Origin policy and request-budget decisions after block state is known',
         labelNames: ['blocked', 'reason'],
     })
-    private static readonly registrableDomainGauge = new Gauge({
-        name: 'ml_image_fetch_request_registrable_domains',
-        help: 'Completed external requests for the 20 largest registrable domains in the current 10-minute window',
-        labelNames: ['domain'],
-        collect() {
-            this.reset()
-            for (const item of ImageFetchRequestMetrics.registrableDomains.top()) {
-                this.labels(item.label).set(item.count)
-            }
-        },
-    })
-    private static readonly providerDomainGauge = new Gauge({
-        name: 'ml_image_fetch_request_provider_domains',
-        help: 'Completed external requests for the 20 largest provider domains in the current 10-minute window',
-        labelNames: ['domain'],
-        collect() {
-            this.reset()
-            for (const item of ImageFetchRequestMetrics.providerDomains.top()) {
-                this.labels(item.label).set(item.count)
-            }
-        },
-    })
     /**
      * `ok` against the sum is the yield of the lane.
      */
     private static readonly outcomes = new Counter({
         name: 'ml_image_fetch_requests_total',
-        help: 'Completed external HTTP requests by status or network failure',
+        help: 'Completed external HTTP requests by status class or network failure',
         labelNames: ['outcome'],
     })
     private static readonly duration = new Histogram({
@@ -254,6 +176,11 @@ export class ImageFetchRequestMetrics {
         help: 'Time for one completed external HTTP request, including its response body',
         labelNames: ['outcome'],
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+    })
+    private static readonly retryCauses = new Counter({
+        name: 'ml_image_fetch_retry_causes_total',
+        help: 'Transient fetch outcomes that caused the URL to be scheduled for another attempt',
+        labelNames: ['cause'],
     })
     /**
      * Read a rising tail with the `deadline` outcome to distinguish headroom from load that an
@@ -304,28 +231,37 @@ export class ImageFetchRequestMetrics {
         },
     })
 
-    public static observeRequest(
-        outcome: string,
-        durationSeconds: number,
-        _redirects: number,
-        registrableDomain?: string,
-        providerDomain?: string
-    ): void {
+    public static outcomeForHttpStatus(status?: number): HttpRequestOutcome {
+        if (status === undefined) {
+            return 'network_error'
+        }
+        if (status >= 200 && status < 300) {
+            return '2xx'
+        }
+        if (status >= 300 && status < 400) {
+            return '3xx'
+        }
+        if (status >= 400 && status < 500) {
+            return '4xx'
+        }
+        if (status >= 500 && status < 600) {
+            return '5xx'
+        }
+        return 'other'
+    }
+    public static observeRequest(outcome: HttpRequestOutcome, durationSeconds: number): void {
         this.outcomes.labels(outcome).inc()
         this.duration.labels(outcome).observe(durationSeconds)
-        if (registrableDomain) {
-            this.registrableDomains.add(registrableDomain)
-        }
-        if (providerDomain) {
-            this.providerDomains.add(providerDomain)
-        }
+    }
+    public static incRetryCause(cause: TransientFetchOutcome): void {
+        this.retryCauses.labels(cause).inc()
     }
     public static observeRedirectCount(redirects: number): void {
         this.redirects.observe(redirects)
     }
     public static observeCompletedUrl(
-        outcome: string,
-        refusalReason: string,
+        outcome: AttemptOutcome,
+        refusalReason: FetchRefusalReason | 'none',
         systemTimeSeconds: number,
         fetches: number,
         republishes: number
@@ -335,7 +271,7 @@ export class ImageFetchRequestMetrics {
         this.completedUrlFetches.observe(fetches)
         this.completedUrlRepublishes.observe(republishes)
     }
-    public static observeOriginStatus(blocked: boolean, reason = 'none'): void {
+    public static observeOriginStatus(blocked: boolean, reason: OriginStatusReason = 'none'): void {
         this.originStatus.labels(blocked ? 'true' : 'false', reason).inc()
     }
     public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
@@ -382,7 +318,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka, by why and to which topic. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before the period it was waiting out had passed',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before the period it was waiting out had passed',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({
@@ -399,10 +335,10 @@ export class ImageFetchRequestMetrics {
         buckets: [0, 1, 2, 3, 5, 10],
     })
 
-    public static incRepublished(reason: string, topic: string): void {
-        this.republished.labels(reason, topic).inc()
+    public static incRepublished(reason: RepublishReason, destination: RepublishDestination): void {
+        this.republished.labels(reason, destination).inc()
     }
-    public static incRepublishFailed(reason: string): void {
+    public static incRepublishFailed(reason: RepublishReason): void {
         this.republishFailed.labels(reason).inc()
     }
     public static observeHops(hops: number): void {

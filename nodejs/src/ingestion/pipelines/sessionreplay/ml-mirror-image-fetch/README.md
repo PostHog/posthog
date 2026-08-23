@@ -257,13 +257,12 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.11** State is stored as follows:
 
-| State                                                                                                 | Key                         | Location                                                 |
-| ----------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------- |
-| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin                      | Memory on the pod that owns the origin's Kafka partition |
-| robots.txt and tdmrep.json results                                                                    | Origin and file type        | DynamoDB, with an optional hot cache in pod memory       |
-| URL crawl history and HTTP cache metadata                                                             | Global canonical URL        | DynamoDB                                                 |
-| Original ref, current URL, remaining image hops, and earliest retry time                              | One URL job                 | Kafka record                                             |
-| Top-N metric labels                                                                                   | Registrable/provider domain | Bounded pod memory                                       |
+| State                                                                                                 | Key                  | Location                                                 |
+| ----------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------- |
+| Active requests, token bucket, crawl delay, back-off, circuit breaker, and configuration request lock | Origin               | Memory on the pod that owns the origin's Kafka partition |
+| robots.txt and tdmrep.json results                                                                    | Origin and file type | DynamoDB, with an optional hot cache in pod memory       |
+| URL crawl history and HTTP cache metadata                                                             | Global canonical URL | DynamoDB                                                 |
+| Original ref, current URL, remaining image hops, and earliest retry time                              | One URL job          | Kafka record                                             |
 
 **5.12** No request-control state uses the registrable domain or provider domain as its key.
 
@@ -416,10 +415,8 @@ that scenario.
 
 **11.2** These metrics are tracked for each completed fetch request (images and other files)
 
-- Registrable domain (top N, bounded with Space-Saving algorithm)
-- Provider domain (top N, bounded with Space-Saving algorithm)
 - Time taken
-- HTTP response / network failure if any
+- HTTP response class or network failure
 
 **11.3** These metrics are tracked for each origin after establishing whether it is blocked or not
 
@@ -430,9 +427,9 @@ that scenario.
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Each top-N metric uses 200 Space-Saving counters per pod for one 10-minute window. It exports the 20 largest labels and one `other` label as gauges. At the window boundary, it clears the estimator and removes the labels from the previous window before it starts the next window.
+**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destinations use `frontier` or `delay`. Unexpected scrub source formats use `other`. No label defined by this lane contains a domain, origin, host, URL, image ref, team, project, Kafka topic, exception message, or other external value.
 
-**11.7** The lane counts republishes by reason and destination topic. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+**11.7** The lane counts republishes by reason and bounded destination class. It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
 
 **11.8** The lane observes completed poll batch duration, active batch age, crawl-history operation duration, scheduler waits by bounded scope, and URL age at ingestion. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
 

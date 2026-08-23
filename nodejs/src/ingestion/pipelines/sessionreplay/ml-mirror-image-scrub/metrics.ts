@@ -177,7 +177,7 @@ export class ImageScrubConsumerMetrics {
     public static finishBatch(): void {
         this.activeBatchStartedAtMs = undefined
     }
-    public static incDeadLettered(reason: string): void {
+    public static incDeadLettered(reason: ScrubWaitReason): void {
         this.deadLettered.labels(reason).inc()
     }
     public static incDeadLetterFailed(): void {

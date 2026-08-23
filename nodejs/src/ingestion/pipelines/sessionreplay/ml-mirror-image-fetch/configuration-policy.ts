@@ -1,6 +1,5 @@
 import type { ParsedRobots, RobotsParseHandler } from '@trybyte/robotstxt-parser'
 import { Token, parseDictionary } from 'structured-headers'
-import { getDomain } from 'tldts'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { fetchStreamed } from '~/common/utils/request'
@@ -24,6 +23,15 @@ export type ConfigurationFetchResult =
     | { outcome: 'available'; body: string; cache: HttpCacheMetadata }
     | { outcome: 'absent' | 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
     | { outcome: 'deferred' }
+
+export type RobotsPolicyRefusalReason = 'robots_disallow' | 'content_usage' | 'content_signal'
+export type OriginPolicyReason =
+    | RobotsPolicyRefusalReason
+    | 'robots_refused'
+    | 'tdmrep_refused'
+    | 'origin_map_full'
+    | 'configuration_unreachable'
+export type ResponseOptOutReason = 'x_robots_tag' | 'content_usage' | 'tdm_reservation'
 
 export interface ConfigurationRequestScheduler {
     run<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<{ ran: true; value: T } | { ran: false }>
@@ -89,24 +97,15 @@ export class HttpConfigurationFetcher {
             })
         } catch (error) {
             if (canonical) {
-                ImageFetchRequestMetrics.observeRequest(
-                    'network_error',
-                    (Date.now() - requestTimeMs) / 1000,
-                    0,
-                    canonical.domain,
-                    getDomain(canonical.host, { allowPrivateDomains: false }) ?? canonical.host
-                )
+                ImageFetchRequestMetrics.observeRequest('network_error', (Date.now() - requestTimeMs) / 1000)
             }
             throw error
         }
         const complete = (result: ConfigurationHop): ConfigurationHop => {
             if (canonical) {
                 ImageFetchRequestMetrics.observeRequest(
-                    `http_${response.status}`,
-                    (Date.now() - requestTimeMs) / 1000,
-                    0,
-                    canonical.domain,
-                    getDomain(canonical.host, { allowPrivateDomains: false }) ?? canonical.host
+                    ImageFetchRequestMetrics.outcomeForHttpStatus(response.status),
+                    (Date.now() - requestTimeMs) / 1000
                 )
             }
             return result
@@ -153,7 +152,7 @@ export class HttpConfigurationFetcher {
 export interface OriginPolicyDecision {
     allowed: boolean
     transient: boolean
-    reason?: string
+    reason?: OriginPolicyReason
     crawlDelayMs: number
     tdmrepReservation: boolean
     updates: ConfigurationCacheItem[]
@@ -419,7 +418,7 @@ function defaultRobotsPolicy(): { allowed: true; crawlDelayMs: number } {
 export async function parseRobotsPolicy(
     body: string,
     url: string
-): Promise<{ allowed: boolean; crawlDelayMs: number; reason?: string }> {
+): Promise<{ allowed: boolean; crawlDelayMs: number; reason?: RobotsPolicyRefusalReason }> {
     return evaluateRobotsPolicy(await parseRobotsConfiguration(body), url)
 }
 
@@ -435,7 +434,7 @@ async function parseRobotsConfiguration(body: string): Promise<ParsedRobotsConfi
 function evaluateRobotsPolicy(
     parsed: ParsedRobotsConfiguration,
     url: string
-): { allowed: boolean; crawlDelayMs: number; reason?: string } {
+): { allowed: boolean; crawlDelayMs: number; reason?: RobotsPolicyRefusalReason } {
     if (!parsed.matcher.checkUrl(BOT_NAME, url).allowed) {
         return { allowed: false, crawlDelayMs: 1_000, reason: 'robots_disallow' }
     }
@@ -578,7 +577,7 @@ function contentSignalRefuses(value: string, url: string): boolean {
 export function responseOptOutReason(
     headerLines: Array<{ name: string; value: string }>,
     tdmrepReservation: boolean
-): string | undefined {
+): ResponseOptOutReason | undefined {
     if (headerLines.some((line) => line.name === 'x-robots-tag' && xRobotsTagRefuses(line.value))) {
         return 'x_robots_tag'
     }

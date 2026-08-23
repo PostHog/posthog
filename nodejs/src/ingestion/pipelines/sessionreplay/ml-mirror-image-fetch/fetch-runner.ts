@@ -10,7 +10,7 @@ import {
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
-import { FetchOutcome, ImageFetcher } from './image-fetcher'
+import { FetchOutcome, FetchRefusalReason, ImageFetcher, TransientFetchOutcome } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
@@ -18,7 +18,13 @@ import { canonicalizeUrl } from './politeness-key'
 export type ShedReason = 'breaker_open' | 'backoff' | 'deadline' | 'connection_limit' | 'origin_map_full'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
-export type AttemptOutcome = FetchOutcome | ShedReason | typeof HOPS_EXHAUSTED | typeof DELAY_TOO_LONG | string
+export type AttemptOutcome =
+    | FetchOutcome
+    | FetchRefusalReason
+    | ShedReason
+    | 'publish_failed'
+    | typeof HOPS_EXHAUSTED
+    | typeof DELAY_TOO_LONG
 
 export interface FetchAttempt {
     candidate: FetchCandidate
@@ -39,7 +45,7 @@ export interface FetchRunnerOptions {
     seenTtlSeconds: number
 }
 
-const TRANSIENT_OUTCOMES = new Set<FetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
+const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
 const ONE_MINUTE_MS = 60_000
 const CONFIGURATION_RETRY_MS = 60 * 60 * 1000
 
@@ -47,6 +53,10 @@ function requirePositive(name: string, value: number): void {
     if (!Number.isFinite(value) || value <= 0) {
         throw new Error(`${name} must be a positive number, got ${value}`)
     }
+}
+
+function isTransientOutcome(outcome: FetchOutcome): outcome is TransientFetchOutcome {
+    return TRANSIENT_OUTCOMES.has(outcome as TransientFetchOutcome)
 }
 
 export interface FetchPass {
@@ -280,9 +290,19 @@ export class FetchRunner implements FetchPass {
 
         ImageFetchRequestMetrics.observeOriginStatus(false)
 
-        if (TRANSIENT_OUTCOMES.has(result.outcome)) {
+        if (isTransientOutcome(result.outcome)) {
             const delayMs = this.budget.recordTransientFailure(candidate.origin, Date.now(), result.retryAfterMs)
-            return await this.republish(attemptedCandidate, result.outcome, 'retry', delayMs, configurationUpdates)
+            const attempt = await this.republish(
+                attemptedCandidate,
+                result.outcome,
+                'retry',
+                delayMs,
+                configurationUpdates
+            )
+            if (!attempt.finished && !attempt.lost) {
+                ImageFetchRequestMetrics.incRetryCause(result.outcome)
+            }
+            return attempt
         }
 
         this.budget.recordCompletedResponse(candidate.origin, Date.now())
@@ -384,14 +404,14 @@ export class FetchRunner implements FetchPass {
         outcome: AttemptOutcome,
         cache: HttpCacheMetadata | undefined,
         configurationUpdates: ConfigurationCacheItem[],
-        refusalReason = 'none'
+        refusalReason: FetchRefusalReason | 'none' = 'none'
     ): FetchAttempt {
         const nowMs = Date.now()
         const minimumNextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
         const explicitNextFetchAtMs = cache ? nowMs + explicitFreshnessLifetimeMs(cache, nowMs) : 0
         const nextFetchAtMs = Math.max(minimumNextFetchAtMs, explicitNextFetchAtMs)
         ImageFetchRequestMetrics.observeCompletedUrl(
-            String(outcome),
+            outcome,
             refusalReason,
             Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000,
             candidate.fetchCount,

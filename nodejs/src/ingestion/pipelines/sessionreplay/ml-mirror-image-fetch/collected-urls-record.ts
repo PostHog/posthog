@@ -1,13 +1,19 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
-import { UrlDropReason } from './metrics'
 import { canonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
 export const MAX_JOBS_PER_RECORD = 1_000
 export const MAX_RECORD_BYTES = 512 * 1024
 
+export type UrlDropReason =
+    | 'malformed'
+    | 'unsupported_version'
+    | 'bad_ref'
+    | 'bad_url'
+    | 'foreign_domain'
+    | 'oversized_record'
 export type RepublishReason = 'redirect' | 'retry' | 'not_ready' | 'pass_deadline' | 'origin_map_full'
 
 export interface FetchCandidate {

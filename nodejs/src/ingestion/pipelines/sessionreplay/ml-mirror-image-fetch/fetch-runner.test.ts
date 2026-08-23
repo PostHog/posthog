@@ -5,6 +5,7 @@ import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from 
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const NOW_MS = 1_700_000_000_000
@@ -95,7 +96,10 @@ function build(
 
 describe('FetchRunner', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(NOW_MS))
-    afterEach(() => jest.useRealTimers())
+    afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
 
     it('passes cached validators and TDM state to the image request', async () => {
         const harness = build({}, { tdmrepReservation: true })
@@ -192,6 +196,7 @@ describe('FetchRunner', () => {
             currentUrl: 'https://cdn.example.com/final.png',
             retryAfterMs: 120_000,
         })
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
 
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
@@ -205,6 +210,7 @@ describe('FetchRunner', () => {
             'retry',
             120_000
         )
+        expect(retryCause).toHaveBeenCalledWith('server_error')
         expect(attempt).toMatchObject({ outcome: 'server_error', finished: false })
     })
 
@@ -307,17 +313,21 @@ describe('FetchRunner', () => {
 
     it('marks a failed republish as lost so the Kafka batch cannot commit', async () => {
         const harness = build({ outcome: 'timeout' }, {}, 'failed')
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
 
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
+        expect(retryCause).not.toHaveBeenCalled()
         expect(attempt).toMatchObject({ outcome: 'timeout', finished: false, lost: true })
     })
 
     it('records a terminal refusal when no delay topic can hold the wait', async () => {
         const harness = build({ outcome: 'timeout' }, {}, 'refused_delay')
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
 
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
+        expect(retryCause).not.toHaveBeenCalled()
         expect(attempt).toMatchObject({ outcome: DELAY_TOO_LONG, finished: true })
     })
 

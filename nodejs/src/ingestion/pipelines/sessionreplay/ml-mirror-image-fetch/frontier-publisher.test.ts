@@ -3,6 +3,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { FetchCandidate, MAX_HOPS, parseCollectedUrlsRecord } from './collected-urls-record'
 import { FrontierPublisher } from './frontier-publisher'
 import { ImageFetchResult } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 
 const FRONTIER = 'session_replay_image_fetch'
 const SCRUB = 'session_replay_image_scrub'
@@ -57,10 +58,14 @@ function build(): { publisher: FrontierPublisher; sent: SentMessage[] } {
 
 describe('FrontierPublisher', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(1_700_000_000_000))
-    afterEach(() => jest.useRealTimers())
+    afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
 
     it('keeps the global ref and durable state when it republishes a redirect', async () => {
         const { publisher, sent } = build()
+        const republished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
         const result = await publisher.republish(
             candidate(),
             {
@@ -73,6 +78,7 @@ describe('FrontierPublisher', () => {
         )
 
         expect(result).toBe('published')
+        expect(republished).toHaveBeenCalledWith('redirect', 'frontier')
         expect(sent[0]).toMatchObject({ topic: FRONTIER, key: 'other.net' })
         expect(parseCollectedUrlsRecord(sent[0].value, 'other.net')).toMatchObject({
             ok: true,
@@ -95,8 +101,10 @@ describe('FrontierPublisher', () => {
         ['a long supported retry', 3_600_000, 'retry_1h', 3_600_000],
     ])('parks %s once in the smallest sufficient delay topic', async (_name, waitMs, topic, delayMs) => {
         const { publisher, sent } = build()
+        const republished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
 
         expect(await publisher.republish(candidate(), candidate(), 'retry', waitMs)).toBe('published')
+        expect(republished).toHaveBeenCalledWith('retry', 'delay')
         expect(sent[0].topic).toBe(topic)
         expect(parseCollectedUrlsRecord(sent[0].value, 'example.com')).toMatchObject({
             ok: true,

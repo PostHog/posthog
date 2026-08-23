@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate, MAX_HOPS, parseCollectedUrlsRecord } from './collected-urls-record'
+import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
-import { DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
+import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierPublisher } from './frontier-publisher'
-import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics, UrlDropReason } from './metrics'
+import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 
@@ -177,7 +177,7 @@ export class UrlFetchConsumer {
         }
     }
 
-    private terminalAttempt(candidate: FetchCandidate, outcome: string, nowMs: number): FetchAttempt {
+    private terminalAttempt(candidate: FetchCandidate, outcome: AttemptOutcome, nowMs: number): FetchAttempt {
         ImageFetchRequestMetrics.observeCompletedUrl(
             outcome,
             'none',
@@ -196,7 +196,7 @@ export class UrlFetchConsumer {
         }
     }
 
-    private terminalHistory(candidate: FetchCandidate, outcome: string, nowMs: number): UrlCrawlHistoryItem {
+    private terminalHistory(candidate: FetchCandidate, outcome: AttemptOutcome, nowMs: number): UrlCrawlHistoryItem {
         const nextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
         return {
             kind: 'url',

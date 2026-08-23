@@ -83,7 +83,7 @@ export class FrontierPublisher {
             ImageFetchRequestMetrics.incRepublishFailed(reason)
             return 'failed'
         }
-        ImageFetchRequestMetrics.incRepublished(reason, topic)
+        ImageFetchRequestMetrics.incRepublished(reason, tier ? 'delay' : 'frontier')
         return 'published'
     }
 
