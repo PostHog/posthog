@@ -174,7 +174,7 @@ export function ScoutsFleetSection() {
               {enabledCount} of {configs.length} scouts enabled
               {systemPausedScouts.length > 0 ? (
                 <ScoutAttentionTooltip
-                  title="Auto-paused — switch back on to resume"
+                  title="Auto-paused scouts"
                   scouts={systemPausedScouts}
                 >
                   <span className="text-(--red-11)">
@@ -330,7 +330,7 @@ export function ScoutsFleetListView({
             under "Hide disabled", so the count has to lead here. */}
         {summary.systemPausedCount > 0 ? (
           <ScoutAttentionTooltip
-            title="Auto-paused — switch back on to resume"
+            title="Auto-paused scouts"
             scouts={systemPausedScouts}
           >
             <span className="whitespace-nowrap text-(--red-11) text-[12.5px]">

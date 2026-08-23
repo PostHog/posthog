@@ -568,13 +568,15 @@ export interface ScoutAttentionItem {
 function systemPausedReason(state: ScoutLifecycleState): string {
   switch (state.reason) {
     case "repeated_failures":
-      return `Paused itself — ${failureCountClause(state.consecutiveFailureCount)}`;
+      // The breaker keeps a half-open probe on this reason, so it comes back
+      // without anyone touching it. Naming a manual switch-on here reads wrong.
+      return `Paused itself — ${failureCountClause(state.consecutiveFailureCount)}. Retries daily and resumes on its own.`;
     case "ignored":
-      return "Paused — nobody acted on its reports";
+      return "Paused — nobody acted on its reports. Switch it back on to resume.";
     case "no_output":
-      return "Paused — it stopped surfacing anything";
+      return "Paused — it stopped surfacing anything. Switch it back on to resume.";
     default:
-      return "Paused — switch it back on to resume";
+      return "Paused — switch it back on to resume.";
   }
 }
 

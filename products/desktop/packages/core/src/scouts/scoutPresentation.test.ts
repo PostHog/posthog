@@ -375,7 +375,11 @@ describe("scouts needing attention", () => {
 
   it("names each auto-paused scout with why it stopped", () => {
     expect(listSystemPausedScouts(configs)).toEqual([
-      { name: "Apm", reason: "Paused itself — 3 runs in a row failed" },
+      {
+        name: "Apm",
+        reason:
+          "Paused itself — 3 runs in a row failed. Retries daily and resumes on its own.",
+      },
     ]);
   });
 
