@@ -26,20 +26,20 @@ import type { WarehouseStatusResponseStateEnumApi } from '../../../../../product
 import type { PreflightStatus } from '../../../types'
 
 // The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
-// mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:
+// mirrors the backend validator in products/managed_warehouse/backend/presentation/views.py:
 // 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
 const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
 
 // DNS zone the connection host lives under, selected by deployment region. Mirrors
-// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
+// _MANAGED_WAREHOUSE_DOMAINS in products/managed_warehouse/backend/presentation/views.py.
 const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
     [Region.US]: 'us.postwh.com',
     [Region.EU]: 'eu.postwh.com',
     [Region.DEV]: 'dev.postwh.com',
 }
 
-// The schema name is used verbatim as a SQL identifier (and as the backfill table suffix), so
-// it must already be safe. Mirrors validate_schema_name in products/managed_warehouse/backend/common.py.
+// The schema name is used verbatim as a SQL identifier, so it must already be safe.
+// Mirrors validate_schema_name in products/managed_warehouse/backend/common.py.
 const SCHEMA_NAME_REGEX = /^[a-z0-9_]{1,63}$/
 
 const databaseNameStorageKey = (teamId: number | null): string =>
@@ -201,7 +201,8 @@ export interface warehouseProvisioningLogicMeta {
         canProvision: (
             isValidDatabaseName: boolean,
             databaseNameAvailable: boolean | null,
-            isValidSchemaName: boolean
+            isValidSchemaName: boolean,
+            schemaNameAvailable: boolean | null
         ) => boolean
         canRetryProvision: (retryDatabaseName: string, isValidSchemaName: boolean) => boolean
         canOnboardTeam: (isValidSchemaName: boolean, schemaNameAvailable: boolean | null) => boolean
@@ -489,9 +490,13 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 status?.state === 'ready' && !teamOnboarded,
         ],
         canProvision: [
-            (s) => [s.isValidDatabaseName, s.databaseNameAvailable, s.isValidSchemaName],
-            (valid: boolean, available: boolean | null, validSchema: boolean): boolean =>
-                valid && available === true && validSchema,
+            (s) => [s.isValidDatabaseName, s.databaseNameAvailable, s.isValidSchemaName, s.schemaNameAvailable],
+            (
+                valid: boolean,
+                available: boolean | null,
+                validSchema: boolean,
+                schemaAvailable: boolean | null
+            ): boolean => valid && available === true && validSchema && schemaAvailable === true,
         ],
         canRetryProvision: [
             (s) => [s.retryDatabaseName, s.isValidSchemaName],
@@ -543,9 +548,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 if (schemaDebounceTimer) {
                     clearTimeout(schemaDebounceTimer)
                 }
-                // Availability only matters when joining an existing warehouse — at provision
-                // time this is the org's first schema, so there is nothing to collide with.
-                if (values.needsTeamOnboarding && SCHEMA_NAME_REGEX.test(name)) {
+                if (SCHEMA_NAME_REGEX.test(name)) {
                     actions.setSchemaNameChecking(true)
                     schemaDebounceTimer = setTimeout(() => {
                         actions.checkSchemaName(name)
@@ -717,9 +720,8 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 } else {
                     actions.stopPolling()
                 }
-                // The default schema name is prefilled on mount, before this response can flip
-                // needsTeamOnboarding to true — so its availability was never checked. Re-set it
-                // here to run the debounced check once the onboarding form is actually shown.
+                // Retry an inconclusive prefill check once the onboarding state is known so a
+                // transient startup failure doesn't leave the form permanently disabled.
                 if (
                     values.needsTeamOnboarding &&
                     values.schemaName &&

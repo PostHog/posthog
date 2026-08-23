@@ -172,10 +172,12 @@ class DuckgresStoredServerConfig:
 
 @frozen
 class DucklingTables:
-    """The per-team events/persons duckling table names the backfill writes to."""
+    """The per-team events/persons DuckLake locations the backfill writes to."""
 
     events_table: str
     persons_table: str
+    events_schema: str = "posthog"
+    persons_schema: str = "posthog"
 
 
 @dataclass(frozen=True, kw_only=True)

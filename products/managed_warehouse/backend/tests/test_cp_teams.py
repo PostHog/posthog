@@ -29,15 +29,12 @@ def _row(**overrides) -> dict:
 
 
 class TestCPTeamResolution:
-    # The transitional derive rule must stay byte-identical to the django-suffix layout;
-    # a premature switch to the future `<schema>.events` derivation (or broken pin
-    # precedence) would point readers/writers at tables that don't exist.
     @parameterized.expand(
         [
             (
                 "null_pins_derive_from_schema",
                 {"schema_name": "us_prod"},
-                ("events_us_prod", "persons_us_prod", "posthog_data_imports_us_prod"),
+                ("us_prod", "events", "us_prod", "persons", "us_prod_data_imports"),
             ),
             (
                 "pins_win_over_derivation",
@@ -47,24 +44,30 @@ class TestCPTeamResolution:
                     "persons_table_name": "persons",
                     "schema_data_imports_name": "posthog_data_imports_team_7",
                 },
-                ("events", "persons", "posthog_data_imports_team_7"),
+                ("posthog", "events", "posthog", "persons", "posthog_data_imports_team_7"),
             ),
             (
                 "partial_pins_mix_with_derivation",
                 {"schema_name": "beta", "events_table_name": "events_legacy"},
-                ("events_legacy", "persons_beta", "posthog_data_imports_beta"),
+                ("posthog", "events_legacy", "beta", "persons", "beta_data_imports"),
             ),
             (
                 "empty_string_pins_are_treated_as_unset",
                 {"schema_name": "beta", "events_table_name": "", "schema_data_imports_name": ""},
-                ("events_beta", "persons_beta", "posthog_data_imports_beta"),
+                ("beta", "events", "beta", "persons", "beta_data_imports"),
             ),
         ]
     )
-    def test_resolved_names(self, _name: str, overrides: dict, expected: tuple[str, str, str]) -> None:
+    def test_resolved_names(self, _name: str, overrides: dict, expected: tuple[str, str, str, str, str]) -> None:
         team = team_from_row(_row(**overrides))
         assert team is not None
-        assert (team.resolved_events_table, team.resolved_persons_table, team.resolved_data_imports_schema) == expected
+        assert (
+            team.resolved_events_schema,
+            team.resolved_events_table,
+            team.resolved_persons_schema,
+            team.resolved_persons_table,
+            team.resolved_data_imports_schema,
+        ) == expected
 
 
 class TestTeamFromRow:

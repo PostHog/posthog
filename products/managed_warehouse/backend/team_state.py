@@ -60,7 +60,7 @@ def _to_membership(row: cp_teams.CPTeam) -> ManagedWarehouseTeamMembership:
 
 
 def resolve_events_persons_tables(team_id: int) -> DucklingTables:
-    """The per-team events/persons duckling table names the backfill writes to.
+    """The per-team events/persons DuckLake locations the backfill writes to.
 
     Failure posture: raises :class:`CPUnavailableError` when the control plane can't
     answer and the cache is cold — the backfill run fails and retries rather than
@@ -70,10 +70,18 @@ def resolve_events_persons_tables(team_id: int) -> DucklingTables:
     if row is None:
         # Legacy single-team ducklings without a team row share the base tables.
         return DucklingTables(events_table="events", persons_table="persons")
+    events_schema, persons_schema = row.resolved_events_schema, row.resolved_persons_schema
     events_table, persons_table = row.resolved_events_table, row.resolved_persons_table
+    validate_duckgres_identifier(events_schema)
+    validate_duckgres_identifier(persons_schema)
     validate_duckgres_identifier(events_table)
     validate_duckgres_identifier(persons_table)
-    return DucklingTables(events_table=events_table, persons_table=persons_table)
+    return DucklingTables(
+        events_table=events_table,
+        persons_table=persons_table,
+        events_schema=events_schema,
+        persons_schema=persons_schema,
+    )
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------

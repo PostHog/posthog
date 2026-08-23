@@ -7,15 +7,11 @@ HTTP call per batch.
 
 Legacy-name semantics of a CP row: a non-NULL ``events_table_name`` /
 ``persons_table_name`` / ``schema_data_imports_name`` is a grandfathered explicit
-pin; NULL means "derive from ``schema_name``". The derive rule here is the
-TRANSITIONAL one — writers still produce the old suffix-derived layout, so for
-every existing row it is byte-identical to the Django-side derivation:
+pin in the shared ``posthog`` namespace. NULL uses the team's schema-based layout:
 
-* events: ``events_<schema_name>``
-* persons: ``persons_<schema_name>``
-* data-imports schema: ``posthog_data_imports_<schema_name>``
-
-Do NOT change this to the future ``<schema_name>.events`` layout until the writers do.
+* events: ``<schema_name>.events``
+* persons: ``<schema_name>.persons``
+* data-imports schema: ``<schema_name>_data_imports``
 
 Every fetcher returns ``None`` when the control plane is unreachable or answers
 unusably — callers decide the failure posture (fail open, fail closed, or raise).
@@ -60,18 +56,28 @@ class CPTeam:
 
     @property
     def resolved_events_table(self) -> str:
-        """Events table name: the grandfathered pin, else the transitional derivation."""
-        return self.events_table_name or f"events_{self.schema_name}"
+        """Events table name, preserving a grandfathered explicit pin."""
+        return self.events_table_name or "events"
+
+    @property
+    def resolved_events_schema(self) -> str:
+        """Events schema, preserving the shared namespace for explicit pins."""
+        return "posthog" if self.events_table_name else self.schema_name
 
     @property
     def resolved_persons_table(self) -> str:
-        """Persons table name: the grandfathered pin, else the transitional derivation."""
-        return self.persons_table_name or f"persons_{self.schema_name}"
+        """Persons table name, preserving a grandfathered explicit pin."""
+        return self.persons_table_name or "persons"
+
+    @property
+    def resolved_persons_schema(self) -> str:
+        """Persons schema, preserving the shared namespace for explicit pins."""
+        return "posthog" if self.persons_table_name else self.schema_name
 
     @property
     def resolved_data_imports_schema(self) -> str:
-        """Data-imports schema: the grandfathered pin, else the transitional derivation."""
-        return self.schema_data_imports_name or f"posthog_data_imports_{self.schema_name}"
+        """Data-imports schema, preserving a grandfathered explicit pin."""
+        return self.schema_data_imports_name or f"{self.schema_name}_data_imports"
 
 
 def _parse_earliest_event_date(raw: object) -> date | None:

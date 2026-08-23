@@ -26,6 +26,7 @@ describe('warehouseProvisioningLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
         jest.restoreAllMocks()
     })
 
@@ -47,7 +48,7 @@ describe('warehouseProvisioningLogic', () => {
         expect(logic.values.warehouseStatus).toBeNull()
     })
 
-    it('validates database names and gates provisioning on availability', async () => {
+    it('validates names and gates provisioning on both availability checks', async () => {
         logic = warehouseProvisioningLogic()
         logic.mount()
 
@@ -63,7 +64,29 @@ describe('warehouseProvisioningLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setDatabaseName('valid-name')
             logic.actions.setDatabaseNameAvailable(true)
-        }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
+        }).toMatchValues({ isValidDatabaseName: true, canProvision: false })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSchemaNameAvailable(true)
+        }).toMatchValues({ canProvision: true })
+    })
+
+    it('checks schema availability while provisioning a new warehouse', async () => {
+        jest.useFakeTimers()
+        const checkSchemaName = jest.spyOn(dwApi, 'dataWarehouseCheckSchemaNameRetrieve').mockResolvedValue({
+            name: 'taken_schema',
+            available: false,
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        logic.actions.setSchemaName('taken_schema')
+
+        await jest.advanceTimersByTimeAsync(400)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(checkSchemaName).toHaveBeenCalledWith(expect.any(String), { name: 'taken_schema' })
+        expect(logic.values.schemaNameAvailable).toBe(false)
     })
 
     it('removes the org record once teardown reports the warehouse deleted, then stops polling', async () => {

@@ -520,7 +520,7 @@ def validate_duckgres_identifier(identifier: str) -> None:
 
     Only alphanumeric characters and underscores are allowed. Mirrors the
     events/persons duckling DAG's ``_validate_identifier`` so a user-supplied
-    schema name / table suffix is validated identically wherever it is
+    schema or table name is validated identically wherever it is
     interpolated into DuckDB DDL.
     """
     if not identifier or not identifier.replace("_", "").isalnum():
@@ -566,24 +566,20 @@ def duckgres_data_modeling_schema(team_id: int) -> str:
     return f"{DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX}_{team_id}_models"
 
 
-TABLE_SUFFIX_MAX_LENGTH = 63
-# A schema name doubles as the suffix in `events_<suffix>` / `persons_<suffix>`, so it must
-# already be a safe SQL identifier — lowercase letters, numbers, and underscores. We validate
-# rather than silently rewrite, so what the user types is exactly what they get.
-TABLE_SUFFIX_PATTERN = re.compile(r"^[a-z0-9_]+$")
+SCHEMA_NAME_MAX_LENGTH = 63
+SCHEMA_NAME_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
 def validate_schema_name(name: str | None) -> str | None:
     """Return a human-readable error if `name` isn't a valid duckgres schema name, else None.
 
-    A team's schema name doubles as its warehouse table suffix: lowercase letters,
-    numbers, and underscores, at most 63 characters.
+    Schema names use lowercase letters, numbers, and underscores, at most 63 characters.
     """
     if not name:
         return "schema_name is required"
-    if len(name) > TABLE_SUFFIX_MAX_LENGTH:
-        return f"Schema name must be at most {TABLE_SUFFIX_MAX_LENGTH} characters"
-    if not TABLE_SUFFIX_PATTERN.match(name):
+    if len(name) > SCHEMA_NAME_MAX_LENGTH:
+        return f"Schema name must be at most {SCHEMA_NAME_MAX_LENGTH} characters"
+    if not SCHEMA_NAME_PATTERN.match(name):
         return "Schema name must use only lowercase letters, numbers, and underscores"
     return None
 
