@@ -159,6 +159,8 @@ class TestBundledPromptRendering(SimpleTestCase):
         )
 
         assert "{{" not in rendered
+        assert rendered.startswith("<onboarding_brief>")
+        assert rendered.endswith("</onboarding_brief>")
         assert "Summarize what the company does" in rendered
         assert "# Northwind" in rendered
         assert "0198f000-0000-7000-8000-000000000000" in rendered

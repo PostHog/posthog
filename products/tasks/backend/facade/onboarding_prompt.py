@@ -115,9 +115,16 @@ def load_onboarding_prompt() -> PromptResult:
     )
 
 
+# The task description doubles as the first message in the space's feed, so the whole prompt would
+# render there as a wall of instructions. Desktop strips this wrapper the way it strips its other
+# injected-context blocks, leaving the card to show its title alone.
+ONBOARDING_PROMPT_TAG = "onboarding_brief"
+
+
 def render_onboarding_prompt(template: str, *, brief: list[str], followup: str, homepage: str, channel_id: str) -> str:
     brief_text = "\n".join(f"- {line}" for line in brief)
-    return _PROMPTS.compile(
+    compiled = _PROMPTS.compile(
         template,
         {"brief": brief_text, "followup": followup, "homepage": homepage, "channel_id": channel_id},
     )
+    return f"<{ONBOARDING_PROMPT_TAG}>\n{compiled}\n</{ONBOARDING_PROMPT_TAG}>"
