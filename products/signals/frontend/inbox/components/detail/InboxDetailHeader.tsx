@@ -18,7 +18,7 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const reportPath = urls.inboxReport(tab, report.id)
+    const reportPath = urls.selfDrivingReport(tab, report.id)
 
     return (
         <div className="shrink-0 border-b border-primary px-6 pt-5 pb-4 flex flex-col gap-3">
@@ -26,7 +26,7 @@ export function InboxDetailHeader({ report, tab }: { report: SignalReport; tab: 
                 type="tertiary"
                 size="small"
                 icon={<IconArrowLeft />}
-                to={urls.inbox(tab)}
+                to={urls.selfDriving(tab)}
                 className="-ml-2 w-fit"
             >
                 {INBOX_TAB_LABEL[tab]}

@@ -216,13 +216,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
-    '/inbox': ['Inbox', 'inbox'],
-    '/inbox/:tab': ['Inbox', 'inbox'],
-    '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
-    '/inbox/scouts/findings': ['Inbox', 'inbox'],
-    '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
-    '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
-    '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
+    '/self-driving': ['SelfDriving', 'selfDriving'],
+    '/self-driving/:tab': ['SelfDriving', 'selfDriving'],
+    '/self-driving/scouts/scratchpad': ['SelfDriving', 'selfDriving'],
+    '/self-driving/scouts/findings': ['SelfDriving', 'selfDriving'],
+    '/self-driving/scouts/:skillName': ['SelfDriving', 'selfDriving'],
+    '/self-driving/scouts/:skillName/:findingId': ['SelfDriving', 'selfDriving'],
+    '/self-driving/:tab/:reportId': ['SelfDriving', 'selfDriving'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
@@ -415,6 +415,19 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/inbox': (_params, searchParams, hashParams) => combineUrl(urls.selfDriving(), searchParams, hashParams).url,
+    '/inbox/scouts/scratchpad': (_params, searchParams, hashParams) =>
+        combineUrl(urls.selfDrivingScratchpad(), searchParams, hashParams).url,
+    '/inbox/scouts/findings': (_params, searchParams, hashParams) =>
+        combineUrl(urls.selfDrivingFindings(), searchParams, hashParams).url,
+    '/inbox/scouts/:skillName': (params, searchParams, hashParams) =>
+        combineUrl(urls.selfDrivingScout(params.skillName), searchParams, hashParams).url,
+    '/inbox/scouts/:skillName/:findingId': (params, searchParams, hashParams) =>
+        combineUrl(urls.selfDrivingScout(params.skillName, params.findingId), searchParams, hashParams).url,
+    '/inbox/:tab/:reportId': (params, searchParams, hashParams) =>
+        combineUrl(urls.selfDrivingReport(params.tab, params.reportId), searchParams, hashParams).url,
+    '/inbox/:tab': (params, searchParams, hashParams) =>
+        combineUrl(urls.selfDriving(params.tab), searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
@@ -871,8 +884,8 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
     },
-    Inbox: {
-        name: 'Inbox',
+    SelfDriving: {
+        name: 'Self-driving',
         projectBased: true,
         description: 'Actionable reports automatically generated from user session analysis and other signals.',
     },
@@ -1432,14 +1445,15 @@ export const productUrls = {
         `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
     replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     codeReview: (): string => '/code-review',
-    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
-    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
-    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+    selfDriving: (tab?: InboxTabKey | ':tab'): string => `/self-driving${tab ? `/${tab}` : ''}`,
+    selfDrivingReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string =>
+        `/self-driving/${tab}/${reportId}`,
+    selfDrivingScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
         const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
-        return `/inbox/scouts/${skillName}${segment}`
+        return `/self-driving/scouts/${skillName}${segment}`
     },
-    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
-    inboxFindings: (): string => '/inbox/scouts/findings',
+    selfDrivingScratchpad: (): string => '/self-driving/scouts/scratchpad',
+    selfDrivingFindings: (): string => '/self-driving/scouts/findings',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1851,7 +1865,6 @@ export type ProductTreePath =
     | 'Feature flags'
     | 'Heatmaps'
     | 'Identity matching'
-    | 'Inbox'
     | 'Links'
     | 'Live Debugger'
     | 'LLM analytics'
@@ -1867,6 +1880,7 @@ export type ProductTreePath =
     | 'Prompts'
     | 'Pulse'
     | 'Replay vision'
+    | 'Self-driving'
     | 'Session replay'
     | 'Skills'
     | 'SQL editor'
@@ -2186,16 +2200,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['IdentityMatching', 'AIEnrichment'],
     },
     {
-        path: 'Inbox',
-        intents: [],
-        category: ProductItemCategory.TOOLS,
-        iconType: 'inbox' as FileSystemIconType,
-        href: urls.inbox(),
-        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-        sceneKey: 'Inbox',
-        sceneKeys: ['Inbox'],
-    },
-    {
         path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
@@ -2452,6 +2456,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.sqlEditor(),
         sceneKey: 'SQLEditor',
         sceneKeys: ['SQLEditor'],
+    },
+    {
+        path: 'Self-driving',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.selfDriving(),
+        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        sceneKey: 'SelfDriving',
+        sceneKeys: ['SelfDriving'],
     },
     {
         path: 'Session replay',

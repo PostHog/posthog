@@ -127,8 +127,8 @@ export function ReportCard({
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const detailUrl = backUrl
-        ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
-        : urls.inboxReport(tabKey, report.id)
+        ? combineUrl(urls.selfDrivingReport(tabKey, report.id), { back: backUrl }).url
+        : urls.selfDrivingReport(tabKey, report.id)
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,

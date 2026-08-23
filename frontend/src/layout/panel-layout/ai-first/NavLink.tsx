@@ -41,7 +41,7 @@ export function NavLink({
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isInbox = to === urls.inbox()
+    const isInbox = to === urls.selfDriving()
     const isActive =
         currentPath === to ||
         (isHomePage && currentPath === urls.projectHomepage()) ||

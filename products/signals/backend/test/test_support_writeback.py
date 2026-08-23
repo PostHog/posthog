@@ -49,7 +49,7 @@ class TestPostReportFindingsToTickets(BaseTest):
         note = _ticket_notes(self.team, self.ticket).get()
         assert note.item_context["is_private"] is True
         assert note.item_context["author_type"] == "AI"
-        assert f"/project/{self.team.pk}/inbox/{self.report.id}" in note.content
+        assert f"/project/{self.team.pk}/self-driving/{self.report.id}" in note.content
 
     def test_note_carries_no_report_content(self):
         # Comments authorize as `comment` while reports authorize as `task`, so a teammate with ticket

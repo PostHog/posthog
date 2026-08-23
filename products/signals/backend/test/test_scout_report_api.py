@@ -589,7 +589,7 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
-        expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
+        expected_url = None if expected_outcome == "gate_skipped" else f"/self-driving/reports/{body['report_id']}"
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
         else:
@@ -620,7 +620,7 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
-        assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+        assert forward.kwargs["properties"]["report_url"].endswith(f"/self-driving/reports/{created['report_id']}")
 
     def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
         # Classification must ride both lifecycle events: stamped from the authored title on emit, and

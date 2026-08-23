@@ -40,7 +40,7 @@ export function ScoutReportCard({
 
     return (
         <Link
-            to={urls.inboxReport('reports', report.id)}
+            to={urls.selfDrivingReport('reports', report.id)}
             className="group flex w-full items-start gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 text-left no-underline transition-all duration-150 hover:border-secondary hover:bg-surface-secondary"
         >
             {report.priority && (

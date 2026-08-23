@@ -28,7 +28,7 @@ function LinkedReportRow({ report }: { report: SignalReportApi }): JSX.Element {
     return (
         <div className="flex items-start justify-between gap-2 px-2 py-1.5 border-b transition-colors hover:bg-surface-secondary">
             <Link
-                to={urls.inboxReport('reports', report.id)}
+                to={urls.selfDrivingReport('reports', report.id)}
                 className="block min-w-0 flex-1 text-inherit no-underline hover:text-inherit"
             >
                 <div className="text-sm font-semibold leading-snug">

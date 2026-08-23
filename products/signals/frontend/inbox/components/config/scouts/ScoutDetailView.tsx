@@ -137,7 +137,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 /** Navigation only: the scouts URL handler clears the selected scout, so no action is dispatched here. */
 function BackToScouts(): JSX.Element {
     return (
-        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.inbox('scouts')} className="w-fit">
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconArrowLeft />}
+            to={urls.selfDriving('scouts')}
+            className="w-fit"
+        >
             Scouts
         </LemonButton>
     )

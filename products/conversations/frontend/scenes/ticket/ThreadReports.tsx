@@ -64,7 +64,7 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
                     state stays a sibling: an anchor can't contain another, and clicking the pull
                     request should open the pull request. */}
                 <Link
-                    to={urls.inboxReport('reports', report.id)}
+                    to={urls.selfDrivingReport('reports', report.id)}
                     className="block min-w-0 flex-1 text-inherit no-underline hover:text-inherit"
                 >
                     <div className="text-sm font-semibold leading-snug">

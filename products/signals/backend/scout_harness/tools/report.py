@@ -664,7 +664,7 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
     canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
     if not report_id:
         return None
-    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    return f"{settings.SITE_URL}/project/{team_id}/self-driving/reports/{report_id}"
 
 
 def _chart_event_key(chart: ReportChartInput) -> str:

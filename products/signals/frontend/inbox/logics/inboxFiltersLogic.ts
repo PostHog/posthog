@@ -519,13 +519,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         }
 
         return {
-            [urls.inbox()]: applyFromUrl,
-            [urls.inbox(':tab')]: applyFromUrl,
-            [urls.inboxScratchpad()]: applyFromUrl,
-            [urls.inboxFindings()]: applyFromUrl,
-            [urls.inboxScout(':skillName')]: applyFromUrl,
-            [urls.inboxScout(':skillName', ':findingId')]: applyFromUrl,
-            [urls.inboxReport(':tab', ':reportId')]: applyFromUrl,
+            [urls.selfDriving()]: applyFromUrl,
+            [urls.selfDriving(':tab')]: applyFromUrl,
+            [urls.selfDrivingScratchpad()]: applyFromUrl,
+            [urls.selfDrivingFindings()]: applyFromUrl,
+            [urls.selfDrivingScout(':skillName')]: applyFromUrl,
+            [urls.selfDrivingScout(':skillName', ':findingId')]: applyFromUrl,
+            [urls.selfDrivingReport(':tab', ':reportId')]: applyFromUrl,
         }
     }),
 

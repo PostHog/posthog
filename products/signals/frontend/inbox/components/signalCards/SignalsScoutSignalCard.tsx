@@ -124,7 +124,7 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             // The scout's name now lives in the shared source line ("Scout · <name>"); keep just a
             // linked version here so the header doesn't repeat the name.
             label={
-                <Link to={urls.inboxScout(extra.skill_name)} className="text-tertiary font-normal">
+                <Link to={urls.selfDrivingScout(extra.skill_name)} className="text-tertiary font-normal">
                     v{extra.skill_version}
                 </Link>
             }

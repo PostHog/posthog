@@ -192,18 +192,18 @@ function inboxSurfaceUrl(values: {
     isFindingsOpen: boolean
 }): string {
     if (values.selectedReportId) {
-        return urls.inboxReport(values.activeTab, values.selectedReportId)
+        return urls.selfDrivingReport(values.activeTab, values.selectedReportId)
     }
     if (values.selectedScoutSkillName) {
-        return urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
+        return urls.selfDrivingScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
     }
     if (values.isScratchpadOpen) {
-        return urls.inboxScratchpad()
+        return urls.selfDrivingScratchpad()
     }
     if (values.isFindingsOpen) {
-        return urls.inboxFindings()
+        return urls.selfDrivingFindings()
     }
-    return urls.inbox(values.activeTab)
+    return urls.selfDriving(values.activeTab)
 }
 
 /** Open-report engagement tracking state, kept on the logic's `cache` (not reactive). */
@@ -517,7 +517,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: 'inbox',
-                    name: sceneConfigurations[Scene.Inbox].name,
+                    name: sceneConfigurations[Scene.SelfDriving].name,
                     iconType: 'inbox',
                 },
             ],
@@ -747,17 +747,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     urlToAction(({ actions, values, cache }) => ({
-        [urls.inboxScratchpad()]: () => {
+        [urls.selfDrivingScratchpad()]: () => {
             if (!values.isScratchpadOpen) {
                 actions.setScratchpadOpen(true)
             }
         },
-        [urls.inboxFindings()]: () => {
+        [urls.selfDrivingFindings()]: () => {
             if (!values.isFindingsOpen) {
                 actions.setFindingsOpen(true)
             }
         },
-        [urls.inbox()]: (_, __, hashParams) => {
+        [urls.selfDriving()]: (_, __, hashParams) => {
             cache.inboxListVisited = true
             consumeScoutTemplateHash(actions, hashParams)
             if (values.selectedReportId !== null) {
@@ -773,13 +773,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(false)
             }
         },
-        [urls.inbox(':tab')]: ({ tab }: { tab?: string }, _, hashParams) => {
+        [urls.selfDriving(':tab')]: ({ tab }: { tab?: string }, _, hashParams) => {
             // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
             // visited only when we're actually staying on a list view — otherwise the redirected report
             // would be misclassified as an in-app click instead of a deep-link.
             if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
                 router.actions.replace(
-                    urls.inboxReport('reports', tab),
+                    urls.selfDrivingReport('reports', tab),
                     router.values.searchParams,
                     router.values.hashParams
                 )
@@ -808,7 +808,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setFindingsOpen(false)
             }
         },
-        [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+        [urls.selfDrivingScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
             // `/inbox/scouts/scratchpad` and `/inbox/scouts/findings` also match this pattern; their own
             // handlers own those paths (no real scout skill_name collides — they're `signals-scout-*`).
             if (skillName === 'scratchpad' || skillName === 'findings') {
@@ -820,7 +820,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setSelectedScoutSkillName(name)
             }
         },
-        [urls.inboxScout(':skillName', ':findingId')]: ({
+        [urls.selfDrivingScout(':skillName', ':findingId')]: ({
             skillName,
             findingId,
         }: {
@@ -833,7 +833,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setSelectedScoutSkillName(name, finding)
             }
         },
-        [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
+        [urls.selfDrivingReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
             // This pattern also matches `/inbox/scouts/<skillName>`; the scout handler owns that path.
             if (tab === 'scouts') {
                 return

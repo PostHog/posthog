@@ -244,7 +244,7 @@ export function NavTabBrowse(): JSX.Element {
 
                     {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
                         <NavLink
-                            to={urls.inbox()}
+                            to={urls.selfDriving()}
                             label="Self-driving"
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}

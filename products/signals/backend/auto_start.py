@@ -212,7 +212,7 @@ def _build_autostart_task_description(
     source_references: list[SignalSourceReference] | None = None,
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    report_link = f"{settings.SITE_URL}/project/{team_id}/self-driving/reports/{report_id}"
     source_links = ", ".join(f"[{ref.label}]({ref.url})" for ref in source_references or [])
     source_issues_line = f"Source issues: {source_links}\n\n" if source_links else ""
     source_reference_instruction = (

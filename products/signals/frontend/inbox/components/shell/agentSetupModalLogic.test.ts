@@ -16,7 +16,7 @@ describe('agentSetupModalLogic', () => {
     })
 
     it('restores the GitHub modal from the callback URL and only removes GitHub parameters when closed', () => {
-        router.actions.push('/inbox/config', {
+        router.actions.push('/self-driving/config', {
             setup: 'github',
             integration_id: '12',
             installation_id: '34',

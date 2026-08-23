@@ -359,7 +359,7 @@ export function InboxScene(): JSX.Element {
                                     This report does not exist. It may have been removed.
                                 </p>
                             </div>
-                            <LemonButton type="secondary" to={backOverride ?? urls.inbox(activeTab)}>
+                            <LemonButton type="secondary" to={backOverride ?? urls.selfDriving(activeTab)}>
                                 {backOverride ? 'Back' : 'Back to inbox'}
                             </LemonButton>
                         </div>

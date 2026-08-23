@@ -104,7 +104,7 @@ export function InboxTabBar({
             barClassName="before:hidden mb-0"
             onChange={(key) => {
                 if (key !== WELCOME_TAB_KEY) {
-                    router.actions.push(urls.inbox(key))
+                    router.actions.push(urls.selfDriving(key))
                 }
             }}
             tabs={tabs}
