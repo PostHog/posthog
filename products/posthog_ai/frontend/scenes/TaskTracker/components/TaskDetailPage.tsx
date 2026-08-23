@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
@@ -26,7 +27,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeCreation } = useValues(taskTrackerSceneLogic)
+    const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     if (taskNotFound && !task) {
@@ -48,15 +49,18 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             <TaskHeaderActionsSkeleton />
         ) : (
             <div className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconExternal />}
-                    onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
-                    className="hidden lg:inline-flex"
-                >
-                    Open in PostHog Desktop
-                </LemonButton>
+                {hasDesktopAccess && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconExternal />}
+                        to={urls.codeTaskLink(task.id)}
+                        targetBlank
+                        className="hidden lg:inline-flex"
+                    >
+                        Open in PostHog Desktop
+                    </LemonButton>
+                )}
                 {prUrl && (
                     <LemonButton
                         type="secondary"

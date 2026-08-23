@@ -17,6 +17,7 @@ import type {
     ChannelInstructionsWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
+    CodeInviteAccessResponseApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     LoopDTOApi,
@@ -152,8 +153,8 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
  * Check whether the authenticated user has access to PostHog Desktop and to Loops.
  * @summary Check access
  */
-export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<CodeInviteAccessResponseApi> => {
+    return apiMutator<CodeInviteAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
