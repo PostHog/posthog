@@ -73,7 +73,10 @@ Use these as routing examples, not fixed templates:
 
 - **Product dashboard, web analytics board, or metric explorer:** React + Quill plus data querying.
 - **Checklist, form, or lightweight workflow:** React + Quill, plus data querying for PostHog reads,
-  event capture, or navigation. Do not imply persistence that the available APIs do not provide.
+  event capture, or navigation. For a checklist or runbook specifically, start from the worked
+  example in `building-react-quill-canvases` (`references/checklist-example.md`) — team-shared
+  progress via per-step `ph.state` keys. Do not imply persistence that the available APIs do not
+  provide.
 - **Document or narrative report:** HTML for a mostly static reading experience; React + Quill plus
   data querying when it needs live PostHog data, filters, or application-like interactions.
 - **Generative graphic or animation:** HTML and browser graphics APIs. Add React only when it
