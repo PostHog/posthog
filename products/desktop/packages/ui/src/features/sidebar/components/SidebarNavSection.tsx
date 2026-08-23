@@ -4,6 +4,7 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -17,18 +18,22 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   navigateToActivity,
   navigateToCommandCenter,
+  navigateToContext,
   navigateToInbox,
   navigateToLoops,
+  navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { Box, Flex } from "@radix-ui/themes";
+import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
+import { ContextItem } from "./items/ContextItem";
 import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
@@ -66,6 +71,11 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const contextEnabled = useContextLayerFlag();
+  const inSpaces = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/spaces"),
+  });
+  const goContext = inSpaces ? navigateToSpacesContext : navigateToContext;
   const goNewTask = () => openTaskInput();
 
   // Active flags are pure functions of the current view — mirror what
@@ -76,6 +86,7 @@ export function SidebarNavSection({
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
+  const isContextActive = view.type === "context";
 
   // Open pull requests in the inbox — the main CTA, and the same count the inbox
   // Pull requests tab shows, so the badge and the tab always agree.
@@ -123,6 +134,7 @@ export function SidebarNavSection({
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
     inbox: true,
     "command-center": true,
+    contexts: contextEnabled,
     activity: bluebirdEnabled,
     configure: true,
     loops: loopsEnabled,
@@ -168,6 +180,13 @@ export function SidebarNavSection({
         depth={depth}
         isActive={isLoopsActive}
         onClick={withNavTrack("loops", navigateToLoops, depth)}
+      />
+    ),
+    contexts: (depth) => (
+      <ContextItem
+        depth={depth}
+        isActive={isContextActive}
+        onClick={withNavTrack("contexts", goContext, depth)}
       />
     ),
   };

@@ -1,4 +1,5 @@
 import {
+  BookOpenTextIcon,
   BrainIcon,
   PlugsConnectedIcon,
   RobotIcon,
@@ -121,7 +122,13 @@ type TabRef = {
 // The top-level app pages that can be a tab. Keyed by useAppView's view.type;
 // each maps to its canonical route (a task/canvas/channel tab has its own
 // route, these don't) plus the strip's label + icon.
-type AppView = "inbox" | "agents" | "skills" | "mcp-servers" | "command-center";
+type AppView =
+  | "inbox"
+  | "agents"
+  | "skills"
+  | "mcp-servers"
+  | "command-center"
+  | "context";
 
 const APP_VIEW_META: Record<AppView, { label: string; icon: ReactNode }> = {
   inbox: { label: "Inbox", icon: <TrayIcon size={14} /> },
@@ -135,6 +142,7 @@ const APP_VIEW_META: Record<AppView, { label: string; icon: ReactNode }> = {
     label: "Command center",
     icon: <SquaresFourIcon size={14} />,
   },
+  context: { label: "Context", icon: <BookOpenTextIcon size={14} /> },
 };
 
 function isAppView(value: string): value is AppView {
@@ -608,6 +616,9 @@ export function BrowserTabStrip() {
           break;
         case "command-center":
           navigate({ to: "/command-center", state });
+          break;
+        case "context":
+          navigate({ to: "/context", state });
           break;
         default: {
           // Exhaustiveness guard: a new AppView value fails to compile here

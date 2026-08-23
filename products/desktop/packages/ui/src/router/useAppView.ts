@@ -18,6 +18,7 @@ export type AppViewType =
   | "loops"
   | "archived"
   | "command-center"
+  | "context"
   | "skills"
   | "mcp-servers"
   | "settings";
@@ -75,6 +76,9 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "archived" };
     case "/command-center":
       return { type: "command-center" };
+    case "/context":
+    case "/spaces/context":
+      return { type: "context" };
     case "/skills":
       return { type: "skills" };
     case "/mcp-servers":

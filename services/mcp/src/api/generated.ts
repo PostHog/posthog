@@ -83328,6 +83328,8 @@ export namespace Schemas {
       content: string;
       /** Commit sha the content was read at; pass back as `base_head` on writes. */
       head_sha: string;
+      /** When this page was last changed in the wiki history. */
+      updated_at: string;
     }
 
     /**

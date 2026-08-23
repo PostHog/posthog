@@ -36,6 +36,7 @@ class WikiPage:
     path: str
     content: str
     head_sha: str
+    updated_at: datetime
 
 
 @frozen
@@ -110,8 +111,18 @@ def get_tree(organization_id: uuid.UUID | str) -> WikiTree:
 def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
     path = normalize_page_path(path)
     head_sha = store.get_config(organization_id).head_sha
-    content = get_safe_cache(_page_cache_key(organization_id, head_sha, path))
-    if content is None:
+    cached = get_safe_cache(_page_cache_key(organization_id, head_sha, path))
+    page = (
+        WikiPage(
+            path=path,
+            content=cached["content"],
+            head_sha=head_sha,
+            updated_at=datetime.fromisoformat(cached["updated_at"]),
+        )
+        if isinstance(cached, dict) and "content" in cached and "updated_at" in cached
+        else None
+    )
+    if page is None:
         # Answer misses from the cached tree when we can: repeated requests for
         # a nonexistent path must 404 cheaply, not re-download the bundle.
         known_paths = get_safe_cache(_tree_cache_key(organization_id, head_sha))
@@ -119,10 +130,10 @@ def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
             raise PageNotFoundError(f"no page at {path}")
         warmed = _warm_cache(organization_id)
         head_sha = warmed.head_sha
-        content = warmed.pages.get(path)
-    if content is None:
+        page = warmed.pages.get(path)
+    if page is None:
         raise PageNotFoundError(f"no page at {path}")
-    return WikiPage(path=path, content=content, head_sha=head_sha)
+    return page
 
 
 def get_health_report(organization_id: uuid.UUID | str) -> WikiHealthReport:
@@ -180,22 +191,32 @@ class WarmedWiki:
 
     head_sha: str
     paths: list[str]
-    pages: dict[str, str]
+    pages: dict[str, WikiPage]
 
 
 def _warm_cache(organization_id: uuid.UUID | str) -> WarmedWiki:
     """One checkout warms the tree and every page for the checkout's head."""
     with store.checkout_repo(organization_id) as checkout:
-        pages: dict[str, str] = {}
+        pages: dict[str, WikiPage] = {}
         for file_path in sorted(checkout.path.rglob("*.md")):
             if ".git" in file_path.parts or file_path.is_symlink() or not file_path.is_file():
                 continue
             relative = str(file_path.relative_to(checkout.path))
             # The linter rejects non-UTF-8 pages at land time; replacement here
             # keeps one legacy file from turning every read into a 500.
-            pages[relative] = file_path.read_text(encoding="utf-8", errors="replace")
+            updated_at = store.get_path_updated_at(checkout, relative)
+            pages[relative] = WikiPage(
+                path=relative,
+                content=file_path.read_text(encoding="utf-8", errors="replace"),
+                head_sha=checkout.head_sha,
+                updated_at=updated_at,
+            )
         paths = sorted(pages)
         safe_cache_set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
-        for relative, content in pages.items():
-            safe_cache_set(_page_cache_key(organization_id, checkout.head_sha, relative), content, CACHE_TTL_SECONDS)
+        for relative, page in pages.items():
+            safe_cache_set(
+                _page_cache_key(organization_id, checkout.head_sha, relative),
+                {"content": page.content, "updated_at": page.updated_at.isoformat()},
+                CACHE_TTL_SECONDS,
+            )
         return WarmedWiki(head_sha=checkout.head_sha, paths=paths, pages=pages)

@@ -1,5 +1,6 @@
 import {
   BellIcon,
+  BookOpenTextIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -36,6 +37,7 @@ import {
   navigateToInbox,
   navigateToLoops,
   navigateToSpaces,
+  navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
@@ -62,7 +64,11 @@ export interface RailDestination {
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: { home: boolean; loops: boolean }) => boolean;
+  enabled?: (flags: {
+    home: boolean;
+    loops: boolean;
+    context: boolean;
+  }) => boolean;
 }
 
 /**
@@ -168,6 +174,15 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: () => navigateToLoops(),
     enabled: (flags) => flags.loops,
   },
+  {
+    pane: "context",
+    customizableId: "contexts",
+    label: "Context",
+    analyticsId: "contexts",
+    Icon: BookOpenTextIcon,
+    onPick: navigateToSpacesContext,
+    enabled: (flags) => flags.context,
+  },
 ];
 
 // Deliberately not the shared `orderedNavItems`: its adjacency rule pins
@@ -177,15 +192,17 @@ export function visibleRailDestinations({
   order,
   home,
   loops,
+  context,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
   home: boolean;
   loops: boolean;
+  context: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ home, loops }) ?? true) &&
+      (enabled?.({ home, loops, context }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

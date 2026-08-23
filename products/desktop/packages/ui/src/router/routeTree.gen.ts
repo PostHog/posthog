@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as PrRouteImport } from './routes/pr'
 import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as ContextRouteImport } from './routes/context'
 import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as ShellRouteImport } from './routes/_shell'
@@ -56,6 +57,7 @@ import { Route as InboxDismissedReportIdRouteImport } from './routes/inbox/dismi
 import { Route as AgentsScoutsScratchpadRouteImport } from './routes/agents/scouts.scratchpad'
 import { Route as AgentsScoutsFindingsRouteImport } from './routes/agents/scouts.findings'
 import { Route as AgentsScoutsSkillNameRouteImport } from './routes/agents/scouts.$skillName'
+import { Route as ShellSpacesContextRouteImport } from './routes/_shell/spaces/context'
 import { Route as ShellFeedsFeedIdRouteImport } from './routes/_shell/feeds/$feedId'
 import { Route as AgentsScoutsSkillNameIndexRouteImport } from './routes/agents/scouts.$skillName.index'
 import { Route as ShellSpacesChannelIdIndexRouteImport } from './routes/_shell/spaces/$channelId/index'
@@ -81,6 +83,11 @@ const PrRoute = PrRouteImport.update({
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContextRoute = ContextRouteImport.update({
+  id: '/context',
+  path: '/context',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ArchivedRoute = ArchivedRouteImport.update({
@@ -302,6 +309,11 @@ const AgentsScoutsSkillNameRoute = AgentsScoutsSkillNameRouteImport.update({
   path: '/$skillName',
   getParentRoute: () => AgentsScoutsRoute,
 } as any)
+const ShellSpacesContextRoute = ShellSpacesContextRouteImport.update({
+  id: '/spaces/context',
+  path: '/spaces/context',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellFeedsFeedIdRoute = ShellFeedsFeedIdRouteImport.update({
   id: '/feeds/$feedId',
   path: '/feeds/$feedId',
@@ -371,6 +383,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
+  '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
@@ -399,6 +412,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/spaces/context': typeof ShellSpacesContextRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameRouteWithChildren
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
   '/agents/scouts/scratchpad': typeof AgentsScoutsScratchpadRoute
@@ -428,6 +442,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/archived': typeof ArchivedRoute
+  '/context': typeof ContextRoute
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
   '/activity': typeof ShellActivityRoute
@@ -450,6 +465,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsIndexRoute
   '/website': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/spaces/context': typeof ShellSpacesContextRoute
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
   '/agents/scouts/scratchpad': typeof AgentsScoutsScratchpadRoute
   '/inbox/dismissed/$reportId': typeof InboxDismissedReportIdRoute
@@ -481,6 +497,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
+  '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
@@ -510,6 +527,7 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/_shell/feeds/$feedId': typeof ShellFeedsFeedIdRoute
+  '/_shell/spaces/context': typeof ShellSpacesContextRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameRouteWithChildren
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
   '/agents/scouts/scratchpad': typeof AgentsScoutsScratchpadRoute
@@ -543,6 +561,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents'
     | '/archived'
+    | '/context'
     | '/inbox'
     | '/pr'
     | '/usage'
@@ -571,6 +590,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/website/'
     | '/feeds/$feedId'
+    | '/spaces/context'
     | '/agents/scouts/$skillName'
     | '/agents/scouts/findings'
     | '/agents/scouts/scratchpad'
@@ -600,6 +620,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/archived'
+    | '/context'
     | '/pr'
     | '/usage'
     | '/activity'
@@ -622,6 +643,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/website'
     | '/feeds/$feedId'
+    | '/spaces/context'
     | '/agents/scouts/findings'
     | '/agents/scouts/scratchpad'
     | '/inbox/dismissed/$reportId'
@@ -652,6 +674,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/agents'
     | '/archived'
+    | '/context'
     | '/inbox'
     | '/pr'
     | '/usage'
@@ -681,6 +704,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/website/'
     | '/_shell/feeds/$feedId'
+    | '/_shell/spaces/context'
     | '/agents/scouts/$skillName'
     | '/agents/scouts/findings'
     | '/agents/scouts/scratchpad'
@@ -713,6 +737,7 @@ export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
   AgentsRoute: typeof AgentsRouteWithChildren
   ArchivedRoute: typeof ArchivedRoute
+  ContextRoute: typeof ContextRoute
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
   UsageRoute: typeof UsageRoute
@@ -751,6 +776,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/context': {
+      id: '/context'
+      path: '/context'
+      fullPath: '/context'
+      preLoaderRoute: typeof ContextRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/archived': {
@@ -1061,6 +1093,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsScoutsSkillNameRouteImport
       parentRoute: typeof AgentsScoutsRoute
     }
+    '/_shell/spaces/context': {
+      id: '/_shell/spaces/context'
+      path: '/spaces/context'
+      fullPath: '/spaces/context'
+      preLoaderRoute: typeof ShellSpacesContextRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/feeds/$feedId': {
       id: '/_shell/feeds/$feedId'
       path: '/feeds/$feedId'
@@ -1149,6 +1188,7 @@ interface ShellRouteChildren {
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
+  ShellSpacesContextRoute: typeof ShellSpacesContextRoute
   ShellSpacesIndexRoute: typeof ShellSpacesIndexRoute
   ShellSpacesChannelIdArtifactsRoute: typeof ShellSpacesChannelIdArtifactsRoute
   ShellSpacesChannelIdCanvasesRoute: typeof ShellSpacesChannelIdCanvasesRoute
@@ -1169,6 +1209,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSkillsRoute: ShellSkillsRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,
+  ShellSpacesContextRoute: ShellSpacesContextRoute,
   ShellSpacesIndexRoute: ShellSpacesIndexRoute,
   ShellSpacesChannelIdArtifactsRoute: ShellSpacesChannelIdArtifactsRoute,
   ShellSpacesChannelIdCanvasesRoute: ShellSpacesChannelIdCanvasesRoute,
@@ -1322,6 +1363,7 @@ const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
   AgentsRoute: AgentsRouteWithChildren,
   ArchivedRoute: ArchivedRoute,
+  ContextRoute: ContextRoute,
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,
   UsageRoute: UsageRoute,
