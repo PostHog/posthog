@@ -164,7 +164,7 @@ async function prepare(
   const stagingDir = path.join(orgDir, `.staging-${headSha}`);
   try {
     await pipeline(
-      Readable.fromWeb(bundleResponse.body as WebReadableStream),
+      Readable.fromWeb(bundleResponse.body as unknown as WebReadableStream),
       boundedBytes(MAX_BUNDLE_BYTES),
       fs.createWriteStream(bundlePath),
     );
