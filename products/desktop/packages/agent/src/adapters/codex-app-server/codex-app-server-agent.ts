@@ -46,7 +46,7 @@ import {
   matchesPostHogExecPermission,
   resolvePostHogExecPermissionRegex,
 } from "../../posthog-exec-permission";
-import type { ProcessSpawnedCallback } from "../../types";
+import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { ALLOW_BYPASS } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import {
@@ -237,6 +237,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   ) => Promise<void>;
   /** Codex-specific guidance injected at spawn time; replayed per-thread. */
   private readonly developerInstructions?: string;
+  private readonly contextWiki?: ContextWikiEnv;
   private readonly gatewayConfigured: boolean;
   private threadId?: string;
   /** JSON schema constraining the final message; set per session via `_meta`. */
@@ -298,6 +299,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
     this.onStructuredOutput = options.onStructuredOutput;
     this.developerInstructions = options.processOptions.developerInstructions;
+    this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
 
     const handlers: AppServerClientHandlers = {
@@ -595,7 +597,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.config.setInitialMode(params.meta?.permissionMode);
     // Codex doesn't attribute input tokens by source; the baseline seeds the resident floor + system prompt.
     this.usage.setBaseline(buildBaseline(params.meta));
-    const contextWikiPath = resolveContextWikiPath();
+    const contextWikiPath = resolveContextWikiPath(this.contextWiki?.path);
     let developerInstructions = mergeDeveloperInstructions(
       this.developerInstructions,
       flattenSystemPrompt(params.meta?.systemPrompt),

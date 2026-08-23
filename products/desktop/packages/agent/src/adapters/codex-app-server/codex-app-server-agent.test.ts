@@ -1616,35 +1616,46 @@ describe("CodexAppServerAgent", () => {
     ).toBe("Be a careful engineer.\n\nUse RTK.");
   });
 
-  it("appends the context-wiki instructions when a mount exists", async () => {
-    const mount = fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"));
-    process.env.POSTHOG_CONTEXT_LAYER_PATH = mount;
-    try {
-      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-      const { client } = makeFakeClient();
-      const agent = new CodexAppServerAgent(client, {
-        processOptions: {
-          binaryPath: "/x/codex",
-          developerInstructions: "Codex base guidance.",
-        },
-        rpcFactory: stub.factory,
-      });
+  // "env" is the cloud sandbox path (per-sandbox provisioning); "option" is
+  // the desktop path, where the mount travels per-session to avoid racing on
+  // shared process.env.
+  it.each(["env", "option"] as const)(
+    "appends the context-wiki instructions when a mount exists (via %s)",
+    async (source) => {
+      const mount = fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"));
+      if (source === "env") {
+        process.env.POSTHOG_CONTEXT_LAYER_PATH = mount;
+      }
+      try {
+        const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+        const { client } = makeFakeClient();
+        const agent = new CodexAppServerAgent(client, {
+          processOptions: {
+            binaryPath: "/x/codex",
+            developerInstructions: "Codex base guidance.",
+            ...(source === "option" && {
+              contextWiki: { path: mount, commitsPath: "/commits/" },
+            }),
+          },
+          rpcFactory: stub.factory,
+        });
 
-      await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+        await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
 
-      const threadStart = stub.requests.find(
-        (r) => r.method === "thread/start",
-      );
-      const instructions = (
-        threadStart?.params as { developerInstructions?: string }
-      ).developerInstructions;
-      expect(instructions).toContain("Codex base guidance.");
-      expect(instructions).toContain("# Context Wiki");
-      expect(instructions).toContain(mount);
-    } finally {
-      delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
-    }
-  });
+        const threadStart = stub.requests.find(
+          (r) => r.method === "thread/start",
+        );
+        const instructions = (
+          threadStart?.params as { developerInstructions?: string }
+        ).developerInstructions;
+        expect(instructions).toContain("Codex base guidance.");
+        expect(instructions).toContain("# Context Wiki");
+        expect(instructions).toContain(mount);
+      } finally {
+        delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+      }
+    },
+  );
 
   it("appends a distinct {append} systemPrompt to developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });

@@ -641,18 +641,19 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   /**
    * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
-   * and expose it to every harness through the same env vars provisioning
-   * sets in sandboxes. Best-effort — sessions start without a wiki on any
-   * failure. The token doubles as POSTHOG_PERSONAL_API_KEY (when nothing else
-   * set it) so the wiki's pinned scripts/publish can land edits locally.
+   * and return it as an explicit per-session value the harness adapters set on
+   * their own subprocess env — never via shared process.env, where concurrent
+   * session starts would race and could leak one session's publish token into
+   * another. Best-effort — sessions start without a wiki on any failure. The
+   * token doubles as POSTHOG_PERSONAL_API_KEY so the wiki's pinned
+   * scripts/publish can land edits locally.
    */
-  private async mountContextWiki(credentials: Credentials): Promise<void> {
-    delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
-    delete process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH;
-    delete process.env.POSTHOG_PERSONAL_API_KEY;
+  private async mountContextWiki(
+    credentials: Credentials,
+  ): Promise<AgentTypes.ContextWikiEnv | null> {
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
-      return;
+      return null;
     }
     const mount = await prepareContextWiki({
       apiHost: credentials.apiHost,
@@ -663,18 +664,17 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       log: this.log,
     });
     if (!mount) {
-      return;
+      return null;
     }
-    process.env.POSTHOG_CONTEXT_LAYER_PATH = mount.path;
-    process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = mount.commitsPath;
     // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
     // just re-synced it, so it is absent for impersonated sessions (an
     // impersonation credential must never reach agent subprocesses) and fresh
-    // after any token rotation or account switch. The delete above keeps a
-    // prior session's token from surviving into a session that must not have one.
-    if (process.env.POSTHOG_API_KEY) {
-      process.env.POSTHOG_PERSONAL_API_KEY = process.env.POSTHOG_API_KEY;
-    }
+    // after any token rotation or account switch.
+    return {
+      path: mount.path,
+      commitsPath: mount.commitsPath,
+      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+    };
   }
 
   private buildSystemPrompt(
@@ -890,7 +890,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     );
     // The wiki mount only needs the auth adapter, so it runs alongside the
     // env configuration instead of serializing another round-trip before it.
-    await Promise.all([
+    const [, contextWiki] = await Promise.all([
       this.agentAuthAdapter.configureProcessEnv({
         credentials,
         proxyUrl,
@@ -951,6 +951,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         gatewayUrl: proxyUrl,
+        contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         codexHome,
