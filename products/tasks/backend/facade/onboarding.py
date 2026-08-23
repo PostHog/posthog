@@ -2,6 +2,8 @@
 
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
@@ -77,6 +79,12 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
 
 
 def _session_enabled(team: Team, user: User) -> bool:
+    # A dev instance self-captures, so it resolves flags against its own empty flag list rather
+    # than against the cloud project that defines this one. Gating on it there means the session
+    # can never start locally, which is the one place it most needs to be run by hand.
+    if settings.DEBUG:
+        return True
+
     distinct_id = user.distinct_id
     if not distinct_id:
         return False
@@ -100,10 +108,12 @@ def _session_enabled(team: Team, user: User) -> bool:
 def start_onboarding_session(team: Team, user: User) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
     if not _session_enabled(team, user):
+        logger.info("onboarding_session_skipped", team_id=team.id, reason="flag_disabled")
         return None
 
     channel_id = find_general_channel_id(team.id)
     if channel_id is None:
+        logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
     facts, homepage = gather_onboarding_facts(team, user)
