@@ -195,6 +195,10 @@ export function navigateToCommandCenter(): void {
   void getRouterOrNull()?.navigate({ to: "/command-center" });
 }
 
+export function navigateToContext(): void {
+  void getRouterOrNull()?.navigate({ to: "/context" });
+}
+
 export function navigateToSkills(): void {
   void getRouterOrNull()?.navigate({ to: "/skills" });
 }
@@ -206,6 +210,10 @@ export function navigateToMcpServers(): void {
 // The spaces index, where the project's spaces are listed.
 export function navigateToSpaces(): void {
   void getRouterOrNull()?.navigate({ to: "/spaces" });
+}
+
+export function navigateToSpacesContext(): void {
+  void getRouterOrNull()?.navigate({ to: "/spaces/context" });
 }
 
 export function navigateToSettings(
