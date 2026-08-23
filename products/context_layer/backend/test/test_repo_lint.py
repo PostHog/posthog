@@ -69,6 +69,11 @@ def _scripts_extra_file(root: Path) -> None:
     (root / "scripts" / "deploy.sh").write_text("#!/bin/sh\n")
 
 
+def _non_utf8_page(root: Path) -> None:
+    (root / "areas").mkdir(exist_ok=True)
+    (root / "areas" / "pricing.md").write_bytes(b"# Pricing\n\nCaf\xe9 tier costs \x80100.\n")
+
+
 def _scripts_tampered_lint(root: Path) -> None:
     lint = root / "scripts" / "lint"
     lint.write_text(lint.read_text() + "\nimport os  # smuggled\n")
@@ -118,6 +123,7 @@ class TestRepoLint(SimpleTestCase):
             ("scripts_symlink", _scripts_symlink),
             ("scripts_extra_file", _scripts_extra_file),
             ("scripts_tampered_lint", _scripts_tampered_lint),
+            ("non_utf8_page", _non_utf8_page),
         ]
     )
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:

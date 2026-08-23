@@ -56,12 +56,14 @@ def _organization_has_private_projects(organization_id: uuid.UUID | str) -> bool
     is currently entitled, so it does not gate on the feature."""
     if Team.objects.filter(organization_id=organization_id, access_control=True).exists():
         return True
+    # Any project-level "none" row counts — the org-wide default row
+    # (organization_member/role null) marks a private project, and a member- or
+    # role-specific denial means at least one person must not see that
+    # project's context either way.
     return AccessControl.objects.filter(
         team__organization_id=organization_id,
         resource="project",
         resource_id__isnull=False,
-        organization_member=None,
-        role=None,
         access_level="none",
     ).exists()
 
@@ -120,8 +122,8 @@ def _existing_channel_pages(root: Path) -> tuple[set[str], set[str]]:
     channels_dir = root / "channels"
     if not channels_dir.is_dir():
         return channel_ids, paths
-    for page in channels_dir.glob("*.md"):
-        paths.add(f"channels/{page.name}")
+    for page in channels_dir.rglob("*.md"):
+        paths.add(str(page.relative_to(root)))
         channel_id = _frontmatter_value(page, "channel_id")
         if channel_id:
             channel_ids.add(channel_id)

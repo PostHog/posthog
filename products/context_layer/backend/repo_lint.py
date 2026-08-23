@@ -75,6 +75,14 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory, titles))
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
+    for path in sorted(root.rglob("*")):
+        if ".git" in path.parts or not path.is_file() or path.is_symlink():
+            continue
+        if path.suffix == ".md":
+            try:
+                path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                errors.append(f"{path.relative_to(root)}: pages must be UTF-8 encoded")
     return errors
 
 

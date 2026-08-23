@@ -418,23 +418,37 @@ def apply_changes(
 
 
 def _assert_bundle_within_bounds(workdir: Path, fetched: str) -> None:
-    """Reject bundles whose unpacked contents are out of proportion for a wiki.
+    """Reject bundles whose incoming history is out of proportion for a wiki.
 
-    The upload cap only bounds the compressed pack: a small bundle can expand
-    into gigabytes of objects or thousands of commits. Both limits are far
-    above anything a legitimate write-back produces.
+    The upload cap only bounds the compressed pack, so the limits here are
+    measured on the incoming range's logical shape: commit count, merge shape,
+    and the sum of uncompressed object sizes (which is what checkouts and
+    caches actually pay for, and what a compression bomb hides). All limits sit
+    far above anything a legitimate write-back produces.
     """
-    incoming_commits = int(_run_git(["rev-list", "--count", f"{DEFAULT_BRANCH}..{fetched}"], cwd=workdir))
+    incoming_range = f"{DEFAULT_BRANCH}..{fetched}"
+    incoming_commits = int(_run_git(["rev-list", "--count", incoming_range], cwd=workdir))
     if incoming_commits > BUNDLE_MAX_COMMITS:
         raise BundleConflictError(
             f"the posted bundle carries {incoming_commits} commits; at most {BUNDLE_MAX_COMMITS} can land at once"
         )
-    size_kib = int(_run_git(["count-objects", "-v"], cwd=workdir).partition("size-pack: ")[2].split()[0])
-    disk_kib = sum(f.stat().st_size for f in (workdir / ".git").rglob("*") if f.is_file()) // 1024
-    if max(size_kib, disk_kib) * 1024 > BUNDLE_MAX_UNPACKED_BYTES:
+    merge_commits = int(_run_git(["rev-list", "--merges", "--count", incoming_range], cwd=workdir))
+    if merge_commits:
+        # The landing rebase linearizes history and silently drops content that
+        # exists only in merge commits (a conflict resolution, for example), so
+        # a bundle carrying merges must be linearized by its author instead.
         raise BundleConflictError(
-            f"the posted bundle unpacks past the {BUNDLE_MAX_UNPACKED_BYTES // 1_000_000} MB limit"
+            "the posted bundle contains merge commits; rebase your clone onto its origin/main and repost"
         )
+    object_ids = _run_git(["rev-list", "--objects", incoming_range], cwd=workdir)
+    incoming_bytes = 0
+    for line in object_ids.splitlines():
+        sha = line.split(maxsplit=1)[0]
+        incoming_bytes += int(_run_git(["cat-file", "-s", sha], cwd=workdir))
+        if incoming_bytes > BUNDLE_MAX_UNPACKED_BYTES:
+            raise BundleConflictError(
+                f"the posted bundle unpacks past the {BUNDLE_MAX_UNPACKED_BYTES // 1_000_000} MB limit"
+            )
 
 
 def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
