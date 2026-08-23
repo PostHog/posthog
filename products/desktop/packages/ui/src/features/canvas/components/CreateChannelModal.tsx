@@ -36,12 +36,12 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { MemberList } from "@posthog/ui/features/canvas/components/MemberList";
 import { MemberSearch } from "@posthog/ui/features/canvas/components/MemberSearch";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
@@ -106,6 +106,7 @@ interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingContext?: { channelId: string; channelName: string };
+  /** Which control opened the dialog, so create can be attributed to it. */
   surface?: ChannelsSurface;
 }
 
