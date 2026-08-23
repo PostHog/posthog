@@ -1,4 +1,4 @@
-import { GitDiffIcon } from "@phosphor-icons/react";
+import { FileTextIcon, GitDiffIcon } from "@phosphor-icons/react";
 import { channelDisplayName } from "@posthog/core/canvas/channelName";
 import type { CommandMenuAction } from "@posthog/shared/analytics-events";
 import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
@@ -10,7 +10,6 @@ import {
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
-import { FileTextIcon } from "@radix-ui/react-icons";
 import { type ReactNode, useMemo } from "react";
 
 export type Command = {
@@ -93,12 +92,15 @@ export function useSearchSections({
       items.push({
         id: `search-${result.id}`,
         label: title,
-        detail: result.subtitle || undefined,
+        // Under the spaces layout a session's context goes on a second line, so
+        // a long title truncates its own text rather than eating the context.
+        detail: spacesLayout ? undefined : result.subtitle || undefined,
+        subtitle: spacesLayout ? result.subtitle || undefined : undefined,
         detailPrefix: "",
         keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
         icon:
           result.kind === "pull_request" ? (
-            <GitDiffIcon size={12} className="text-gray-11" />
+            <GitDiffIcon size={12} className="text-muted-foreground" />
           ) : result.kind === "channel" ? (
             channelGlyph(title, {
               size: 12,
@@ -106,7 +108,7 @@ export function useSearchSections({
               className: "text-muted-foreground",
             })
           ) : (
-            <FileTextIcon className="h-3 w-3 text-gray-11" />
+            <FileTextIcon size={12} className="text-muted-foreground" />
           ),
         action: (result.kind === "channel"
           ? "open-channel"
