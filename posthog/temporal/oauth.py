@@ -98,7 +98,7 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas"]
+McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
@@ -115,11 +115,6 @@ INTERNAL_SCOPES: list[str] = [
     # gateway requires it on the internal products that share the PostHog Desktop OAuth app
     # (background_agents, signals, slack_app, conversations) so a user's own OAuth token
     # can't route around the posthog_code free-tier model gate through those.
-    "internal_run:read",
-]
-
-REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
-    "llm_gateway:read",
     "internal_run:read",
 ]
 
@@ -185,7 +180,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
 
 
 def resolve_scopes(
@@ -197,9 +192,6 @@ def resolve_scopes(
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        elif scopes == "report_canvas":
-            report_canvas_internal = list(REPORT_CANVAS_INTERNAL_SCOPES) if include_internal_scopes else []
-            resolved = [*MCP_READ_SCOPES, "canvas:write", *report_canvas_internal]
         elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -232,7 +224,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_scout_reports", "report_canvas")
+        return scopes in ("full", "signals_scout", "signals_scout_reports")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
