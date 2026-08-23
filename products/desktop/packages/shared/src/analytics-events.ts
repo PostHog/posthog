@@ -264,6 +264,7 @@ export interface CommandMenuActionProperties {
 
 export type SidebarNavItem =
   | "home"
+  | "spaces"
   | "new_task"
   | "search"
   | "inbox"
@@ -303,6 +304,20 @@ export interface SidebarReorderedProperties {
   item: SidebarNavItem;
   /** Zero-based position of the item in the nav after the drag. */
   to_index: number;
+}
+
+export interface TaskListGroupingChangedProperties {
+  group_by: "repository" | "date";
+  sort_by: "updated" | "created" | "alpha";
+  /** Which list was regrouped: the app sidebar's, or a space's session list. */
+  surface: "sidebar" | "space";
+}
+
+export interface TaskListAppearanceChangedProperties {
+  secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
+  secondary_field_count: number;
+  /** Which list it was changed from. The setting applies to both. */
+  surface: "sidebar" | "space";
 }
 
 export interface BrainrotActivatedProperties {
@@ -1077,6 +1092,11 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CommandCenterCanvasViewedProperties {
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+}
+
 export interface CanvasRenderedProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1392,11 +1412,14 @@ export const ANALYTICS_EVENTS = {
   COMMAND_MENU_OPENED: "Command menu opened",
   COMMAND_MENU_ACTION: "Command menu action",
   COMMAND_CENTER_VIEWED: "Command center viewed",
+  COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
   SIDEBAR_REORDERED: "Sidebar reordered",
+  TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
+  TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
@@ -1511,6 +1534,7 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+  TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1578,11 +1602,14 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_MENU_OPENED]: never;
   [ANALYTICS_EVENTS.COMMAND_MENU_ACTION]: CommandMenuActionProperties;
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
+  [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
+  [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
@@ -1696,6 +1723,11 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+  [ANALYTICS_EVENTS.TASK_ANALYSIS_REQUESTED]: {
+    task_id: string;
+    run_id: string;
+    created: boolean;
+  };
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

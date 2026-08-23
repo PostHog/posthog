@@ -36,7 +36,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
+from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -222,9 +222,10 @@ def list_metric_names(
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
     Raises `ValueError` for an out-of-range limit.
+
+    The unsearched list is cached per team for a minute; searches are not.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
-    return runner.run()
+    return cached_metric_names(team=team, search=search, limit=limit)
 
 
 def list_metric_attribute_keys(

@@ -17,13 +17,15 @@ export function CommandCenterView() {
 
   // A cell whose task has been deleted holds a dead id, so occupancy is judged
   // on what actually renders — Optimize then packs the grid and drops the rest.
-  const occupiedCellIndices = useMemo(
-    () =>
-      cells
-        .filter((cell) => cell.task || cell.terminalId || cell.isBrainrot)
-        .map((cell) => cell.cellIndex),
-    [cells],
-  );
+  const occupiedCellIndices = useMemo(() => {
+    const indices: number[] = [];
+    for (const cell of cells) {
+      if (cell.task || cell.canvasId || cell.terminalId || cell.isBrainrot) {
+        indices.push(cell.cellIndex);
+      }
+    }
+    return indices;
+  }, [cells]);
 
   const visibleTaskIdsKey = cells
     .map((c) => c.taskId)

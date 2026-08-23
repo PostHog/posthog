@@ -96,9 +96,9 @@ class TestInstagramSource:
         # be able to tell the user which grant is missing.
         assert integration.requiredScopes is not None
         assert set(integration.requiredScopes.split(" ")) == {
-            "instagram_business_basic",
-            "instagram_business_manage_insights",
-            "instagram_business_manage_comments",
+            "instagram_basic",
+            "instagram_manage_insights",
+            "instagram_manage_comments",
             "pages_show_list",
             "pages_read_engagement",
         }
