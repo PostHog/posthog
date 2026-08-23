@@ -16,7 +16,9 @@ from posthog.temporal.health_checks.query import execute_clickhouse_health_team_
 # Short-window traffic-stop detector. It complements `no_live_events`, which only fires
 # after 30 days with zero events. This one compares a project's last couple of days against
 # its own recent baseline, so a previously active project that drops to zero is caught within
-# a day or two instead of a month.
+# a few days instead of a month. Detection needs a full 48-hour silent window and the check
+# runs once a day, so the lag is about two to three days depending on when the stop lands
+# relative to the daily run.
 TRAFFIC_STOP_RECENT_DAYS = 2
 TRAFFIC_STOP_BASELINE_DAYS = 14
 # Only projects that were clearly active count. A project needs both a minimum event volume
