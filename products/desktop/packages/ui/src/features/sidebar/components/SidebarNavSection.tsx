@@ -19,14 +19,12 @@ import {
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops,
-  navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { Box, Flex } from "@radix-ui/themes";
-import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
@@ -68,18 +66,7 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  // When this section renders inside the Channels space, the destinations that
-  // have a /website mirror stay in that space; everything else (and the whole
-  // section in the Code space) uses the canonical routes. Inbox and New task
-  // have no mirror yet, so they intentionally jump back to Code.
-  const inChannels = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
-  });
-  const goNewTask = () =>
-    openTaskInput(inChannels ? { space: "website" } : undefined);
-  const goCommandCenter = inChannels
-    ? navigateToWebsiteCommandCenter
-    : navigateToCommandCenter;
+  const goNewTask = () => openTaskInput();
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.
@@ -159,7 +146,7 @@ export function SidebarNavSection({
       <CommandCenterItem
         depth={depth}
         isActive={isCommandCenterActive}
-        onClick={withNavTrack("command_center", goCommandCenter, depth)}
+        onClick={withNavTrack("command_center", navigateToCommandCenter, depth)}
         activeCount={commandCenterActiveCount}
       />
     ),

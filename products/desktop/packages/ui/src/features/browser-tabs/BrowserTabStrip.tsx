@@ -157,13 +157,13 @@ export function BrowserTabStrip() {
     select: (s) => s.location.state.tabId,
   });
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // Tabs work in both spaces: channel-scoped tabs live under /website, while a
-  // plain task tab (no channel) belongs to the Code experience. The space
-  // decides where a task/blank tab navigates.
-  const inChannels = pathname.startsWith("/website");
+  // Tabs work in both spaces: space-scoped tabs live under /spaces, while a
+  // plain task tab (no space) is unscoped. The space decides where a task or
+  // blank tab navigates.
+  const inChannels = pathname.startsWith("/spaces");
   // Top-level app pages (Inbox, Agents, Skills, MCP servers, Command Center)
-  // are tab targets too. useAppView normalizes both the /code routes and their
-  // /website mirrors to the same view.type, so a tab survives either space. A
+  // are tab targets too. useAppView normalizes the scoped and unscoped routes
+  // to the same view.type, so a tab survives either space. A
   // top-level route that ISN'T here falls through to `task-input`, and the
   // strip then reconciles the location against the wrong tab and navigates
   // straight back off the page.
@@ -559,20 +559,20 @@ export function BrowserTabStrip() {
     const state = (prev: object) => ({ ...prev, tabId: tab.id });
     if (tab.taskId && tab.channelId) {
       navigate({
-        to: "/website/$channelId/tasks/$taskId",
+        to: "/spaces/$channelId/tasks/$taskId",
         params: { channelId: tab.channelId, taskId: tab.taskId },
         state,
       });
     } else if (tab.taskId) {
       // A channel-less task tab — the Code task detail route.
       navigate({
-        to: "/code/tasks/$taskId",
+        to: "/tasks/$taskId",
         params: { taskId: tab.taskId },
         state,
       });
     } else if (tab.dashboardId && tab.channelId) {
       navigate({
-        to: "/website/$channelId/dashboards/$dashboardId",
+        to: "/spaces/$channelId/dashboards/$dashboardId",
         params: { channelId: tab.channelId, dashboardId: tab.dashboardId },
         state,
       });
@@ -583,22 +583,22 @@ export function BrowserTabStrip() {
       const section = channelSectionFor(tab.channelSection);
       if (section) {
         navigate({
-          to: `/website/$channelId/${section.key}` as const,
+          to: `/spaces/$channelId/${section.key}` as const,
           params,
           state,
         });
       } else {
-        navigate({ to: "/website/$channelId", params, state });
+        navigate({ to: "/spaces/$channelId", params, state });
       }
     } else if (tab.appView && isAppView(tab.appView)) {
       // A top-level app page — back to its canonical route (literal `to` per
       // case so the router types stay checked).
       switch (tab.appView) {
         case "inbox":
-          navigate({ to: "/code/inbox", state });
+          navigate({ to: "/inbox", state });
           break;
         case "agents":
-          navigate({ to: "/code/agents", state });
+          navigate({ to: "/agents", state });
           break;
         case "skills":
           navigate({ to: "/skills", state });
@@ -620,7 +620,7 @@ export function BrowserTabStrip() {
     } else {
       // Blank / landing tab: park on the space's home — the channels index, or
       // the Code new-task screen.
-      navigate({ to: inChannels ? "/website" : "/code", state });
+      navigate({ to: inChannels ? "/spaces" : "/new", state });
     }
   };
 
@@ -718,7 +718,7 @@ export function BrowserTabStrip() {
   const landOnDefault = (tabId?: string) => {
     const state = tabId ? (prev: object) => ({ ...prev, tabId }) : undefined;
     if (!channelsEnabled) {
-      navigate({ to: "/code", state });
+      navigate({ to: "/new", state });
       return;
     }
     // #me is provisioned lazily server-side with the channel list (same source
@@ -727,12 +727,12 @@ export function BrowserTabStrip() {
     const personal = channels.find((c) => c.channelType === "personal");
     if (personal) {
       navigate({
-        to: "/website/$channelId",
+        to: "/spaces/$channelId",
         params: { channelId: personal.id },
         state,
       });
     } else {
-      navigate({ to: "/code", state });
+      navigate({ to: "/new", state });
     }
   };
 

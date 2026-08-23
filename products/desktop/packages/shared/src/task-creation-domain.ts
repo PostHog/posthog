@@ -71,7 +71,7 @@ export interface TaskCreationInput {
   channelId?: string;
   /**
    * Desktop file-system folder id that owns this channel's CONTEXT.md (the
-   * `/website/$channelId` id — distinct from the backend feed `channelId`
+   * `/spaces/$channelId` id — distinct from the backend feed `channelId`
    * above). When set, the injected context tells the agent to publish upkeep
    * corrections to this exact id via the PostHog MCP, rather than resolving the
    * channel by display name.

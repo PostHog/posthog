@@ -43,8 +43,8 @@ vi.mock("@tanstack/react-router", () => ({
     }) => unknown;
   }) =>
     select({
-      location: { pathname: "/website/chan-1/tasks/task-1" },
-      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+      location: { pathname: "/spaces/chan-1/tasks/task-1" },
+      matches: [{ routeId: "/spaces/$channelId/tasks/$taskId" }],
     }),
 }));
 vi.mock(
@@ -119,7 +119,7 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
 import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ActivityDetailPane } from "./ActivityDetailPane";
-import { WebsiteLayout } from "./WebsiteLayout";
+import { ShellLayout } from "./ShellLayout";
 
 describe("SpaceHeaderRow", () => {
   it("keeps the header store off the layout that renders its writer", () => {
@@ -131,7 +131,7 @@ describe("SpaceHeaderRow", () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <WebsiteLayout />
+        <ShellLayout />
       </QueryClientProvider>,
     );
     // A layout that subscribes to the header store blows the update depth here.
