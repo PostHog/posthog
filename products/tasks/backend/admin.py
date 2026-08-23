@@ -240,6 +240,10 @@ class LoopAdmin(admin.ModelAdmin):
                 pause_loop(loop, DISABLED_REASON_ADMIN_PAUSED, cancel_runs=False)
                 paused += 1
             except Exception:
+                # Temporal never lands here: `pause_loop_schedules` swallows and logs its own
+                # failures, and a schedule left running can't start anything because `fire_loop`
+                # refuses a disabled loop. What reaches this is a failed row save (loop still
+                # enabled) or a failed notification dispatch (loop paused, owner not told).
                 logger.exception("loop_admin.pause_failed", extra={"loop_id": str(loop.id)})
                 failed.append(loop)
 
@@ -251,7 +255,8 @@ class LoopAdmin(admin.ModelAdmin):
             failed_ids = ", ".join(str(loop.id) for loop in failed)
             self.message_user(
                 request,
-                f"Could not pause {len(failed)} loop(s): {failed_ids}. Check their schedules by hand.",
+                f"Could not pause {len(failed)} loop(s): {failed_ids}. Check the logs and confirm their "
+                "state in the list.",
                 level=messages.ERROR,
             )
 

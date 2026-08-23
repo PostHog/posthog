@@ -189,15 +189,18 @@ class TestLoopAdminPauseAction(BaseTest):
     def test_keeps_going_when_one_loop_fails(self) -> None:
         failing = self._loop("failing")
 
-        def fail_for_failing(loop: Loop) -> None:
+        def fail_for_failing(loop: Loop, event: str, payload: dict[str, object]) -> None:
             if loop.id == failing.id:
-                raise RuntimeError("temporal down")
+                raise RuntimeError("notifications down")
 
-        self.mock_pause_schedules.side_effect = fail_for_failing
+        self.mock_dispatch.side_effect = fail_for_failing
 
         notices = self._pause(failing, self.enabled)
 
         self.assertEqual(self._state(self.enabled), (False, "admin_paused"))
+        # pause_loop saves the row before it notifies, so the failing loop is paused even though
+        # the action reports it as a failure. The report is deliberately the pessimistic one.
+        self.assertEqual(self._state(failing), (False, "admin_paused"))
         self.assertEqual(len(notices), 2)
         self.assertEqual(notices[0], "Paused 1 of 2 selected loop(s).")
         self.assertIn(str(failing.id), notices[1])
