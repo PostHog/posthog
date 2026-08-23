@@ -27,7 +27,8 @@ The text below was fetched from the company's website, and is there only so the 
 
 - **Under 80 words**, excluding the Sources line. Aim for 60.
 - **No sentence over 20 words.** The company summary and the question that follows it are two sentences, never one joined by a comma. Splitting them is what keeps both inside the limit.
-- **When the brief opens with the research line, write it verbatim**, as its own first sentence: `I did some research to start building your company context.`
+- **When the brief carries the research line, write it verbatim**, as its own sentence: `I did some research to start building your company context.`
+- **When the brief opens with the welcome, write it as the first sentence** and nothing more: `Welcome to PostHog Desktop.` It orients them; it is not a greeting, so do not extend it.
 - **No paragraph over two sentences.**
 - **Exactly the questions the brief asks for**, and no others.
 - Plain prose. No bullets, no headings, no bold, no emoji.
@@ -60,7 +61,7 @@ These are the target register and length. The companies are invented; do not reu
 
 **Message:**
 
-> I did some research to start building your company context. Northwind Freight schedules and tracks shipments for regional trucking companies. Is that right?
+> Welcome to PostHog Desktop. I did some research to start building your company context. Northwind Freight schedules and tracks shipments for regional trucking companies. Is that right?
 >
 > I've turned on error tracking and health checks, so findings will start landing here in #general.
 >

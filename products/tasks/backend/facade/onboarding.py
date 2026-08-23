@@ -35,6 +35,8 @@ ONBOARDING_SESSION_TITLE = "Getting set up"
 
 ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
 
+ONBOARDING_SESSION_EFFORT = "medium"
+
 # The session lands in #general, so it is gated on the flag that decides whether spaces exist
 # for this person at all. Nothing to gain from a second rollout dial.
 SPACES_LAYOUT_FLAG = "code-spaces-layout"
@@ -61,6 +63,8 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
                 org_has_context=True,
                 signal_reports_waiting=visible_report_count(team.id),
                 other_members=prose_list(desktop_users_in_team(team.id, user.id)),
+                sources_enabled=sources.labels,
+                sources_newly_enabled=sources.newly_enabled,
             ),
             "",
         )
@@ -72,7 +76,8 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         research=research,
         has_events=bool(team.ingested_event),
         signal_reports_waiting=visible_report_count(team.id),
-        sources_enabled=sources,
+        sources_enabled=sources.labels,
+        sources_newly_enabled=sources.newly_enabled,
     )
     homepage = research.markdown or "" if research and research.outcome == "scraped" else ""
     return facts, homepage
@@ -136,6 +141,10 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         create_pr=False,
         mode="interactive",
         model=ONBOARDING_SESSION_MODEL,
+        reasoning_effort=ONBOARDING_SESSION_EFFORT,
+        # The session only ever talks and writes the space's context, so a permission prompt
+        # would be the first thing a new user had to answer, about a tool they cannot see.
+        initial_permission_mode="auto",
     )
     logger.info(
         "onboarding_session_started",
@@ -144,5 +153,6 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         prompt_version=prompt.version,
         research_outcome=facts.research.outcome if facts.research else None,
         sources_enabled=facts.sources_enabled,
+        sources_newly_enabled=facts.sources_newly_enabled,
     )
     return created.task_id

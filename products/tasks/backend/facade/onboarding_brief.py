@@ -6,6 +6,8 @@ from products.tasks.backend.facade.domain_research import DomainResearch
 
 TOP_OF_MIND = "Ask what's top of mind."
 
+WELCOME_LINE = "Open with: Welcome to PostHog Desktop."
+
 RESEARCH_LINE = "Say you did some research to start building their company context."
 
 SAVE_CONTEXT = (
@@ -27,6 +29,7 @@ class OnboardingFacts:
     has_events: bool = False
     signal_reports_waiting: int = 0
     sources_enabled: tuple[str, ...] = ()
+    sources_newly_enabled: bool = False
     other_members: str | None = None
 
 
@@ -69,9 +72,13 @@ def _status_line(facts: OnboardingFacts) -> str | None:
     if not facts.has_events:
         return "Say plainly that no PostHog data is arriving yet, because nothing is connected to send it."
     enabled = prose_list(facts.sources_enabled, limit=_NAMED_SOURCE_LIMIT)
-    if enabled:
+    if not enabled:
+        return None
+    if facts.sources_newly_enabled:
         return f"Tell them you turned on {enabled}, so findings will start landing in #general."
-    return None
+    # Already watching when they arrived, so claiming to have turned it on would be a lie, and
+    # saying nothing leaves them waiting on findings they were never told to expect.
+    return f"Tell them you are watching {enabled}, and findings will land in #general as they come up."
 
 
 def _offer_line(facts: OnboardingFacts) -> str | None:
@@ -91,7 +98,7 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
         return _joining_brief(facts)
 
     scraped = facts.research is not None and facts.research.outcome == "scraped"
-    brief = [RESEARCH_LINE]
+    brief = [WELCOME_LINE, RESEARCH_LINE]
 
     if scraped:
         brief.append("Summarize what the company does, from the page below, and ask whether that is right.")

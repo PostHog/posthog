@@ -363,6 +363,9 @@ _ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str], ...] = (
 )
 
 
+_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label in _ONBOARDING_NATIVE_SOURCES}
+
+
 def _syncing_warehouse_signal_sources(team_id: int) -> list[tuple[str, str, str]]:
     """``(source_product, source_type, label)`` for every warehouse source the team already syncs
     that has a signal emitter behind it.
@@ -390,8 +393,30 @@ def _syncing_warehouse_signal_sources(team_id: int) -> list[tuple[str, str, str]
     return [(product, source_type, label) for (product, source_type), label in found.items()]
 
 
-def enable_onboarding_signal_sources(team_id: int, user_id: int) -> tuple[str, ...]:
-    """Turn on every signal source this team can run today, and name what was turned on.
+@dataclasses.dataclass(frozen=True)
+class OnboardingSources:
+    """What is watching this team, and whether onboarding is what switched it on. The message says
+    different things about a source it just enabled and one that was already running."""
+
+    labels: tuple[str, ...]
+    newly_enabled: bool
+
+
+def _active_source_labels(team_id: int) -> tuple[str, ...]:
+    products = (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        .values_list("source_product", flat=True)
+        .distinct()
+    )
+    labels = {
+        _ONBOARDING_LABELS.get(product) or SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(product), product)
+        for product in products
+    }
+    return tuple(sorted(labels))
+
+
+def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSources:
+    """Turn on every signal source this team can run today, and name what is watching.
 
     Called once, when a workspace is first set up, so the team is watched without anyone working
     through a grid of toggles. Best-effort by design: a source that fails to enable is logged and
@@ -402,7 +427,7 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> tuple[str, .
     picked its own sources did not ask us to add to them.
     """
     if has_enabled_source(team_id):
-        return ()
+        return OnboardingSources(labels=_active_source_labels(team_id), newly_enabled=False)
 
     labels: list[str] = []
     bundles: list[tuple[str, tuple[str, ...], str]] = [
@@ -425,7 +450,7 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> tuple[str, .
             logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
             continue
         labels.append(label)
-    return tuple(labels)
+    return OnboardingSources(labels=tuple(labels), newly_enabled=bool(labels))
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,

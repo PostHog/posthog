@@ -21,6 +21,7 @@ def _setup_facts(**overrides: object) -> OnboardingFacts:
         "research": SCRAPED,
         "has_events": True,
         "sources_enabled": ("error tracking",),
+        "sources_newly_enabled": True,
     }
     base.update(overrides)
     return OnboardingFacts(**base)  # type: ignore[arg-type]
@@ -44,6 +45,11 @@ class TestOpeningBrief(SimpleTestCase):
         joined = " ".join(brief)
         assert "Summarize what the company does" not in joined
         assert "Sources:" not in joined
+
+    def test_the_first_thing_they_read_says_where_they_are(self) -> None:
+        brief = build_opening_brief(_setup_facts())
+
+        assert brief[0] == "Open with: Welcome to PostHog Desktop."
 
     def test_a_read_page_is_summarized_and_cited(self) -> None:
         brief = build_opening_brief(_setup_facts())
@@ -99,6 +105,13 @@ class TestOpeningBrief(SimpleTestCase):
 
         assert not any("findings will start landing" in line for line in brief)
         assert any("no PostHog data is arriving yet" in line for line in brief)
+
+    def test_a_workspace_already_being_watched_is_never_told_we_just_turned_it_on(self) -> None:
+        brief = build_opening_brief(_setup_facts(sources_newly_enabled=False))
+
+        (status,) = [line for line in brief if "error tracking" in line]
+        assert "you are watching error tracking" in status
+        assert "turned on" not in status
 
     def test_the_message_names_a_few_sources_rather_than_listing_every_one(self) -> None:
         brief = build_opening_brief(

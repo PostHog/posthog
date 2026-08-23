@@ -15,7 +15,7 @@ def _enabled_pairs(team_id: int) -> set[tuple[str, str]]:
 
 class TestOnboardingSignalSources(BaseTest):
     def test_a_new_workspace_ends_up_watched_without_anyone_touching_a_toggle(self) -> None:
-        labels = enable_onboarding_signal_sources(self.team.id, self.user.id)
+        sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
         assert _enabled_pairs(self.team.id) == {
             ("error_tracking", "issue_created"),
@@ -26,16 +26,18 @@ class TestOnboardingSignalSources(BaseTest):
             ("llm_analytics", "evaluation_report"),
             ("analytics", "anomaly_investigation"),
         }
-        assert labels[:2] == ("error tracking", "health checks")
+        assert sources.newly_enabled
+        assert sources.labels[:2] == ("error tracking", "health checks")
 
     def test_a_team_that_picked_its_own_sources_is_left_alone(self) -> None:
         SignalSourceConfig.objects.create(
             team_id=self.team.id, source_product="linear", source_type="issue", enabled=True
         )
 
-        labels = enable_onboarding_signal_sources(self.team.id, self.user.id)
+        sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
-        assert labels == ()
+        assert not sources.newly_enabled
+        assert sources.labels == ("Linear",)
         assert _enabled_pairs(self.team.id) == {("linear", "issue")}
 
     def test_a_warehouse_source_the_team_already_syncs_is_turned_on_too(self) -> None:
@@ -43,10 +45,10 @@ class TestOnboardingSignalSources(BaseTest):
             "products.signals.backend.facade.api._syncing_warehouse_signal_sources",
             return_value=[("linear", "issue", "Linear")],
         ):
-            labels = enable_onboarding_signal_sources(self.team.id, self.user.id)
+            sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
         assert ("linear", "issue") in _enabled_pairs(self.team.id)
-        assert "Linear" in labels
+        assert "Linear" in sources.labels
 
     def test_one_source_failing_does_not_take_the_rest_down(self) -> None:
         real = SignalSourceConfig.objects.update_or_create
@@ -57,8 +59,8 @@ class TestOnboardingSignalSources(BaseTest):
             return real(**kwargs)
 
         with patch.object(SignalSourceConfig.objects, "update_or_create", side_effect=explode_on_health_checks):
-            labels = enable_onboarding_signal_sources(self.team.id, self.user.id)
+            sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
-        assert "health checks" not in labels
-        assert "error tracking" in labels
+        assert "health checks" not in sources.labels
+        assert "error tracking" in sources.labels
         assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
