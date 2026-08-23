@@ -115,6 +115,42 @@ const channelInstructionsUpdate = (): ToolBase<
     },
 })
 
+const ChannelListSchema = TaskChannelsListQueryParams
+
+const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
+    name: 'channel-list',
+    schema: ChannelListSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
+})
+
+const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
+    name: 'channel-retrieve',
+    schema: ChannelRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const LoopChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
     id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe("ID of the loop's context channel."),
 })
@@ -161,42 +197,6 @@ const loopChannelInstructionsUpdate = (): ToolBase<
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
             body,
-        })
-        return result
-    },
-})
-
-const ChannelListSchema = TaskChannelsListQueryParams
-
-const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
-    name: 'channel-list',
-    schema: ChannelListSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
-const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
-})
-
-const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
-    name: 'channel-retrieve',
-    schema: ChannelRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ChannelDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -745,10 +745,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-create': channelCreate,
     'channel-instructions-retrieve': channelInstructionsRetrieve,
     'channel-instructions-update': channelInstructionsUpdate,
-    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
-    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
+    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
+    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
     'loops-destroy': loopsDestroy,
