@@ -26,7 +26,6 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
 )
 from products.tasks.backend.facade.onboarding_prompt import load_onboarding_prompt, render_onboarding_prompt
-from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
@@ -45,16 +44,6 @@ ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
 def _origin_key(user_id: int) -> str:
     return f"{ONBOARDING_ORIGIN_KEY_PREFIX}:{user_id}"
-
-
-def _quota_denial_reason(team: Team, user: User) -> str | None:
-    stub = Task(
-        team=team,
-        created_by=user,
-        origin_product=Task.OriginProduct.USER_CREATED,
-        client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
-    )
-    return get_compute_quota_denial_reason(stub)
 
 
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
@@ -142,10 +131,6 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
     channel_id = find_general_channel_id(team.id)
     if channel_id is None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
-        return None
-
-    if denial := _quota_denial_reason(team, user):
-        logger.info("onboarding_session_skipped", team_id=team.id, reason=denial)
         return None
 
     started = _started_session_id(team.id, user.id)

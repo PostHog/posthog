@@ -14,7 +14,6 @@ from products.tasks.backend.facade.onboarding import _origin_key, start_onboardi
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
-QUOTA_MODULE = "products.tasks.backend.logic.services.compute_quota"
 
 NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
 
@@ -77,25 +76,6 @@ class TestOnboardingSessionIdempotency(TestCase):
 
         with self.assertRaises(IntegrityError):
             self._start(create_side_effect=IntegrityError("duplicate key"))
-
-    def test_a_deactivated_organization_gets_no_session(self):
-        self.organization.is_active = False
-        self.organization.save(update_fields=["is_active"])
-
-        started, create_calls = self._start(create_side_effect=AssertionError)
-
-        self.assertIsNone(started)
-        self.assertEqual(create_calls, 0)
-
-    def test_an_exhausted_compute_quota_gets_no_session(self):
-        with (
-            self.settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True),
-            patch(f"{QUOTA_MODULE}._is_posthog_code_quota_limited", return_value=True),
-        ):
-            started, create_calls = self._start(create_side_effect=AssertionError)
-
-        self.assertIsNone(started)
-        self.assertEqual(create_calls, 0)
 
     def test_a_first_request_starts_a_session_keyed_to_the_user(self):
         task_id = uuid4()
