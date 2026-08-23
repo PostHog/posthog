@@ -10,11 +10,13 @@ and a hard cap on dispatches per tick.
 
 from __future__ import annotations
 
+import uuid
 import asyncio
 import datetime as dt
 import functools
 from pathlib import Path
 
+from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
@@ -23,10 +25,12 @@ import temporalio.common
 import temporalio.workflow
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import sync_connect
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.context_layer.backend.models import ContextLayerConfig
@@ -181,7 +185,10 @@ def _build_dream_prompt() -> str:
     because the checked-in files cannot change within a process's lifetime."""
     dreaming = (SKILLS_DIR / "context-layer-dreaming" / "SKILL.md").read_text(encoding="utf-8")
     consolidation = (SKILLS_DIR / "context-layer-consolidation" / "SKILL.md").read_text(encoding="utf-8")
-    return f"{_strip_frontmatter(dreaming)}\n\n{_strip_frontmatter(consolidation)}"
+    health_check = (SKILLS_DIR / "context-layer-health-check" / "SKILL.md").read_text(encoding="utf-8")
+    return "\n\n".join(
+        (_strip_frontmatter(dreaming), _strip_frontmatter(consolidation), _strip_frontmatter(health_check))
+    )
 
 
 def _strip_frontmatter(content: str) -> str:
@@ -237,3 +244,35 @@ class ContextLayerDreamCoordinatorWorkflow(PostHogWorkflow):
         return DreamCoordinatorOutput(
             planned=len(candidates), dispatched=dispatched, failed=len(candidates) - dispatched
         )
+
+
+@temporalio.workflow.defn(name="context-layer-bootstrap-dream")
+class ContextLayerBootstrapDreamWorkflow(PostHogWorkflow):
+    @temporalio.workflow.run
+    async def run(self, input: DispatchDreamRunInput) -> DispatchDreamRunOutput:
+        return await temporalio.workflow.execute_activity(
+            dispatch_dream_run,
+            input,
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+        )
+
+
+def trigger_bootstrap_dream(organization_id: str) -> None:
+    """Fire-and-forget first dream. Enablement remains successful if Temporal is unavailable."""
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "context-layer-bootstrap-dream",
+                DispatchDreamRunInput(organization_id=organization_id),
+                id=f"context-layer-bootstrap-dream-{organization_id}-{uuid.uuid4()}",
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        )
+    except Exception:
+        logger.exception("context_layer.dreaming.bootstrap_dispatch_failed", organization_id=organization_id)
+        config = ContextLayerConfig.objects.filter(organization_id=organization_id).first()
+        if config is not None:
+            _record_dispatch_failure(config)
