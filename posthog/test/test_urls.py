@@ -133,6 +133,18 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], expected_location)
 
+    @parameterized.expand(
+        [
+            ("no_query_string", "/api", "/api/"),
+            ("with_query_string", "/api?foo=bar", "/api/?foo=bar"),
+        ]
+    )
+    def test_api_without_trailing_slash_redirects(self, _name, request_path, expected_location):
+        # APPEND_SLASH is disabled globally, so bare /api needs an explicit redirect to the DRF root
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], expected_location)
+
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
         self.team.save()
