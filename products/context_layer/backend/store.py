@@ -19,6 +19,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from django.utils import timezone
+
 import structlog
 from redis.exceptions import RedisError
 
@@ -715,7 +717,9 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
     escape hatch for sensitive content committed by mistake.
 
     Raises `PurgeIncompleteError` if the rewrite lands but an old bundle cannot
-    be removed, so a caller never treats a partial purge as done.
+    be removed, so a caller never treats a partial purge as done. The object
+    storage bucket must not have versioning enabled, because a versioned bucket
+    retains deleted bundle bodies as prior versions.
     """
 
     def reinitialize_history(root: Path) -> None:
@@ -728,7 +732,23 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
     # bundle must survive.
     with repo_writer_lock(organization_id):
         head_sha = get_config(organization_id).head_sha
-        _prune_bundles_except(organization_id, head_sha)
+        try:
+            _prune_bundles_except(organization_id, head_sha)
+        except Exception:
+            # The rewrite landed but old bundles with the purged content are
+            # still readable; stamp the config so the partial purge is durable
+            # state a human can find, not just a raised-and-lost exception.
+            ContextLayerConfig.objects.filter(organization_id=organization_id).update(
+                purge_incomplete_at=timezone.now()
+            )
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id=str(organization_id),
+                    event="context layer purge incomplete",
+                    properties={"organization_id": str(organization_id)},
+                )
+            raise
+        ContextLayerConfig.objects.filter(organization_id=organization_id).update(purge_incomplete_at=None)
         return head_sha
 
 

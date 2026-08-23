@@ -1,10 +1,15 @@
-from datetime import timedelta
+import asyncio
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.contrib import admin as django_admin
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from products.context_layer.backend.admin import ContextLayerConfigAdmin
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.temporal import dreaming
 
@@ -39,11 +44,19 @@ class TestDreamingLane(BaseTest):
 
     def test_dispatch_failure_streak_pauses_the_lane(self) -> None:
         config = self._config()
-        for expected_streak in range(1, dreaming.FAILURE_STREAK_PAUSE_THRESHOLD + 1):
-            dreaming._record_dispatch_failure(config)
-            config.refresh_from_db()
-            assert config.dream_failure_streak == expected_streak
+        scoped = MagicMock()
+        capture = scoped.return_value.__enter__.return_value
+        with patch.object(dreaming, "ph_scoped_capture", scoped):
+            for expected_streak in range(1, dreaming.FAILURE_STREAK_PAUSE_THRESHOLD + 1):
+                dreaming._record_dispatch_failure(config)
+                config.refresh_from_db()
+                assert config.dream_failure_streak == expected_streak
         assert config.dreaming_paused is True
+        paused_calls = [
+            call for call in capture.call_args_list if call.kwargs["event"] == "context layer dreaming paused"
+        ]
+        assert len(paused_calls) == 1
+        assert paused_calls[0].kwargs["properties"]["streak"] == dreaming.FAILURE_STREAK_PAUSE_THRESHOLD
 
         dreaming._record_dispatch_success(config)
         config.refresh_from_db()
@@ -72,7 +85,44 @@ class TestDreamingLane(BaseTest):
         assert prepared.user_id == self.user.id
 
     def test_dream_prompt_carries_both_skills_without_frontmatter(self) -> None:
-        prompt = dreaming._build_dream_prompt()
+        prompt = dreaming._build_dream_prompt(None)
         assert "# Context layer dreaming" in prompt
         assert "# Context layer consolidation" in prompt
         assert "name: context-layer-dreaming" not in prompt
+
+    @parameterized.expand(
+        [
+            (None, "This is the first dream: review the last 7 days of organizational activity."),
+            (
+                datetime(2026, 8, 20, 3, 0, tzinfo=UTC),
+                "Review organizational activity since 2026-08-20T03:00:00+00:00.",
+            ),
+        ]
+    )
+    def test_dispatch_prompt_carries_the_activity_window(self, last_dream_started_at, expected_preamble) -> None:
+        config = ContextLayerConfig(
+            organization=self.organization, head_sha="a" * 40, last_dream_started_at=last_dream_started_at
+        )
+        target = dreaming._DreamDispatchTarget(config=config, team_id=self.team.id, user_id=self.user.id)
+        trigger_mock = AsyncMock()
+        with (
+            patch.object(dreaming, "_prepare_dispatch", return_value=target),
+            patch.object(dreaming, "_record_dispatch_success"),
+            patch.object(dreaming, "_capture_lane_event"),
+            patch("products.tasks.backend.facade.agents.create_task_and_trigger", trigger_mock),
+        ):
+            result = asyncio.run(
+                dreaming.dispatch_dream_run(dreaming.DispatchDreamRunInput(organization_id=str(self.organization.id)))
+            )
+        assert result.dispatched is True
+        prompt = trigger_mock.call_args.args[0]
+        assert prompt.startswith(expected_preamble)
+        assert "# Context layer dreaming" in prompt
+
+    def test_admin_unpause_action_leaves_the_streak_alone(self) -> None:
+        config = self._config(dreaming_paused=True, dream_failure_streak=dreaming.FAILURE_STREAK_PAUSE_THRESHOLD)
+        model_admin = ContextLayerConfigAdmin(ContextLayerConfig, django_admin.site)
+        model_admin.unpause_dreaming(MagicMock(), ContextLayerConfig.objects.filter(pk=config.pk))
+        config.refresh_from_db()
+        assert config.dreaming_paused is False
+        assert config.dream_failure_streak == dreaming.FAILURE_STREAK_PAUSE_THRESHOLD

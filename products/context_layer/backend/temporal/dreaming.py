@@ -29,6 +29,7 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 
@@ -42,6 +43,12 @@ DISPATCH_CAP_PER_TICK = 200
 # its nightly run several nights in a row, and a human unpauses it.
 FAILURE_STREAK_PAUSE_THRESHOLD = 3
 SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
+COORDINATOR_DISTINCT_ID = "context-layer-coordinator"
+
+
+def _capture_lane_event(distinct_id: str, event: str, properties: dict[str, str | int]) -> None:
+    with ph_scoped_capture() as capture:
+        capture(distinct_id=distinct_id, event=event, properties=properties)
 
 
 @frozen
@@ -85,6 +92,11 @@ def _fetch_dream_candidates() -> list[str]:
         candidates.append(organization_id)
         if len(candidates) >= DISPATCH_CAP_PER_TICK:
             logger.warning("context_layer.dreaming.dispatch_cap_reached", cap=DISPATCH_CAP_PER_TICK)
+            _capture_lane_event(
+                COORDINATOR_DISTINCT_ID,
+                "context layer dream dispatch cap reached",
+                {"cap": DISPATCH_CAP_PER_TICK},
+            )
             break
     return candidates
 
@@ -119,6 +131,11 @@ def _prepare_dispatch(organization_id: str) -> _DreamDispatchTarget | None:
         # dispatch: without this it would retry silently every night forever
         # instead of tripping the circuit breaker for a human to look at.
         _record_dispatch_failure(config)
+        _capture_lane_event(
+            organization_id,
+            "context layer dream dispatch failed",
+            {"organization_id": organization_id, "reason": "no_dispatch_target"},
+        )
         return None
     return _DreamDispatchTarget(config=config, team_id=home_team.id, user_id=user_id)
 
@@ -143,6 +160,11 @@ def _record_dispatch_failure(config: ContextLayerConfig) -> None:
             organization_id=str(config.organization_id),
             streak=streak,
         )
+        _capture_lane_event(
+            str(config.organization_id),
+            "context layer dreaming paused",
+            {"organization_id": str(config.organization_id), "streak": streak},
+        )
 
 
 @activity.defn
@@ -158,9 +180,13 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
     if target is None:
         return DispatchDreamRunOutput(dispatched=False)
 
+    # Read the previous night's stamp before _record_dispatch_success overwrites
+    # it: it is the start of the activity window this dream should review.
+    previous_dream_started_at = target.config.last_dream_started_at
+
     try:
         await create_task_and_trigger(
-            _build_dream_prompt(),
+            _build_dream_prompt(previous_dream_started_at),
             # Read-only MCP surface: the dream gathers from reads and lands its
             # branch through the commits endpoint, which accepts the run token's
             # task:write + internal_run:read pair — it never needs user-facing writes.
@@ -172,17 +198,36 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
     except Exception:
         logger.exception("context_layer.dreaming.dispatch_failed", organization_id=input.organization_id)
         await sync_to_async(_record_dispatch_failure, thread_sensitive=False)(target.config)
+        await sync_to_async(_capture_lane_event, thread_sensitive=False)(
+            input.organization_id,
+            "context layer dream dispatch failed",
+            {"organization_id": input.organization_id, "reason": "dispatch_error"},
+        )
         return DispatchDreamRunOutput(dispatched=False)
 
     await sync_to_async(_record_dispatch_success, thread_sensitive=False)(target.config)
+    await sync_to_async(_capture_lane_event, thread_sensitive=False)(
+        input.organization_id,
+        "context layer dream dispatched",
+        {"organization_id": input.organization_id},
+    )
     return DispatchDreamRunOutput(dispatched=True)
 
 
+def _build_dream_prompt(since: dt.datetime | None) -> str:
+    """The activity window this dream should review, then the canonical skills:
+    synthesis first, then the bounded consolidation pass on the same branch."""
+    if since is None:
+        preamble = "This is the first dream: review the last 7 days of organizational activity."
+    else:
+        preamble = f"Review organizational activity since {since.astimezone(dt.UTC).isoformat()}."
+    return f"{preamble}\n\n{_dream_skills_content()}"
+
+
 @functools.cache
-def _build_dream_prompt() -> str:
-    """The dream run's prompt is the canonical skills, verbatim: synthesis
-    first, then the bounded consolidation pass on the same branch. Cached
-    because the checked-in files cannot change within a process's lifetime."""
+def _dream_skills_content() -> str:
+    """The canonical skills, verbatim. Cached because the checked-in files
+    cannot change within a process's lifetime."""
     dreaming = (SKILLS_DIR / "context-layer-dreaming" / "SKILL.md").read_text(encoding="utf-8")
     consolidation = (SKILLS_DIR / "context-layer-consolidation" / "SKILL.md").read_text(encoding="utf-8")
     health_check = (SKILLS_DIR / "context-layer-health-check" / "SKILL.md").read_text(encoding="utf-8")

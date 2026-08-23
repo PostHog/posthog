@@ -157,6 +157,27 @@ class TestContextLayerStore(BaseTest):
             commit_count = store._run_git(["rev-list", "--count", "HEAD"], cwd=checkout.path)
             assert commit_count == "1"
 
+    def test_purge_prune_failure_stamps_the_config_until_a_purge_succeeds(self) -> None:
+        store.initialize_repo(self.organization.id)
+        scoped = MagicMock()
+        capture = scoped.return_value.__enter__.return_value
+
+        with (
+            patch.object(store, "_prune_bundles_except", side_effect=store.PurgeIncompleteError("delete failed")),
+            patch.object(store, "ph_scoped_capture", scoped),
+        ):
+            with self.assertRaises(store.PurgeIncompleteError):
+                store.purge_repo_history(self.organization.id)
+
+        config = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert config.purge_incomplete_at is not None
+        events = [call.kwargs["event"] for call in capture.call_args_list]
+        assert "context layer purge incomplete" in events
+
+        store.purge_repo_history(self.organization.id)
+        config.refresh_from_db()
+        assert config.purge_incomplete_at is None
+
     def test_landing_prunes_bundles_older_than_the_previous_head(self) -> None:
         h0 = store.initialize_repo(self.organization.id).head_sha
 

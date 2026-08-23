@@ -10,7 +10,7 @@ Improve the mounted context wiki with durable, sourced facts from recent organiz
 ## Protocol
 
 1. Create `dream/$(date +%F)`. Read `AGENTS.md`, `index.md`, and the last ten merge commits with `git log --merges --format='%s%n%b' -10`.
-2. Review recent tasks and their outcomes, merged pull requests, newly instrumented events and definitions, and the wiki's own performance.
+2. Take the activity window from the run prompt. Review it in priority order: tasks completed and their outcomes, merged pull requests, loop runs and summaries, newly created event and property definitions. Cap each source at roughly the 200 most recent items in the window. When a night can't cover everything, prefer newest first and note the cutoff in the run summary.
 3. Review the same recent task and loop conversations for moments where the wiki itself failed the agent: context it needed that no page held, a page that misled it, or a page it was told to read and clearly didn't need. Fix the page (or write the missing one, admission test permitting), and record each miss as a line in your run summary starting `wiki-miss:` — these lines are the signal for evolving AGENTS.md's map and the health check's priorities.
 4. List candidate facts before editing. Apply the admission test: a fact enters the wiki only if it changes a durable fact, decision, priority, ownership, reusable definition, constraint, or an evidenced recurring pattern.
 5. Find the owning page through the index and update it. Record `sources`, set `review_after` for claims that will age, condense superseded text, and use `**Disagreement:**` for unresolved conflicts.

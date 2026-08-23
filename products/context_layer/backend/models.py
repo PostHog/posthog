@@ -36,5 +36,9 @@ class ContextLayerConfig(models.Model):
     dream_failure_streak = models.PositiveIntegerField(default=0)
     dreaming_paused = models.BooleanField(default=False)
 
+    # Set when a purge rewrote the history but could not remove every old
+    # bundle; cleared by the next fully successful purge.
+    purge_incomplete_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "context_layer_config"

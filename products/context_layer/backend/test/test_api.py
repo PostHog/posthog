@@ -321,7 +321,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_commits_endpoint_lands_a_dream_branch_as_one_merge_commit(self, _flag) -> None:
         self._enable()
-        bundle_bytes = self._bundle_with_edit("areas/dreamt.md", "# Dreamt\n", branch="dream/2026-08-18")
+        bundle_bytes = self._bundle_with_edit("areas/dreamt.md", _page("Dreamt"), branch="dream/2026-08-18")
         response = self.client.post(
             f"{self.base_url}/commits/",
             {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes), "branch": "dream/2026-08-18"},
@@ -329,7 +329,7 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/dreamt.md"}).json()
-        assert page["content"] == "# Dreamt\n"
+        assert page["content"] == _page("Dreamt")
         with store.checkout_repo(self.organization.id) as checkout:
             merges = subprocess.run(
                 ["git", "log", "--merges", "--format=%s"], cwd=checkout.path, capture_output=True, text=True
