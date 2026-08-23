@@ -50,6 +50,10 @@ class TrafficStopCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 5 * * *"
     active_since_days = 30
+    # Canary this new check at 1% of teams. It is the first health check to compare a project
+    # against its own baseline, and its query has not yet run against real data, so widen the
+    # rollout only after the thresholds prove out in production.
+    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the Web analytics health page. Your project was receiving events steadily and then stopped,
