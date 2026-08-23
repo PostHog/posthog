@@ -9,6 +9,7 @@ upload the new bundle, CAS the head, release. Readers never take the lock.
 
 from __future__ import annotations
 
+import re
 import uuid
 import shutil
 import tempfile
@@ -17,6 +18,8 @@ import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+from django.utils import timezone
 
 import structlog
 from redis.exceptions import RedisError
@@ -44,6 +47,7 @@ BUNDLE_MAX_OBJECTS = 500_000
 # sum across commits rather than the size of any one of them. A prose wiki lands
 # far below this; a bundle that exceeds it has to be split.
 BUNDLE_MAX_CUMULATIVE_TREE_BYTES = 1_000_000_000
+DREAM_BRANCH_RE = re.compile(r"dream/\d{4}-\d{2}-\d{2}")
 LOCK_TTL_MS = 60_000
 LOCK_RENEW_INTERVAL_SECONDS = 20.0
 GIT_TIMEOUT_SECONDS = 60
@@ -620,6 +624,22 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
 
+def _fetch_incoming_bundle(workdir: Path, bundle_bytes: bytes, ref: str) -> str | None:
+    """Fetch `ref` from a posted bundle into the working clone; returns its sha,
+    or None when it already equals the current head."""
+    incoming = workdir.parent / "incoming.bundle"
+    incoming.write_bytes(bundle_bytes)
+    try:
+        _run_git(["bundle", "verify", "--quiet", str(incoming)], cwd=workdir)
+        _run_git(["fetch", "--quiet", str(incoming), ref], cwd=workdir)
+    except ContextLayerStoreError as error:
+        raise BundleConflictError(f"could not read the posted bundle: {error}") from error
+    fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
+    if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
+        return None
+    return fetched
+
+
 def land_commit_bundle(
     organization_id: uuid.UUID | str, bundle_bytes: bytes, *, summary: str | None = None, lane: str = "dream"
 ) -> str:
@@ -633,15 +653,8 @@ def land_commit_bundle(
     """
 
     def prepare(workdir: Path) -> str | None:
-        incoming = workdir.parent / "incoming.bundle"
-        incoming.write_bytes(bundle_bytes)
-        try:
-            _run_git(["bundle", "verify", "--quiet", str(incoming)], cwd=workdir)
-            _run_git(["fetch", "--quiet", str(incoming), DEFAULT_BRANCH], cwd=workdir)
-        except ContextLayerStoreError as error:
-            raise BundleConflictError(f"could not read the posted bundle: {error}") from error
-        fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
-        if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
+        fetched = _fetch_incoming_bundle(workdir, bundle_bytes, DEFAULT_BRANCH)
+        if fetched is None:
             return None
         _assert_bundle_within_bounds(workdir, fetched)
         _run_git(["checkout", "--quiet", "-B", "incoming", fetched], cwd=workdir)
@@ -662,13 +675,51 @@ def land_commit_bundle(
     return _run_landing(organization_id, prepare=prepare, lane=lane)
 
 
+def land_dream_branch(
+    organization_id: uuid.UUID | str,
+    bundle_bytes: bytes,
+    *,
+    branch: str,
+    summary: str | None = None,
+) -> str:
+    """Land a night's `dream/<YYYY-MM-DD>` branch as one two-parent merge commit
+    (`dream: <date>`), keeping the branch ref, so every night stays trackable
+    (`git log --merges`) and revertible (`git revert -m 1`) as a unit."""
+    if not DREAM_BRANCH_RE.fullmatch(branch):
+        raise BundleConflictError(f"{branch!r} is not a dream branch; expected dream/<YYYY-MM-DD>")
+
+    def prepare(workdir: Path) -> str | None:
+        fetched = _fetch_incoming_bundle(workdir, bundle_bytes, branch)
+        if fetched is None:
+            return None
+        _assert_bundle_within_bounds(workdir, fetched)
+        _lint_incoming_commits(workdir, DEFAULT_BRANCH, fetched)
+        # The lint walk leaves HEAD detached at the branch tip; the merge below
+        # must run from main or it silently no-ops and the landing keeps the
+        # old tree.
+        _run_git(["checkout", "--quiet", "--force", DEFAULT_BRANCH], cwd=workdir)
+        _run_git(["branch", "--force", branch, fetched], cwd=workdir)
+        try:
+            merge_args = ["merge", "--no-ff", "--quiet", "-m", f"dream: {branch.removeprefix('dream/')}"]
+            if summary:
+                merge_args.extend(["-m", summary])
+            _run_git([*merge_args, branch], cwd=workdir)
+        except ContextLayerStoreError as error:
+            raise BundleConflictError(f"the dream branch conflicts with the current head: {error}") from error
+        return _run_git(["rev-parse", "HEAD"], cwd=workdir)
+
+    return _run_landing(organization_id, prepare=prepare, lane="dream")
+
+
 def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purge wiki history") -> str:
     """Rewrite the wiki to a single commit holding the current tree and delete
     every old bundle, so no dropped history survives in object storage. The
     escape hatch for sensitive content committed by mistake.
 
     Raises `PurgeIncompleteError` if the rewrite lands but an old bundle cannot
-    be removed, so a caller never treats a partial purge as done.
+    be removed, so a caller never treats a partial purge as done. The object
+    storage bucket must not have versioning enabled, because a versioned bucket
+    retains deleted bundle bodies as prior versions.
     """
 
     def reinitialize_history(root: Path) -> None:
@@ -681,7 +732,23 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
     # bundle must survive.
     with repo_writer_lock(organization_id):
         head_sha = get_config(organization_id).head_sha
-        _prune_bundles_except(organization_id, head_sha)
+        try:
+            _prune_bundles_except(organization_id, head_sha)
+        except Exception:
+            # The rewrite landed but old bundles with the purged content are
+            # still readable; stamp the config so the partial purge is durable
+            # state a human can find, not just a raised-and-lost exception.
+            ContextLayerConfig.objects.filter(organization_id=organization_id).update(
+                purge_incomplete_at=timezone.now()
+            )
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id=str(organization_id),
+                    event="context layer purge incomplete",
+                    properties={"organization_id": str(organization_id)},
+                )
+            raise
+        ContextLayerConfig.objects.filter(organization_id=organization_id).update(purge_incomplete_at=None)
         return head_sha
 
 

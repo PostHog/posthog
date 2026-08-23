@@ -88,10 +88,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-19 against:
+Last verified on 2026-08-22 against:
 
-- `PostHog/posthog` master at `3612cfa3139901020eab974e62da0ce806e22693`
-- `PostHog/ai-gateway` main at `f200a2367d5944897dbfa754127249b3fcae0da2`
+- `PostHog/posthog` master at `cb2ede60c0ae406f5e177654ae8bce2bc8f5447e`
+- `PostHog/ai-gateway` main at `c956a21b4a6a3ec40ae8e3fecb6bccd7b188b9be`
 
 ## References
 

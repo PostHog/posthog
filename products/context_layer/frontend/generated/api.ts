@@ -37,6 +37,9 @@ export const contextLayerCommitsCreate = async (
     if (commitBundleApi.summary !== undefined) {
         formData.append(`summary`, commitBundleApi.summary)
     }
+    if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
+        formData.append(`branch`, commitBundleApi.branch)
+    }
 
     return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(organizationId), {
         ...options,
@@ -208,6 +211,9 @@ export const contextLayerAgentCommitsCreate = async (
     formData.append(`bundle`, commitBundleApi.bundle)
     if (commitBundleApi.summary !== undefined) {
         formData.append(`summary`, commitBundleApi.summary)
+    }
+    if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
+        formData.append(`branch`, commitBundleApi.branch)
     }
 
     return apiMutator<ContextLayerStatusApi>(getContextLayerAgentCommitsCreateUrl(projectId), {

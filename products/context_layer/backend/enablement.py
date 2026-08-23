@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from django.db import transaction
 from django.utils.text import slugify
 
 import structlog
@@ -49,7 +50,16 @@ def enable_context_layer(
         )
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
+    transaction.on_commit(lambda: _trigger_bootstrap_dream(str(organization_id)), robust=True)
     return config
+
+
+def _trigger_bootstrap_dream(organization_id: str) -> None:
+    from products.context_layer.backend.temporal.dreaming import (  # noqa: PLC0415, I001 — keeps Temporal off Django's enablement import path
+        trigger_bootstrap_dream,
+    )
+
+    trigger_bootstrap_dream(organization_id)
 
 
 def organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:

@@ -15,18 +15,27 @@ import * as zod from 'zod'
  */
 export const contextLayerCommitsCreateBodySummaryMax = 10000
 
+export const contextLayerCommitsCreateBodyBranchMax = 64
+
 export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
     .object({
         bundle: zod
             .url()
             .describe(
-                "A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
+                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
             ),
         summary: zod
             .string()
             .max(contextLayerCommitsCreateBodySummaryMax)
             .optional()
             .describe('Optional run summary stored in the landed commit body.'),
+        branch: zod
+            .string()
+            .max(contextLayerCommitsCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
+            ),
     })
     .describe('Request body for landing agent commits posted back as a git bundle.')
 
@@ -70,17 +79,26 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
  */
 export const contextLayerAgentCommitsCreateBodySummaryMax = 10000
 
+export const contextLayerAgentCommitsCreateBodyBranchMax = 64
+
 export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
     .object({
         bundle: zod
             .url()
             .describe(
-                "A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
+                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
             ),
         summary: zod
             .string()
             .max(contextLayerAgentCommitsCreateBodySummaryMax)
             .optional()
             .describe('Optional run summary stored in the landed commit body.'),
+        branch: zod
+            .string()
+            .max(contextLayerAgentCommitsCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
+            ),
     })
     .describe('Request body for landing agent commits posted back as a git bundle.')

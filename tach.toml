@@ -87,6 +87,7 @@ depends_on = [
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
+    "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",

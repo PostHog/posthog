@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from products.context_layer.backend.facade.api import PAGE_MAX_BYTES
+from products.context_layer.backend.facade.api import DREAM_BRANCH_RE, PAGE_MAX_BYTES
 
 # A bundle carries a handful of Markdown commits; anything bigger is not a wiki write-back.
 COMMIT_BUNDLE_MAX_BYTES = 25_000_000
@@ -71,7 +71,7 @@ class CommitBundleSerializer(serializers.Serializer):
 
     bundle = serializers.FileField(
         help_text=(
-            "A `git bundle` carrying the wiki's `main` ref, created in the agent's clone "
+            "A `git bundle` carrying the ref to land, created in the agent's clone "
             "(for example `git bundle create out.bundle origin/main..main`)."
         )
     )
@@ -81,6 +81,20 @@ class CommitBundleSerializer(serializers.Serializer):
         max_length=10_000,
         help_text="Optional run summary stored in the landed commit body.",
     )
+    branch = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=64,
+        help_text=(
+            "Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of "
+            "rebasing onto `main`. Omit for ordinary commits on `main`."
+        ),
+    )
+
+    def validate_branch(self, value):  # noqa: ANN001, ANN201
+        if value is not None and not DREAM_BRANCH_RE.fullmatch(value):
+            raise serializers.ValidationError("Only dream/<YYYY-MM-DD> branches can be landed; omit for main.")
+        return value
 
     def validate_bundle(self, value):  # noqa: ANN001, ANN201
         if value.size > COMMIT_BUNDLE_MAX_BYTES:
