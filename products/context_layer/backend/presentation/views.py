@@ -246,24 +246,35 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "organization"
-    scope_object_write_actions = ["commits"]
+    # The wiki is not an access-control resource, and "organization" is not one a
+    # project-nested view can be checked against: `AccessControlPermission` engages
+    # here (it no-ops on the organization route, which has no team) and would demand
+    # organization *admin* to write — a bar the organization route never sets and
+    # the plain members runs act as do not clear. INTERNAL skips that resource
+    # lookup while keeping the rest of the chain, including project membership and
+    # `scoped_teams` enforcement. It also drops the default scope derivation, so
+    # every action below states its scopes explicitly.
+    scope_object = "INTERNAL"
+    write_actions = ["commits"]
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
-        """A sandbox run lands its own commits with task scopes, not organization scopes.
+        """A sandbox run lands commits with task scopes; everyone else uses the organization one.
 
         `task:write` alone is user-grantable, so it only counts together with
         `internal_run:read` — minted server-side for sandbox runs and rejected by
         every user-facing scope validator, so a person cannot ask for it. Callers
-        without that marker keep the default `organization:write` requirement.
+        without that marker need the same `organization:write` the human route asks
+        for, which `scope_object = "INTERNAL"` means naming here rather than
+        deriving. One consequence of INTERNAL: a `*` (full access) token does not
+        short-circuit this check, so it has to carry the organization scope too.
         """
-        if self.action != "commits":
+        if self.action not in self.write_actions:
             return None
         access_token = get_oauth_access_token(request)
         token_scopes = set((getattr(access_token, "scope", "") or "").split())
         if INTERNAL_RUN_SCOPE in token_scopes:
             return ["task:write", INTERNAL_RUN_SCOPE]
-        return None
+        return ["organization:write"]
 
     @extend_schema(
         request=CommitBundleSerializer,

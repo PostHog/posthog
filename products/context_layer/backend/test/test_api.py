@@ -31,6 +31,7 @@ class TestContextLayerAPI(APIBaseTest):
         object_storage_module._client = UnavailableStorage()
         self.addCleanup(setattr, object_storage_module, "_client", UnavailableStorage())
         self.base_url = f"/api/organizations/{self.organization.id}/context_layer"
+        self.agent_url = f"/api/projects/{self.team.id}/context_layer/agent"
 
     def _enable(self) -> str:
         response = self.client.post(f"{self.base_url}/enable/")
@@ -74,7 +75,7 @@ class TestContextLayerAPI(APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
-        assert post(f"/api/projects/{self.team.id}/context_layer").status_code == 200
+        assert post(self.agent_url).status_code == 200
 
         # APIScopePermission refuses any token carrying scoped_teams on a route
         # that is not project-nested, which is the whole reason the agent route

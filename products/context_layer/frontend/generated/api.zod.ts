@@ -11,6 +11,20 @@ import * as zod from 'zod'
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Land agent commits from a git bundle
+ */
+export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
+    .object({
+        bundle: zod
+            .url()
+            .describe(
+                "A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
+            ),
+    })
+    .describe('Request body for landing agent commits posted back as a git bundle.')
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Create or replace a wiki page
  */
 export const contextLayerPagesUpdateBodyPathMax = 512
@@ -47,7 +61,7 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Land agent commits from a git bundle
  */
-export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
+export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
     .object({
         bundle: zod
             .url()
