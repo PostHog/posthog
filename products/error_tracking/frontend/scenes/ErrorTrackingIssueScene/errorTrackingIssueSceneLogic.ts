@@ -26,6 +26,7 @@ import {
 } from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -91,6 +92,7 @@ export interface errorTrackingIssueSceneLogicValues {
     issueFingerprints: ErrorTrackingFingerprint[]
     issueFingerprintsLoading: boolean
     issueId: string
+    issueIdValid: boolean
     issueLoading: boolean
     lastSeen: Dayjs | null
     listDateRange: DateRange | null
@@ -805,6 +807,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
 
+        // A real issue id is a UUID. The catch-all `/error_tracking/:id` route can capture a
+        // legacy settings slug (e.g. `symbol_sets`), so the scene checks this to show a
+        // not-found state instead of firing loaders that fail with "issue_id must be a valid UUID".
+        issueIdValid: [(_, p) => [p.id], (id: string) => isUUIDLike(id)],
+
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
@@ -919,6 +926,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     events(({ props, actions }) => ({
         afterMount: () => {
+            // Skip the loaders for a non-UUID id: it is never a real issue, and each loader
+            // would otherwise raise its own error toast on top of a blank page.
+            if (!isUUIDLike(props.id)) {
+                return
+            }
             actions.loadIssue()
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
