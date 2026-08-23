@@ -177,6 +177,7 @@ def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_loop_write_in_scope(
         organization_id, request, serializer.validated_data["path"], serializer.validated_data["content"]
     )
+    _assert_run_commit_cap(request)
     user = request.user
     author = (
         facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
@@ -197,10 +198,10 @@ def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
 
 
 def _assert_run_commit_cap(request: Request) -> None:
-    """Cap how many commit landings one sandbox run gets per day.
+    """Cap how many landings (bundles or page writes) one sandbox run gets per day.
 
-    Loops have their own daily fire caps, but an ordinary task run posting
-    bundles here has nothing but the writer lock pacing it. Keyed on the run
+    Loops have their own daily fire caps, but an ordinary task run landing
+    wiki changes has nothing but the writer lock pacing it. Keyed on the run
     provenance the token carries; human and PAT callers have none and stay
     uncapped.
     """
@@ -218,6 +219,12 @@ def _assert_run_commit_cap(request: Request) -> None:
 
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+        # Bundles bypass the page binding _assert_loop_write_in_scope enforces,
+        # so a loop run must land its edits through the page endpoint instead.
+        raise PermissionDenied("This loop can update only its context page, not land commit bundles.")
     serializer = CommitBundleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     _assert_run_commit_cap(request)

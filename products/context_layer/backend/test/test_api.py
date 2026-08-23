@@ -462,6 +462,47 @@ class TestContextLayerAPI(APIBaseTest):
             capped = land("areas/second.md")
         assert capped.status_code == 429
 
+    def test_loop_token_cannot_land_commit_bundles(self, _flag) -> None:
+        # Bundles bypass the loop's page binding, so the bundle route must refuse them.
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
+        token = self._loop_run_token(channel.id)
+        self.client.logout()
+        response = self.client.post(
+            f"{self.agent_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 403, response.content
+
+    def test_run_page_writes_share_the_daily_landing_cap(self, _flag) -> None:
+        head = self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
+        token = self._bearer(
+            "task:read task:write internal_run:read organization:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        def write(path: str, base_head: str):
+            return self.client.put(
+                f"{self.agent_url}/pages/",
+                {"path": path, "content": _page(path), "base_head": base_head},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
+            first = write("areas/first.md", head)
+            assert first.status_code == 200, first.content
+            capped = write("areas/second.md", first.json()["head_sha"])
+        assert capped.status_code == 429
+
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
         token = self._bearer("task:read task:write internal_run:read", scoped_teams=[self.team.id])
