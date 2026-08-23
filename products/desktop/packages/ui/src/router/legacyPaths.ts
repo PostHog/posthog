@@ -36,10 +36,19 @@ export function rewriteLegacyPath(path: string): string {
     if (path === from) return to;
     if (path.startsWith(`${from}/`)) {
       const rest = path.slice(from.length);
-      return to === "/" ? rest : to + rest;
+      return singleLeadingSlash(to === "/" ? rest : to + rest);
     }
   }
   return path;
+}
+
+/**
+ * A rewritten path always names a route in this app. Doubling the leading
+ * slash would make it protocol-relative (`//evil.example/x` is an origin, not
+ * a path), so a crafted old link can't turn a redirect into a trip off-app.
+ */
+function singleLeadingSlash(path: string): string {
+  return path.replace(/^\/+/, "/");
 }
 
 /**

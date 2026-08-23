@@ -39,6 +39,15 @@ describe("rewriteLegacyPath", () => {
     expect(rewriteLegacyPath(legacy)).toBe(expected);
   });
 
+  // A crafted old link must not rewrite into a protocol-relative URL, which
+  // names an origin rather than a path and would leave the app.
+  it.each([
+    ["/website/home//evil.example/phish", "/evil.example/phish"],
+    ["/website//evil.example", "/spaces//evil.example"],
+  ])("keeps %s inside the app", (legacy, expected) => {
+    expect(rewriteLegacyPath(legacy)).toBe(expected);
+  });
+
   it.each(["/spaces/eng", "/inbox", "/settings/general", "/"])(
     "leaves %s alone",
     (path) => {
