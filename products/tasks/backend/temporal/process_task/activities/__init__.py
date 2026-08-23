@@ -10,6 +10,11 @@ from .get_sandbox_for_repository import (
     get_sandbox_for_repository,
 )
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
+from .materialize_context_layer import (
+    MaterializeContextLayerInput,
+    MaterializeContextLayerOutput,
+    materialize_context_layer_in_sandbox,
+)
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -141,5 +146,8 @@ __all__ = [
     "track_workflow_event",
     "update_task_run_status",
     "clone_repository_in_sandbox",
+    "materialize_context_layer_in_sandbox",
+    "MaterializeContextLayerInput",
+    "MaterializeContextLayerOutput",
     "checkout_branch_in_sandbox",
 ]

@@ -1953,6 +1953,12 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class OnboardingSessionSerializer(serializers.Serializer):
+    """The first-run session that was started for the requester."""
+
+    task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
+
+
 class ProvisionedChannelsSerializer(serializers.Serializer):
     """The requester's default channels, plus whether this call is what created them."""
 
