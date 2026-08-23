@@ -55,7 +55,9 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
     """
     imported: dict[str, str] = {}
     existing_slugs: set[str] = set()
-    for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True):
+    # Order the teams so a same-named channel in two projects always resolves its
+    # slug collision the same way; an unordered scan could swap the pages between runs.
+    for team_id in Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", flat=True):
         # The enable request is org-scoped, so the fail-closed channel models
         # need an explicit team scope per team we read from.
         with team_scope(team_id):
