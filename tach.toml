@@ -86,8 +86,8 @@ depends_on = [
     "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
-    "products.context_layer",
     "products.cdp",
+    "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -995,22 +995,6 @@ expose = [
 ]
 from = [
     "products.experiments",
-]
-
-# Context layer exposes its cross-product facade, API registration surface, and
-# the dreaming coordinator it registers with the general-purpose worker.
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-    "backend\\.routes.*",
-    "backend\\.temporal\\.ACTIVITIES",
-    "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.schedule\\.create_context_layer_dream_schedule",
-]
-from = [
-    "products.context_layer",
 ]
 
 # Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
