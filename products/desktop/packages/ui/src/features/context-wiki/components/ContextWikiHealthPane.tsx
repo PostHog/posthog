@@ -85,7 +85,9 @@ export function groupFindings(
 ): Record<string, ContextWikiHealthFinding[]> {
   return findings.reduce<Record<string, ContextWikiHealthFinding[]>>(
     (groups, finding) => {
-      (groups[finding.category] ??= []).push(finding);
+      const group = groups[finding.category] ?? [];
+      group.push(finding);
+      groups[finding.category] = group;
       return groups;
     },
     {},

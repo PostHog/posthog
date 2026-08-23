@@ -1,8 +1,8 @@
 import { BookOpenTextIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { ContextWikiUnavailableError } from "@posthog/api-client/posthog-client";
 import {
-  Button,
   Badge,
+  Button,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -26,13 +26,13 @@ import {
 } from "@posthog/ui/primitives/PageHeader";
 import { useCallback, useMemo, useState } from "react";
 import {
-  useContextWikiTree,
   useContextWikiHealthReport,
+  useContextWikiTree,
   useEnableContextWiki,
 } from "../hooks/useContextWiki";
 import { buildWikiTree } from "../wikiTree";
-import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
 import { ContextWikiHealthPane } from "./ContextWikiHealthPane";
+import { ContextWikiPagePane, type WikiDraft } from "./ContextWikiPagePane";
 
 /**
  * The organization context wiki explorer: a tree of every wiki page on the

@@ -1,7 +1,7 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
-  ContextWikiPage,
   ContextWikiHealthReport,
+  ContextWikiPage,
   ContextWikiTree,
 } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
