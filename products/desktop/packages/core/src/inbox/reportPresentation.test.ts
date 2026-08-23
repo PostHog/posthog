@@ -7,6 +7,7 @@ import {
   deriveHeadline,
   displayConventionalCommitTitle,
   formatSignalReportSummaryMarkdown,
+  humanizeReportTitle,
   isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
 } from "./reportPresentation";
@@ -214,5 +215,20 @@ describe("displayConventionalCommitTitle", () => {
       "Plain title",
     );
     expect(displayConventionalCommitTitle(null, "Untitled")).toBe("Untitled");
+  });
+});
+
+describe("humanizeReportTitle", () => {
+  it.each([
+    ["fix(oauth): validate selected scopes", "Validate selected scopes"],
+    [
+      "docs(feature-flags): explain device bucketing",
+      "Explain device bucketing",
+    ],
+    ["Plain already-capitalized title", "Plain already-capitalized title"],
+    ["lowercase plain title", "Lowercase plain title"],
+    [null, "Untitled"],
+  ])("humanizes %j to %j", (title, expected) => {
+    expect(humanizeReportTitle(title, "Untitled")).toBe(expected);
   });
 });

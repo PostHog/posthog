@@ -1,4 +1,11 @@
-import { isPersonalChannel } from "@posthog/core/canvas/channelName";
+import {
+  isGeneralChannel,
+  isPersonalChannel,
+} from "@posthog/core/canvas/channelName";
+import {
+  channelReportView,
+  generalReportView,
+} from "@posthog/core/inbox/reportChannelScope";
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
@@ -25,6 +32,11 @@ import {
   useChannelFeed,
 } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import {
+  type ChannelReportsFilters,
+  DEFAULT_CHANNEL_REPORTS_FILTERS,
+  useChannelReports,
+} from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
@@ -34,6 +46,8 @@ import {
   type ThreadPanelTab,
   useThreadPanelStore,
 } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -78,6 +92,39 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const { messages: systemMessages, isLoading: isLoadingMessages } =
     useChannelFeedMessages(channelId);
   const isLoading = isLoadingChannels || isLoadingFeed || isLoadingMessages;
+
+  // Reports interleave into the feed as compact cards: the general space shows
+  // every report, any other space only its own. Their load doesn't gate the
+  // feed — report cards land when their (slower) poll resolves.
+  const reportsEnabled = useChannelReportsEnabled();
+  const reportView = useMemo(
+    () =>
+      channel && !isGeneralChannel(channel)
+        ? channelReportView(channelId)
+        : generalReportView(),
+    [channel, channelId],
+  );
+  // Reset per space so a filter chosen in one space doesn't silently narrow
+  // another: the route reuses this component across a channelId change, so the
+  // filter state is reconciled against it (mirrors the feed's kind filter).
+  const [reportFilters, setReportFilters] = useState<{
+    channelId: string;
+    value: ChannelReportsFilters;
+  }>({ channelId, value: DEFAULT_CHANNEL_REPORTS_FILTERS });
+  const activeReportFilters =
+    reportFilters.channelId === channelId
+      ? reportFilters.value
+      : DEFAULT_CHANNEL_REPORTS_FILTERS;
+  const setActiveReportFilters = useCallback(
+    (next: ChannelReportsFilters) => {
+      setReportFilters({ channelId, value: next });
+    },
+    [channelId],
+  );
+  const { reports } = useChannelReports(reportView, activeReportFilters, {
+    enabled: reportsEnabled,
+  });
+  const openReport = useOpenInboxReport();
 
   useSetHeaderContent(
     useMemo(
@@ -301,6 +348,10 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           tasks={tasks}
           pending={visiblePending}
           systemMessages={systemMessages}
+          reports={reportsEnabled ? reports : undefined}
+          onOpenReport={openReport}
+          reportFilters={activeReportFilters}
+          onReportFiltersChange={setActiveReportFilters}
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}

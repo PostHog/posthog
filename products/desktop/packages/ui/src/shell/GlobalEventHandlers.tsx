@@ -13,6 +13,7 @@ import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityP
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
@@ -90,6 +91,9 @@ export function GlobalEventHandlers({
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
+  // With channel reports on, the inbox is gone as a destination, so its
+  // shortcut goes with it.
+  const channelReportsEnabled = useChannelReportsEnabled();
   const channelsLayout = useChannelsLayout();
 
   const taskById = useMemo(() => {
@@ -220,7 +224,10 @@ export function GlobalEventHandlers({
     enabled: channelsLayout,
   });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
+    ...globalOptions,
+    enabled: !channelReportsEnabled,
+  });
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [
     handlePrevTask,
   ]);

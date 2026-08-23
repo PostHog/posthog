@@ -32,6 +32,7 @@ import {
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
@@ -187,6 +188,9 @@ export function BrowserTabStrip() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, a restored inbox tab lands on the spaces index
+  // (the inbox is gone as a destination).
+  const channelReportsEnabled = useChannelReportsEnabled();
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
 
@@ -603,7 +607,11 @@ export function BrowserTabStrip() {
       // case so the router types stay checked).
       switch (tab.appView) {
         case "inbox":
-          navigate({ to: "/inbox", state });
+          if (channelReportsEnabled) {
+            navigate({ to: "/spaces", state });
+          } else {
+            navigate({ to: "/inbox", state });
+          }
           break;
         case "agents":
           navigate({ to: "/agents", state });

@@ -36,8 +36,12 @@ const {
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
+// Channel reports defaults off here so the Inbox item renders; the flag-on
+// test flips it via `channelReportsFlag`.
+let channelReportsFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -151,6 +155,18 @@ describe("SidebarNavSection", () => {
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
       { item: "inbox", in_more: false, layout: "code" },
     );
+  });
+
+  it("removes the Inbox item when channel reports replace the inbox", () => {
+    channelReportsFlag = true;
+    try {
+      renderNav();
+      expect(
+        screen.queryByRole("button", { name: /Inbox/ }),
+      ).not.toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+    }
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

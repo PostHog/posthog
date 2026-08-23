@@ -6,7 +6,10 @@ import {
 import { Spinner } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
-import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import {
+  asInboxBackTarget,
+  type InboxListRoute,
+} from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   type InboxDetailTab,
@@ -19,8 +22,14 @@ import { type ReactNode, useEffect } from "react";
 interface InboxReportDetailGateProps {
   reportId: string;
   cachedReport?: SignalReport | null;
-  backTo: InboxListRoute;
+  /** An inbox list route, or any literal path (the in-space detail view). */
+  backTo: InboxListRoute | (string & {});
   backLabel: string;
+  /**
+   * Off for the in-space detail route, which hosts every report status on one
+   * URL and so never needs the inbox's status↔route redirect.
+   */
+  statusRedirect?: boolean;
   /**
    * Where the missing-report shell's back link points, when it should differ
    * from `backTo`. The Archive detail sets these to the recorded origin so the
@@ -63,6 +72,7 @@ export function InboxReportDetailGate({
   cachedReport = null,
   backTo,
   backLabel,
+  statusRedirect = true,
   backLinkTo,
   backLinkLabel,
   missingCopy,
@@ -94,7 +104,7 @@ export function InboxReportDetailGate({
   const isArchived =
     resolvedReport != null && isDismissedReport(resolvedReport);
   let redirectTo: InboxDetailRoute | null = null;
-  if (resolvedReport && !isFetching) {
+  if (statusRedirect && resolvedReport && !isFetching) {
     if (isArchived && !onDismissedRoute) {
       redirectTo = "/inbox/dismissed/$reportId";
     } else if (!isArchived && onDismissedRoute) {
@@ -121,10 +131,16 @@ export function InboxReportDetailGate({
       // Carry where we came from into the Archive route so its back link reads
       // "Back to reports/pulls/runs" rather than "Back to archive". This branch
       // only fires from a non-Archive route, so `backTo` is the pipeline origin
-      // the user is returning to.
+      // the user is returning to. Validated because `backTo` may be a literal
+      // path on the in-space route (which never redirects, but types can't see
+      // that).
       state:
         redirectTo === "/inbox/dismissed/$reportId"
-          ? { inboxBackOrigin: { to: backTo, label: backLabel } }
+          ? {
+              inboxBackOrigin:
+                asInboxBackTarget({ to: backTo, label: backLabel }) ??
+                undefined,
+            }
           : undefined,
     });
   }, [redirectTo, redirectReportId, navigate, backTo, backLabel]);

@@ -10,6 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
@@ -31,11 +32,15 @@ const REMOVE_SELF_TOOLTIP = "remove me from reviewers";
 interface SuggestedReviewerAvatarStackProps {
   report: SignalReport;
   artefacts?: SignalReportArtefactsResponse | null;
+  /** Analytics surface for the remove-self action; the stack lives on list
+   * cards by default, but the detail header reuses it. */
+  surface?: InboxReportActionSurface;
 }
 
 export function SuggestedReviewerAvatarStack({
   report,
   artefacts,
+  surface = "list_row",
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
@@ -47,7 +52,7 @@ export function SuggestedReviewerAvatarStack({
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
-  const fireAction = useReportActionTracker(report, "list_row");
+  const fireAction = useReportActionTracker(report, surface);
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
