@@ -508,6 +508,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.context_layer"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.managed_migrations"
 depends_on = [
     "posthog",
