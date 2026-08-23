@@ -1,14 +1,27 @@
 """Facade for the context layer.
 
-The presentation layer (and, in later layers, other products) reaches the
-store, pages, and enablement internals only through here.
+The presentation layer and other products (the tasks sandbox pipeline) reach
+the store, pages, and enablement internals only through here.
 """
 
+from __future__ import annotations
+
+import uuid
+
+from django.urls import reverse
+
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.permissions import posthog_feature_flag_enabled
+
+from products.context_layer.backend import store
 from products.context_layer.backend.enablement import (
     RestrictedProjectsError,
     enable_context_layer,
     organization_has_private_projects,
 )
+from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
     InvalidPagePathError,
@@ -35,10 +48,25 @@ from products.context_layer.backend.store import (
     land_commit_bundle,
 )
 
+logger = structlog.get_logger(__name__)
+
+CONTEXT_LAYER_FEATURE_FLAG = "context-layer"
+
+# Where the wiki is cloned inside every sandbox, and the env vars agents use to
+# find it and to land their commits back.
+SANDBOX_MOUNT_PATH = "/tmp/workspace/context"
+MOUNT_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_PATH"
+COMMITS_PATH_ENV_VAR = "POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+
 __all__ = [
+    "COMMITS_PATH_ENV_VAR",
+    "CONTEXT_LAYER_FEATURE_FLAG",
+    "MOUNT_PATH_ENV_VAR",
     "PAGE_MAX_BYTES",
+    "SANDBOX_MOUNT_PATH",
     "BundleConflictError",
     "CommitAuthor",
+    "ContextLayerMount",
     "ContextLayerStoreError",
     "HeadConflictError",
     "InvalidPagePathError",
@@ -56,8 +84,52 @@ __all__ = [
     "get_config",
     "get_page",
     "get_health_report",
+    "get_sandbox_mount",
     "get_tree",
-    "organization_has_private_projects",
+    "is_context_layer_enabled",
     "land_commit_bundle",
+    "organization_has_private_projects",
+    "sandbox_environment_variables",
     "write_page",
 ]
+
+
+@frozen
+class ContextLayerMount:
+    """Everything a provisioner needs to clone the wiki into a sandbox."""
+
+    bundle_url: str
+    head_sha: str
+
+
+def is_context_layer_enabled(*, organization_id: str, distinct_id: str) -> bool:
+    """Org-gated opt-in for the context layer; fail-closed when evaluation fails."""
+    try:
+        return posthog_feature_flag_enabled(CONTEXT_LAYER_FEATURE_FLAG, distinct_id, organization_id=organization_id)
+    except Exception:
+        logger.exception("context_layer_flag_check_failed", organization_id=organization_id)
+        return False
+
+
+def sandbox_environment_variables(organization_id: uuid.UUID | str) -> dict[str, str]:
+    """Env vars for a sandbox whose organization has a wiki; empty when it does
+    not exist yet. Callers gate on the feature flag."""
+    if not ContextLayerConfig.objects.filter(organization_id=organization_id).exists():
+        return {}
+    return {
+        MOUNT_PATH_ENV_VAR: SANDBOX_MOUNT_PATH,
+        COMMITS_PATH_ENV_VAR: reverse(
+            "organization_context_layer-commits", kwargs={"parent_lookup_organization_id": str(organization_id)}
+        ),
+    }
+
+
+def get_sandbox_mount(organization_id: uuid.UUID | str) -> ContextLayerMount | None:
+    """A short-lived bundle URL for cloning the wiki into a sandbox, or None
+    when the organization has no wiki. The presign is minted here, at clone
+    time, so the sandbox never holds storage credentials."""
+    try:
+        export = store.get_bundle_export(organization_id)
+    except store.ContextLayerStoreError:
+        return None
+    return ContextLayerMount(bundle_url=export.url, head_sha=export.head_sha)

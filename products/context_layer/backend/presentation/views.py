@@ -230,7 +230,14 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Land agent commits from a git bundle",
     )
-    @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
+    # Sandbox run tokens carry task:write (not organization:write), and they are
+    # the intended caller of this endpoint: it is how an agent's wiki edits land.
+    @action(
+        methods=["POST"],
+        detail=False,
+        parser_classes=[MultiPartParser, FormParser],
+        required_scopes=["task:write"],
+    )
     def commits(self, request: Request, **kwargs) -> Response:
         return _land_commits(self.organization.id, request)
 

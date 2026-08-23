@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -503,6 +504,11 @@ def _build_environment_variables(
     # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
     if ctx.wizard_config is not None:
         environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
+
+    # The flag was evaluated once in get_task_processing_context; presence of
+    # the mount-path env var is what gates the materialize activity in the workflow.
+    if ctx.context_layer_enabled:
+        environment_variables.update(context_layer_facade.sandbox_environment_variables(ctx.organization_id))
 
     return environment_variables
 

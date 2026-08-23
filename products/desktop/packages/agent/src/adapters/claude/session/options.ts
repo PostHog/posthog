@@ -120,6 +120,9 @@ export function buildSystemPrompt(
 ): Options["systemPrompt"] {
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
+    // Set by sandbox provisioning only when the org's context layer is enabled
+    // and the wiki was cloned into the sandbox.
+    contextWikiPath: process.env.POSTHOG_CONTEXT_LAYER_PATH,
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",
