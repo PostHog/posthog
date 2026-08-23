@@ -32,6 +32,7 @@ import type {
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
+    OnboardingSessionApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -1082,6 +1083,24 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsOnboardingSessionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session/`
+}
+
+/**
+ * Open the agent session a new user lands in, in the team's #general space. Reads the company's homepage, so it takes a few seconds and is deliberately not part of provisioning, which blocks the app opening. Callers fire it without awaiting it when provision_defaults reports personal_created.
+ * @summary Start a first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<OnboardingSessionApi> => {
+    return apiMutator<OnboardingSessionApi>(getTaskChannelsOnboardingSessionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
