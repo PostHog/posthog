@@ -36,7 +36,8 @@ def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
     if facade.organization_has_private_projects(organization_id):
         raise PermissionDenied(
             "This organization now has private projects, so its context wiki is unavailable. "
-            "The context layer does not support private projects yet."
+            "The context layer does not support private projects yet.",
+            code="private_projects",
         )
 
 
@@ -145,7 +146,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             config = facade.enable_context_layer(self.organization.id, created_by_id=user_id)
         except facade.RestrictedProjectsError as error:
-            raise ValidationError(str(error)) from error
+            raise ValidationError(str(error), code="private_projects") from error
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(

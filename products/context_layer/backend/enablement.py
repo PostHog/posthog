@@ -40,9 +40,12 @@ def enable_context_layer(
     # Context extracted with one project's credentials must not become readable
     # through another, so orgs with private projects cannot enable until the
     # wiki is partitioned per project.
-    if organization_has_private_projects(organization_id):
+    private_names = private_project_names(organization_id)
+    if private_names:
+        joined = ", ".join(private_names)
         raise RestrictedProjectsError(
-            "This organization has private projects. The context layer does not support them yet."
+            f"This organization has private projects ({joined}). The context layer does not "
+            "support them yet. Remove those projects' access restrictions to enable it."
         )
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
@@ -67,6 +70,24 @@ def organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
         resource_id__isnull=False,
         access_level="none",
     ).exists()
+
+
+def private_project_names(organization_id: uuid.UUID | str) -> list[str]:
+    """Names of the projects blocking enablement, for the error an org admin
+    acts on. Same two representations as `organization_has_private_projects`."""
+    names = set(
+        Team.objects.filter(organization_id=organization_id, access_control=True).values_list("name", flat=True)
+    )
+    restricted_ids = AccessControl.objects.filter(
+        team__organization_id=organization_id,
+        resource="project",
+        resource_id__isnull=False,
+        access_level="none",
+    ).values_list("resource_id", flat=True)
+    names.update(
+        Team.objects.filter(organization_id=organization_id, id__in=list(restricted_ids)).values_list("name", flat=True)
+    )
+    return sorted(names)
 
 
 def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
@@ -107,9 +128,12 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
                 continue
             path = _unique_channel_path(name, channel_id, index.paths)
             index.paths.add(path)
+            # The linter requires H1 titles to be unique wiki-wide, so a page
+            # that needed a disambiguated path needs a disambiguated title too.
+            title = name if path == f"channels/{slugify(name) or channel_id}.md" else f"{name} ({channel_id[:8]})"
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(_channel_page(channel_id, name, content), encoding="utf-8")
+            target.write_text(_channel_page(channel_id, name, content, title=title), encoding="utf-8")
             written.append(path)
 
     store.apply_changes(organization_id, message="Import channel context", mutate=mutate)
@@ -160,5 +184,5 @@ def _unique_channel_path(name: str, channel_id: str, taken: set[str]) -> str:
     return path
 
 
-def _channel_page(channel_id: str, channel_name: str, content: str) -> str:
-    return f"---\nchannel_id: {channel_id}\nsummary: Context imported from {channel_name}.\nstatus: active\nsources: channel-instructions-import\n---\n\n# {channel_name}\n\n{content}\n"
+def _channel_page(channel_id: str, channel_name: str, content: str, *, title: str | None = None) -> str:
+    return f"---\nchannel_id: {channel_id}\nsummary: Context imported from {channel_name}.\nstatus: active\nsources: channel-instructions-import\n---\n\n# {title or channel_name}\n\n{content}\n"

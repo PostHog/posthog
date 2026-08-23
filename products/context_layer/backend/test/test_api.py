@@ -23,6 +23,10 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.models.rbac.access_control import AccessControl
 
 
+def _page(title: str) -> str:
+    return f"---\nsummary: {title} page for API tests.\nstatus: active\n---\n# {title}\n"
+
+
 @override_settings(OBJECT_STORAGE_ENABLED=True)
 @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
 class TestContextLayerAPI(APIBaseTest):
@@ -62,7 +66,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_agent_route_accepts_the_run_token_the_org_route_refuses(self, _flag) -> None:
         self._enable()
-        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         # Minted the way production mints one: bound to a task, scoped to a team.
         token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id])
         self.client.logout()
@@ -104,7 +108,9 @@ class TestContextLayerAPI(APIBaseTest):
         self.team.save()
         response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 400
-        assert "private projects" in response.json()["detail"]
+        body = response.json()
+        assert body["code"] == "private_projects"
+        assert self.team.name in body["detail"]
 
     def test_enable_is_blocked_for_orgs_with_rbac_private_projects(self, _flag) -> None:
         AccessControl.objects.create(
@@ -115,7 +121,9 @@ class TestContextLayerAPI(APIBaseTest):
         )
         response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 400
-        assert "private projects" in response.json()["detail"]
+        body = response.json()
+        assert body["code"] == "private_projects"
+        assert self.team.name in body["detail"]
 
     def test_reimport_keeps_existing_pages_and_suffixes_colliding_new_channels(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -162,7 +170,7 @@ class TestContextLayerAPI(APIBaseTest):
         head = self._enable()
         response = self.client.put(
             f"{self.base_url}/pages/",
-            {"path": "areas/analytics.md", "content": "# Analytics\n", "base_head": head},
+            {"path": "areas/analytics.md", "content": _page("Analytics"), "base_head": head},
             format="json",
         )
         assert response.status_code == 200, response.content
@@ -170,20 +178,20 @@ class TestContextLayerAPI(APIBaseTest):
         assert new_head != head
 
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/analytics.md"}).json()
-        assert page["content"] == "# Analytics\n"
+        assert page["content"] == _page("Analytics")
         assert page["head_sha"] == new_head
 
     def test_page_write_with_stale_base_head_returns_409_with_current_head(self, _flag) -> None:
         head = self._enable()
         first = self.client.put(
             f"{self.base_url}/pages/",
-            {"path": "areas/replay.md", "content": "# Replay\n", "base_head": head},
+            {"path": "areas/replay.md", "content": _page("Replay"), "base_head": head},
             format="json",
         )
         assert first.status_code == 200
         stale = self.client.put(
             f"{self.base_url}/pages/",
-            {"path": "areas/replay.md", "content": "# Replay, but stale\n", "base_head": head},
+            {"path": "areas/replay.md", "content": _page("Replay, but stale"), "base_head": head},
             format="json",
         )
         assert stale.status_code == 409
@@ -209,7 +217,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_commits_endpoint_lands_a_bundle(self, _flag) -> None:
         self._enable()
-        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         response = self.client.post(
             f"{self.base_url}/commits/",
             {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
@@ -217,7 +225,7 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
-        assert page["content"] == "# From an agent\n"
+        assert page["content"] == _page("From an agent")
 
     def test_commits_endpoint_rejects_lint_violations(self, _flag) -> None:
         self._enable()

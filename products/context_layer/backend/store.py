@@ -430,13 +430,24 @@ def _run_landing(
     raise HeadMovedError(f"head moved twice while landing changes for organization {organization_id}")
 
 
+EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
 def _landing_stats(workdir: Path, old_head: str, new_head: str) -> LandingStats:
     counts = {"A": 0, "M": 0, "D": 0}
+    try:
+        _run_git(["cat-file", "-e", f"{old_head}^{{commit}}"], cwd=workdir)
+    except ContextLayerStoreError:
+        # A purge rewrites history, so the previous head is no longer an object
+        # in the rewritten repo; count every page as added instead of failing.
+        old_head = EMPTY_TREE_SHA
     for line in _run_git(["diff", "--name-status", old_head, new_head, "--", "*.md"], cwd=workdir).splitlines():
         status = line.split("\t", 1)[0][0]
         if status in counts:
             counts[status] += 1
-    files = [path for path in workdir.rglob("*") if ".git" not in path.parts and path.is_file() and not path.is_symlink()]
+    files = [
+        path for path in workdir.rglob("*") if ".git" not in path.parts and path.is_file() and not path.is_symlink()
+    ]
     return LandingStats(
         pages_added=counts["A"],
         pages_modified=counts["M"],
