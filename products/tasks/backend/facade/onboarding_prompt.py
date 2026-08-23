@@ -134,10 +134,13 @@ def load_onboarding_prompt() -> PromptResult:
 ONBOARDING_PROMPT_TAG = "onboarding_brief"
 
 
-def render_onboarding_prompt(template: str, *, brief: list[str], followup: str, homepage: str, channel_id: str) -> str:
+def render_onboarding_prompt(
+    template: str, *, brief: list[str], followup: list[str], homepage: str, channel_id: str
+) -> str:
     brief_text = "\n".join(f"- {line}" for line in brief)
+    followup_text = "\n".join(f"- {line}" for line in followup)
     compiled = _PROMPTS.compile(
         template,
-        {"brief": brief_text, "followup": followup, "homepage": homepage, "channel_id": channel_id},
+        {"brief": brief_text, "followup": followup_text, "homepage": homepage, "channel_id": channel_id},
     )
     return f"<{ONBOARDING_PROMPT_TAG}>\n{compiled}\n</{ONBOARDING_PROMPT_TAG}>"

@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_brief import (
-    NO_FOLLOWUP,
     RESEARCH_LINE,
     OnboardingFacts,
     build_followup,
@@ -177,10 +176,25 @@ class TestProseList(SimpleTestCase):
 
 class TestFollowup(SimpleTestCase):
     def test_setting_a_workspace_up_owes_it_the_company_context(self) -> None:
-        assert "Save what the company does" in build_followup(_setup_facts())
+        followup = build_followup(_setup_facts())
+
+        assert any("Save what the company does" in line for line in followup)
 
     def test_joining_a_workspace_never_rewrites_the_context_it_joined(self) -> None:
-        assert build_followup(OnboardingFacts(org_has_context=True)) == NO_FOLLOWUP
+        followup = build_followup(OnboardingFacts(org_has_context=True, has_events=True))
+
+        assert not any("Save what the company does" in line for line in followup)
+
+    def test_a_project_with_no_data_is_only_ever_offered_instrumenting(self) -> None:
+        followup = build_followup(_setup_facts(has_events=False))
+
+        assert any("/instrument-product-analytics" in line for line in followup)
+        assert not any("act on now" in line for line in followup)
+
+    def test_a_project_with_data_is_never_told_to_offer_instrumenting(self) -> None:
+        followup = build_followup(_setup_facts(has_events=True))
+
+        assert not any("/instrument-product-analytics" in line for line in followup)
 
 
 class TestBundledPromptRendering(SimpleTestCase):

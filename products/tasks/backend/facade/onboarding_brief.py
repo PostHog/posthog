@@ -15,7 +15,16 @@ SAVE_CONTEXT = (
     "or tell you from scratch."
 )
 
-NO_FOLLOWUP = "Nothing beyond answering them."
+# What the team can actually be offered, which the agent cannot tell from the conversation. A team
+# with nothing flowing has no data to look at, so every analysis offer would be for a thing that
+# does not exist; instrumenting is the one real move, and the app ships a skill that does it.
+NO_DATA_YET = (
+    "Their project has nothing flowing into PostHog yet, so anything you might look at does not "
+    "exist. Adding PostHog is the only real offer. This app ships a skill for it, so offer a "
+    "composer prefilled with `/instrument-product-analytics`. Do not manufacture another offer."
+)
+
+HAS_DATA = "Their project has data flowing, so whatever they name is something you can act on now."
 
 # How many turned-on sources the message names before it starts counting. Naming all of them reads
 # as a feature list and eats the word budget the company summary needs.
@@ -135,7 +144,9 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     return brief
 
 
-def build_followup(facts: OnboardingFacts) -> str:
+def build_followup(facts: OnboardingFacts) -> list[str]:
     """What the session owes them after the first message. Kept out of the brief so a line meant for
     the agent can never be transcribed into the message as a point to cover."""
-    return NO_FOLLOWUP if facts.org_has_context else SAVE_CONTEXT
+    followup = [] if facts.org_has_context else [SAVE_CONTEXT]
+    followup.append(HAS_DATA if facts.has_events else NO_DATA_YET)
+    return followup
