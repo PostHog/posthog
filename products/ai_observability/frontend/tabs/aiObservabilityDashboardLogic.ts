@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, prop
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -271,7 +273,9 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                         await breakpoint(100)
                         actions.loadLLMDashboards()
                     } else {
-                        console.error('Failed to create default AI observability dashboard:', error)
+                        lemonToast.error(
+                            'Could not set up your AI observability dashboard. Reload the page to try again.'
+                        )
                     }
                 }
             } else {
