@@ -858,12 +858,19 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // a typed query reports once, clearing reports nothing. The term itself is not sent — it can
         // name a customer's own scouts — only its length.
         setScoutSearch: async ({ search }, breakpoint) => {
+            const searchedPathname = router.values.location.pathname
             await breakpoint(ROSTER_SEARCH_DEBOUNCE_MS)
-            router.actions.replace(
-                router.values.location.pathname,
-                rosterFilterSearchParams(router.values.searchParams, values),
-                router.values.hashParams
-            )
+            // The logic stays mounted across a master-detail navigation, so the breakpoint does not
+            // abort on a same-scene route change. Only write the roster filter if the user is still on
+            // the route they searched from — otherwise the delayed write lands a roster param on a
+            // route it does not own (e.g. an open scout's detail URL).
+            if (router.values.location.pathname === searchedPathname) {
+                router.actions.replace(
+                    router.values.location.pathname,
+                    rosterFilterSearchParams(router.values.searchParams, values),
+                    router.values.hashParams
+                )
+            }
             const query = search.trim()
             if (!query) {
                 return

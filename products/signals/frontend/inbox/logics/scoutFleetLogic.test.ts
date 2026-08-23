@@ -317,6 +317,23 @@ describe('scoutFleetLogic', () => {
         }
     })
 
+    it('drops the delayed search write when the user navigates before the debounce settles', async () => {
+        jest.useFakeTimers()
+        try {
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('rev')
+            // Open a scout's detail before the debounce elapses; the roster logic stays mounted beside it.
+            router.actions.push(urls.inboxScout('signals-scout-revenue'))
+            await jest.advanceTimersByTimeAsync(600)
+
+            // The stale roster filter must not land on the detail route it does not own.
+            expect(router.values.location.pathname).toContain('signals-scout-revenue')
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('writes non-default roster filters to the URL and keeps the bare view clean', async () => {
         jest.useFakeTimers()
         try {
