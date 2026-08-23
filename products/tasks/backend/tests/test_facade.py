@@ -1559,12 +1559,7 @@ class TestDesktopUsersInTeam(TestCase):
         assert names == ["settled"]
 
     def test_someone_without_private_project_access_is_not_welcomed(self) -> None:
-        organization = Organization.objects.create(
-            name="Private Project Org",
-            available_product_features=[
-                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-            ],
-        )
+        organization = Organization.objects.create(name="Private Project Org")
         team = Team.objects.create(organization=organization, name="Private Project")
         arriving = User.objects.create(email="arriving-private@test.com", distinct_id="arriving-private")
         revoked = User.objects.create(email="revoked@test.com", distinct_id="revoked")
@@ -1573,6 +1568,10 @@ class TestDesktopUsersInTeam(TestCase):
             with team_scope(team.id):
                 facade.provision_default_channels(team.id, user.id)
 
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        organization.save(update_fields=["available_product_features"])
         OrganizationMembership.objects.filter(organization=organization, user=arriving).update(
             level=OrganizationMembership.Level.ADMIN
         )
