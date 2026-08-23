@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
