@@ -59,6 +59,7 @@ from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.scoping import team_scope
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
@@ -7419,6 +7420,34 @@ def get_channel_instructions(
         .first()
     )
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
+
+
+def organization_has_context(organization_id: UUID | str) -> bool:
+    """Whether anyone in this organization has already recorded what the company does.
+
+    Answered once for the whole organization, so an org with several projects is not
+    asked the same question once per project.
+
+    Known imprecision: a team that hand-wrote its #general instructions, with no research
+    having produced them, reads as ``True``. That costs one person an opening message
+    written for someone joining an established org rather than one written for first
+    setup, and it resolves itself when the organization-scoped flag replaces this read.
+    """
+    # The durable answer is a flag on the one-per-organization ContextLayerConfig row.
+    # Until that row exists, a #general space with published instructions is the only
+    # org-wide evidence that the research already ran, so the whole heuristic stays inside
+    # this function and swapping it later is a single edit here.
+    for team_id in Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", flat=True):
+        # Channels and their instructions are fail-closed and team-scoped, so an
+        # org-wide read has to declare a scope for each team it touches.
+        with team_scope(team_id):
+            channel_id = find_general_channel_id(team_id)
+            if channel_id is None:
+                continue
+            instructions = get_channel_instructions(channel_id, team_id, None)
+            if instructions is not None and instructions.version > 0 and instructions.content.strip():
+                return True
+    return False
 
 
 def list_channel_instruction_versions(
