@@ -30,6 +30,7 @@ import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import { track } from "@posthog/ui/shell/analytics";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
+import { LinkDestinationBar } from "@posthog/ui/shell/LinkDestinationBar";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
@@ -251,6 +252,10 @@ function App({ devToolbar }: AppProps) {
             <ScopeReauthPrompt />
             <AddDirectoryDialog />
             <ErrorDetailsDialog />
+            {/* Browser-style status bar: shows a hovered/focused link's
+                destination bottom-left. Lives at the shell so it covers every
+                screen, portalled + fixed so placement here is irrelevant. */}
+            <LinkDestinationBar />
           </div>
           {devToolbar}
         </div>
