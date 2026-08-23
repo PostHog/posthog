@@ -198,7 +198,7 @@ export function navigateToCommandCenter(): void {
 export function navigateToContext(path?: string): void {
   void getRouterOrNull()?.navigate({
     to: "/context",
-    search: path ? { path } : {},
+    search: { path },
   });
 }
 
@@ -218,7 +218,7 @@ export function navigateToSpaces(): void {
 export function navigateToSpacesContext(path?: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/context",
-    search: path ? { path } : {},
+    search: { path },
   });
 }
 

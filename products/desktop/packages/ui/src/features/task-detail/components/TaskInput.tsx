@@ -886,7 +886,6 @@ export function TaskInput({
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
     allowNoRepo: repoOptional,
-    submissionBlocked: channelContextBlocked,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -1038,6 +1037,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
+    submissionBlocked: channelContextBlocked,
     allowNoRepo: repoOptional,
   });
 
