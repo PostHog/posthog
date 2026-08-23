@@ -6,6 +6,7 @@ import {
   ReceiptIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import {
   Button,
   DropdownMenu,
@@ -25,7 +26,6 @@ import { RefundReportDialog } from "@posthog/ui/features/inbox/components/Refund
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
-import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
 import { useCallback, useState } from "react";

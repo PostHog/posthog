@@ -267,8 +267,8 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     useInboxReportDismissAction(report);
   return (
     <>
+      {/* biome-ignore lint/a11y/useSemanticElements: the row holds a real archive <button>, which a <button> row would illegally nest */}
       <div
-        // biome-ignore lint/a11y/useSemanticElements: the row holds a real archive <button>, which a <button> row would illegally nest
         role="button"
         tabIndex={0}
         onClick={() => navigateToInboxReportDetail(report.id)}

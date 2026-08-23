@@ -147,7 +147,7 @@ export function ChannelReportsSection({
       <div className="flex flex-col gap-px px-2 pt-1 pb-2">
         {needsAttention.length > 0 && (
           <>
-            <div className="px-1.5 pt-1 pb-0.5 font-medium text-[11px] text-(--gray-10)">
+            <div className="px-1.5 pt-1 pb-0.5 font-medium text-(--gray-10) text-[11px]">
               Needs attention
             </div>
             {needsAttention.map(row)}
