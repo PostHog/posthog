@@ -68,6 +68,11 @@ _DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
 def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
     """Build a HogQL query that fetches signal rows for a single report.
 
+    Rows come back in a total order — ``timestamp`` ascending, then ``latest_inserted_at``
+    and ``document_id`` — so the duplicate collapse (which keeps the last-seen row per source
+    object) picks the same winner on every request even when two occurrences share a
+    millisecond timestamp, and the ``limit`` read below is stable across calls.
+
     Args:
         include_deleted: When True the ``NOT deleted`` filter is omitted.
             Used by soft-delete which intentionally re-processes already-deleted rows.
@@ -85,7 +90,7 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             latest_inserted_at
         FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
-        ORDER BY timestamp ASC{limit_clause}
+        ORDER BY timestamp ASC, latest_inserted_at ASC, document_id ASC{limit_clause}
     """
 
 
