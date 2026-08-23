@@ -553,17 +553,17 @@ def _assert_trees_within_bounds(workdir: Path, incoming_range: str) -> None:
     """
     cumulative_bytes = 0
     for sha in _run_git(["rev-list", "--reverse", incoming_range], cwd=workdir).split():
-        tree_bytes, entries = _tree_materialized_size(workdir, sha)
-        if entries > repo_lint.MAX_FILE_COUNT:
+        footprint = _tree_materialized_size(workdir, sha)
+        if footprint.file_count > repo_lint.MAX_FILE_COUNT:
             raise BundleConflictError(
-                f"commit {sha[:12]} carries {entries} files; the wiki allows {repo_lint.MAX_FILE_COUNT}"
+                f"commit {sha[:12]} carries {footprint.file_count} files; the wiki allows {repo_lint.MAX_FILE_COUNT}"
             )
-        if tree_bytes > repo_lint.MAX_TOTAL_BYTES:
+        if footprint.total_bytes > repo_lint.MAX_TOTAL_BYTES:
             raise BundleConflictError(
                 f"commit {sha[:12]} checks out to more than the "
                 f"{repo_lint.MAX_TOTAL_BYTES // 1_000_000} MB the wiki allows"
             )
-        cumulative_bytes += tree_bytes
+        cumulative_bytes += footprint.total_bytes
         if cumulative_bytes > BUNDLE_MAX_CUMULATIVE_TREE_BYTES:
             raise BundleConflictError(
                 f"the posted bundle's commits check out to more than the "
@@ -572,21 +572,28 @@ def _assert_trees_within_bounds(workdir: Path, incoming_range: str) -> None:
             )
 
 
-def _tree_materialized_size(workdir: Path, sha: str) -> tuple[int, int]:
-    """Bytes and file count a commit's tree writes to disk, counted per path."""
+@frozen
+class _TreeFootprint:
+    """What a commit's tree writes to disk, counted per path."""
+
+    total_bytes: int
+    file_count: int
+
+
+def _tree_materialized_size(workdir: Path, sha: str) -> _TreeFootprint:
     listing = _run_git(["ls-tree", "-r", "--long", "--full-tree", sha], cwd=workdir)
     total_bytes = 0
-    entries = 0
+    file_count = 0
     for line in listing.splitlines():
         metadata, _, _ = line.partition("\t")
         fields = metadata.split()
         if len(fields) < 4:
             continue
-        entries += 1
+        file_count += 1
         # Submodule entries (`commit`) report `-` and materialize nothing.
         if fields[3].isdigit():
             total_bytes += int(fields[3])
-    return total_bytes, entries
+    return _TreeFootprint(total_bytes=total_bytes, file_count=file_count)
 
 
 def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
