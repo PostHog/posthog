@@ -38,7 +38,9 @@ ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
 ONBOARDING_SESSION_EFFORT = "medium"
 
 # Channel instructions live under the "task" scope object (ChannelViewSet.scope_object).
-ONBOARDING_SESSION_SCOPES = ["task:read", "task:write"]
+# `canvas:read` is what lets the session point someone at a canvas that already exists in the
+# space, which it cannot do without first listing them.
+ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 
 # The session lands in #general, so it is gated on the flag that decides whether spaces exist
 # for this person at all. Nothing to gain from a second rollout dial.
