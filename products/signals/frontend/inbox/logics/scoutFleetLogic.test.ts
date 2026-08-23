@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -314,6 +315,47 @@ describe('scoutFleetLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it('writes non-default roster filters to the URL and keeps the bare view clean', async () => {
+        jest.useFakeTimers()
+        try {
+            logic.actions.setScoutEnabledFilter('disabled')
+            logic.actions.setScoutTagFilter(['revenue'])
+            logic.actions.setScoutSearch('rev')
+            // The search param is written on a debounce, so let its pause elapse.
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams).toMatchObject({
+                scoutEnabled: 'disabled',
+                scoutTags: 'revenue',
+                scoutSearch: 'rev',
+            })
+
+            logic.actions.setScoutEnabledFilter('all')
+            logic.actions.setScoutTagFilter([])
+            logic.actions.setScoutSearch('')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('restores roster filters from a shared URL', async () => {
+        router.actions.push(urls.inbox('scouts'), {
+            scoutEnabled: 'enabled',
+            scoutTags: 'revenue,on-call',
+            scoutSearch: 'rev',
+        })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue', 'on-call'])
+        expect(logic.values.scoutSearch).toEqual('rev')
     })
 
     it('resets the in-flight chat type when the kickoff fails', async () => {
