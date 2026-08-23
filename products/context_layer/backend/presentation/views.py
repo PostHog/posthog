@@ -131,6 +131,21 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["status", "tree", "page", "report", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
+    def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
+        """Sandbox run tokens land agent commits with task:write instead of organization:write.
+
+        task:write alone is user-grantable, so it only counts here together with
+        internal_run:read — minted exclusively server-side for sandbox runs and rejected
+        by every user-facing scope validator, so it cannot be forged. Tokens without that
+        provenance marker keep the default organization:write requirement."""
+        if self.action != "commits":
+            return None
+        access_token = get_oauth_access_token(request)
+        token_scopes = set((getattr(access_token, "scope", "") or "").split())
+        if INTERNAL_RUN_SCOPE in token_scopes:
+            return ["task:write", INTERNAL_RUN_SCOPE]
+        return None
+
     @extend_schema(
         request=None,
         responses={201: ContextLayerStatusSerializer},
@@ -230,14 +245,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Land agent commits from a git bundle",
     )
-    # Sandbox run tokens carry task:write (not organization:write), and they are
-    # the intended caller of this endpoint: it is how an agent's wiki edits land.
-    @action(
-        methods=["POST"],
-        detail=False,
-        parser_classes=[MultiPartParser, FormParser],
-        required_scopes=["task:write"],
-    )
+    @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
     def commits(self, request: Request, **kwargs) -> Response:
         return _land_commits(self.organization.id, request)
 

@@ -227,6 +227,47 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
         assert page["content"] == _page("From an agent")
 
+    def _bearer(self, scope: str) -> str:
+        app = OAuthApplication.objects.create(
+            name="sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token=f"pha_{scope.replace(':', '-').replace(' ', '_')}",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return token.token
+
+    def _post_bundle_with_bearer(self, scope: str):
+        self._enable()
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
+        token = self._bearer(scope)
+        self.client.logout()
+        return self.client.post(
+            f"{self.base_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    def test_commits_accepts_a_sandbox_run_token(self, _flag) -> None:
+        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 200
+
+    def test_commits_rejects_task_write_without_run_provenance(self, _flag) -> None:
+        # task:write is user-grantable; without the server-minted internal_run:read
+        # marker the caller must hold organization:write like any other writer.
+        assert self._post_bundle_with_bearer("task:write").status_code == 403
+
     def test_commits_endpoint_rejects_lint_violations(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("rogue.txt", "nope")
