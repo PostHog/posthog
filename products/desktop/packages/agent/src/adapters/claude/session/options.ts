@@ -118,11 +118,17 @@ export function buildSystemPrompt(
   customPrompt?: unknown,
   opts?: { spokenNarration?: boolean },
 ): Options["systemPrompt"] {
+  // The env var is set at provisioning, before the mount activity runs, so it
+  // cannot report the mount outcome: a failed or not-yet-finished mount leaves
+  // the path absent on disk. Gate the wiki block on the directory itself so the
+  // agent is never told about a wiki it cannot read.
+  const contextWikiPath = process.env.POSTHOG_CONTEXT_LAYER_PATH;
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
-    // Set by sandbox provisioning only when the org's context layer is enabled
-    // and the wiki was cloned into the sandbox.
-    contextWikiPath: process.env.POSTHOG_CONTEXT_LAYER_PATH,
+    contextWikiPath:
+      contextWikiPath && fs.existsSync(contextWikiPath)
+        ? contextWikiPath
+        : undefined,
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",

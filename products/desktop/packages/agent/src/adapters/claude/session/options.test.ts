@@ -604,6 +604,37 @@ describe("buildSystemPrompt", () => {
     );
     expect(promptText(prompt)).toMatch(/^Custom append\./);
   });
+
+  it.each([
+    { name: "present", exists: true, expectsBlock: true },
+    { name: "absent", exists: false, expectsBlock: false },
+  ])(
+    "gates the context wiki block on the mount directory ($name)",
+    ({ exists, expectsBlock }) => {
+      const prev = process.env.POSTHOG_CONTEXT_LAYER_PATH;
+      const mountPath = exists
+        ? fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"))
+        : path.join(os.tmpdir(), "context-wiki-absent-nonexistent");
+      process.env.POSTHOG_CONTEXT_LAYER_PATH = mountPath;
+      try {
+        const text = promptText(buildSystemPrompt(undefined));
+        if (expectsBlock) {
+          expect(text).toContain(`mounted at ${mountPath}`);
+        } else {
+          expect(text).not.toContain("Context Wiki");
+        }
+      } finally {
+        if (exists) {
+          fs.rmSync(mountPath, { recursive: true, force: true });
+        }
+        if (prev === undefined) {
+          delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+        } else {
+          process.env.POSTHOG_CONTEXT_LAYER_PATH = prev;
+        }
+      }
+    },
+  );
 });
 
 describe("toSdkEffort", () => {
