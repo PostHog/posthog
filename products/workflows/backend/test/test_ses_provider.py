@@ -359,6 +359,36 @@ class TestSESProvider(TestCase):
             expected = "success" if token in present_tokens else "pending"
             assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
 
+    @parameterized.expand(
+        [
+            ("verification_status_missing", "VerificationStatus"),
+            ("dkim_status_missing", "DkimVerificationStatus"),
+            ("mail_from_status_missing", "MailFromDomainStatus"),
+        ]
+    )
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verify_email_domain_tolerates_missing_status_field(self, _name, missing_field, mock_resolver_cls):
+        """SES can omit a status field right after setup — a missing key must not 500 the request."""
+        mock_resolver_cls.return_value.resolve.side_effect = dns.resolver.NXDOMAIN()
+        provider = SESProvider()
+
+        verif_attrs = {} if missing_field == "VerificationStatus" else {"VerificationStatus": "Success"}
+        dkim_attrs = {} if missing_field == "DkimVerificationStatus" else {"DkimVerificationStatus": "Success"}
+        mail_from_attrs = {} if missing_field == "MailFromDomainStatus" else {"MailFromDomainStatus": "Success"}
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail,
+        ):
+            mock_verif.return_value = {"VerificationAttributes": {TEST_DOMAIN: verif_attrs}}
+            mock_dkim.return_value = {"DkimAttributes": {TEST_DOMAIN: dkim_attrs}}
+            mock_mail.return_value = {"MailFromDomainAttributes": {TEST_DOMAIN: mail_from_attrs}}
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+        assert result["status"] == "pending"
+
 
 class TestSESResponseShapeContract(TestCase):
     """Pin the response shapes we read from boto3 against the live SDK service model.

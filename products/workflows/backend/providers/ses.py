@@ -330,7 +330,7 @@ class SESProvider:
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
             id_for_domain = id_attrs["VerificationAttributes"].get(domain)
             if id_for_domain is not None:
-                verification_status = id_for_domain["VerificationStatus"]
+                verification_status = id_for_domain.get("VerificationStatus", "Unknown")
         except ClientError:
             pass
 
@@ -339,7 +339,7 @@ class SESProvider:
             dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=[domain])
             dkim_for_domain = dkim_attrs["DkimAttributes"].get(domain)
             if dkim_for_domain is not None:
-                dkim_status = dkim_for_domain["DkimVerificationStatus"]
+                dkim_status = dkim_for_domain.get("DkimVerificationStatus", "Unknown")
         except ClientError:
             pass
 
@@ -348,7 +348,7 @@ class SESProvider:
             mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
             mail_from_for_domain = mail_from_attrs["MailFromDomainAttributes"].get(domain)
             if mail_from_for_domain is not None:
-                mail_from_status = mail_from_for_domain["MailFromDomainStatus"]
+                mail_from_status = mail_from_for_domain.get("MailFromDomainStatus", "Unknown")
         except ClientError:
             pass
 
