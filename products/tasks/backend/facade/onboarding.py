@@ -26,8 +26,8 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
 )
 from products.tasks.backend.facade.onboarding_prompt import load_onboarding_prompt, render_onboarding_prompt
-from products.tasks.backend.logic.services.compute_quota import organization_deactivated
-from products.tasks.backend.models import Task
+from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
+from products.tasks.backend.models import Task, TaskClientProvenance
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 
@@ -57,6 +57,19 @@ ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
 def _origin_key(user_id: int) -> str:
     return f"{ONBOARDING_ORIGIN_KEY_PREFIX}:{user_id}"
+
+
+def _quota_denial_reason(team: Team, user: User) -> str | None:
+    # An unsaved stub is enough: the check reads the team, the creator and the billing markers,
+    # all of which are decided before the row exists. Asking after the row exists would put the
+    # denial inside sandbox provisioning, where a new user watches their first session die.
+    stub = Task(
+        team=team,
+        created_by=user,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+    )
+    return get_compute_quota_denial_reason(stub)
 
 
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
@@ -154,10 +167,8 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
-    # A deactivated organization fails compute quota inside sandbox provisioning, so without this
-    # the first thing a new user sees is a session that dies on its way up.
-    if organization_deactivated(team.id):
-        logger.info("onboarding_session_skipped", team_id=team.id, reason="organization_deactivated")
+    if denial := _quota_denial_reason(team, user):
+        logger.info("onboarding_session_skipped", team_id=team.id, reason=denial)
         return None
 
     # Ahead of the scrape, so a retry costs nothing rather than reading the homepage again.
@@ -187,6 +198,9 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
             user_id=user.id,
             channel_id=channel_id,
             origin_key=origin_key,
+            # The run costs the same as any other Desktop session, so it meters like one. Without
+            # this the task is non-billable compute and PostHog absorbs every first run.
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
             create_pr=False,
             mode="interactive",
             model=ONBOARDING_SESSION_MODEL,

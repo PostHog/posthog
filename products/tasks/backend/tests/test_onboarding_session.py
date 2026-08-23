@@ -11,9 +11,10 @@ from posthog.models.user import User
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import _origin_key, start_onboarding_session
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
+QUOTA_MODULE = "products.tasks.backend.logic.services.compute_quota"
 
 NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
 
@@ -84,11 +85,22 @@ class TestOnboardingSessionIdempotency(TestCase):
         self.assertIsNone(started)
         self.assertEqual(create_calls, 0)
 
+    def test_an_exhausted_compute_quota_gets_no_session(self):
+        with (
+            self.settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True),
+            patch(f"{QUOTA_MODULE}._is_posthog_code_quota_limited", return_value=True),
+        ):
+            started, create_calls = self._start(create_side_effect=AssertionError)
+
+        self.assertIsNone(started)
+        self.assertEqual(create_calls, 0)
+
     def test_a_first_request_starts_a_session_keyed_to_the_user(self):
         task_id = uuid4()
 
         def succeed(**kwargs):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
+            self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)
