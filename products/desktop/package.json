@@ -12,7 +12,7 @@
     "postinstall": "bash scripts/ensure-phrocs.sh --update",
     "bootstrap:cloud-task": "pnpm install --frozen-lockfile --prefer-offline --ignore-scripts && pnpm build:deps",
     "dev": "pnpm skills:local && pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
-    "dev:mprocs": "pnpm build:deps && mprocs",
+    "dev:mprocs": "pnpm skills:local && pnpm build:deps && mprocs",
     "dev:agent": "pnpm --filter agent dev",
     "dev:git": "pnpm --filter @posthog/git dev",
     "dev:code": "pnpm skills:local && pnpm --filter code start",
