@@ -38,7 +38,26 @@ class TestOpeningBrief(SimpleTestCase):
         joined = " ".join(brief)
         assert "Summarize what the company does" not in joined
         assert "Sources:" not in joined
-        assert any("could not read their site" in line for line in brief)
+
+    def test_a_site_that_would_not_load_is_named_as_an_attempt_that_failed(self) -> None:
+        brief = build_opening_brief(
+            _setup_facts(research=DomainResearch(outcome="unreachable", url="northwind.example"))
+        )
+
+        assert RESEARCH_LINE not in brief
+        assert any("tried to read northwind.example" in line and "could not reach it" in line for line in brief)
+
+    @parameterized.expand(["not_configured", "busy"])
+    def test_a_failure_on_our_side_is_never_blamed_on_their_site(self, outcome: str) -> None:
+        brief = build_opening_brief(
+            _setup_facts(research=DomainResearch(outcome=outcome, url="northwind.example"))  # type: ignore[arg-type]
+        )
+
+        joined = " ".join(brief)
+        assert RESEARCH_LINE not in joined
+        assert "northwind.example" not in joined
+        assert "could not reach" not in joined
+        assert any("what are they working on right now" in line for line in brief)
 
     def test_research_that_never_ran_is_never_claimed(self) -> None:
         brief = build_opening_brief(_setup_facts(research=None))

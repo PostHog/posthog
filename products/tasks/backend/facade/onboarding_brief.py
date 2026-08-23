@@ -102,18 +102,23 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     scraped = facts.research is not None and facts.research.outcome == "scraped"
     brief = [WELCOME_LINE]
 
-    if facts.research is None:
-        # No company domain to read, so no research was attempted. Claiming any is a lie, and
-        # "I could not read your site" names a site nobody has.
+    if scraped and facts.research is not None:
+        brief.append(RESEARCH_LINE)
+        brief.append("Summarize what the company does, from the page below, and ask whether that is right.")
+    elif facts.research is not None and facts.research.outcome == "unreachable":
+        # The one branch where their site really was tried and really did fail, so it is the only
+        # one that may say so. Naming the page also shows the guess behind it, which they can
+        # correct: it is their email domain, not something they told us.
+        brief.append(
+            f"Say you tried to read {facts.research.url} to start building their company context, "
+            "but could not reach it. Then ask what the company does."
+        )
+    else:
+        # Either there was no company domain to read, or the failure was ours: no key configured,
+        # or our own rate limit. None of that is their site's fault, and none of it is research.
         brief.append(
             "Ask one real question so you can be useful rather than generic: what are they working on right now?"
         )
-    elif scraped:
-        brief.append(RESEARCH_LINE)
-        brief.append("Summarize what the company does, from the page below, and ask whether that is right.")
-    else:
-        brief.append(RESEARCH_LINE)
-        brief.append("Say you could not read their site, and ask what the company does.")
 
     status = _status_line(facts)
     if status:

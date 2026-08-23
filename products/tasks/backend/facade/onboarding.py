@@ -66,7 +66,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
                 org_has_context=True,
                 has_events=bool(team.ingested_event),
                 signal_reports_waiting=visible_report_count(team.id),
-                other_members=prose_list(desktop_users_in_team(team.id, user.id)),
+                other_members=prose_list(desktop_users_in_team(team.id, team.organization_id, user.id)),
                 sources_enabled=sources.labels,
                 sources_newly_enabled=sources.newly_enabled,
             ),

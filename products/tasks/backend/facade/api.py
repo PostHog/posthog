@@ -59,7 +59,6 @@ from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.models.scoping import team_scope
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.task_ownership import detach_conversations_for_task_handoff
@@ -7422,10 +7421,21 @@ def get_channel_instructions(
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
 
 
-def desktop_users_in_team(team_id: int, exclude_user_id: int) -> list[str]:
+def desktop_users_in_team(team_id: int, organization_id: UUID | str, exclude_user_id: int) -> list[str]:
+    """Who else in this team has opened Desktop, newest four last.
+
+    Keyed on personal spaces, which are provisioned the first time someone opens Desktop, so this
+    answers "who is here" rather than "who has a PostHog account". A personal space outlives the
+    membership that created it, so the join on ``OrganizationMembership`` is what keeps someone who
+    has left the organization out of a welcome message.
+    """
     channels = (
         Channel.objects.for_team(team_id)
-        .filter(system_role=Channel.SystemRole.PERSONAL, deleted=False)
+        .filter(
+            system_role=Channel.SystemRole.PERSONAL,
+            deleted=False,
+            created_by__organization_membership__organization_id=organization_id,
+        )
         .exclude(created_by_id=exclude_user_id)
         .select_related("created_by")
         .order_by("created_at")[:4]
@@ -7452,22 +7462,23 @@ def organization_has_context(organization_id: UUID | str) -> bool:
     # Until that row exists, a #general space with published instructions is the only
     # org-wide evidence that the research already ran, so the whole heuristic stays inside
     # this function and swapping it later is a single edit here.
-    # parent_team_id is read alongside id so the scope is entered with an already-canonical id
-    # (parent for a child environment, own id for a root team), which is exactly what
-    # resolve_effective_team_id returns. Passing canonical=True then spares one Team lookup per team.
-    for team_id, parent_team_id in (
-        Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", "parent_team_id")
-    ):
-        # Channels and their instructions are fail-closed and team-scoped, so an
-        # org-wide read has to declare a scope for each team it touches.
-        with team_scope(parent_team_id or team_id, canonical=True):
-            channel_id = find_general_channel_id(team_id)
-            if channel_id is None:
-                continue
-            instructions = get_channel_instructions(channel_id, team_id, None)
-            if instructions is not None and instructions.version > 0 and instructions.content.strip():
-                return True
-    return False
+    #
+    # Genuinely cross-team: one organization's teams are exactly the scope of the question, and
+    # asking each team in turn cost two queries per project on the path that opens a session.
+    contents = (
+        ChannelInstructions.objects.unscoped()
+        .filter(
+            team__organization_id=organization_id,
+            channel__system_role=Channel.SystemRole.GENERAL,
+            channel__deleted=False,
+            deleted=False,
+            is_latest=True,
+            version__gt=0,
+        )
+        .exclude(content="")
+        .values_list("content", flat=True)[:20]
+    )
+    return any(content.strip() for content in contents)
 
 
 def list_channel_instruction_versions(

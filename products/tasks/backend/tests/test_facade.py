@@ -12,7 +12,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
-from posthog.models import Integration, Organization, Team
+from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -1515,6 +1515,26 @@ class TestApplyTaskRunModelConfig(TestCase):
     def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
         self.assertFalse(self._apply(self._run()))
         send_mock.assert_not_called()
+
+
+class TestDesktopUsersInTeam(TestCase):
+    def test_someone_who_left_the_organization_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(name="Members Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving@test.com", distinct_id="arriving")
+        staying = User.objects.create(email="staying@test.com", distinct_id="staying")
+        leaving = User.objects.create(email="leaving@test.com", distinct_id="leaving")
+        for user in (arriving, staying, leaving):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        OrganizationMembership.objects.filter(organization=organization, user=leaving).delete()
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team.id, organization.id, arriving.id)
+
+        assert names == ["staying"]
 
 
 class TestOrganizationHasContext(TestCase):
