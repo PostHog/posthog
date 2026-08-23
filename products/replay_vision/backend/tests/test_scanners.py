@@ -123,6 +123,13 @@ class TestPreamble:
         assert "<replay_artifacts>" in rendered
         assert "Never infer user actions" in rendered
 
+    def test_preamble_treats_console_noise_as_not_evidence(self) -> None:
+        # Console errors from the recorded page (not from a user-visible failure) made monitor and classifier
+        # scanners fire false positives; the guardrail must live in the shared preamble, not only the summarizer.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<console_noise>" in rendered
+        assert "not evidence that the condition you are judging occurred" in rendered
+
     def test_preamble_explains_gestures_without_click_events(self) -> None:
         # Back-swipes and scroll flicks emit no clicks; misreading them produced false "stuck user" verdicts.
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")

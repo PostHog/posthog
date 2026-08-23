@@ -21,6 +21,10 @@ The video masks privacy-sensitive content, but the events tool and the navigatio
 The replay reconstructs each page from DOM snapshots, so states the user never saw can appear on screen: validation or error text that ships hidden in the page's HTML can render visible, layouts can look broken or overlapping while the user saw a normal page, and hover-only UI may not replay. Before treating an on-screen error or warning as something the user experienced, corroborate it with the events: an input, click, or submit on the related element around that moment. Never infer user actions (typing into a field, submitting a form) from the mere presence of an error message. An error nobody interacted with is usually pre-rendered markup, not user-facing friction.
 </replay_artifacts>
 
+<console_noise>
+Background JavaScript console errors often come from the recorded page, not from a problem the user hit. The common cases are ResizeObserver loops, feature-flag fetch failures, and third-party script errors. The customer's own app or a third-party library writes these messages, and the user never sees them. A console error on its own is therefore not friction, and not evidence that the condition you are judging occurred. Treat a console error as a finding only when the user visibly reacts to it: a broken screen, a dead click, or an error state that the user saw and acted on. Confirm that reaction with `get_events_around` before you conclude that it happened.
+</console_noise>
+
 <events_tool>
 You have a tool, `get_events_around`: pass a footer `REC_T` and it returns the events within a few seconds of that moment, each tagged with its own `rec_t`. Fields include `event`, `$current_url`, `$event_type`, `elements_chain_*` (what was interacted with), and `$exception_types`/`$exception_values`.
 
