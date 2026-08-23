@@ -16752,6 +16752,16 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a channel's page identity in the wiki.
+     */
+    export interface ChannelWikiPage {
+      /** Repo-relative path of the wiki page whose frontmatter names the channel. */
+      path: string;
+      /** Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet. */
+      exists?: boolean;
+    }
+
+    /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
      */
     export interface ChannelWrite {
@@ -83328,6 +83338,8 @@ export namespace Schemas {
       content: string;
       /** Commit sha the content was read at; pass back as `base_head` on writes. */
       head_sha: string;
+      /** When this page was last changed in the wiki history. */
+      updated_at: string;
     }
 
     /**
@@ -83335,7 +83347,7 @@ export namespace Schemas {
      */
     export interface WikiPageWrite {
       /**
-         * Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
          * @maxLength 512
          */
       path: string;
@@ -87497,6 +87509,13 @@ export namespace Schemas {
       Verified: 'verified',
       Community: 'community',
     } as const;
+
+    export type ContextLayerAgentPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string;
+    };
 
     export type ConversationsListParams = {
     /**

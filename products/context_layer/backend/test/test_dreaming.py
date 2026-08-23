@@ -88,6 +88,11 @@ class TestDreamingLane(BaseTest):
         prompt = dreaming._build_dream_prompt(None)
         assert "# Context layer dreaming" in prompt
         assert "# Context layer consolidation" in prompt
+        assert "channel-list" in prompt
+        assert "channel-instructions-retrieve" not in prompt
+        assert "A queued, running, test, demo, fixture, or abandoned task is not evidence" in prompt
+        assert "never edit, delete, move, or replace them" in prompt
+        assert "The server scaffolds every public Space and regenerates its indexes" in prompt
         assert "name: context-layer-dreaming" not in prompt
 
     @parameterized.expand(
@@ -100,15 +105,14 @@ class TestDreamingLane(BaseTest):
         ]
     )
     def test_dispatch_prompt_carries_the_activity_window(self, last_dream_started_at, expected_preamble) -> None:
-        config = ContextLayerConfig(
-            organization=self.organization, head_sha="a" * 40, last_dream_started_at=last_dream_started_at
-        )
+        config = self._config(last_dream_started_at=last_dream_started_at)
         target = dreaming._DreamDispatchTarget(config=config, team_id=self.team.id, user_id=self.user.id)
         trigger_mock = AsyncMock()
         with (
             patch.object(dreaming, "_prepare_dispatch", return_value=target),
             patch.object(dreaming, "_record_dispatch_success"),
             patch.object(dreaming, "_capture_lane_event"),
+            patch("products.context_layer.backend.enablement.import_channel_context", return_value=[]),
             patch("products.tasks.backend.facade.agents.create_task_and_trigger", trigger_mock),
         ):
             result = asyncio.run(
@@ -118,7 +122,8 @@ class TestDreamingLane(BaseTest):
         context = trigger_mock.call_args.args[1]
         assert context.runtime == "acp"
         assert context.runtime_adapter == "codex"
-        assert context.model == "gpt-5.6-luna"
+        assert context.model == "gpt-5.6-sol"
+        assert context.reasoning_effort == "high"
         assert context.initial_permission_mode == "bypassPermissions"
         prompt = trigger_mock.call_args.args[0]
         assert prompt.startswith(expected_preamble)

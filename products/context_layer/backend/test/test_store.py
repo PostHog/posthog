@@ -31,6 +31,22 @@ class TestRepoWriterLock(SimpleTestCase):
         assert client.eval.called
 
 
+class TestDreamPathGuard(SimpleTestCase):
+    def test_allows_context_pages_and_rejects_server_owned_paths(self) -> None:
+        assert store._dream_may_edit("org/strategy.md")
+        assert store._dream_may_edit("areas/analytics.md")
+        assert store._dream_may_edit("decisions/2026-08-23-pricing.md")
+        assert store._dream_may_edit("projects/1/overview.md")
+        assert store._dream_may_edit("projects/1/spaces/general.md")
+        assert not store._dream_may_edit("projects/1/spaces/general.md", status="A")
+        assert not store._dream_may_edit("projects/1/spaces/general.md", status="D")
+        assert not store._dream_may_edit("AGENTS.md")
+        assert not store._dream_may_edit("index.md")
+        assert not store._dream_may_edit("projects/1/spaces/index.md")
+        assert not store._dream_may_edit("scripts/lint")
+        assert not store._dream_may_edit("scripts/publish")
+
+
 class TestPruneBundles(SimpleTestCase):
     ORG = "11111111-1111-1111-1111-111111111111"
 
@@ -292,3 +308,21 @@ class TestContextLayerStore(BaseTest):
                 store.land_commit_bundle(self.organization.id, bundle)
 
         assert "several smaller bundles" in str(caught.exception)
+
+    def test_land_dream_branch_rejects_server_owned_file_changes(self) -> None:
+        store.initialize_repo(self.organization.id)
+        branch = "dream/2026-08-23"
+        with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            subprocess.run([*env_git, "checkout", "-q", "-b", branch], cwd=checkout.path, check=True)
+            (checkout.path / "scripts" / "publish").write_text("#!/bin/sh\necho bypass\n")
+            subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Rewrite publisher"], cwd=checkout.path, check=True)
+            with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
+                subprocess.run([*env_git, "bundle", "create", bundle_file.name, branch], cwd=checkout.path, check=True)
+                bundle = Path(bundle_file.name).read_bytes()
+
+        with self.assertRaises(store.BundleConflictError) as caught:
+            store.land_dream_branch(self.organization.id, bundle, branch=branch)
+
+        assert "scripts/publish" in str(caught.exception)

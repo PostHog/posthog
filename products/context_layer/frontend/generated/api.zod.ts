@@ -52,7 +52,9 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
         path: zod
             .string()
             .max(contextLayerPagesUpdateBodyPathMax)
-            .describe("Repo-relative Markdown path inside the wiki's structure, for example `channels\/general.md`."),
+            .describe(
+                "Repo-relative Markdown path inside the wiki's structure, for example `projects\/12\/spaces\/general.md`."
+            ),
         content: zod
             .string()
             .max(contextLayerPagesUpdateBodyContentMax)
@@ -102,3 +104,39 @@ export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for landing agent commits posted back as a git bundle.')
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Create or replace a wiki page
+ */
+export const contextLayerAgentPagesUpdateBodyPathMax = 512
+
+export const contextLayerAgentPagesUpdateBodyContentMax = 1000000
+
+export const ContextLayerAgentPagesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(contextLayerAgentPagesUpdateBodyPathMax)
+            .describe(
+                "Repo-relative Markdown path inside the wiki's structure, for example `projects\/12\/spaces\/general.md`."
+            ),
+        content: zod
+            .string()
+            .max(contextLayerAgentPagesUpdateBodyContentMax)
+            .describe('The complete Markdown content for the page.'),
+        base_head: zod
+            .string()
+            .nullish()
+            .describe(
+                'Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.'
+            ),
+    })
+    .describe('Request body for creating or replacing one wiki page.')

@@ -1,3 +1,4 @@
+import uuid
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -40,13 +41,22 @@ def _misnamed_decision(root: Path) -> None:
 
 
 def _channel_page_without_channel_id(root: Path) -> None:
-    (root / "channels").mkdir(exist_ok=True)
-    (root / "channels" / "general.md").write_text("---\nowner: someone\n---\n# general")
+    spaces = root / "projects" / "1" / "spaces"
+    spaces.mkdir(parents=True, exist_ok=True)
+    (spaces / "general.md").write_text("---\nteam_id: 1\nowner: someone\n---\n# general")
 
 
 def _channel_page_with_empty_channel_id(root: Path) -> None:
-    (root / "channels").mkdir(exist_ok=True)
-    (root / "channels" / "general.md").write_text("---\nchannel_id:   \n---\n# general")
+    spaces = root / "projects" / "1" / "spaces"
+    spaces.mkdir(parents=True, exist_ok=True)
+    (spaces / "general.md").write_text("---\nteam_id: 1\nchannel_id:   \n---\n# general")
+
+
+def _channel_page_with_noncanonical_channel_id(root: Path) -> None:
+    spaces = root / "projects" / "1" / "spaces"
+    spaces.mkdir(parents=True, exist_ok=True)
+    # A valid UUID in a spelling Django never serves; resolution would never match it.
+    (spaces / "general.md").write_text(f"---\nteam_id: 1\nchannel_id: {str(uuid.uuid4()).upper()}\n---\n# general")
 
 
 def _stray_symlink(root: Path) -> None:
@@ -63,6 +73,14 @@ def _oversized_page(root: Path) -> None:
     (root / "areas").mkdir(exist_ok=True)
     (root / "areas" / "huge.md").write_text(
         "---\nsummary: Huge\nstatus: active\nsources: test\n---\n# Huge\n" + "x" * 16_001
+    )
+
+
+def _space_page_with_mismatched_team_id(root: Path) -> None:
+    spaces = root / "projects" / "1" / "spaces"
+    spaces.mkdir(parents=True, exist_ok=True)
+    (spaces / "general.md").write_text(
+        f"---\nteam_id: 2\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\n---\n# general"
     )
 
 
@@ -103,9 +121,10 @@ class TestRepoLint(SimpleTestCase):
         (self.root / "decisions" / "2026-08-18-pricing-tiers.md").write_text(
             "---\nsummary: Pricing\nstatus: active\nsources: test\n---\n# pricing tiers"
         )
-        (self.root / "channels").mkdir()
-        (self.root / "channels" / "general.md").write_text(
-            "---\nchannel_id: abc123\nsummary: General\nstatus: active\nsources: test\n---\n# general"
+        spaces = self.root / "projects" / "1" / "spaces"
+        spaces.mkdir(parents=True)
+        (spaces / "general.md").write_text(
+            f"---\nteam_id: 1\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\nsources: test\n---\n# general"
         )
         assert lint_repo(self.root) == []
 
@@ -113,6 +132,20 @@ class TestRepoLint(SimpleTestCase):
         _oversized_page(self.root)
         assert lint_repo(self.root) == []
         assert any(finding.startswith("oversized:") for finding in report_repo(self.root))
+
+    def test_channel_ids_must_be_unique_uuids(self) -> None:
+        channels = self.root / "projects" / "1" / "spaces"
+        channels.mkdir(parents=True)
+        channel_id = uuid.uuid4()
+        metadata = "team_id: 1\nsummary: Channel\nstatus: active\nsources: test"
+        (channels / "one.md").write_text(f"---\nchannel_id: {channel_id}\n{metadata}\n---\n# one")
+        (channels / "two.md").write_text(f"---\nchannel_id: {channel_id}\n{metadata}\n---\n# two")
+        (channels / "invalid.md").write_text(f"---\nchannel_id: not-a-uuid\n{metadata}\n---\n# invalid")
+
+        errors = lint_repo(self.root)
+
+        assert any("must be a UUID" in error for error in errors)
+        assert any("appears in more than one page" in error for error in errors)
 
     @parameterized.expand(
         [
@@ -124,6 +157,8 @@ class TestRepoLint(SimpleTestCase):
             ("misnamed_decision", _misnamed_decision),
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
+            ("channel_page_with_noncanonical_channel_id", _channel_page_with_noncanonical_channel_id),
+            ("space_page_with_mismatched_team_id", _space_page_with_mismatched_team_id),
             ("stray_symlink", _stray_symlink),
             ("index_symlink", _index_symlink),
             ("scripts_symlink", _scripts_symlink),

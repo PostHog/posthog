@@ -22,6 +22,7 @@ import {
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -173,6 +174,7 @@ function ActivityNavItem({
 export function NavRail() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const contextEnabled = useContextLayerFlag();
 
   const { counts: inboxCounts } = useInboxAllReports({
     ignoreFilters: true,
@@ -195,6 +197,7 @@ export function NavRail() {
     order: navItemOrder,
     home: homeEnabled,
     loops: loopsEnabled,
+    context: contextEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 

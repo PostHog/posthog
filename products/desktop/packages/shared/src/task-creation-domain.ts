@@ -65,6 +65,8 @@ export interface TaskCreationInput {
    * agent may draw on, not instructions it must follow.
    */
   channelContext?: string;
+  /** Repo-relative context wiki page for this channel. Takes precedence over the legacy body. */
+  channelContextPath?: string;
   /** Display name of that channel, embedded in the context block for the UI. */
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */

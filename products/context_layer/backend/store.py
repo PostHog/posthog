@@ -17,6 +17,7 @@ import threading
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from django.utils import timezone
@@ -32,7 +33,7 @@ from posthog.storage import object_storage
 from products.context_layer.backend import repo_lint
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.repo_lint import lint_repo
-from products.context_layer.backend.scaffold import generate_index, write_default_structure
+from products.context_layer.backend.scaffold import generate_index, generate_project_indexes, write_default_structure
 
 logger = structlog.get_logger(__name__)
 
@@ -334,6 +335,10 @@ def checkout_repo(organization_id: uuid.UUID | str) -> Iterator[RepoCheckout]:
         yield RepoCheckout(path=workdir, head_sha=config.head_sha)
 
 
+def get_path_updated_at(checkout: RepoCheckout, path: str) -> datetime:
+    return datetime.fromisoformat(_run_git(["log", "-1", "--format=%cI", "--", path], checkout.path))
+
+
 def initialize_repo(
     organization_id: uuid.UUID | str,
     *,
@@ -405,6 +410,18 @@ def _run_landing(
                 if not index_path.exists() or index_path.read_text(encoding="utf-8") != generated_index:
                     index_path.write_text(generated_index, encoding="utf-8")
                     new_head = _commit_all(workdir, "Refresh the generated wiki index", SYSTEM_AUTHOR)
+                generated_project_indexes = generate_project_indexes(workdir)
+                project_indexes_changed = False
+                for relative, content in generated_project_indexes.items():
+                    generated_path = workdir / relative
+                    if generated_path.is_symlink():
+                        generated_path.unlink()
+                    generated_path.parent.mkdir(parents=True, exist_ok=True)
+                    if not generated_path.exists() or generated_path.read_text(encoding="utf-8") != content:
+                        generated_path.write_text(content, encoding="utf-8")
+                        project_indexes_changed = True
+                if project_indexes_changed:
+                    new_head = _commit_all(workdir, "Refresh generated project indexes", SYSTEM_AUTHOR)
                 _lint_or_raise(workdir)
                 stats = _landing_stats(workdir, expected_head, new_head)
                 _upload_bundle(organization_id, new_head, workdir)
@@ -624,6 +641,34 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
 
+def _assert_dream_paths(workdir: Path, base: str, tip: str) -> None:
+    changed: set[tuple[str, str]] = set()
+    for sha in _run_git(["rev-list", "--reverse", f"{base}..{tip}"], cwd=workdir).split():
+        for line in _run_git(
+            ["diff-tree", "--no-commit-id", "--name-status", "--no-renames", "-r", sha], cwd=workdir
+        ).splitlines():
+            status, _, path = line.partition("\t")
+            changed.add((status, path))
+    forbidden = sorted(path for status, path in changed if not _dream_may_edit(path, status=status))
+    if forbidden:
+        raise BundleConflictError(
+            "dreaming may edit context pages only; server-owned or structural paths changed: " + ", ".join(forbidden)
+        )
+
+
+def _dream_may_edit(path: str, *, status: str = "M") -> bool:
+    parts = Path(path).parts
+    if not path.endswith(".md") or not parts or Path(path).name == "index.md":
+        return False
+    if parts[0] in {"org", "areas", "decisions"}:
+        return True
+    return status == "M" and (
+        len(parts) >= 3
+        and parts[0] == "projects"
+        and (parts[2] == "overview.md" or (parts[2] == "spaces" and len(parts) == 4))
+    )
+
+
 def _fetch_incoming_bundle(workdir: Path, bundle_bytes: bytes, ref: str) -> str | None:
     """Fetch `ref` from a posted bundle into the working clone; returns its sha,
     or None when it already equals the current head."""
@@ -693,6 +738,7 @@ def land_dream_branch(
         if fetched is None:
             return None
         _assert_bundle_within_bounds(workdir, fetched)
+        _assert_dream_paths(workdir, DEFAULT_BRANCH, fetched)
         _lint_incoming_commits(workdir, DEFAULT_BRANCH, fetched)
         # The lint walk leaves HEAD detached at the branch tip; the merge below
         # must run from main or it silently no-ops and the landing keeps the

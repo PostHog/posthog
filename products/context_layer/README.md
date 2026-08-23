@@ -16,17 +16,19 @@ Each organization gets one Git repo of Markdown, serialized as a `git bundle` in
 Scaffolded at enablement and enforced by the linter (`backend/repo_lint.py`, also copied into the repo as `scripts/lint`):
 
 ```text
-AGENTS.md            map of the wiki + usage guardrails (agent-evolvable)
+AGENTS.md            server-owned map of the wiki + usage guardrails
 CLAUDE.md            symlink -> AGENTS.md, for Claude-native harnesses
 org/                 mission, ICP, personas, teams, business model
 areas/<area>.md      one hub page per product area
 decisions/<date>-<slug>.md   product decisions: what, why, who, source
-channels/<slug>.md   one page per Desktop channel (frontmatter: channel_id)
+projects/<project-id>/overview.md              project identity and context
+projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id)
 scripts/lint         the structure linter (also run server-side at land)
+scripts/publish      the server-owned publishing client
 ```
 
 The root file is AGENTS.md because the layer must work for every model and harness; the CLAUDE.md symlink covers Claude-native tooling.
 
 ## Dreaming
 
-A nightly Temporal coordinator (`context-layer-dream-coordinator`, 03:00 UTC) dispatches one cloud task per enabled organization. The run works unlocked on its own clone all night, on a dated `dream/<YYYY-MM-DD>` branch, and lands it through the commits endpoint as one two-parent merge commit (`dream: <date>`): `git log --merges` lists the dreams, and `git revert -m 1` undoes a whole night. The skills live in `products/context_layer/skills/` and source the org's actual activity: tasks run, PRs merged, events instrumented. A per-org failure streak pauses a lane after repeated dispatch failures (`ContextLayerConfig.dreaming_paused`).
+A nightly Temporal coordinator (`context-layer-dream-coordinator`, 03:00 UTC) dispatches one cloud task per enabled organization using GPT-5.6 Sol with high reasoning. Before dispatch, deterministic reconciliation creates a project-scoped page for every public Space and regenerates the project and Space indexes. The run works unlocked on its own clone all night, on a dated `dream/<YYYY-MM-DD>` branch, and lands it through the commits endpoint as one two-parent merge commit (`dream: <date>`): `git log --merges` lists the dreams, and `git revert -m 1` undoes a whole night. The skills live in `products/context_layer/skills/` and source context from completed tasks and loops, merged PRs, and instrumented events. Dream branches may change sourced content pages only; the server rejects changes to repository instructions, generated indexes, scripts, or Space paths. A per-org failure streak pauses a lane after repeated dispatch failures (`ContextLayerConfig.dreaming_paused`).

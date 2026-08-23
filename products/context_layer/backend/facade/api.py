@@ -33,6 +33,10 @@ from products.context_layer.backend.pages import (
     get_health_report,
     get_page,
     get_tree,
+    page_frontmatter_channel_id,
+    proposed_channel_page_path,
+    resolve_channel_page,
+    resolve_page_channel,
     write_page,
 )
 from products.context_layer.backend.store import (
@@ -93,6 +97,10 @@ __all__ = [
     "land_commit_bundle",
     "land_dream_branch",
     "organization_has_private_projects",
+    "page_frontmatter_channel_id",
+    "proposed_channel_page_path",
+    "resolve_channel_page",
+    "resolve_page_channel",
     "sandbox_environment_variables",
     "write_page",
 ]
