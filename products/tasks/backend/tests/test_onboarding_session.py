@@ -1,0 +1,75 @@
+from uuid import UUID, uuid4
+
+from unittest.mock import patch
+
+from django.db import IntegrityError
+from django.test import TestCase
+
+from posthog.models import Organization, Team
+from posthog.models.user import User
+
+from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.domain_research import DomainResearch
+from products.tasks.backend.facade.onboarding import _origin_key, start_onboarding_session
+from products.tasks.backend.models import Task
+
+MODULE = "products.tasks.backend.facade.onboarding"
+
+NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
+
+
+class TestOnboardingSessionIdempotency(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Northwind")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="ada@northwind.example", distinct_id="ada-distinct")
+        self.channel_id = uuid4()
+
+    def _existing_session(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Getting set up",
+            description="prompt",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            origin_key=_origin_key(self.user.id),
+        )
+
+    def _start(self, create_side_effect) -> tuple[UUID | None, int]:
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{MODULE}.find_general_channel_id", return_value=self.channel_id),
+            patch(f"{MODULE}.research_domain", return_value=NOT_CONFIGURED),
+            patch(f"{MODULE}.create_and_run_task", side_effect=create_side_effect) as create,
+        ):
+            return start_onboarding_session(self.team, self.user), create.call_count
+
+    def test_a_repeated_request_returns_the_session_it_already_started(self):
+        existing = self._existing_session()
+
+        started, create_calls = self._start(create_side_effect=AssertionError)
+
+        self.assertEqual(started, existing.id)
+        self.assertEqual(create_calls, 0)
+
+    def test_a_racing_request_returns_the_session_the_winner_started(self):
+        def lose_the_race(**kwargs):
+            self._existing_session()
+            raise IntegrityError("duplicate key value violates unique constraint")
+
+        started, create_calls = self._start(create_side_effect=lose_the_race)
+
+        self.assertEqual(create_calls, 1)
+        self.assertEqual(started, Task.objects.get(origin_key=_origin_key(self.user.id)).id)
+
+    def test_a_first_request_starts_a_session_keyed_to_the_user(self):
+        task_id = uuid4()
+
+        def succeed(**kwargs):
+            self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)

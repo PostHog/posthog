@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from django.conf import settings
+from django.db import IntegrityError
 
 import structlog
 import posthoganalytics
@@ -45,6 +46,20 @@ ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 # The session lands in #general, so it is gated on the flag that decides whether spaces exist
 # for this person at all. Nothing to gain from a second rollout dial.
 SPACES_LAYOUT_FLAG = "code-spaces-layout"
+
+# Callers fire the endpoint without awaiting it, so a client timeout during the homepage scrape
+# retries it. Task's unique (team, origin_key) constraint is what stops the retry paying for a
+# second interactive run. One key per user: the opening message is personalized, and provisioning
+# fires once per person even though the session lands in the shared #general space.
+ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
+
+
+def _origin_key(user_id: int) -> str:
+    return f"{ONBOARDING_ORIGIN_KEY_PREFIX}:{user_id}"
+
+
+def _started_session_id(team_id: int, origin_key: str) -> UUID | None:
+    return Task.objects.filter(team_id=team_id, origin_key=origin_key).values_list("id", flat=True).first()
 
 
 def company_domain_from(email: str) -> str | None:
@@ -127,6 +142,13 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
+    origin_key = _origin_key(user.id)
+    # Ahead of the scrape, so a retry costs nothing rather than reading the homepage again.
+    started = _started_session_id(team.id, origin_key)
+    if started is not None:
+        logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
+        return started
+
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
     description = render_onboarding_prompt(
@@ -137,25 +159,34 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         channel_id=str(channel_id),
     )
 
-    created = create_and_run_task(
-        team=team,
-        title=ONBOARDING_SESSION_TITLE,
-        description=description,
-        origin_product=Task.OriginProduct.USER_CREATED,
-        user_id=user.id,
-        channel_id=channel_id,
-        create_pr=False,
-        mode="interactive",
-        model=ONBOARDING_SESSION_MODEL,
-        reasoning_effort=ONBOARDING_SESSION_EFFORT,
-        # The session talks and writes the space's context, nothing else. Scoping the token to
-        # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
-        # which the untrusted `<homepage>` block cannot rule out on its own.
-        posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-        # The session only ever talks and writes the space's context, so a permission prompt
-        # would be the first thing a new user had to answer, about a tool they cannot see.
-        initial_permission_mode="auto",
-    )
+    try:
+        created = create_and_run_task(
+            team=team,
+            title=ONBOARDING_SESSION_TITLE,
+            description=description,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            channel_id=channel_id,
+            origin_key=origin_key,
+            create_pr=False,
+            mode="interactive",
+            model=ONBOARDING_SESSION_MODEL,
+            reasoning_effort=ONBOARDING_SESSION_EFFORT,
+            # The session talks and writes the space's context, nothing else. Scoping the token to
+            # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
+            # which the untrusted `<homepage>` block cannot rule out on its own.
+            posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
+            # The session only ever talks and writes the space's context, so a permission prompt
+            # would be the first thing a new user had to answer, about a tool they cannot see.
+            initial_permission_mode="auto",
+        )
+    except IntegrityError:
+        # Two requests raced past the read above; the constraint picked a winner.
+        started = _started_session_id(team.id, origin_key)
+        if started is None:
+            raise
+        logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
+        return started
     logger.info(
         "onboarding_session_started",
         team_id=team.id,
