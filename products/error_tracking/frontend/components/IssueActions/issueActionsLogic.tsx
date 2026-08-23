@@ -342,8 +342,11 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     tryShowMCPHint('error_tracking.assign')
                 }
             },
-            mutationFailure: ({ error }) => {
-                lemonToast.error('Could not save your change. Please try again.')
+            mutationFailure: ({ mutationName, error }) => {
+                // splitIssues surfaces its own, more specific failure toast on the fingerprints scene.
+                if (mutationName !== 'splitIssues') {
+                    lemonToast.error('Could not save your change. Please try again.')
+                }
                 posthog.captureException(error)
             },
         }

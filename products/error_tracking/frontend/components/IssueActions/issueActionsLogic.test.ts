@@ -48,6 +48,13 @@ describe('issueActionsLogic', () => {
         expect(lemonToast.error).toHaveBeenCalled()
     })
 
+    it('does not show the generic toast for splitIssues, which owns its own failure message', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.mutationFailure('splitIssues', new Error('nope'))
+        }).toDispatchActions(['mutationFailure'])
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
     it('does not celebrate when an issue is reopened', async () => {
         await expectLogic(logic, () => {
             logic.actions.updateIssueStatus('issue-1', 'active')
