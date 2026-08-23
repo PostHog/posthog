@@ -1,0 +1,159 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { execGit } from "@posthog/git/git-exec";
+import type { AgentScopedLogger } from "./ports";
+
+const API_TIMEOUT_MS = 10_000;
+const BUNDLE_DOWNLOAD_TIMEOUT_MS = 60_000;
+const GIT_TIMEOUT_MS = 60_000;
+
+export type AuthenticatedFetch = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export interface ContextWikiMount {
+  /** Local checkout of the org's wiki, for POSTHOG_CONTEXT_LAYER_PATH. */
+  path: string;
+  /** API path agents land commits through, for POSTHOG_CONTEXT_LAYER_COMMITS_PATH. */
+  commitsPath: string;
+}
+
+// A project's organization never changes, so one lookup per process is enough.
+const organizationIds = new Map<string, string>();
+
+// One mount per org per process: concurrent session starts share the same
+// clone, so they must also share the in-flight preparation — a second caller
+// must not rm -rf the checkout a first caller's session is about to use.
+const inflight = new Map<string, Promise<ContextWikiMount | null>>();
+
+/**
+ * Clones the organization's context wiki onto local disk for desktop sessions,
+ * mirroring what the cloud sandbox mount does at provisioning.
+ *
+ * Best-effort by design: any failure (wiki not enabled, flag off, network,
+ * git) returns null so a session never fails or stalls on the wiki. The clone
+ * is cached per organization and refreshed only when the wiki head moved.
+ */
+export async function prepareContextWiki(options: {
+  apiHost: string;
+  projectId: number;
+  authenticatedFetch: AuthenticatedFetch;
+  cacheDir: string;
+  log: AgentScopedLogger;
+}): Promise<ContextWikiMount | null> {
+  const key = `${options.apiHost}:${options.projectId}`;
+  const pending = inflight.get(key);
+  if (pending) {
+    return pending;
+  }
+  const preparation = prepare(key, options).catch((err) => {
+    options.log.warn("Failed to prepare the context wiki mount", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
+  inflight.set(key, preparation);
+  try {
+    return await preparation;
+  } finally {
+    inflight.delete(key);
+  }
+}
+
+async function prepare(
+  key: string,
+  options: {
+    apiHost: string;
+    projectId: number;
+    authenticatedFetch: AuthenticatedFetch;
+    cacheDir: string;
+    log: AgentScopedLogger;
+  },
+): Promise<ContextWikiMount | null> {
+  const base = options.apiHost.replace(/\/$/, "");
+
+  let organizationId = organizationIds.get(key);
+  if (!organizationId) {
+    const projectResponse = await options.authenticatedFetch(
+      `${base}/api/projects/${options.projectId}/`,
+      { signal: AbortSignal.timeout(API_TIMEOUT_MS) },
+    );
+    if (!projectResponse.ok) {
+      return null;
+    }
+    const project = (await projectResponse.json()) as {
+      organization?: unknown;
+    };
+    if (typeof project.organization !== "string" || !project.organization) {
+      return null;
+    }
+    organizationId = project.organization;
+    organizationIds.set(key, organizationId);
+  }
+
+  // 404 = wiki not enabled, 403 = flag off or the org has private projects;
+  // both simply mean "no wiki for this session".
+  const exportResponse = await options.authenticatedFetch(
+    `${base}/api/organizations/${organizationId}/context_layer/export/`,
+    { signal: AbortSignal.timeout(API_TIMEOUT_MS) },
+  );
+  if (!exportResponse.ok) {
+    return null;
+  }
+  const wikiExport = (await exportResponse.json()) as {
+    url?: unknown;
+    head_sha?: unknown;
+  };
+  const { url, head_sha: headSha } = wikiExport;
+  if (typeof url !== "string" || typeof headSha !== "string") {
+    return null;
+  }
+
+  const mountDir = path.join(options.cacheDir, organizationId);
+  const commitsPath = `/api/organizations/${organizationId}/context_layer/commits/`;
+  const headMarker = `${mountDir}.head`;
+  if (
+    fs.existsSync(mountDir) &&
+    fs.existsSync(headMarker) &&
+    fs.readFileSync(headMarker, "utf8").trim() === headSha
+  ) {
+    return { path: mountDir, commitsPath };
+  }
+
+  // The bundle URL is presigned, so this fetch is deliberately unauthenticated.
+  const bundleResponse = await fetch(url, {
+    signal: AbortSignal.timeout(BUNDLE_DOWNLOAD_TIMEOUT_MS),
+  });
+  if (!bundleResponse.ok || !bundleResponse.body) {
+    return null;
+  }
+  const bundlePath = `${mountDir}.bundle`;
+  await fs.promises.mkdir(options.cacheDir, { recursive: true });
+  await pipeline(
+    Readable.fromWeb(bundleResponse.body as WebReadableStream),
+    fs.createWriteStream(bundlePath),
+  );
+  try {
+    await fs.promises.rm(mountDir, { recursive: true, force: true });
+    await runGit(["clone", "--quiet", bundlePath, mountDir]);
+    await runGit(["-C", mountDir, "checkout", "--quiet", "main"]);
+    await fs.promises.writeFile(headMarker, headSha);
+  } finally {
+    await fs.promises.rm(bundlePath, { force: true });
+  }
+  options.log.info("Mounted the context wiki", { headSha });
+  return { path: mountDir, commitsPath };
+}
+
+async function runGit(args: string[]): Promise<void> {
+  const result = await execGit(args, { timeoutMs: GIT_TIMEOUT_MS });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `git ${args[0]} failed: ${result.error ?? result.stderr.trim()}`,
+    );
+  }
+}

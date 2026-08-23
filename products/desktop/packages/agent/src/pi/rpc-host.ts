@@ -15,6 +15,7 @@ import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
+import { createPiContextWikiExtension } from "./context-wiki-extension";
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
@@ -75,6 +76,7 @@ const extensionFactories: Record<PiRuntimeExtension, InlineExtension> = {
     name: "posthog-auto-publish",
     factory: createAutoPublishExtension(),
   },
+  "context-wiki": createPiContextWikiExtension(bootstrap.contextWikiPath),
 };
 const runtimeExtensions = (bootstrap.extensions ?? []).map(
   (extension) => extensionFactories[extension],

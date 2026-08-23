@@ -89,6 +89,7 @@ import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
   AGENT_AUTH_ADAPTER,
@@ -638,6 +639,36 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  /**
+   * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
+   * and expose it to every harness through the same env vars provisioning
+   * sets in sandboxes. Best-effort — sessions start without a wiki on any
+   * failure. The token doubles as POSTHOG_PERSONAL_API_KEY (when nothing else
+   * set it) so the wiki's pinned scripts/publish can land edits locally.
+   */
+  private async mountContextWiki(credentials: Credentials): Promise<void> {
+    delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+    delete process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH;
+    const authToken = await this.agentAuthAdapter.gatewayAuthToken();
+    if (!authToken) {
+      return;
+    }
+    const mount = await prepareContextWiki({
+      apiHost: credentials.apiHost,
+      projectId: credentials.projectId,
+      authenticatedFetch: (input, init) =>
+        this.agentAuthAdapter.authenticatedFetch(input, init),
+      cacheDir: join(this.storagePaths.appDataPath, "context-wiki"),
+      log: this.log,
+    });
+    if (!mount) {
+      return;
+    }
+    process.env.POSTHOG_CONTEXT_LAYER_PATH = mount.path;
+    process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = mount.commitsPath;
+    process.env.POSTHOG_PERSONAL_API_KEY ??= authToken;
+  }
+
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
@@ -849,12 +880,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
     );
-    await this.agentAuthAdapter.configureProcessEnv({
-      credentials,
-      proxyUrl,
-      claudeCliPath: this.getClaudeCliPath(),
-      rtkEnabled: config.rtkEnabled,
-    });
+    // The wiki mount only needs the auth adapter, so it runs alongside the
+    // env configuration instead of serializing another round-trip before it.
+    await Promise.all([
+      this.agentAuthAdapter.configureProcessEnv({
+        credentials,
+        proxyUrl,
+        claudeCliPath: this.getClaudeCliPath(),
+        rtkEnabled: config.rtkEnabled,
+      }),
+      this.mountContextWiki(credentials),
+    ]);
 
     const isPreview = taskId === "__preview__";
 

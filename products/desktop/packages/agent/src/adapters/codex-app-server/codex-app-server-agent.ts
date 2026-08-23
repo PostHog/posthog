@@ -21,6 +21,10 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
+import {
+  buildContextWikiInstructions,
+  resolveContextWikiPath,
+} from "../../context-wiki";
 import { RequestError } from "@agentclientprotocol/sdk";
 import {
   classifyGatewayLimitError,
@@ -591,10 +595,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.config.setInitialMode(params.meta?.permissionMode);
     // Codex doesn't attribute input tokens by source; the baseline seeds the resident floor + system prompt.
     this.usage.setBaseline(buildBaseline(params.meta));
-    const developerInstructions = mergeDeveloperInstructions(
+    const contextWikiPath = resolveContextWikiPath();
+    let developerInstructions = mergeDeveloperInstructions(
       this.developerInstructions,
       flattenSystemPrompt(params.meta?.systemPrompt),
     );
+    if (contextWikiPath) {
+      developerInstructions = mergeDeveloperInstructions(
+        developerInstructions,
+        buildContextWikiInstructions(contextWikiPath),
+      );
+    }
     this.threadSetup = { meta: params.meta, developerInstructions };
     // Degrade gracefully: an unresolvable bundled local-tools script skips it with a
     // warning rather than killing thread setup.
