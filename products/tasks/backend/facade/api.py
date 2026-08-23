@@ -7058,13 +7058,20 @@ def _ensure_system_channel(
     return channel, created
 
 
+PERSONAL_LEGACY_SHAPE: dict[str, Any] = {"channel_type": Channel.ChannelType.PERSONAL}
+GENERAL_LEGACY_SHAPE: dict[str, Any] = {
+    "channel_type": Channel.ChannelType.PUBLIC,
+    "name": Channel.GENERAL_CHANNEL_NAME,
+}
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
         role=Channel.SystemRole.PERSONAL,
         owner_lookup={"created_by_id": user_id},
-        legacy_lookup={"created_by_id": user_id, "channel_type": Channel.ChannelType.PERSONAL, "deleted": False},
+        legacy_lookup={"created_by_id": user_id, **PERSONAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
     )
 
@@ -7083,12 +7090,42 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
         user_id,
         role=Channel.SystemRole.GENERAL,
         owner_lookup={},
-        legacy_lookup={
-            "name": Channel.GENERAL_CHANNEL_NAME,
-            "channel_type": Channel.ChannelType.PUBLIC,
-            "deleted": False,
-        },
+        legacy_lookup={**GENERAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"created_by_id": user_id},
+    )
+
+
+def _matches_legacy_shape(channel: Channel, legacy: dict[str, Any]) -> bool:
+    return all(getattr(channel, key) == value for key, value in legacy.items())
+
+
+def general_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.GENERAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+            channel__name=Channel.GENERAL_CHANNEL_NAME,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.GENERAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PUBLIC,
+        name=Channel.GENERAL_CHANNEL_NAME,
+    )
+
+
+def personal_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.PERSONAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PERSONAL,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.PERSONAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PERSONAL,
     )
 
 
@@ -7096,14 +7133,13 @@ def find_general_channel_id(team_id: int) -> UUID | None:
     """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
     a product filing work into that space can gate on its existence instead of bringing the
     team's default spaces into being as a side effect."""
-    channels = _team_channels(team_id).filter(deleted=False)
-    channel = channels.filter(system_role=Channel.SystemRole.GENERAL).first()
-    if channel is None:
-        channel = channels.filter(
-            system_role__isnull=True,
-            channel_type=Channel.ChannelType.PUBLIC,
-            name=Channel.GENERAL_CHANNEL_NAME,
-        ).first()
+    channel = (
+        _team_channels(team_id)
+        .filter(general_channel_q(), deleted=False)
+        # A stamped row wins over an unstamped one, in the vanishingly rare case a team has both.
+        .order_by(F("system_role").asc(nulls_last=True))
+        .first()
+    )
     return channel.id if channel is not None else None
 
 
@@ -7112,7 +7148,7 @@ def _is_general_channel(channel: Channel) -> bool:
     general name is still the team's general space."""
     if channel.system_role is not None:
         return channel.system_role == Channel.SystemRole.GENERAL
-    return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
+    return _matches_legacy_shape(channel, GENERAL_LEGACY_SHAPE)
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
@@ -7419,6 +7455,42 @@ def get_channel_instructions(
         .first()
     )
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
+
+
+def desktop_users_in_team(team: Team, exclude_user_id: int) -> list[str]:
+    channels = (
+        Channel.objects.for_team(team.id)
+        .filter(
+            personal_channel_q(),
+            deleted=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .exclude(created_by_id=exclude_user_id)
+        .select_related("created_by")
+        .order_by("created_at")[:4]
+    )
+    return [
+        channel.created_by.first_name or channel.created_by.email.split("@")[0]
+        for channel in channels
+        if channel.created_by
+    ]
+
+
+def organization_has_context(organization_id: UUID | str) -> bool:
+    contents = (
+        ChannelInstructions.objects.unscoped()
+        .filter(
+            general_channel_q("channel"),
+            team__organization_id=organization_id,
+            channel__deleted=False,
+            deleted=False,
+            is_latest=True,
+            version__gt=0,
+        )
+        .exclude(content="")
+        .values_list("content", flat=True)[:20]
+    )
+    return any(content.strip() for content in contents)
 
 
 def list_channel_instruction_versions(
