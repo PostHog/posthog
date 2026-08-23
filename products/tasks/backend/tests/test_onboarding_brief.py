@@ -3,7 +3,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.tasks.backend.facade.domain_research import DomainResearch
-from products.tasks.backend.facade.onboarding_brief import OnboardingFacts, build_opening_brief
+from products.tasks.backend.facade.onboarding_brief import (
+    NO_FOLLOWUP,
+    OnboardingFacts,
+    build_followup,
+    build_opening_brief,
+    prose_list,
+)
 from products.tasks.backend.facade.onboarding_prompt import BUNDLED_ONBOARDING_PROMPT, render_onboarding_prompt
 
 SCRAPED = DomainResearch(outcome="scraped", url="northwind.example", markdown="# Northwind")
@@ -84,14 +90,59 @@ class TestOpeningBrief(SimpleTestCase):
         assert not any("findings will start landing" in line for line in brief)
         assert any("no PostHog data is arriving yet" in line for line in brief)
 
+    def test_the_message_names_a_few_sources_rather_than_listing_every_one(self) -> None:
+        brief = build_opening_brief(
+            _setup_facts(sources_enabled=("error tracking", "health checks", "support tickets", "Linear", "Sentry"))
+        )
+
+        (status,) = [line for line in brief if "you turned on" in line]
+        assert "error tracking, health checks and 3 others" in status
+        assert "Sentry" not in status
+
+
+class TestProseList(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ((), None),
+            (("a",), "a"),
+            (("a", "b"), "a and b"),
+            (("a", "b", "c"), "a, b and c"),
+            (("a", "b", "c", "d"), "a, b and 2 others"),
+            (("a", "b", "c", "d", "e"), "a, b and 3 others"),
+        ]
+    )
+    def test_it_counts_the_tail_instead_of_naming_it(self, items: tuple[str, ...], expected: str | None) -> None:
+        assert prose_list(items) == expected
+
+
+class TestFollowup(SimpleTestCase):
+    def test_setting_a_workspace_up_owes_it_the_company_context(self) -> None:
+        assert "Save what the company does" in build_followup(_setup_facts())
+
+    def test_joining_a_workspace_never_rewrites_the_context_it_joined(self) -> None:
+        assert build_followup(OnboardingFacts(org_has_context=True)) == NO_FOLLOWUP
+
 
 class TestBundledPromptRendering(SimpleTestCase):
     def test_rendering_leaves_no_placeholder_behind(self) -> None:
-        brief = build_opening_brief(_setup_facts())
+        facts = _setup_facts()
 
-        rendered = render_onboarding_prompt(BUNDLED_ONBOARDING_PROMPT, brief=brief, homepage="# Northwind")
+        rendered = render_onboarding_prompt(
+            BUNDLED_ONBOARDING_PROMPT,
+            brief=build_opening_brief(facts),
+            followup=build_followup(facts),
+            homepage="# Northwind",
+            channel_id="0198f000-0000-7000-8000-000000000000",
+        )
 
-        assert "{{brief}}" not in rendered
-        assert "{{homepage}}" not in rendered
+        assert "{{" not in rendered
         assert "Summarize what the company does" in rendered
         assert "# Northwind" in rendered
+        assert "0198f000-0000-7000-8000-000000000000" in rendered
+
+    def test_the_agent_only_instruction_stays_out_of_the_message_brief(self) -> None:
+        facts = _setup_facts()
+
+        brief = build_opening_brief(facts)
+
+        assert not any("Save what the company does" in line for line in brief)

@@ -8,7 +8,7 @@ import posthoganalytics
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.facade.api import visible_report_count
+from products.signals.backend.facade.api import enable_onboarding_signal_sources, visible_report_count
 from products.tasks.backend.facade.api import (
     create_and_run_task,
     desktop_users_in_team,
@@ -16,7 +16,12 @@ from products.tasks.backend.facade.api import (
     organization_has_context,
 )
 from products.tasks.backend.facade.domain_research import normalize_target, research_domain
-from products.tasks.backend.facade.onboarding_brief import OnboardingFacts, build_opening_brief
+from products.tasks.backend.facade.onboarding_brief import (
+    OnboardingFacts,
+    build_followup,
+    build_opening_brief,
+    prose_list,
+)
 from products.tasks.backend.facade.onboarding_prompt import load_onboarding_prompt, render_onboarding_prompt
 from products.tasks.backend.models import Task
 
@@ -40,26 +45,20 @@ def company_domain_from(email: str) -> str | None:
     return normalize_target(domain)
 
 
-def _company_of(names: list[str]) -> str | None:
-    if not names:
-        return None
-    if len(names) == 1:
-        return names[0]
-    if len(names) <= 3:
-        return f"{', '.join(names[:-1])} and {names[-1]}"
-    return f"{', '.join(names[:2])} and {len(names) - 2} others"
-
-
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
-    """The facts behind the opening message, and the page text its summary is drawn from."""
-    others = _company_of(desktop_users_in_team(team.id, user.id))
+    """The facts behind the opening message, and the page text its summary is drawn from.
+
+    Turning the sources on happens here rather than after the message is written, so a session that
+    never reaches the user still leaves the team watched.
+    """
+    sources = enable_onboarding_signal_sources(team.id, user.id)
 
     if organization_has_context(team.organization_id):
         return (
             OnboardingFacts(
                 org_has_context=True,
                 signal_reports_waiting=visible_report_count(team.id),
-                other_members=others,
+                other_members=prose_list(desktop_users_in_team(team.id, user.id)),
             ),
             "",
         )
@@ -71,7 +70,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         research=research,
         has_events=bool(team.ingested_event),
         signal_reports_waiting=visible_report_count(team.id),
-        other_members=others,
+        sources_enabled=sources,
     )
     homepage = research.markdown or "" if research and research.outcome == "scraped" else ""
     return facts, homepage
@@ -109,7 +108,13 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
 
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
-    description = render_onboarding_prompt(prompt.prompt, brief=build_opening_brief(facts), homepage=homepage)
+    description = render_onboarding_prompt(
+        prompt.prompt,
+        brief=build_opening_brief(facts),
+        followup=build_followup(facts),
+        homepage=homepage,
+        channel_id=str(channel_id),
+    )
 
     created = create_and_run_task(
         team=team,
@@ -128,5 +133,6 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         prompt_source=prompt.source,
         prompt_version=prompt.version,
         research_outcome=facts.research.outcome if facts.research else None,
+        sources_enabled=facts.sources_enabled,
     )
     return created.task_id

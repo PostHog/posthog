@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade.domain_research import DomainResearch
@@ -5,6 +7,17 @@ from products.tasks.backend.facade.domain_research import DomainResearch
 TOP_OF_MIND = "Ask what's top of mind."
 
 RESEARCH_LINE = "Say you did some research to start building their company context."
+
+SAVE_CONTEXT = (
+    "Save what the company does to this space's context, once they confirm your summary, correct it, "
+    "or tell you from scratch."
+)
+
+NO_FOLLOWUP = "Nothing beyond answering them."
+
+# How many turned-on sources the message names before it starts counting. Naming all of them reads
+# as a feature list and eats the word budget the company summary needs.
+_NAMED_SOURCE_LIMIT = 3
 
 
 @frozen
@@ -15,6 +28,23 @@ class OnboardingFacts:
     signal_reports_waiting: int = 0
     sources_enabled: tuple[str, ...] = ()
     other_members: str | None = None
+
+
+def prose_list(items: Sequence[str], *, limit: int = 3) -> str | None:
+    """``a``, ``a and b``, ``a, b and c``, then ``a, b and 4 others``.
+
+    ``limit`` counts the whole phrase, so a list that overflows spends its last slot on the count
+    rather than on one more name.
+    """
+    if not items:
+        return None
+    if len(items) <= limit:
+        named = list(items)
+    else:
+        named = [*items[: limit - 1], f"{len(items) - limit + 1} others"]
+    if len(named) == 1:
+        return named[0]
+    return f"{', '.join(named[:-1])} and {named[-1]}"
 
 
 def _joining_brief(facts: OnboardingFacts) -> list[str]:
@@ -38,8 +68,8 @@ def _status_line(facts: OnboardingFacts) -> str | None:
         return _findings_line(facts)
     if not facts.has_events:
         return "Say plainly that no PostHog data is arriving yet, because nothing is connected to send it."
-    if facts.sources_enabled:
-        enabled = " and ".join(facts.sources_enabled)
+    enabled = prose_list(facts.sources_enabled, limit=_NAMED_SOURCE_LIMIT)
+    if enabled:
         return f"Tell them you turned on {enabled}, so findings will start landing in #general."
     return None
 
@@ -81,3 +111,9 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
         brief.append(f"Last line, exactly: Sources: {facts.research.url}")
 
     return brief
+
+
+def build_followup(facts: OnboardingFacts) -> str:
+    """What the session owes them after the first message. Kept out of the brief so a line meant for
+    the agent can never be transcribed into the message as a point to cover."""
+    return NO_FOLLOWUP if facts.org_has_context else SAVE_CONTEXT

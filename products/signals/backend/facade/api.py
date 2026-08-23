@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
@@ -339,6 +340,92 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
+
+
+# ---------------------------------------------------------------------------
+# Desktop onboarding: the sources a new workspace gets turned on for it.
+# ---------------------------------------------------------------------------
+
+# PostHog's own products, which need nothing connected and cost nothing to watch: reports are
+# free until one opens a pull request. Each pair is a `SignalSourceConfig` row the team can find
+# and switch off in the inbox's source roster.
+#
+# Deliberately absent, and each for a different reason: session replay's `session_problem` gates
+# on the retired `session_analysis_cluster` config, so a row would be a row nothing reads; scout
+# findings are fail-open already; Replay Vision authorizes itself per scanner; and `logs` and
+# `endpoints` carry payload contracts with no emitter behind them yet.
+_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    (SignalSourceProduct.ERROR_TRACKING, ("issue_created", "issue_reopened", "issue_spiking"), "error tracking"),
+    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks"),
+    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets"),
+    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics"),
+)
+
+
+def _syncing_warehouse_signal_sources(team_id: int) -> list[tuple[str, str, str]]:
+    """``(source_product, source_type, label)`` for every warehouse source the team already syncs
+    that has a signal emitter behind it.
+
+    Read off the emitter registry rather than a list kept here, so registering an emitter is all
+    it takes for onboarding to pick the source up.
+    """
+    from products.signals.backend.emission.registry import (  # noqa: PLC0415 — keeps the emitter modules off this module's import path
+        get_signal_source_identity,
+    )
+    from products.warehouse_sources.backend.facade import api as warehouse_facade  # noqa: PLC0415 — same
+
+    found: dict[tuple[str, str], str] = {}
+    try:
+        for source in warehouse_facade.list_sources(team_id):
+            for schema in warehouse_facade.list_schemas_for_source(source.id, team_id):
+                if not schema.should_sync:
+                    continue
+                identity = get_signal_source_identity(source.source_type, schema.name)
+                if identity is None:
+                    continue
+                found[identity] = SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(identity[0]), identity[0])
+    except Exception:
+        logger.exception("onboarding_warehouse_source_lookup_failed", team_id=team_id)
+    return [(product, source_type, label) for (product, source_type), label in found.items()]
+
+
+def enable_onboarding_signal_sources(team_id: int, user_id: int) -> tuple[str, ...]:
+    """Turn on every signal source this team can run today, and name what was turned on.
+
+    Called once, when a workspace is first set up, so the team is watched without anyone working
+    through a grid of toggles. Best-effort by design: a source that fails to enable is logged and
+    skipped, because a half-enabled workspace still beats a failed sign-in.
+
+    A team that already runs a source is left alone, which is what makes this safe to call on every
+    sign-in: re-running would restamp ``created_by`` onto whoever signed in last, and a team that
+    picked its own sources did not ask us to add to them.
+    """
+    if has_enabled_source(team_id):
+        return ()
+
+    labels: list[str] = []
+    bundles: list[tuple[str, tuple[str, ...], str]] = [
+        *_ONBOARDING_NATIVE_SOURCES,
+        *(
+            (product, (source_type,), label)
+            for product, source_type, label in _syncing_warehouse_signal_sources(team_id)
+        ),
+    ]
+    for source_product, source_types, label in bundles:
+        try:
+            set_signal_source_types_enabled(
+                team_id=team_id,
+                source_product=source_product,
+                source_types=source_types,
+                enabled=True,
+                created_by_id=user_id,
+            )
+        except Exception:
+            logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
+            continue
+        labels.append(label)
+    return tuple(labels)
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,

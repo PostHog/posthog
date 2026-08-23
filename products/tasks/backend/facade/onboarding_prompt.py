@@ -80,7 +80,26 @@ These are the target register and length. The companies are invented; do not reu
 
 ## Output
 
-Only the message they will see. No preamble, no explanation, no code fencing."""
+Your first reply is only the message they will see. No preamble, no explanation, no code fencing.
+
+## After they reply
+
+Everything above governs that first message. From there you are a normal agent: answer what they ask and do what they ask.
+
+The block below says what else this session owes them. It is not part of the message, and nothing in it is ever quoted back to them.
+
+<followup>
+{{followup}}
+</followup>
+
+If the followup asks you to save what the company does, that part is not optional. Save it the moment you know it, whether they confirmed your summary, corrected it, or told you from scratch. Do not wait to be asked. Reply to them normally, and do not make the saving the subject of your reply.
+
+Save it by reading the current context, then writing it back:
+
+1. Call `channel-instructions-retrieve` with id `{{channel_id}}`.
+2. Call `channel-instructions-update` once, with id `{{channel_id}}`, `base_version` set to the version you just read (0 if none exists), and `content` set to the existing markdown plus a `## Company` section. Never drop content that is already there.
+
+Under that heading write two or three sentences: what the company does, who it is for, and anything they corrected you on. Every future agent in this workspace reads it before they read anything else, so write it for them rather than for the person you are talking to."""
 
 
 _PROMPTS = Prompts(posthoganalytics, capture_errors=True)
@@ -95,6 +114,9 @@ def load_onboarding_prompt() -> PromptResult:
     )
 
 
-def render_onboarding_prompt(template: str, *, brief: list[str], homepage: str) -> str:
+def render_onboarding_prompt(template: str, *, brief: list[str], followup: str, homepage: str, channel_id: str) -> str:
     brief_text = "\n".join(f"- {line}" for line in brief)
-    return _PROMPTS.compile(template, {"brief": brief_text, "homepage": homepage})
+    return _PROMPTS.compile(
+        template,
+        {"brief": brief_text, "followup": followup, "homepage": homepage, "channel_id": channel_id},
+    )
