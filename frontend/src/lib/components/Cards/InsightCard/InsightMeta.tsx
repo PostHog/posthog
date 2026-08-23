@@ -161,14 +161,6 @@ export function InsightMeta({
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
-    // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
-    const insightViewUrl = urls.insightView(
-        short_id,
-        dashboardId,
-        variablesOverride,
-        filtersOverride,
-        tileFiltersOverride
-    )
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId,
@@ -395,6 +387,14 @@ export function InsightMeta({
           }
         : undefined
 
+    // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
+    const insightViewUrl = urls.insightView(
+        short_id,
+        dashboardId,
+        variablesOverride,
+        filtersOverride,
+        tileFiltersOverride
+    )
     const copyInsightLink = (): void => {
         void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
     }
