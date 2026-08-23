@@ -50,6 +50,8 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 401 — an authentication state rather than a crash. `apiStatusLogic` re-checks the session and
  *   logs the user out, best-effort: it bails while impersonating (where `ImpersonationNotice`
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
+ * - 404 — the resource does not exist, which scenes render as a NotFound page. This is an expected
+ *   state for a stale link or a deleted object, not an application defect.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
@@ -72,7 +74,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === undefined) {
         return true
     }
-    if (status === 401 || isTransientGatewayStatus(status)) {
+    if (status === 401 || status === 404 || isTransientGatewayStatus(status)) {
         return false
     }
     if (isAccessDeniedError(failure)) {
