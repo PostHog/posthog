@@ -1,16 +1,18 @@
 /**
  * Skills that reduce what a run costs, ranked.
  *
- * Two rules hold this list together. Everything here installs and uninstalls
- * in one click: a project that cannot do that does not belong on the list, so
- * there is no half-listed entry with instructions instead of a button. And a
- * measurement is only shown with whose measurement it is, never the project's
- * own figure where an independent trial failed to reproduce it.
+ * Everything here installs and uninstalls in one click, so there is no
+ * half-listed entry carrying instructions instead of a button. A measurement
+ * is only shown with whose measurement it is, never the project's own figure
+ * where an independent trial failed to reproduce it. What each one does is
+ * described from its own SKILL.md, so the description is the skill's behavior
+ * rather than a paraphrase of its pitch.
  *
  * Deliberately absent: JetBrains/benjamin-plus-skill. Its ruleset measured
- * 17.9% lower cost, but it has no SKILL.md — it works by injecting itself at
- * session start — so the installer cannot fetch it, and its authors measured
- * the same text delivered as a skill folder at -0.5%, not significant.
+ * -17.9% cost, the best of any of these, but it only works injected into the
+ * system prompt — its authors measured the same text as a skill folder at
+ * -0.5% — so no one-click install can deliver it. Adopting it means shipping
+ * the rules in the prompt every harness appends, which is its own change.
  */
 
 export interface LeanSkill {
@@ -23,14 +25,27 @@ export interface LeanSkill {
   skillId: string;
   /** One line, for the row. */
   summary: string;
-  /** How it works, for the detail dialog. */
-  mechanism: string;
-  /** A measured result, always attributed. Absent when nothing was measured. */
-  evidence?: string;
-  evidenceSource?: string;
-  evidenceUrl?: string;
-  /** Where the effect does not apply, so nobody expects it everywhere. */
-  caveat?: string;
+  /** How it goes about it, taken from its own instructions. */
+  approach: string;
+  /** The project's own illustration of the difference it makes. */
+  example?: { ask: string; without: string; with: string };
+  /**
+   * An independent trial's finding, always in the trial's name. A skill
+   * nobody measured carries none, and the dialog then shows none rather than
+   * a line of ours saying it is unmeasured.
+   */
+  trial?: {
+    source: string;
+    /** The figure worth scanning for, e.g. "10%". */
+    headline: string;
+    /** What that figure is, e.g. "lower cost". */
+    headlineLabel: string;
+    /** How much work it was measured over, e.g. "80 paired tasks". */
+    sample: string;
+    /** The rest of the finding, in the trial's terms. */
+    finding: string;
+    url: string;
+  };
   license: string;
 }
 
@@ -42,14 +57,22 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     skillId: "ponytail",
     summary:
       "Pushes the agent toward the simplest solution, so it writes less code.",
-    mechanism:
-      "A standing ruleset with a seven-rung ladder: does the thing need to exist, does the standard library already do it, does the platform, one line before fifty. It changes what the agent builds, not only how it writes.",
-    evidence: "80 paired tasks: about 10% lower cost, no quality difference.",
-    evidenceSource: "JetBrains",
-    evidenceUrl:
-      "https://blog.jetbrains.com/ai/2026/07/ponytail-skill-claude-tested/",
-    caveat:
-      "Concentrated on larger builds and near zero on small ones. The project's own claim of roughly 20% cheaper did not reproduce.",
+    approach:
+      "A ladder it climbs on every coding task, stopping at the first rung that works: does this need to exist, is it already in the codebase, does the standard library or the platform cover it, is a dependency already installed, can it be one line. Only then does it write the minimum, and it leaves a comment naming each simplification it chose.",
+    example: {
+      ask: "Asked for a date picker",
+      without: "installs a picker library and wraps it in a component",
+      with: '<input type="date">',
+    },
+    trial: {
+      source: "JetBrains",
+      headline: "10%",
+      headlineLabel: "lower cost",
+      sample: "80 paired tasks",
+      finding:
+        "No quality difference. Concentrated on larger builds, near zero on small ones.",
+      url: "https://blog.jetbrains.com/ai/2026/07/ponytail-skill-claude-tested/",
+    },
     license: "MIT",
   },
   {
@@ -59,10 +82,8 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     skillId: "context-budget",
     summary:
       "Audits what is eating your context and says what to drop or load later.",
-    mechanism:
-      "Inventories your agents, skills, rules and MCP servers, estimates what each costs per turn, and sorts them into keep, load on demand, and remove.",
-    caveat:
-      "A diagnostic, not a saving. It claims no figure, and acting on what it finds is what changes anything.",
+    approach:
+      "Inventories your agents, skills, rules and MCP servers, estimates what each one costs from its word count, then sorts them into always, sometimes and rarely needed. It ends on the three changes with the largest projected saving, leaving the cutting to you.",
     license: "MIT",
   },
   {
@@ -71,14 +92,16 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     source: "juliusbrussee/caveman",
     skillId: "caveman",
     summary: "Strips filler from the agent's prose, leaving code untouched.",
-    mechanism:
-      "Drops articles, pleasantries and narration from written output. Code blocks and error strings are preserved verbatim.",
-    evidence: "82 paired tasks: output tokens down 8.5%, cost near 10%.",
-    evidenceSource: "JetBrains",
-    evidenceUrl:
-      "https://blog.jetbrains.com/ai/2026/07/speak-to-ai-agents-like-cavemen-tosave-tokens/",
-    caveat:
-      "Its own frontmatter claims 65%, which that trial contradicts: on coding work the stream is mostly code and tool calls, which it does not touch.",
+    approach:
+      "An output mode that holds for the session: articles, hedges, pleasantries, tables and tool-call narration go, and what is left is written in fragments. Code blocks, API names, commands and error strings stay verbatim, and it refuses invented abbreviations, which cost tokens rather than save them.",
+    trial: {
+      source: "JetBrains",
+      headline: "8.5%",
+      headlineLabel: "fewer output tokens",
+      sample: "82 paired tasks",
+      finding: "Cost down near 10%.",
+      url: "https://blog.jetbrains.com/ai/2026/07/speak-to-ai-agents-like-cavemen-tosave-tokens/",
+    },
     // The repository is MIT with several runtime directories carved out under
     // BSL-1.1. Only the MIT-covered skills directory is fetched.
     license: "MIT (skills directory)",

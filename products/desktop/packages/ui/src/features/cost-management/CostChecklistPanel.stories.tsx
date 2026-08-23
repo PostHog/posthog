@@ -6,7 +6,6 @@ const meta: Meta<typeof CostChecklistPanel> = {
   title: "Cost management/CostChecklistPanel",
   component: CostChecklistPanel,
   args: {
-    creatingImage: false,
     installingSkill: false,
     onSwitchModel: () => {},
     onCreateImage: () => {},
@@ -31,11 +30,7 @@ const modelNotch: CostChecklistItem = {
   toModelId: "claude-sonnet-5",
 };
 
-const customImage: CostChecklistItem = {
-  kind: "custom-image",
-  done: false,
-  repository: "posthog/posthog",
-};
+const customImage: CostChecklistItem = { kind: "custom-image", done: false };
 
 export const BothActive: StoryObj<typeof CostChecklistPanel> = {
   args: { items: [modelNotch, customImage] },
@@ -54,17 +49,13 @@ export const AllDone: StoryObj<typeof CostChecklistPanel> = {
   args: {
     items: [
       { kind: "model-notch", done: true, modelId: "claude-sonnet-5" },
-      { kind: "custom-image", done: true, repository: "posthog/posthog" },
+      { kind: "custom-image", done: true },
     ],
   },
 };
 
 export const NothingToChange: StoryObj<typeof CostChecklistPanel> = {
   args: { items: [] },
-};
-
-export const CreatingImage: StoryObj<typeof CostChecklistPanel> = {
-  args: { items: [customImage], creatingImage: true },
 };
 
 export const SkillItems: StoryObj<typeof CostChecklistPanel> = {

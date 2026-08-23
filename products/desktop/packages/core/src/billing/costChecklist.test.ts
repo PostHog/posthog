@@ -3,21 +3,25 @@ import { buildCostChecklist, type CostChecklistInput } from "./costChecklist";
 
 const base: CostChecklistInput = {
   defaultModelId: "claude-sonnet-5",
-  cloudRepository: null,
-  cloudRepositoryHasCustomImage: false,
-  hasSpendHistory: false,
+  hasCustomImage: false,
   skills: [],
   completed: [],
 };
 
 describe("buildCostChecklist", () => {
-  it("is empty when no trigger fires", () => {
-    expect(buildCostChecklist(base)).toEqual([]);
+  it("recommends an image when there is none, whatever else is set up", () => {
+    expect(buildCostChecklist(base)).toEqual([
+      { kind: "custom-image", done: false },
+    ]);
   });
 
   it("offers the model notch only above the trigger multiplier", () => {
     expect(
-      buildCostChecklist({ ...base, defaultModelId: "claude-opus-5" }),
+      buildCostChecklist({
+        ...base,
+        defaultModelId: "claude-opus-5",
+        hasCustomImage: true,
+      }),
     ).toEqual([
       {
         kind: "model-notch",
@@ -25,33 +29,29 @@ describe("buildCostChecklist", () => {
         fromModelId: "claude-opus-5",
         toModelId: "claude-sonnet-5",
       },
+      { kind: "custom-image", done: true },
     ]);
   });
 
-  it("offers a custom image only for a cloud repo that lacks one", () => {
-    expect(
-      buildCostChecklist({ ...base, cloudRepository: "posthog/posthog" }),
-    ).toEqual([
-      { kind: "custom-image", done: false, repository: "posthog/posthog" },
+  it("checks the image row off the image itself, not a stored completion", () => {
+    expect(buildCostChecklist({ ...base, hasCustomImage: true })).toEqual([
+      { kind: "custom-image", done: true },
     ]);
+    // A build that was started and then failed or deleted leaves the stored
+    // kind behind; the row must go back to unchecked all the same.
     expect(
-      buildCostChecklist({
-        ...base,
-        cloudRepository: "posthog/posthog",
-        cloudRepositoryHasCustomImage: true,
-      }),
-    ).toEqual([]);
+      buildCostChecklist({ ...base, completed: ["custom-image"] }),
+    ).toEqual([{ kind: "custom-image", done: false }]);
   });
 
   it("keeps a completed item as a checked record and sinks it below active work", () => {
     const items = buildCostChecklist({
       ...base,
       defaultModelId: "claude-sonnet-5",
-      cloudRepository: "posthog/posthog",
       completed: ["model-notch"],
     });
     expect(items).toEqual([
-      { kind: "custom-image", done: false, repository: "posthog/posthog" },
+      { kind: "custom-image", done: false },
       { kind: "model-notch", done: true, modelId: "claude-sonnet-5" },
     ]);
   });
@@ -60,27 +60,12 @@ describe("buildCostChecklist", () => {
     const items = buildCostChecklist({
       ...base,
       defaultModelId: "claude-opus-5",
+      hasCustomImage: true,
       completed: ["model-notch"],
     });
     expect(items).toEqual([
       { kind: "model-notch", done: true, modelId: "claude-opus-5" },
-    ]);
-  });
-
-  it("offers a skill only once there is spend to reduce", () => {
-    const skills = [
-      { skillId: "ponytail", name: "Ponytail", installed: false },
-    ];
-    expect(buildCostChecklist({ ...base, skills })).toEqual([]);
-    expect(
-      buildCostChecklist({ ...base, skills, hasSpendHistory: true }),
-    ).toEqual([
-      {
-        kind: "install-skill",
-        done: false,
-        skillId: "ponytail",
-        name: "Ponytail",
-      },
+      { kind: "custom-image", done: true },
     ]);
   });
 
@@ -88,7 +73,7 @@ describe("buildCostChecklist", () => {
     expect(
       buildCostChecklist({
         ...base,
-        hasSpendHistory: true,
+        hasCustomImage: true,
         skills: [
           { skillId: "ponytail", name: "Ponytail", installed: true },
           {
@@ -105,22 +90,7 @@ describe("buildCostChecklist", () => {
         skillId: "context-budget",
         name: "Context budget",
       },
-      {
-        kind: "install-skill",
-        done: true,
-        skillId: "ponytail",
-        name: "Ponytail",
-      },
-    ]);
-  });
-
-  it("keeps an installed skill's row whatever the spend history", () => {
-    expect(
-      buildCostChecklist({
-        ...base,
-        skills: [{ skillId: "ponytail", name: "Ponytail", installed: true }],
-      }),
-    ).toEqual([
+      { kind: "custom-image", done: true },
       {
         kind: "install-skill",
         done: true,

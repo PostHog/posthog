@@ -23,6 +23,6 @@ export const Installed: StoryObj<typeof LeanSkillDialog> = {
   args: { installed: true },
 };
 
-export const NothingMeasured: StoryObj<typeof LeanSkillDialog> = {
+export const NoTrial: StoryObj<typeof LeanSkillDialog> = {
   args: { skill: LEAN_SKILLS[1] },
 };

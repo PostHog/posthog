@@ -8,16 +8,13 @@ import {
 } from "@posthog/core/billing/modelPricing";
 import { Button, Text } from "@posthog/quill";
 import { formatModelId } from "@posthog/shared";
-import { LeanSkillMark } from "@posthog/ui/features/cost-management/LeanSkillMark";
 import type { ReactNode } from "react";
 
 interface CostChecklistPanelProps {
   items: CostChecklistItem[];
-  /** True while the image builder is being created for the pending item. */
-  creatingImage: boolean;
   installingSkill: boolean;
   onSwitchModel: (toModelId: string) => void;
-  onCreateImage: (repository: string) => void;
+  onCreateImage: () => void;
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   /** Opens one skill's details, with its links. */
@@ -33,7 +30,6 @@ interface CostChecklistPanelProps {
  */
 export function CostChecklistPanel({
   items,
-  creatingImage,
   installingSkill,
   onSwitchModel,
   onCreateImage,
@@ -67,7 +63,6 @@ export function CostChecklistPanel({
             }
             done={item.done}
             {...rowContent(item, {
-              creatingImage,
               installingSkill,
               onSwitchModel,
               onCreateImage,
@@ -89,10 +84,9 @@ export function CostChecklistPanel({
 }
 
 interface RowHandlers {
-  creatingImage: boolean;
   installingSkill: boolean;
   onSwitchModel: (toModelId: string) => void;
-  onCreateImage: (repository: string) => void;
+  onCreateImage: () => void;
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
@@ -103,8 +97,6 @@ interface RowContent {
   title: string;
   detail: ReactNode;
   action: ReactNode;
-  /** Stands in for the checklist ring, e.g. a skill's mark. */
-  mark?: ReactNode;
 }
 
 function rowContent(item: CostChecklistItem, h: RowHandlers): RowContent {
@@ -155,25 +147,23 @@ function rowContent(item: CostChecklistItem, h: RowHandlers): RowContent {
     case "custom-image":
       return item.done
         ? {
-            title: `Custom sandbox image started for ${item.repository}`,
+            title: "Custom sandbox image built",
             detail:
-              "Pick it as the base image of a cloud environment once the build finishes.",
+              "Pick it as the base image of a cloud environment to start runs from it.",
             action: null,
           }
         : {
-            title: `Create a custom sandbox image for ${item.repository}`,
+            title: "Build a custom sandbox image",
             detail:
               "Cloud runs start from your dependencies and a lean set of search tools instead of installing them each time.",
             action: (
               <Button
                 variant="outline"
                 size="sm"
-                loading={h.creatingImage}
-                disabled={h.creatingImage}
                 data-attr="cost-management-open-image-preset"
-                onClick={() => h.onCreateImage(item.repository)}
+                onClick={() => h.onCreateImage()}
               >
-                Create image
+                Build image
               </Button>
             ),
           };
@@ -192,7 +182,6 @@ function rowContent(item: CostChecklistItem, h: RowHandlers): RowContent {
       );
       return {
         title: item.name,
-        mark: <LeanSkillMark />,
         detail: (
           <span className="flex flex-wrap items-center gap-x-2">
             {skill?.summary ?? ""}
@@ -232,24 +221,19 @@ function ChecklistRow({
   title,
   detail,
   action,
-  mark,
 }: RowContent & { done: boolean }) {
   return (
     <div
       className={`flex items-start gap-3 px-4 py-3 ${done ? "opacity-65" : ""}`}
     >
-      {mark ? (
-        <span className="mt-px shrink-0">{mark}</span>
-      ) : (
-        <span
-          aria-hidden="true"
-          className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
-            done ? "bg-(--gray-12) text-(--gray-1)" : "border border-(--gray-7)"
-          }`}
-        >
-          {done && <Check size={10} weight="bold" />}
-        </span>
-      )}
+      <span
+        aria-hidden="true"
+        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
+          done ? "bg-(--gray-12) text-(--gray-1)" : "border border-(--gray-7)"
+        }`}
+      >
+        {done && <Check size={10} weight="bold" />}
+      </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Text
           className={`text-[12.5px] ${done ? "font-normal text-(--gray-11)" : "font-medium text-(--gray-12)"}`}

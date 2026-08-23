@@ -3,40 +3,31 @@ import {
   type CostChecklistItem,
 } from "@posthog/core/billing/costChecklist";
 import { LEAN_SKILLS } from "@posthog/core/billing/leanSkills";
-import { useSpendTotals } from "@posthog/ui/features/billing/useSpendTotals";
-import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
+import { isImageBuildFailed } from "@posthog/shared/domain-types";
+import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSkills } from "@posthog/ui/features/skills/useSkills";
 
 /**
- * The checklist for the signed-in user: their default model, the repository
- * their cloud runs use, which lean skills they have, and what they have acted
- * on.
+ * The checklist for the signed-in user: their default model, the images their
+ * cloud runs can start from, which lean skills they have, and what they have
+ * acted on.
  */
 export function useCostChecklist(): CostChecklistItem[] {
   const defaultModelId = useSettingsStore((state) => state.lastUsedModel);
-  const cloudRepository = useSettingsStore(
-    (state) => state.lastUsedCloudRepository,
-  );
   const completed = useSettingsStore((state) => state.costChecklistDone);
-  const { environments } = useSandboxEnvironments();
+  const { images } = useSandboxCustomImages();
   const installed = useInstalledLeanSkills();
-  const totals = useSpendTotals();
 
-  const repository = cloudRepository?.toLowerCase() ?? null;
-  const cloudRepositoryHasCustomImage = (environments ?? []).some(
-    (environment) =>
-      environment.custom_image_id !== null &&
-      environment.repositories.some(
-        (repo) => repo.toLowerCase() === repository,
-      ),
+  // A failed or archived image is not something a session can start from, so
+  // it leaves the recommendation standing.
+  const hasCustomImage = images.some(
+    (image) => image.status !== "archived" && !isImageBuildFailed(image.status),
   );
 
   return buildCostChecklist({
     defaultModelId,
-    cloudRepository,
-    cloudRepositoryHasCustomImage,
-    hasSpendHistory: (totals?.avgDailyUsd ?? 0) > 0,
+    hasCustomImage,
     skills: LEAN_SKILLS.map((skill) => ({
       skillId: skill.skillId,
       name: skill.name,

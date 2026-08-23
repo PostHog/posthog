@@ -6,7 +6,6 @@ const meta: Meta<typeof CostManagementView> = {
   title: "Cost management/CostManagementView",
   component: CostManagementView,
   args: {
-    creatingImage: false,
     installingSkill: false,
     onSwitchModel: () => {},
     onCreateImage: () => {},
@@ -31,7 +30,7 @@ const items: CostChecklistItem[] = [
     fromModelId: "claude-opus-5",
     toModelId: "claude-sonnet-5",
   },
-  { kind: "custom-image", done: false, repository: "posthog/posthog" },
+  { kind: "custom-image", done: false },
 ];
 
 export const Page: StoryObj<typeof CostManagementView> = {
@@ -42,7 +41,7 @@ export const EverythingChecked: StoryObj<typeof CostManagementView> = {
   args: {
     items: [
       { kind: "model-notch", done: true, modelId: "claude-sonnet-5" },
-      { kind: "custom-image", done: true, repository: "posthog/posthog" },
+      { kind: "custom-image", done: true },
     ],
   },
 };

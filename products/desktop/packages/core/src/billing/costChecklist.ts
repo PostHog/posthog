@@ -3,12 +3,11 @@ import { modelNotchSuggestion } from "./costRecommendations";
 /**
  * The Cost management checklist.
  *
- * Three rules the shape enforces. Every item is actionable: it exists because
- * there is a change to make, and its button makes it. Every item is
- * conditional: an item that would appear identically for everyone is not a
- * recommendation, so it never enters the list. And nothing is dismissible:
- * acting is the only way an item leaves the active list, after which it stays
- * as a checked record at the bottom.
+ * An item exists because there is a change to make, and its button makes it.
+ * Whether it reads as a suggestion or as a check comes from the setup itself,
+ * never from a record of having once clicked the button. Acting is the only
+ * way an item leaves the active list, after which it stays as a checked
+ * record at the bottom.
  */
 
 export type CostChecklistItemKind =
@@ -24,22 +23,14 @@ export type CostChecklistItem =
       toModelId: string;
     }
   | { kind: "model-notch"; done: true; modelId: string }
-  | { kind: "custom-image"; done: false; repository: string }
-  | { kind: "custom-image"; done: true; repository: string }
+  | { kind: "custom-image"; done: boolean }
   | { kind: "install-skill"; done: boolean; skillId: string; name: string };
 
 export interface CostChecklistInput {
   /** The model new sessions start on, or null when the user has not picked one. */
   defaultModelId: string | null;
-  /** The repository the user's last cloud run used, or null if they have none. */
-  cloudRepository: string | null;
-  /** True when that repository's cloud runs already start from a custom image. */
-  cloudRepositoryHasCustomImage: boolean;
-  /**
-   * True once the person has spend to reduce. Setup advice waits for it, so a
-   * brand-new account is not handed a list of chores.
-   */
-  hasSpendHistory: boolean;
+  /** True when the user has at least one custom image worth starting from. */
+  hasCustomImage: boolean;
   /**
    * Every skill worth a row, in ranked order, each already resolved to
    * whether it is present locally.
@@ -56,9 +47,7 @@ export interface CostChecklistInput {
  */
 export function buildCostChecklist({
   defaultModelId,
-  cloudRepository,
-  cloudRepositoryHasCustomImage,
-  hasSpendHistory,
+  hasCustomImage,
   skills,
   completed,
 }: CostChecklistInput): CostChecklistItem[] {
@@ -88,25 +77,18 @@ export function buildCostChecklist({
     }
   }
 
-  if (cloudRepository) {
-    if (isDone("custom-image")) {
-      finished.push({
-        kind: "custom-image",
-        done: true,
-        repository: cloudRepository,
-      });
-    } else if (!cloudRepositoryHasCustomImage) {
-      active.push({
-        kind: "custom-image",
-        done: false,
-        repository: cloudRepository,
-      });
-    }
+  // The image itself is the record, so this row reads the account rather than
+  // a stored completion: a build that was started and then failed or deleted
+  // leaves nothing behind, and the recommendation comes back.
+  if (hasCustomImage) {
+    finished.push({ kind: "custom-image", done: true });
+  } else {
+    active.push({ kind: "custom-image", done: false });
   }
 
   // Installing is its own record, so these rows follow the skill list rather
   // than a stored completion. An installed one stays as a checked row so it
-  // can be removed from the same place it was added.
+  // can be uninstalled from the same place it was added.
   for (const skill of skills) {
     if (skill.installed) {
       finished.push({
@@ -115,7 +97,7 @@ export function buildCostChecklist({
         skillId: skill.skillId,
         name: skill.name,
       });
-    } else if (hasSpendHistory) {
+    } else {
       active.push({
         kind: "install-skill",
         done: false,

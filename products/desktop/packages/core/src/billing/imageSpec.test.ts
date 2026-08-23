@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { IMAGE_PRESET_TOOLS, type ImagePresetTool } from "./imagePreset";
+import {
+  IMAGE_PRESET_TOOLS,
+  type ImagePresetTool,
+  imagePresetTools,
+  toolInstallMethod,
+} from "./imagePreset";
 import {
   buildImageSpec,
+  IMAGE_TOOLS_ENV_KEY,
   imageSpecError,
   imageSpecToYaml,
   setupCommandError,
@@ -73,9 +79,11 @@ describe("buildImageSpec", () => {
       setupCommands: [" pnpm install ", ""],
       repository: "posthog/posthog",
     });
-    expect(spec.apt_packages).toEqual(["ripgrep", "fd-find", "jq", "tree"]);
+    expect(spec.apt_packages).toEqual(
+      aptTools.flatMap((tool) => tool.aptPackages ?? []),
+    );
     expect(spec.run_commands).toEqual([
-      "ln -sf $(command -v fdfind) /usr/local/bin/fd",
+      ...new Set(aptTools.flatMap((tool) => tool.runCommands ?? [])),
     ]);
     expect(spec.repo_setup_commands).toEqual(["pnpm install"]);
   });
@@ -89,14 +97,85 @@ describe("buildImageSpec", () => {
     expect(spec.repo_setup_commands).toEqual([]);
   });
 
-  it("contributes nothing for a tool that needs the builder to install it", () => {
+  it("installs a non-apt tool with mise, and links it onto PATH", () => {
     const spec = buildImageSpec({
       tools: [builderTool],
       setupCommands: [],
       repository: null,
     });
     expect(spec.apt_packages).toEqual([]);
-    expect(spec.run_commands).toEqual([]);
+    expect(spec.run_commands[0]).toContain("sha256sum -c -");
+    expect(spec.run_commands[0]).toMatch(
+      /releases\/download\/v[\d.]+\/mise-v[\d.]+-linux-"\$MISE_ARCH"\.tar\.gz/,
+    );
+    expect(spec.run_commands[0]).toContain("x86_64) MISE_ARCH=x64");
+    expect(spec.run_commands[0]).toContain("aarch64|arm64) MISE_ARCH=arm64");
+    expect(spec.run_commands[1]).toContain("mise use -g -y");
+    expect(spec.run_commands[1]).toContain(
+      `/usr/local/bin/${builderTool.command}`,
+    );
+  });
+
+  it("bootstraps mise once, however many tools need it", () => {
+    const miseTools = IMAGE_PRESET_TOOLS.filter(
+      (tool) => (tool.aptPackages?.length ?? 0) === 0,
+    ).slice(0, 3);
+    const spec = buildImageSpec({
+      tools: miseTools,
+      setupCommands: [],
+      repository: null,
+    });
+    const bootstraps = spec.run_commands.filter((command) =>
+      command.includes("install -m 0755 /tmp/mise/bin/mise"),
+    );
+    expect(bootstraps).toHaveLength(1);
+    expect(spec.run_commands).toHaveLength(1 + miseTools.length);
+  });
+
+  it("leaves mise out entirely when apt carries everything", () => {
+    const spec = buildImageSpec({
+      tools: aptTools,
+      setupCommands: [],
+      repository: null,
+    });
+    expect(spec.run_commands.some((command) => command.includes("mise"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("tool pinning", () => {
+  it("pins a version for every tool apt does not carry", () => {
+    const unpinned = imagePresetTools("github")
+      .filter((tool) => toolInstallMethod(tool) === "mise")
+      .filter((tool) => !tool.version);
+    expect(unpinned.map((tool) => tool.id)).toEqual([]);
+  });
+
+  it("never emits an unpinned mise install", () => {
+    const spec = buildImageSpec({
+      tools: imagePresetTools("github"),
+      setupCommands: [],
+      repository: null,
+    });
+    const unpinned = spec.run_commands.filter((command) =>
+      command.includes("@latest"),
+    );
+    expect(unpinned).toEqual([]);
+  });
+});
+
+describe("buildImageSpec env", () => {
+  it("publishes the tools it installed, so the agent is told about them", () => {
+    const spec = buildImageSpec({
+      tools: aptTools,
+      setupCommands: [],
+      repository: null,
+    });
+    expect(spec.env[IMAGE_TOOLS_ENV_KEY]?.split(" ")).toEqual(
+      aptTools.map((tool) => tool.command),
+    );
+    expect(imageSpecToYaml(spec)).toContain(`  ${IMAGE_TOOLS_ENV_KEY}: '`);
   });
 });
 
@@ -107,6 +186,7 @@ describe("imageSpecToYaml", () => {
         apt_packages: ["ripgrep"],
         run_commands: [],
         repo_setup_commands: ["pnpm install --frozen-lockfile"],
+        env: {},
       }),
     ).toBe(
       [
@@ -124,6 +204,7 @@ describe("imageSpecToYaml", () => {
         apt_packages: [],
         run_commands: ["echo 'hi'"],
         repo_setup_commands: [],
+        env: {},
       }),
     ).toBe(["run_commands:", "  - 'echo ''hi'''"].join("\n"));
   });
