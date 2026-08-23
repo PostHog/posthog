@@ -6,6 +6,7 @@ so the activity reports whether the mount happened instead of raising.
 
 import shlex
 
+import structlog
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -17,6 +18,8 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_ac
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 MOUNT_TIMEOUT_SECONDS = 120
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -85,6 +88,12 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             # Best-effort by contract: a failure reaching the sandbox (not running,
             # timeout, execution error) degrades to "no wiki" instead of failing
             # provisioning, so the activity never raises out of here.
+            logger.warning(
+                "context_layer.mount.failed",
+                organization_id=str(ctx.organization_id),
+                run_id=str(ctx.run_id),
+                error=str(error),
+            )
             emit_agent_log(
                 ctx.run_id,
                 "debug",
@@ -92,6 +101,12 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             )
             return MaterializeContextLayerOutput(mounted=False)
         if result.exit_code != 0:
+            logger.warning(
+                "context_layer.mount.failed",
+                organization_id=str(ctx.organization_id),
+                run_id=str(ctx.run_id),
+                error=result.stderr[-500:],
+            )
             emit_agent_log(
                 ctx.run_id,
                 "debug",

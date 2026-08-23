@@ -245,8 +245,6 @@ echo "publish: landed"
 """
 
 
-
-
 def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str]:
     base = root / "scripts"
     if not base.is_dir():

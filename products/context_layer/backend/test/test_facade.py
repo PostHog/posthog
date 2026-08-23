@@ -23,7 +23,7 @@ class TestContextLayerFacade(BaseTest):
         assert env[facade.MOUNT_PATH_ENV_VAR] == facade.SANDBOX_MOUNT_PATH
         # The project-nested route, because the sandbox run token carries
         # scoped_teams and the org-nested route refuses it.
-        assert env[facade.COMMITS_PATH_ENV_VAR] == f"/api/projects/{self.team.id}/context_layer/commits"
+        assert env[facade.COMMITS_PATH_ENV_VAR] == f"/api/projects/{self.team.id}/context_layer/agent/commits"
 
     def test_sandbox_env_vars_empty_without_wiki(self) -> None:
         assert facade.sandbox_environment_variables(self.organization.id, self.team.id) == {}

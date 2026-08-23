@@ -233,11 +233,11 @@ class TestContextLayerAPI(APIBaseTest):
         # scoped_teams token outright — see
         # test_agent_route_accepts_the_run_token_the_org_route_refuses.
         self._enable()
-        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         token = self._bearer(scope, scoped_teams=[self.team.id])
         self.client.logout()
         return self.client.post(
-            f"/api/projects/{self.team.id}/context_layer/commits/",
+            f"{self.agent_url}/commits/",
             {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
             format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {token}",
