@@ -18,15 +18,24 @@ from posthog.temporal.health_checks.query import execute_clickhouse_health_team_
 # its own recent baseline, so a previously active project that drops to zero is caught within
 # a few days instead of a month. Detection needs a full 48-hour silent window and the check
 # runs once a day, so the lag is about two to three days depending on when the stop lands
-# relative to the daily run.
+# relative to the daily run. To avoid flagging normal weekly gaps, the recent window is also
+# compared against the same days one week earlier (see TRAFFIC_STOP_SEASONALITY_DAYS).
 TRAFFIC_STOP_RECENT_DAYS = 2
 TRAFFIC_STOP_BASELINE_DAYS = 14
+# One week. The recent window is compared against the same days one week earlier, so a project
+# with a weekly rhythm (for example a B2B site that is quiet at weekends) does not read as a
+# traffic stop: the same low days appear in both windows. Without this, a rolling 48-hour window
+# would flag an ordinary weekend gap as a critical outage.
+TRAFFIC_STOP_SEASONALITY_DAYS = 7
 # Only projects that were clearly active count. A project needs both a minimum event volume
 # and events on enough distinct days in the baseline window, so a single burst of testing does
 # not qualify as "previously active".
 TRAFFIC_STOP_MIN_BASELINE_EVENTS = 100
 TRAFFIC_STOP_MIN_ACTIVE_DAYS = 7
 TRAFFIC_STOP_WINDOW_DAYS = TRAFFIC_STOP_BASELINE_DAYS + TRAFFIC_STOP_RECENT_DAYS
+# Bounds of the same-length window one week before the recent window: [now-9d, now-7d].
+TRAFFIC_STOP_PRIOR_WEEK_FROM = TRAFFIC_STOP_RECENT_DAYS + TRAFFIC_STOP_SEASONALITY_DAYS
+TRAFFIC_STOP_PRIOR_WEEK_TO = TRAFFIC_STOP_SEASONALITY_DAYS
 
 TRAFFIC_STOP_SQL = """
 SELECT
@@ -41,6 +50,8 @@ GROUP BY team_id
 HAVING baseline_events >= %(min_baseline_events)s
    AND baseline_active_days >= %(min_active_days)s
    AND countIf(timestamp >= now() - INTERVAL %(recent_days)s DAY) = 0
+   AND countIf(timestamp >= now() - INTERVAL %(prior_week_from)s DAY
+               AND timestamp < now() - INTERVAL %(prior_week_to)s DAY) > 0
 """
 
 
@@ -108,6 +119,8 @@ class TrafficStopCheck(HealthCheck):
                 "recent_days": TRAFFIC_STOP_RECENT_DAYS,
                 "min_baseline_events": TRAFFIC_STOP_MIN_BASELINE_EVENTS,
                 "min_active_days": TRAFFIC_STOP_MIN_ACTIVE_DAYS,
+                "prior_week_from": TRAFFIC_STOP_PRIOR_WEEK_FROM,
+                "prior_week_to": TRAFFIC_STOP_PRIOR_WEEK_TO,
             },
         )
 
