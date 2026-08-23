@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.redis import get_client
 from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
@@ -26,6 +27,10 @@ from products.context_layer.backend.presentation.serializers import (
     WikiTreeSerializer,
 )
 from products.tasks.backend.facade import api as tasks_facade
+
+# Ordinary task runs can land wiki commits with nothing but the writer lock
+# pacing them, so a runaway sandbox agent gets a hard daily ceiling per run.
+RUN_COMMITS_PER_DAY_CAP = 20
 
 
 def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
@@ -82,7 +87,7 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(WikiPageSerializer(wiki_page).data)
 
 
-def _assert_loop_write_in_scope(organization_id, request: Request, path: str) -> None:  # noqa: ANN001
+def _assert_loop_write_in_scope(organization_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
     """A loop run may only write the context page it was configured to maintain.
 
     Reads stay open, because the wiki is organization-wide reference material
@@ -108,15 +113,56 @@ def _assert_loop_write_in_scope(organization_id, request: Request, path: str) ->
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
     configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
+    if configured_channel_id is None:
+        raise denied
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
-    if configured_channel_id is None or configured_channel_id != requested_channel_id:
+    if configured_channel_id == requested_channel_id:
+        return
+    if requested_channel_id is not None:
+        raise denied
+    try:
+        _assert_loop_may_create_channel_page(organization_id, configured_channel_id, path, content, denied)
+    except facade.ContextLayerStoreError as error:
+        # A vanished channel or wiki mid-write reads as out of scope, not a 500.
+        raise denied from error
+
+
+def _assert_loop_may_create_channel_page(
+    organization_id,  # noqa: ANN001
+    channel_id: str,
+    path: str,
+    content: str,
+    denied: PermissionDenied,
+) -> None:
+    """A loop may create its channel's page when the channel truly has none.
+
+    Channels created after wiki enablement never went through the one-time
+    import, so their loops would otherwise fall back to legacy channel
+    instructions forever. Everything is pinned: the channel must have no page,
+    the path must be exactly the one resolution proposed, nothing may already
+    exist there, and the content's frontmatter must claim the configured
+    channel — so the loop cannot plant a page that resolution would hand to a
+    different channel.
+    """
+    if facade.resolve_channel_page(organization_id, channel_id) is not None:
+        raise denied
+    if path in facade.get_tree(organization_id).paths:
+        raise denied
+    if path != facade.proposed_channel_page_path(organization_id, channel_id):
+        raise denied
+    if facade.page_frontmatter_channel_id(content) != channel_id:
         raise denied
 
 
-def _read_channel_page(organization_id, channel_id: str) -> Response:  # noqa: ANN001
+def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: bool = False) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
     try:
         path = facade.resolve_channel_page(organization_id, channel_id)
+        if path is None and propose_on_miss:
+            # The channel has no page yet (created after enablement); hand the
+            # caller the canonical path to create it at instead of a dead end.
+            proposed = facade.proposed_channel_page_path(organization_id, channel_id)
+            return Response(ChannelWikiPageSerializer({"path": proposed, "exists": False}).data)
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
     if path is None:
@@ -128,7 +174,9 @@ def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    _assert_loop_write_in_scope(organization_id, request, serializer.validated_data["path"])
+    _assert_loop_write_in_scope(
+        organization_id, request, serializer.validated_data["path"], serializer.validated_data["content"]
+    )
     user = request.user
     author = (
         facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
@@ -148,10 +196,31 @@ def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
 
 
+def _assert_run_commit_cap(request: Request) -> None:
+    """Cap how many commit landings one sandbox run gets per day.
+
+    Loops have their own daily fire caps, but an ordinary task run posting
+    bundles here has nothing but the writer lock pacing it. Keyed on the run
+    provenance the token carries; human and PAT callers have none and stay
+    uncapped.
+    """
+    access_token = get_oauth_access_token(request)
+    sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+    if sandbox_task_id is None:
+        return
+    redis_client = get_client()
+    key = f"context_layer:run_commit_cap:{sandbox_task_id}"
+    landed = redis_client.incr(key)
+    redis_client.expire(key, 86400)
+    if landed > RUN_COMMITS_PER_DAY_CAP:
+        raise Throttled(detail="This run has landed too many wiki commits today.")
+
+
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
     serializer = CommitBundleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    _assert_run_commit_cap(request)
     bundle_bytes = serializer.validated_data["bundle"].read()
     branch = serializer.validated_data.get("branch")
     try:
@@ -400,13 +469,19 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         responses={
             200: ChannelWikiPageSerializer,
-            404: OpenApiResponse(description="This channel has no page in the context wiki."),
+            404: OpenApiResponse(description="This channel does not exist, or the wiki is not enabled."),
         },
         summary="Resolve a channel's wiki page",
+        description=(
+            "The channel's page path. When the channel has no page yet, responds with the canonical "
+            "path to create it at and `exists: false`."
+        ),
     )
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
-        return _read_channel_page(self.organization.id, channel_id)
+        # Unlike the organization route, a miss proposes a create path: a loop
+        # maintaining a post-enablement channel needs somewhere to publish.
+        return _read_channel_page(self.organization.id, channel_id, propose_on_miss=True)
 
     @extend_schema(
         request=WikiPageWriteSerializer,

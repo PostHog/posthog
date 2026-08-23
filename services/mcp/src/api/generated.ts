@@ -16757,6 +16757,8 @@ export namespace Schemas {
     export interface ChannelWikiPage {
       /** Repo-relative path of the wiki page whose frontmatter names the channel. */
       path: string;
+      /** Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet. */
+      exists?: boolean;
     }
 
     /**

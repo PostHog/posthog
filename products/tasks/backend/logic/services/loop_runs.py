@@ -154,8 +154,11 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"- Update its context for channel id {channel_id}. When the context wiki tools are available, resolve "
             f"the channel with `loop-context-wiki-channel-resolve`, read the returned path with "
             f"`loop-context-wiki-page-retrieve`, then publish the complete Markdown with "
-            f"`loop-context-wiki-page-update` using the head_sha you just read as base_head. If resolution reports "
-            f"that the wiki or page is unavailable, use `loop-channel-instructions-retrieve` and "
+            f"`loop-context-wiki-page-update` using the head_sha you just read as base_head. If resolution returns "
+            f"a path marked as not existing yet, publish the complete Markdown to that path with "
+            f"`loop-context-wiki-page-update`, starting it with frontmatter `channel_id: {channel_id}` and passing "
+            f"no base_head, to create the page. If resolution reports that the wiki is unavailable, use "
+            f"`loop-channel-instructions-retrieve` and "
             f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
             f"carrying forward anything still true instead of rewriting from scratch."
         )

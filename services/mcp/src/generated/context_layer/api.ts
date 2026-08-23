@@ -73,14 +73,7 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or replacing one wiki page.')
 
 /**
- * The same organization wiki, reached by an agent run inside a sandbox.
- *
- * This exists as a second, project-nested route because a sandbox run token
- * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
- * project-nested view — on the organization-scoped route above, every sandbox
- * token is refused before it reaches any of this. The wiki is still one repo
- * per organization; the project in the path is how a run token proves which
- * organization it may act for, and is not a scope on the wiki itself.
+ * The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
  * @summary Resolve a channel's wiki page
  */
 export const ContextLayerAgentChannelPagesRetrieveParams = /* @__PURE__ */ zod.object({

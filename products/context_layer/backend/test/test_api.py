@@ -11,6 +11,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
@@ -18,6 +20,7 @@ from posthog.models.team.team import Team
 from posthog.storage.object_storage import UnavailableStorage
 
 from products.context_layer.backend import enablement, store
+from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
@@ -121,7 +124,7 @@ class TestContextLayerAPI(APIBaseTest):
 
         resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
         assert resolved.status_code == 200
-        assert resolved.json() == {"path": "channels/growth.md"}
+        assert resolved.json() == {"path": "channels/growth.md", "exists": True}
 
     def test_channel_page_resolution_uses_frontmatter_identity(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -139,7 +142,7 @@ class TestContextLayerAPI(APIBaseTest):
 
         resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
         assert resolved.status_code == 200
-        assert resolved.json() == {"path": "channels/renamed.md"}
+        assert resolved.json() == {"path": "channels/renamed.md", "exists": True}
 
     def test_channel_page_resolution_404s_when_channel_has_no_page(self, _flag) -> None:
         self._enable()
@@ -350,7 +353,7 @@ class TestContextLayerAPI(APIBaseTest):
                 "path": "channels/growth.md",
                 # A real loop reads the page and edits in place, so the frontmatter
                 # that identifies the channel survives the write.
-                "content": f"---\nchannel_id: {channel.id}\n---\n\n# Growth\n\nRefreshed by the loop.\n",
+                "content": f"---\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n\nRefreshed by the loop.\n",
                 "base_head": head,
             },
             format="json",
@@ -367,6 +370,97 @@ class TestContextLayerAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         assert out_of_scope.status_code == 403, out_of_scope.content
+
+    def test_agent_channel_page_proposes_a_create_path_when_channel_has_no_page(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+
+        # The org route keeps its 404 — the desktop hook relies on it.
+        assert self.client.get(f"{self.base_url}/channel-pages/{channel.id}/").status_code == 404
+
+        token = self._loop_run_token(channel.id)
+        self.client.logout()
+        proposed = self.client.get(
+            f"{self.agent_url}/channel-pages/{channel.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert proposed.status_code == 200, proposed.content
+        assert proposed.json() == {"path": "channels/growth.md", "exists": False}
+
+    def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        token = self._loop_run_token(channel.id)
+        self.client.logout()
+
+        created = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": "channels/growth.md",
+                "content": f"---\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n\nWritten by the loop.\n",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert created.status_code == 200, created.content
+
+        resolved = self.client.get(
+            f"{self.agent_url}/channel-pages/{channel.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert resolved.json() == {"path": "channels/growth.md", "exists": True}
+
+    @parameterized.expand(
+        [
+            ("mismatched_frontmatter_channel", "channels/growth.md", False),
+            ("non_proposed_path", "channels/somewhere-else.md", True),
+        ]
+    )
+    def test_loop_token_cannot_create_a_channel_page_off_its_proposal(
+        self, _flag, _name, path, own_frontmatter
+    ) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        token = self._loop_run_token(channel.id)
+        self.client.logout()
+
+        frontmatter_channel_id = channel.id if own_frontmatter else uuid4()
+        response = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": path,
+                "content": f"---\nchannel_id: {frontmatter_channel_id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 403, response.content
+
+    def test_run_commit_landings_are_capped_per_day(self, _flag) -> None:
+        self._enable()
+        task = Task.objects.create(team=self.team, created_by=self.user, title="agent work")
+        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id)
+        self.client.logout()
+
+        def land(path: str):
+            bundle_bytes = self._bundle_with_edit(path, _page(path))
+            return self.client.post(
+                f"{self.agent_url}/commits/",
+                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+                format="multipart",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
+            assert land("areas/first.md").status_code == 200
+            capped = land("areas/second.md")
+        assert capped.status_code == 429
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()

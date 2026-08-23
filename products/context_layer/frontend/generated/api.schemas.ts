@@ -13,6 +13,8 @@
 export interface ChannelWikiPageApi {
     /** Repo-relative path of the wiki page whose frontmatter names the channel. */
     path: string
+    /** Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet. */
+    exists?: boolean
 }
 
 /**
@@ -21,6 +23,11 @@ export interface ChannelWikiPageApi {
 export interface CommitBundleApi {
     /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
     bundle: string
+    /**
+     * Optional run summary stored in the landed commit body.
+     * @maxLength 10000
+     */
+    summary?: string
     /**
      * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
      * @maxLength 64
@@ -110,6 +117,22 @@ export interface WikiTreeApi {
     head_sha: string
     /** Repo-relative path of every Markdown page at the current head. */
     paths: string[]
+}
+
+export interface WikiHealthFindingApi {
+    /** Stable category used to group this finding. */
+    category: string
+    /** Wiki page path associated with this finding. */
+    path: string
+    /** Human-readable explanation of the finding. */
+    message: string
+}
+
+export interface WikiHealthReportApi {
+    /** Commit sha inspected by the report. */
+    head_sha: string
+    /** Health findings for the current wiki head. */
+    findings: WikiHealthFindingApi[]
 }
 
 export type ContextLayerPagesRetrieveParams = {

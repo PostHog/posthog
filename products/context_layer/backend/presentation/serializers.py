@@ -48,6 +48,13 @@ class ChannelWikiPageSerializer(serializers.Serializer):
     """Response shape for a channel's page identity in the wiki."""
 
     path = serializers.CharField(help_text="Repo-relative path of the wiki page whose frontmatter names the channel.")
+    exists = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Whether a page exists at this path. False when the path is a proposal for a channel "
+            "whose page has not been created yet."
+        ),
+    )
 
 
 class WikiPageWriteSerializer(serializers.Serializer):

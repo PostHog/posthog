@@ -15,6 +15,7 @@ import type {
     ContextLayerPagesRetrieveParams,
     ContextLayerStatusApi,
     WikiExportApi,
+    WikiHealthReportApi,
     WikiPageApi,
     WikiPageWriteApi,
     WikiTreeApi,
@@ -54,6 +55,9 @@ export const contextLayerCommitsCreate = async (
 ): Promise<ContextLayerStatusApi> => {
     const formData = new FormData()
     formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.summary !== undefined) {
+        formData.append(`summary`, commitBundleApi.summary)
+    }
     if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
         formData.append(`branch`, commitBundleApi.branch)
     }
@@ -186,19 +190,30 @@ export const contextLayerTreeRetrieve = async (organizationId: string, options?:
     })
 }
 
+export const getContextLayerWikiReportRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/wiki/report/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Report wiki health findings
+ */
+export const contextLayerWikiReportRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WikiHealthReportApi> => {
+    return apiMutator<WikiHealthReportApi>(getContextLayerWikiReportRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getContextLayerAgentChannelPagesRetrieveUrl = (projectId: string, channelId: string) => {
     return `/api/projects/${projectId}/context_layer/agent/channel-pages/${channelId}/`
 }
 
 /**
- * The same organization wiki, reached by an agent run inside a sandbox.
- *
- * This exists as a second, project-nested route because a sandbox run token
- * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
- * project-nested view — on the organization-scoped route above, every sandbox
- * token is refused before it reaches any of this. The wiki is still one repo
- * per organization; the project in the path is how a run token proves which
- * organization it may act for, and is not a scope on the wiki itself.
+ * The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
  * @summary Resolve a channel's wiki page
  */
 export const contextLayerAgentChannelPagesRetrieve = async (
@@ -234,6 +249,9 @@ export const contextLayerAgentCommitsCreate = async (
 ): Promise<ContextLayerStatusApi> => {
     const formData = new FormData()
     formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.summary !== undefined) {
+        formData.append(`summary`, commitBundleApi.summary)
+    }
     if (commitBundleApi.branch !== undefined && commitBundleApi.branch !== null) {
         formData.append(`branch`, commitBundleApi.branch)
     }

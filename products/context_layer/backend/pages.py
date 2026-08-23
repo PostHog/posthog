@@ -13,9 +13,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping import team_scope
+from posthog.models.team.team import Team
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.context_layer.backend import repo_lint, store
+from products.context_layer.backend.enablement import _unique_channel_path
+from products.tasks.backend.facade import api as tasks_facade
 
 # Entries are keyed by head sha and therefore immutable; the TTL only bounds
 # storage for heads nothing reads anymore.
@@ -177,6 +181,45 @@ def resolve_page_channel(organization_id: uuid.UUID | str, path: str) -> str | N
         if page_path == path:
             return channel_id
     return None
+
+
+def proposed_channel_page_path(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str:
+    """The canonical `channels/<slug>.md` path a channel's page would be created at.
+
+    For channels created after wiki enablement, which the one-time import never
+    saw. The slug is derived exactly like the import's, so a page created here
+    lands where a re-import would have put it, and never collides with a page
+    that already exists at the current head.
+    """
+    name = _channel_name(organization_id, channel_id)
+    if name is None:
+        raise PageNotFoundError(f"no channel {channel_id} in this organization")
+    taken = set(get_tree(organization_id).paths)
+    path = _unique_channel_path(name, str(channel_id), taken)
+    if path in taken:
+        # Both the slug and its short-suffixed form belong to other channels'
+        # pages; the full channel id is unique by construction.
+        path = f"channels/{channel_id}.md"
+    return path
+
+
+def _channel_name(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str | None:
+    """The name of one of this organization's public channels, or None.
+
+    Walks teams the same way enablement's import does: the channel-id lookup is
+    org-wide, and the fail-closed channel models need an explicit team scope."""
+    target = str(channel_id)
+    for team_id in Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", flat=True):
+        with team_scope(team_id):
+            for channel in tasks_facade.list_channels(team_id, None):
+                if str(channel.id) == target:
+                    return channel.name
+    return None
+
+
+def page_frontmatter_channel_id(content: str) -> str | None:
+    """The `channel_id` a page's frontmatter declares, parsed the way resolution does."""
+    return _frontmatter_value(content, "channel_id")
 
 
 def _channel_index(organization_id: uuid.UUID | str) -> dict[str, str]:

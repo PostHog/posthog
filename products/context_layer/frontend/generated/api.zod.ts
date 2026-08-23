@@ -13,6 +13,8 @@ import * as zod from 'zod'
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Land agent commits from a git bundle
  */
+export const contextLayerCommitsCreateBodySummaryMax = 10000
+
 export const contextLayerCommitsCreateBodyBranchMax = 64
 
 export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
@@ -22,6 +24,11 @@ export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
             ),
+        summary: zod
+            .string()
+            .max(contextLayerCommitsCreateBodySummaryMax)
+            .optional()
+            .describe('Optional run summary stored in the landed commit body.'),
         branch: zod
             .string()
             .max(contextLayerCommitsCreateBodyBranchMax)
@@ -70,6 +77,8 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Land agent commits from a git bundle
  */
+export const contextLayerAgentCommitsCreateBodySummaryMax = 10000
+
 export const contextLayerAgentCommitsCreateBodyBranchMax = 64
 
 export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
@@ -79,6 +88,11 @@ export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
             ),
+        summary: zod
+            .string()
+            .max(contextLayerAgentCommitsCreateBodySummaryMax)
+            .optional()
+            .describe('Optional run summary stored in the landed commit body.'),
         branch: zod
             .string()
             .max(contextLayerAgentCommitsCreateBodyBranchMax)
