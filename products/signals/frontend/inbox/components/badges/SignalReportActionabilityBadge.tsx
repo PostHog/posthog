@@ -20,7 +20,7 @@ const ACTIONABILITY_STYLE: Record<
         type: 'caution',
         label: 'Needs input',
         tooltip:
-            'Actionable, but it needs your input first to decide how to resolve it: business context, trade-offs, or a choice between several valid approaches.',
+            'Actionable, but it needs your input first to decide how to resolve it: business context, trade-offs, or a choice between several valid approaches. Use the Ask AI button to answer.',
         textColor: 'var(--danger-lighter)',
     },
     not_actionable: {

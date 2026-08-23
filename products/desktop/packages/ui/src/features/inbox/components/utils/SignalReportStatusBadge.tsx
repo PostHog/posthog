@@ -7,7 +7,7 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   ready: "Research is complete. You can create a task from this report.",
   resolved: "This report is resolved — its implementation pull request merged.",
   pending_input:
-    "This report needs human input in PostHog before it can proceed.",
+    "This report needs your input before it can proceed. Use the Discuss button to answer.",
   in_progress: "An AI agent is actively researching this report's signals.",
   candidate: "Queued for research. An agent will pick this up shortly.",
   potential:
