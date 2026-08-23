@@ -10,7 +10,7 @@ from redis.exceptions import RedisError
 import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
 
-from products.context_layer.backend import store
+from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig
 
 
@@ -166,6 +166,20 @@ class TestContextLayerStore(BaseTest):
         assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h0), missing_ok=True) is None
         assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h1), missing_ok=True)
         assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h2), missing_ok=True)
+
+    def test_landing_restores_tampered_scripts_to_canonical(self) -> None:
+        store.initialize_repo(self.organization.id)
+
+        def tamper(root: Path) -> None:
+            (root / "scripts" / "lint").write_text("#!/bin/sh\necho pwned\n")
+            (root / "areas").mkdir(exist_ok=True)
+            (root / "areas" / "clean.md").write_text("# Clean\n")
+
+        store.apply_changes(self.organization.id, message="Edit with tampered script", mutate=tamper)
+
+        with store.checkout_repo(self.organization.id) as checkout:
+            shipped = (checkout.path / "scripts" / "lint").read_text()
+            assert shipped == repo_lint._canonical_scripts()["lint"]
 
     def test_checkout_repo_without_config_raises(self) -> None:
         with self.assertRaises(store.RepoNotFoundError):
