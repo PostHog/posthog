@@ -131,6 +131,12 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["status", "tree", "page", "report", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
+    # No sandbox-token override here: a run token carries `scoped_teams`, which
+    # `APIScopePermission` refuses on this organization-nested route, so it never
+    # reaches these actions. Sandbox runs land commits through the project-nested
+    # `ContextLayerAgentViewSet` instead; this route serves humans and
+    # `organization:write` tokens.
+
     @extend_schema(
         request=None,
         responses={201: ContextLayerStatusSerializer},

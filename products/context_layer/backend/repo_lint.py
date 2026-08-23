@@ -213,7 +213,36 @@ def _git_age(root: Path, relative: str) -> timedelta | None:
 
 
 def _canonical_scripts() -> dict[str, str]:
-    return {"lint": Path(__file__).read_text(encoding="utf-8")}
+    return {"lint": Path(__file__).read_text(encoding="utf-8"), "publish": PUBLISH_SCRIPT}
+
+
+PUBLISH_SCRIPT = """\
+#!/bin/sh
+# Land local wiki commits: pack them as a git bundle and post them to the
+# context layer API, which lints them and rebases them onto the current head.
+set -eu
+cd "$(dirname "$0")/.."
+if [ -z "${POSTHOG_API_URL:-}" ] || [ -z "${POSTHOG_PERSONAL_API_KEY:-}" ] || [ -z "${POSTHOG_CONTEXT_LAYER_COMMITS_PATH:-}" ]; then
+    echo "publish: POSTHOG_API_URL, POSTHOG_PERSONAL_API_KEY, and POSTHOG_CONTEXT_LAYER_COMMITS_PATH must be set (they are inside PostHog sandboxes)" >&2
+    exit 1
+fi
+if ! git bundle create /tmp/context-layer-publish.bundle origin/main..main 2>/dev/null; then
+    echo "publish: nothing to publish; commit your edits first"
+    exit 0
+fi
+if [ "$#" -gt 0 ]; then
+    set -- -F "summary=@$1"
+else
+    set --
+fi
+curl -fsS -X POST \\
+    -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+    -F "bundle=@/tmp/context-layer-publish.bundle" \\
+    "$@" \\
+    "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+echo ""
+echo "publish: landed"
+"""
 
 
 def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str]:

@@ -839,6 +839,7 @@ path = "products.tasks"
 depends_on = [
     "ee",
     "posthog",
+    "products.context_layer",
     "products.error_tracking",
     "products.event_definitions",
     "products.exports",

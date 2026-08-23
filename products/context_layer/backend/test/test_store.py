@@ -90,6 +90,7 @@ class TestContextLayerStore(BaseTest):
             assert (checkout.path / "CLAUDE.md").is_symlink()
             assert (checkout.path / "org" / "overview.md").is_file()
             assert (checkout.path / "scripts" / "lint").is_file()
+            assert (checkout.path / "scripts" / "publish").is_file()
 
     def test_initialize_repo_is_idempotent(self) -> None:
         first = store.initialize_repo(self.organization.id)

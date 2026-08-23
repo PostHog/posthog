@@ -227,6 +227,30 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": "areas/from-agent.md"}).json()
         assert page["content"] == _page("From an agent")
 
+    def _post_bundle_with_bearer(self, scope: str):
+        # The project-nested agent route, with a token minted the way production
+        # mints a run token: scoped to a team. The org route refuses a
+        # scoped_teams token outright — see
+        # test_agent_route_accepts_the_run_token_the_org_route_refuses.
+        self._enable()
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
+        token = self._bearer(scope, scoped_teams=[self.team.id])
+        self.client.logout()
+        return self.client.post(
+            f"{self.agent_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    def test_commits_accepts_a_sandbox_run_token(self, _flag) -> None:
+        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 200
+
+    def test_commits_rejects_task_write_without_run_provenance(self, _flag) -> None:
+        # task:write is user-grantable; without the server-minted internal_run:read
+        # marker the caller must hold organization:write like any other writer.
+        assert self._post_bundle_with_bearer("task:write").status_code == 403
+
     def test_commits_endpoint_rejects_lint_violations(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("rogue.txt", "nope")

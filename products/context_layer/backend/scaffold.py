@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from products.context_layer.backend import repo_lint
+from products.context_layer.backend.repo_lint import PUBLISH_SCRIPT
 
 AGENTS_MD = """\
 # Context wiki
@@ -46,6 +47,8 @@ retrieved live from their authoritative system.
 
 - `areas/`: Current state, Direction, Links.
 - `decisions/`: `sources:` frontmatter, then What, Why, Who.
+- In a sandbox, run `scripts/publish` to land your commits; a linter reviews
+  the structure before they land.
 
 ## Frontmatter contract
 
@@ -172,3 +175,6 @@ def write_default_structure(root: Path) -> None:
     lint_script = root / "scripts" / "lint"
     lint_script.write_text(Path(repo_lint.__file__).read_text(encoding="utf-8"), encoding="utf-8")
     lint_script.chmod(0o755)
+    publish_script = root / "scripts" / "publish"
+    publish_script.write_text(PUBLISH_SCRIPT, encoding="utf-8")
+    publish_script.chmod(0o755)
