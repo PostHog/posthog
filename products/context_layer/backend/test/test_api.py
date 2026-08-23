@@ -54,6 +54,14 @@ class TestContextLayerAPI(APIBaseTest):
         assert response.status_code == 400
         assert "private projects" in response.json()["detail"]
 
+    def test_enable_returns_429_when_a_writer_holds_the_lock(self, _flag) -> None:
+        with patch(
+            "products.context_layer.backend.store.repo_writer_lock",
+            side_effect=store.RepoLockUnavailableError("another writer holds the lock"),
+        ):
+            response = self.client.post(f"{self.base_url}/enable/")
+        assert response.status_code == 429
+
     def test_endpoints_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/tree/").status_code == 404
         assert self.client.get(f"{self.base_url}/status/").status_code == 404
