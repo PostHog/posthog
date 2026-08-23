@@ -48,11 +48,13 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
   navigateToAgents,
   navigateToCommandCenter,
+  navigateToContext: vi.fn(),
   navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToWebsiteContext: vi.fn(),
   navigateToWebsiteMcpServers: vi.fn(),
   navigateToWebsiteSkills: vi.fn(),
 }));

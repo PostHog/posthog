@@ -142,6 +142,8 @@ SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
 
+LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
 # sandbox so scouts can produce durable artifacts as part of a finding — e.g. a notebook

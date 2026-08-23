@@ -237,6 +237,42 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("PATH", saved.path);
     }
   });
+
+  // Codex snapshots process.env at spawn time, so the per-session mount must
+  // win over conflicting global values, and a session without a publish token
+  // (impersonation) must not inherit another session's.
+  it("applies the per-session context wiki over conflicting process.env and scrubs a missing token", () => {
+    const saved = {
+      wikiPath: process.env.POSTHOG_CONTEXT_LAYER_PATH,
+      commitsPath: process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH,
+      personalKey: process.env.POSTHOG_PERSONAL_API_KEY,
+    };
+    process.env.POSTHOG_CONTEXT_LAYER_PATH = "/stale/wiki";
+    process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = "/stale/commits";
+    process.env.POSTHOG_PERSONAL_API_KEY = "other-sessions-token";
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    try {
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        contextWiki: {
+          path: "/wiki/a",
+          commitsPath: "/api/organizations/a/context_layer/commits/",
+        },
+        logger: silentLogger,
+      });
+
+      const env = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
+      expect(env.POSTHOG_CONTEXT_LAYER_PATH).toBe("/wiki/a");
+      expect(env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBe(
+        "/api/organizations/a/context_layer/commits/",
+      );
+      expect(env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    } finally {
+      restoreEnv("POSTHOG_CONTEXT_LAYER_PATH", saved.wikiPath);
+      restoreEnv("POSTHOG_CONTEXT_LAYER_COMMITS_PATH", saved.commitsPath);
+      restoreEnv("POSTHOG_PERSONAL_API_KEY", saved.personalKey);
+    }
+  });
 });
 
 function restoreEnv(key: string, value: string | undefined): void {

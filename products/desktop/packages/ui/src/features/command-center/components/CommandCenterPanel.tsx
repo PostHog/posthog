@@ -426,7 +426,7 @@ function CanvasCell({
   const handleOpen = useCallback(() => {
     if (!dashboard) return;
     void navigate({
-      to: "/website/$channelId/dashboards/$dashboardId",
+      to: "/spaces/$channelId/dashboards/$dashboardId",
       params: { channelId: dashboard.channelId, dashboardId: canvasId },
     });
   }, [canvasId, dashboard, navigate]);

@@ -1,6 +1,7 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
 import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
+import { rewriteLegacyHref } from "@posthog/ui/router/legacyPaths";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 type StartupLocationClient = Pick<
@@ -63,7 +64,7 @@ export async function resolveStartupLocation(
   client: StartupLocationClient,
 ): Promise<StartupLocation> {
   const saved = await stateStorage.getItem(storageKey(identity));
-  if (saved) return { href: saved, firstRun: null };
+  if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
 
   const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   if (legacy) {
@@ -73,7 +74,7 @@ export async function resolveStartupLocation(
       await client.provisionDefaultTaskChannels();
       void stateStorage.removeItem(legacyStorageKey(identity));
     } catch {}
-    return { href: legacy, firstRun: null };
+    return { href: rewriteLegacyHref(legacy), firstRun: null };
   }
 
   const provisioned = await consumePrimedProvision(identity, client);
@@ -87,7 +88,7 @@ export async function resolveStartupLocation(
   const isFirstRun =
     provisioned.personal_created || provisioned.general_created;
   return {
-    href: `/website/${general.id}`,
+    href: `/spaces/${general.id}`,
     firstRun: isFirstRun ? { generalChannelId: general.id } : null,
   };
 }

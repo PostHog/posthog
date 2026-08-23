@@ -87,6 +87,7 @@ depends_on = [
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
+    "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -508,6 +509,15 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.context_layer"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.managed_migrations"
 depends_on = [
     "posthog",
@@ -830,6 +840,7 @@ path = "products.tasks"
 depends_on = [
     "ee",
     "posthog",
+    "products.context_layer",
     "products.error_tracking",
     "products.event_definitions",
     "products.exports",
