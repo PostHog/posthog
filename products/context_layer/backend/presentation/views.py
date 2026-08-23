@@ -25,6 +25,7 @@ from products.context_layer.backend.presentation.serializers import (
     WikiPageWriteSerializer,
     WikiTreeSerializer,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 
 def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
@@ -148,6 +149,33 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # `ContextLayerAgentViewSet` instead; this route serves humans and
     # `organization:write` tokens.
 
+    def _assert_loop_write_in_scope(self, request: Request, path: str) -> None:
+        """A loop run may only write the context page it was configured to maintain.
+
+        Reads stay open, because the wiki is organization-wide reference material
+        every agent is meant to draw on. Writes cannot be: the scope override
+        above accepts a `task:write` token, so without this a loop steered by
+        injected text could rewrite AGENTS.md, and with it the instructions every
+        agent in the organization starts from. Mirrors the target check the legacy
+        channel-instructions endpoint already makes.
+        """
+        access_token = get_oauth_access_token(request)
+        token_scopes = set((getattr(access_token, "scope", "") or "").split())
+        if LOOP_CONTEXT_INTERNAL_SCOPE not in token_scopes:
+            return
+
+        denied = PermissionDenied("This loop can update only the context page configured for this run.")
+        sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+        if sandbox_task_id is None:
+            raise denied
+
+        # Both sides resolve inside this organization's own wiki index, so a run
+        # cannot reach another organization's pages even by naming its channel.
+        configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
+        requested_channel_id = facade.resolve_page_channel(self.organization.id, path)
+        if configured_channel_id is None or configured_channel_id != requested_channel_id:
+            raise denied
+
     @extend_schema(
         request=None,
         responses={201: ContextLayerStatusSerializer},
@@ -248,6 +276,9 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
+            403: OpenApiResponse(
+                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+            ),
             409: HeadConflictSerializer,
         },
         summary="Create or replace a wiki page",

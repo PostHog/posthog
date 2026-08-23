@@ -34,6 +34,7 @@ from products.context_layer.backend.pages import (
     get_page,
     get_tree,
     resolve_channel_page,
+    resolve_page_channel,
     write_page,
 )
 from products.context_layer.backend.store import (
@@ -95,6 +96,7 @@ __all__ = [
     "land_dream_branch",
     "organization_has_private_projects",
     "resolve_channel_page",
+    "resolve_page_channel",
     "sandbox_environment_variables",
     "write_page",
 ]

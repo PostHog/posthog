@@ -133,8 +133,13 @@ interface TaskInputProps {
   channelContext?: string;
   /** Repo-relative context wiki page used instead of injecting the legacy body. */
   channelContextPath?: string;
-  /** Prevent submission until the enabled wiki resolves to a page or confirmed fallback. */
-  channelContextLoading?: boolean;
+  /** Hold submission while the space's wiki context is unresolved and could still arrive. */
+  channelContextBlocked?: boolean;
+  /** The wiki lookup failed in a way a retry can fix. */
+  channelContextFailed?: boolean;
+  /** The wiki is permanently unavailable, so the task goes without its space context. */
+  channelContextUnavailable?: boolean;
+  onChannelContextRetry?: () => void;
   /** Display name of the channel the CONTEXT.md came from (for the chip). */
   channelName?: string;
   /** Backend channel UUID that owns the created task and feed entry. */
@@ -193,7 +198,10 @@ export function TaskInput({
   reportAssociation,
   channelContext,
   channelContextPath,
-  channelContextLoading = false,
+  channelContextBlocked = false,
+  channelContextFailed = false,
+  channelContextUnavailable = false,
+  onChannelContextRetry,
   channelName,
   channelId,
   channelContextId,
@@ -878,7 +886,7 @@ export function TaskInput({
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
     allowNoRepo: repoOptional,
-    submissionBlocked: channelContextLoading,
+    submissionBlocked: channelContextBlocked,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -1474,14 +1482,31 @@ export function TaskInput({
                   submitDisabledExternal={
                     !canSubmit ||
                     isCreatingTask ||
-                    channelContextLoading ||
+                    channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
                   submitAdornment={
-                    includeChannelContext ? (
+                    channelContextUnavailable || channelContextFailed ? (
+                      // The chip slot is where context status is read, so it is
+                      // also where its absence has to be said.
+                      <span className="flex items-center gap-1.5 text-[12px] text-gray-10">
+                        {channelContextUnavailable
+                          ? "Space context unavailable"
+                          : "Couldn't load space context"}
+                        {channelContextFailed && onChannelContextRetry ? (
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={onChannelContextRetry}
+                          >
+                            Try again
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}

@@ -1,9 +1,10 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
-import type {
-  ChannelContextWikiPage,
-  ContextWikiHealthReport,
-  ContextWikiPage,
-  ContextWikiTree,
+import {
+  type ChannelContextWikiPage,
+  type ContextWikiHealthReport,
+  type ContextWikiPage,
+  type ContextWikiTree,
+  ContextWikiUnavailableError,
 } from "@posthog/api-client/posthog-client";
 import { useAuthenticatedMutation } from "@posthog/ui/hooks/useAuthenticatedMutation";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
@@ -22,6 +23,65 @@ export function useChannelContextWikiPage(channelId: string, enabled = true) {
     (client) => client.getChannelContextWikiPage(channelId),
     { enabled, staleTime: 30_000, refetchOnMount: "always" },
   );
+}
+
+/** What a task composer should do about this space's context. */
+export interface ChannelWikiContext {
+  /** The wiki page to point the agent at, when one resolved. */
+  path?: string;
+  /** Send the space's legacy CONTEXT.md instead. */
+  useLegacy: boolean;
+  /** Hold submission: the lookup is in flight or can still succeed. */
+  blocked: boolean;
+  /** The lookup failed but retrying can fix it, so offer that. */
+  failed: boolean;
+  /** Say the space context is not coming along; retrying will not help. */
+  unavailable: boolean;
+  retry: () => void;
+}
+
+/**
+ * Splits a failed lookup by whether retrying can fix it, so a task is never
+ * submitted with the space's context silently missing.
+ *
+ * A transient failure holds submission, because the context is probably one
+ * retry away. A 403 never clears — the organization has a private project — so
+ * holding submission there would lock those spaces out of creating tasks at
+ * all; that case says so and lets the task through.
+ */
+export function channelWikiContextFrom(lookup: {
+  enabled: boolean;
+  data: ChannelContextWikiPage | null | undefined;
+  error: unknown;
+  isLoading: boolean;
+}): Omit<ChannelWikiContext, "retry"> {
+  const unavailable = lookup.error instanceof ContextWikiUnavailableError;
+  const transientFailure = Boolean(lookup.error) && !unavailable;
+
+  return {
+    path: lookup.data?.path ?? undefined,
+    // `null` settles it: this space has no wiki page. An error settles nothing.
+    useLegacy: !lookup.enabled || (lookup.data === null && !lookup.error),
+    blocked: lookup.enabled && (lookup.isLoading || transientFailure),
+    failed: lookup.enabled && transientFailure,
+    unavailable: lookup.enabled && unavailable,
+  };
+}
+
+export function useChannelWikiContext(
+  channelId: string,
+  enabled: boolean,
+): ChannelWikiContext {
+  const wikiPage = useChannelContextWikiPage(channelId, enabled);
+  return {
+    ...channelWikiContextFrom({
+      enabled,
+      data: wikiPage.data,
+      error: wikiPage.error,
+      isLoading: wikiPage.isLoading,
+    }),
+    retry: () => void wikiPage.refetch(),
+  };
 }
 
 /** `null` data means the wiki was never enabled for this organization (404). */
