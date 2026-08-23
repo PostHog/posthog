@@ -47,6 +47,7 @@ import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
+import { shouldFocusOnBackgroundClick } from "../../../utils/backgroundClick";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -1229,7 +1230,11 @@ export function TaskInput({
 
   const handleContainerClick = useCallback((e: React.MouseEvent) => {
     if (!e.currentTarget.contains(e.target as Node)) return;
-    if ((e.target as HTMLElement).closest(FOCUSABLE_SELECTOR)) return;
+    if (
+      !shouldFocusOnBackgroundClick(e.target as HTMLElement, FOCUSABLE_SELECTOR)
+    ) {
+      return;
+    }
     editorRef.current?.focus();
   }, []);
 
