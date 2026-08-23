@@ -7,6 +7,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
@@ -22,7 +23,6 @@ from posthog.storage.object_storage import UnavailableStorage
 from products.context_layer.backend import enablement, store
 from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Task, TaskRun
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -275,13 +275,13 @@ class TestContextLayerAPI(APIBaseTest):
 
     def _loop_run_token(self, channel_id) -> str:  # noqa: ANN001
         """A token shaped like the one a context-maintaining loop run carries."""
-        task = Task.objects.create(
+        task = apps.get_model("tasks", "Task").objects.create(
             team=self.team,
             created_by=self.user,
             title="Keep the space context current",
-            origin_product=Task.OriginProduct.LOOP,
+            origin_product="loop",
         )
-        TaskRun.objects.create(
+        apps.get_model("tasks", "TaskRun").objects.create(
             task=task,
             team=self.team,
             state={
@@ -444,7 +444,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_run_commit_landings_are_capped_per_day(self, _flag) -> None:
         self._enable()
-        task = Task.objects.create(team=self.team, created_by=self.user, title="agent work")
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
         token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id)
         self.client.logout()
 
