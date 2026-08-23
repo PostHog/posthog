@@ -306,6 +306,9 @@ tools:
     task-channels-instructions-versions-retrieve:
         operation: task_channels_instructions_versions_retrieve
         enabled: false
+    task-channels-onboarding-session-create:
+        operation: task_channels_onboarding_session_create
+        enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false

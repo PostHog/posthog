@@ -50181,6 +50181,14 @@ export namespace Schemas {
     }
 
     /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSession {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+    }
+
+    /**
      * * `later` - Later
      * * `other` - Other
      */
