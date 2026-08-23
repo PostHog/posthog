@@ -131,6 +131,8 @@ interface TaskInputProps {
   reportAssociation?: TaskInputReportAssociation;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
+  /** Repo-relative context wiki page used instead of injecting the legacy body. */
+  channelContextPath?: string;
   /** Display name of the channel the CONTEXT.md came from (for the chip). */
   channelName?: string;
   /** Backend channel UUID that owns the created task and feed entry. */
@@ -188,6 +190,7 @@ export function TaskInput({
   initialMode,
   reportAssociation,
   channelContext,
+  channelContextPath,
   channelName,
   channelId,
   channelContextId,
@@ -328,14 +331,16 @@ export function TaskInput({
   // from this task's prompt. Re-include whenever the source context changes
   // (e.g. switching channels) so a dismissal doesn't stick across channels.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
-  const lastChannelContextRef = useRef(channelContext);
+  const channelContextSource = channelContextPath ?? channelContext;
+  const lastChannelContextRef = useRef(channelContextSource);
   useEffect(() => {
-    if (lastChannelContextRef.current !== channelContext) {
-      lastChannelContextRef.current = channelContext;
+    if (lastChannelContextRef.current !== channelContextSource) {
+      lastChannelContextRef.current = channelContextSource;
       setChannelContextDismissed(false);
     }
-  }, [channelContext]);
-  const includeChannelContext = !!channelContext && !channelContextDismissed;
+  }, [channelContextSource]);
+  const includeChannelContext =
+    !!channelContextSource && !channelContextDismissed;
 
   const adapter = lastUsedAdapter;
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -1017,6 +1022,7 @@ export function TaskInput({
         : undefined,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
+    channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,
     channelId,
     channelContextId,

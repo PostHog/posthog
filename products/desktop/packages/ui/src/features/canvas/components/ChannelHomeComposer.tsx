@@ -15,6 +15,8 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
+import { useChannelContextWikiPage } from "../../context-wiki/hooks/useContextWiki";
+import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
@@ -93,6 +95,11 @@ export const ChannelHomeComposer = forwardRef<
   ref,
 ) {
   const sessionId = `channel-home:${channelId}`;
+  const contextLayerEnabled = useContextLayerFlag();
+  const { data: wikiPage } = useChannelContextWikiPage(
+    channelId,
+    contextLayerEnabled,
+  );
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
@@ -287,6 +294,7 @@ export const ChannelHomeComposer = forwardRef<
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
     channelContext,
+    channelContextPath: wikiPage?.path,
     channelName,
     channelId,
     channelContextId: channelId,

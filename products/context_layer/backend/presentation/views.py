@@ -13,6 +13,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
+    ChannelWikiPageSerializer,
     CommitBundleSerializer,
     ContextLayerStatusSerializer,
     HeadConflictSerializer,
@@ -137,7 +138,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
@@ -222,6 +223,24 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
         return _read_page(self.organization.id, request)
+
+    @extend_schema(
+        responses={
+            200: ChannelWikiPageSerializer,
+            404: OpenApiResponse(description="This channel has no page in the context wiki."),
+        },
+        summary="Resolve a channel's wiki page",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
+    def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
+        try:
+            path = facade.resolve_channel_page(self.organization.id, channel_id)
+        except facade.ContextLayerStoreError as error:
+            return _store_error_response(error)
+        if path is None:
+            raise NotFound("This channel has no page in the context wiki.")
+        return Response(ChannelWikiPageSerializer({"path": path}).data)
 
     @extend_schema(
         request=WikiPageWriteSerializer,

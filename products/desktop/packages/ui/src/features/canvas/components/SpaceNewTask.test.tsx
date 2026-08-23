@@ -78,6 +78,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFolderInstructions", () => ({
   useFolderInstructions,
 }));
+vi.mock("@posthog/ui/features/feature-flags/useContextLayerFlag", () => ({
+  useContextLayerFlag: () => false,
+}));
+vi.mock("@posthog/ui/features/context-wiki/hooks/useContextWiki", () => ({
+  useChannelContextWikiPage: () => ({ data: null }),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn() }),

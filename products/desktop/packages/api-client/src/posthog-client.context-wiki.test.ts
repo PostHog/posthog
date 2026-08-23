@@ -24,6 +24,25 @@ const PAGE_INPUT = {
 };
 
 describe("context wiki client", () => {
+  it("resolves a channel wiki page without deriving its path from the channel name", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ path: "channels/growth-renamed.md" }), {
+        status: 200,
+      }),
+    );
+
+    await expect(
+      makeClient(fetch).getChannelContextWikiPage("channel-id"),
+    ).resolves.toEqual({ path: "channels/growth-renamed.md" });
+  });
+
+  it("returns null when a channel has no wiki page", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    await expect(
+      makeClient(fetch).getChannelContextWikiPage("channel-id"),
+    ).resolves.toBeNull();
+  });
+
   it("returns null from getContextWikiTree when the wiki is not enabled", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
     await expect(makeClient(fetch).getContextWikiTree()).resolves.toBeNull();

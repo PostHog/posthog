@@ -20,6 +20,7 @@ from products.context_layer.backend.enablement import (
     RestrictedProjectsError,
     enable_context_layer,
     organization_has_private_projects,
+    resolve_channel_page,
 )
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
@@ -93,6 +94,7 @@ __all__ = [
     "land_commit_bundle",
     "land_dream_branch",
     "organization_has_private_projects",
+    "resolve_channel_page",
     "sandbox_environment_variables",
     "write_page",
 ]

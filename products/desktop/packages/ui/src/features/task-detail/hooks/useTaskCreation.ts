@@ -90,6 +90,7 @@ interface UseTaskCreationOptions {
   customImageId?: string;
   signalReportId?: string;
   channelContext?: string;
+  channelContextPath?: string;
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
@@ -197,6 +198,7 @@ export function useTaskCreation({
   customImageId,
   signalReportId,
   channelContext,
+  channelContextPath,
   channelName,
   channelId,
   channelContextId,
@@ -402,6 +404,7 @@ export function useTaskCreation({
             signalReportId,
             additionalDirectories,
             channelContext,
+            channelContextPath,
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
@@ -590,6 +593,7 @@ export function useTaskCreation({
       signalReportId,
       additionalDirectories,
       channelContext,
+      channelContextPath,
       channelName,
       channelId,
       channelContextId,

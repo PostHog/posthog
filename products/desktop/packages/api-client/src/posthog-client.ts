@@ -755,6 +755,10 @@ export interface ContextWikiHealthReport {
   findings: ContextWikiHealthFinding[];
 }
 
+export interface ChannelContextWikiPage {
+  path: string;
+}
+
 // Thrown when PUT /context_layer/pages/ rejects a write because the caller's
 // `base_head` is older than the wiki's current head. `currentHead` is the head
 // to re-read against before retrying.
@@ -3048,6 +3052,14 @@ export class PostHogAPIClient {
   async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
     return this.getContextWikiResource<ContextWikiHealthReport>(
       `/api/organizations/@current/context_layer/wiki/report/`,
+    );
+  }
+
+  async getChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage | null> {
+    return this.getContextWikiResource<ChannelContextWikiPage>(
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
     );
   }
 
