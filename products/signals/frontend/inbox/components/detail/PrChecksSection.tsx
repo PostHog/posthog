@@ -138,8 +138,11 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         <DetailSection
             // `DetailSection` reads `defaultCollapsed` only on mount. This section mounts while
             // `prChecks` is still null (skeleton), when the collapse default computes to false,
-            // so remount once the checks resolve to let the settled default take effect.
-            key={prChecks === null ? 'checks-loading' : 'checks-loaded'}
+            // so remount once the checks resolve to let the settled default take effect. A polling
+            // error after an all-green load keeps the last checks (so the key would otherwise stay
+            // `checks-loaded` and the collapsed body would hide the error) — key it separately so the
+            // remount reopens the section to show the banner, then collapses again once a poll succeeds.
+            key={prChecks === null ? 'checks-loading' : prChecksError ? 'checks-error' : 'checks-loaded'}
             icon={<IconCheckCircle />}
             title="CI checks"
             collapsible
