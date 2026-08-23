@@ -204,7 +204,7 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Desktop" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, and an "Open in PostHog Desktop" link for users with Desktop access
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
 - PostHog Desktop integration via `posthog-code://task/{id}` deep links
 

@@ -3575,6 +3575,11 @@ class CodeInviteRedeemRequestSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=50)
 
 
+class CodeInviteAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the user can access PostHog Desktop.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the user can access Loops.")
+
+
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     """Query parameters for filtering task run log events"""
 
