@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
+from django.db import transaction
+
 from parameterized import parameterized
 
 from products.signals.backend.billing import first_billable_pr_run_at
@@ -483,8 +485,6 @@ class TestImplementationSlotAfterMerge(BaseTest):
         return task
 
     def _assert_capped(self, report: SignalReport) -> None:
-        from django.db import transaction
-
         with transaction.atomic():
             try:
                 enforce_report_task_cap(team_id=self.team.id, report_id=str(report.id), relationship=None)
@@ -493,8 +493,6 @@ class TestImplementationSlotAfterMerge(BaseTest):
         raise AssertionError("expected the implementation slot to be claimed")
 
     def _assert_open(self, report: SignalReport) -> None:
-        from django.db import transaction
-
         with transaction.atomic():
             enforce_report_task_cap(team_id=self.team.id, report_id=str(report.id), relationship=None)
 
