@@ -25,7 +25,8 @@ export interface BillingLineGraphProps {
     hiddenSeries: number[]
     valueFormatter?: (value: number) => string
     showLegend?: boolean
-    interval?: 'day' | 'week' | 'month'
+    legendInteractive?: boolean
+    interval?: 'hour' | 'day' | 'week' | 'month'
     billingPeriodMarkers?: BillingPeriodMarker[]
 }
 
@@ -42,6 +43,7 @@ export function BillingLineGraph({
     hiddenSeries,
     valueFormatter = defaultFormatter,
     showLegend = true,
+    legendInteractive = false,
     interval = 'day',
     billingPeriodMarkers = NO_MARKERS,
 }: BillingLineGraphProps): JSX.Element {
@@ -66,10 +68,10 @@ export function BillingLineGraph({
         () => ({
             xAxis: { timezone: 'UTC', interval },
             yAxis: { tickFormatter: valueFormatter },
-            legend: { show: showLegend, position: 'bottom', interactive: false },
+            legend: { show: showLegend, position: 'bottom', interactive: legendInteractive },
             tooltip: { sortedByValue: true, valueFormatter, placement: 'cursor' },
         }),
-        [interval, valueFormatter, showLegend]
+        [interval, valueFormatter, showLegend, legendInteractive]
     )
 
     return (

@@ -57,6 +57,8 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
+
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
@@ -769,6 +771,7 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
+    const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
 
     return (
         <SceneContent className="feature_flags">
@@ -824,6 +827,15 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
+                    ...(showRequestUsageTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.USAGE,
+                                  label: 'Usage',
+                                  content: <FeatureFlagRequestUsage />,
+                              },
+                          ]
+                        : []),
                     {
                         key: FeatureFlagsTab.PROJECTS,
                         label: 'Projects',
