@@ -50,6 +50,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.star !== undefined) {
             body['star'] = params.star
         }

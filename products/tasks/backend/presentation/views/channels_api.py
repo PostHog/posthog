@@ -179,6 +179,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             name=serializer.validated_data["name"],
             star=serializer.validated_data["star"],
+            description=serializer.validated_data["description"].strip(),
         )
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)

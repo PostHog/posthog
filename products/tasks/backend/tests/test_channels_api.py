@@ -107,6 +107,31 @@ class ChannelsAPITestCase(TestCase):
         second = self.client.post(self._channels_url(), {"name": "growth ideas"})
         self.assertEqual(second.json()["id"], first.json()["id"])
 
+    def test_channel_description_set_on_create_and_editable(self):
+        created = self.client.post(
+            self._channels_url(), {"name": "growth", "description": "  Experiments and funnels.  "}
+        )
+        self.assertEqual(created.status_code, status.HTTP_200_OK)
+        self.assertEqual(created.json()["description"], "Experiments and funnels.")
+
+        # Resolving an existing channel never overwrites its description.
+        resolved = self.client.post(self._channels_url(), {"name": "growth", "description": "Something else"})
+        self.assertEqual(resolved.json()["id"], created.json()["id"])
+        self.assertEqual(resolved.json()["description"], "Experiments and funnels.")
+
+        updated = self.client.patch(f"{self._channels_url()}{created.json()['id']}/", {"description": "Growth loops."})
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated.json()["description"], "Growth loops.")
+        listed = self.client.get(self._channels_url()).json()
+        self.assertEqual(listed[0]["description"], "Growth loops.")
+
+    def test_channel_description_is_limited_to_200_chars(self):
+        create = self.client.post(self._channels_url(), {"name": "growth", "description": "x" * 201})
+        self.assertEqual(create.status_code, status.HTTP_400_BAD_REQUEST)
+        channel = self.client.post(self._channels_url(), {"name": "growth"}).json()
+        patch = self.client.patch(f"{self._channels_url()}{channel['id']}/", {"description": "x" * 201})
+        self.assertEqual(patch.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
         self._provision()
         # Direct ORM reads in tests bypass the DRF-set team context, so opt out

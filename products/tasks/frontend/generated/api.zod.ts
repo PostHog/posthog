@@ -906,6 +906,9 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
  */
 export const taskChannelsCreateBodyNameMax = 128
 
+export const taskChannelsCreateBodyDescriptionDefault = ``
+export const taskChannelsCreateBodyDescriptionMax = 200
+
 export const taskChannelsCreateBodyStarDefault = true
 
 export const TaskChannelsCreateBody = /* @__PURE__ */ zod
@@ -914,6 +917,13 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(taskChannelsCreateBodyNameMax)
             .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+        description: zod
+            .string()
+            .max(taskChannelsCreateBodyDescriptionMax)
+            .default(taskChannelsCreateBodyDescriptionDefault)
+            .describe(
+                'Short summary of what the channel is for, shown in its empty area and searchable. Applies only when this call creates the channel.'
+            ),
         star: zod
             .boolean()
             .default(taskChannelsCreateBodyStarDefault)
@@ -959,6 +969,8 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
+export const taskChannelsPartialUpdateBodyDescriptionMax = 200
+
 export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
@@ -969,6 +981,11 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(taskChannelsPartialUpdateBodyNameMax)
         .optional()
         .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    description: zod
+        .string()
+        .max(taskChannelsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Short summary of what the channel is for, shown in its empty area and searchable.'),
     github_integration: zod
         .number()
         .nullish()
