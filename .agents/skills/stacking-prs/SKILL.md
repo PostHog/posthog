@@ -70,7 +70,7 @@ gh stack sync --prune    # also delete local branches for merged PRs
 
 ## Merging
 
-Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack merge`, which merges the chain through GitHub's API and bypasses the queue. An agent must obtain explicit user approval in the current conversation for the identified stack before applying `stamphog`, enqueueing, re-enqueueing, or otherwise causing any layer to land.
+Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack merge`, which merges the chain through GitHub's API and bypasses the queue. An agent must obtain explicit user approval in the current conversation for the identified stack before enqueueing, re-enqueueing, or otherwise causing any layer to land.
 
 **Whole stack at once (default).**
 The queue handles stacks natively: enqueueing a PR enqueues it and every unmerged layer below it, tests them together, and merges them atomically.
