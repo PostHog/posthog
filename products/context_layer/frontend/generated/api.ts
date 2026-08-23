@@ -13,6 +13,7 @@ import type {
     ContextLayerPagesRetrieveParams,
     ContextLayerStatusApi,
     WikiExportApi,
+    WikiHealthReportApi,
     WikiPageApi,
     WikiPageWriteApi,
     WikiTreeApi,
@@ -33,6 +34,9 @@ export const contextLayerCommitsCreate = async (
 ): Promise<ContextLayerStatusApi> => {
     const formData = new FormData()
     formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.summary !== undefined) {
+        formData.append(`summary`, commitBundleApi.summary)
+    }
 
     return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(organizationId), {
         ...options,
@@ -162,6 +166,24 @@ export const contextLayerTreeRetrieve = async (organizationId: string, options?:
     })
 }
 
+export const getContextLayerWikiReportRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/wiki/report/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Report wiki health findings
+ */
+export const contextLayerWikiReportRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WikiHealthReportApi> => {
+    return apiMutator<WikiHealthReportApi>(getContextLayerWikiReportRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getContextLayerAgentCommitsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/context_layer/agent/commits/`
 }
@@ -184,6 +206,9 @@ export const contextLayerAgentCommitsCreate = async (
 ): Promise<ContextLayerStatusApi> => {
     const formData = new FormData()
     formData.append(`bundle`, commitBundleApi.bundle)
+    if (commitBundleApi.summary !== undefined) {
+        formData.append(`summary`, commitBundleApi.summary)
+    }
 
     return apiMutator<ContextLayerStatusApi>(getContextLayerAgentCommitsCreateUrl(projectId), {
         ...options,
