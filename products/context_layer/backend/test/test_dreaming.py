@@ -115,6 +115,11 @@ class TestDreamingLane(BaseTest):
                 dreaming.dispatch_dream_run(dreaming.DispatchDreamRunInput(organization_id=str(self.organization.id)))
             )
         assert result.dispatched is True
+        context = trigger_mock.call_args.args[1]
+        assert context.runtime == "pi"
+        assert context.runtime_adapter == "codex"
+        assert context.model == "gpt-5.6-luna"
+        assert context.initial_permission_mode == "bypassPermissions"
         prompt = trigger_mock.call_args.args[0]
         assert prompt.startswith(expected_preamble)
         assert "# Context layer dreaming" in prompt

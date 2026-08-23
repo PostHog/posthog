@@ -190,7 +190,15 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
             # Read-only MCP surface: the dream gathers from reads and lands its
             # branch through the commits endpoint, which accepts the run token's
             # task:write + internal_run:read pair — it never needs user-facing writes.
-            CustomPromptSandboxContext(team_id=target.team_id, user_id=target.user_id, posthog_mcp_scopes="read_only"),
+            CustomPromptSandboxContext(
+                team_id=target.team_id,
+                user_id=target.user_id,
+                posthog_mcp_scopes="read_only",
+                runtime="pi",
+                runtime_adapter="codex",
+                model="gpt-5.6-luna",
+                initial_permission_mode="bypassPermissions",
+            ),
             step_name="context-layer-dream",
             internal=True,
             workflow_id_prefix="context-layer-dream",
