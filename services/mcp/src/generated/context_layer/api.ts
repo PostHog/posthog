@@ -58,7 +58,9 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
         path: zod
             .string()
             .max(contextLayerPagesUpdateBodyPathMax)
-            .describe("Repo-relative Markdown path inside the wiki's structure, for example `channels\/general.md`."),
+            .describe(
+                "Repo-relative Markdown path inside the wiki's structure, for example `projects\/12\/spaces\/general.md`."
+            ),
         content: zod
             .string()
             .max(contextLayerPagesUpdateBodyContentMax)
@@ -136,7 +138,9 @@ export const ContextLayerAgentPagesUpdateBody = /* @__PURE__ */ zod
         path: zod
             .string()
             .max(contextLayerAgentPagesUpdateBodyPathMax)
-            .describe("Repo-relative Markdown path inside the wiki's structure, for example `channels\/general.md`."),
+            .describe(
+                "Repo-relative Markdown path inside the wiki's structure, for example `projects\/12\/spaces\/general.md`."
+            ),
         content: zod
             .string()
             .max(contextLayerAgentPagesUpdateBodyContentMax)
