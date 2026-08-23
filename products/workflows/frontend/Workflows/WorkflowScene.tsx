@@ -1,9 +1,10 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -61,7 +62,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
     // The save/auto-save indicators moved into the WorkflowStatusBar; the scene only needs the
     // workflow itself (for the agent context) and the load state.
-    const { workflow, workflowLoading, originalWorkflow, hogFunctionTemplatesById } = useValues(logic)
+    const { workflow, workflowLoading, workflowLoadError, originalWorkflow, hogFunctionTemplatesById } =
+        useValues(logic)
+    const { loadWorkflow } = useActions(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -108,6 +111,21 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     if (!originalWorkflow) {
+        // Only a genuine 404 means the workflow is gone. A 403, 500, or dropped request is a load
+        // that failed for another reason, so offer a retry instead of claiming it was deleted.
+        if (workflowLoadError && workflowLoadError.status !== 404) {
+            return (
+                <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+                    <h1 className="mb-0 text-2xl font-bold">Couldn't load this workflow</h1>
+                    <p className="mb-0 text-secondary">
+                        Something went wrong while loading it. This doesn't mean the workflow was deleted.
+                    </p>
+                    <LemonButton type="primary" icon={<IconRefresh />} onClick={() => loadWorkflow()}>
+                        Try again
+                    </LemonButton>
+                </div>
+            )
+        }
         return <NotFound object="workflow" />
     }
 

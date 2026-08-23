@@ -248,6 +248,7 @@ export interface workflowLogicValues {
     workflowErrors: DeepPartialMap<HogFlow, ValidationErrorType>
     workflowHasActionErrors: boolean
     workflowHasErrors: boolean
+    workflowLoadError: { status: number | null } | null
     workflowLoading: boolean
     workflowManualErrors: Record<string, any>
     workflowSanitized: HogFlow
@@ -3231,6 +3232,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 setExternallyEdited: (_, { externallyEdited }) => externallyEdited,
                 loadWorkflowSuccess: () => false,
                 saveWorkflowSuccess: () => false,
+            },
+        ],
+        // Records how the last workflow load ended so the scene can tell a genuine 404 (the workflow
+        // is gone) from a load that failed for another reason (403, 500, dropped request) and can be
+        // retried. Null while no load has failed; cleared when a load starts or succeeds.
+        workflowLoadError: [
+            null as { status: number | null } | null,
+            {
+                loadWorkflow: () => null,
+                loadWorkflowSuccess: () => null,
+                loadWorkflowFailure: (_, { errorObject }) => ({
+                    status: errorObject instanceof ApiError ? (errorObject.status ?? null) : null,
+                }),
             },
         ],
         // True while we silently reconcile to an external edit (clean local state). Drives a brief

@@ -705,6 +705,9 @@ export const redirects: Record<
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
+    // A bare /project (bookmark, old link, or post-login `next`) has no scene and would otherwise
+    // become /project/<id>/project and 404. Send it to the project home instead.
+    '/project': urls.default(),
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
