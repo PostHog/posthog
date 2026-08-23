@@ -46,7 +46,12 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
 
         mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
         bundle_path = f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle"
+        # Clear any leftover checkout first so the mount is idempotent: a resumed
+        # snapshot re-mounts /tmp/workspace (wiki included), and git clone refuses a
+        # non-empty target, which would otherwise leave the previous run's stale wiki
+        # in place while reporting a fresh mount.
         command = (
+            f"rm -rf {mount_path} {shlex.quote(bundle_path)} && "
             f"curl -fsSL {shlex.quote(mount.bundle_url)} -o {shlex.quote(bundle_path)} && "
             f"git clone --quiet {shlex.quote(bundle_path)} {mount_path} && "
             f"git -C {mount_path} checkout --quiet main && "
