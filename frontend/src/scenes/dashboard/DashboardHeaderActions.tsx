@@ -213,7 +213,7 @@ export function DashboardEditSaveCancelButtons({
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
-                disabled={!canEditDashboard}
+                disableShortcut={!canEditDashboard}
             >
                 {saveButton}
             </Shortcut>
@@ -311,7 +311,7 @@ export function ViewModeActions(): JSX.Element {
                     keybind={[keyBinds.edit]}
                     intent="Enter edit mode"
                     interaction="click"
-                    disabled={tiles.length === 0}
+                    disableShortcut={tiles.length === 0}
                 >
                     <LemonButton
                         type="secondary"
