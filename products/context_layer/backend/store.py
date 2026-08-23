@@ -94,6 +94,14 @@ class CommitAuthor:
     email: str
 
 
+@frozen
+class BundleExport:
+    """A presigned download URL for a bundle and the head sha it points at."""
+
+    url: str
+    head_sha: str
+
+
 SYSTEM_AUTHOR = CommitAuthor(name=COMMITTER_NAME, email=COMMITTER_EMAIL)
 
 
@@ -463,10 +471,13 @@ def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purg
         return head_sha
 
 
-def get_bundle_presigned_url(organization_id: uuid.UUID | str, *, expiration_seconds: int = 300) -> str:
-    """Short-lived download URL for the current bundle, for sandbox mounts and export."""
+def get_bundle_export(organization_id: uuid.UUID | str, *, expiration_seconds: int = 300) -> BundleExport:
+    """Short-lived download URL for the current bundle, for sandbox mounts and export.
+
+    Reads the head once, so the returned url and head_sha always name the same
+    revision even if a writer lands between calls."""
     config = get_config(organization_id)
     url = object_storage.get_presigned_url(bundle_key(organization_id, config.head_sha), expiration=expiration_seconds)
     if url is None:
         raise ContextLayerStoreError(f"could not presign the bundle for organization {organization_id}")
-    return url
+    return BundleExport(url=url, head_sha=config.head_sha)

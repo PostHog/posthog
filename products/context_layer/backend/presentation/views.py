@@ -190,8 +190,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=False)
     def export(self, request: Request, **kwargs) -> Response:
         try:
-            config = store.get_config(self.organization.id)
-            url = store.get_bundle_presigned_url(self.organization.id)
+            bundle = store.get_bundle_export(self.organization.id)
         except store.ContextLayerStoreError as error:
             return _store_error_response(error)
-        return Response(WikiExportSerializer({"url": url, "head_sha": config.head_sha}).data)
+        return Response(WikiExportSerializer({"url": bundle.url, "head_sha": bundle.head_sha}).data)
