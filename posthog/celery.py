@@ -100,13 +100,8 @@ task_timings: dict[str, float] = {}
 
 
 def _initialize_worker_metrics() -> None:
-    """Initialize metrics that need to survive pod restarts.
-
-    Each initializer runs unconditionally and carries its own worker-type gate, so
-    adding one here cannot be silently skipped by another's early return.
-    """
+    """Initialize metrics that need to survive pod restarts."""
     _initialize_liveness_alerted_task_series()
-    _initialize_cohort_backlog_metric()
 
 
 def _initialize_liveness_alerted_task_series() -> None:
@@ -121,36 +116,6 @@ def _initialize_liveness_alerted_task_series() -> None:
                 counter.labels(task_name=task_name)
     except Exception:
         logger.warning("failed_to_initialize_task_metric_series", exc_info=True)
-
-
-def _initialize_cohort_backlog_metric() -> None:
-    # Only initialize cohort metrics on long-running workers that handle cohort calculations
-    if not _is_longrunning_worker():
-        return
-
-    try:
-        # Initialize cohort backlog metric from database state
-        from posthog.tasks.calculate_cohort import (
-            COHORT_RECALCULATIONS_BACKLOG_GAUGE,
-            get_cohort_calculation_candidates_queryset,
-        )
-
-        backlog = get_cohort_calculation_candidates_queryset().count()
-        COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
-
-        logger.info("worker_metrics_initialized", cohort_backlog=backlog)
-    except Exception as e:
-        # Don't let metric initialization break worker startup
-        logger.warning("failed_to_initialize_worker_metrics", error=str(e))
-
-
-def _is_longrunning_worker() -> bool:
-    """Check if this is a long-running worker that handles cohort calculations."""
-    from posthog.tasks.utils import CeleryQueue
-
-    # Check if LONG_RUNNING queue is in the worker's queue list
-    worker_queues = os.environ.get("CELERY_WORKER_QUEUES", "").split(",")
-    return CeleryQueue.LONG_RUNNING.value in worker_queues
 
 
 @setup_logging.connect

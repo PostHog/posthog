@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import OperationalError, ProgrammingError, connection
 from django.utils import timezone
 
@@ -914,12 +915,44 @@ def clean_stale_partials() -> None:
     Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
+CALCULATE_COHORT_LOCK_KEY = "posthog:calculate_cohort_coordinator:lock"
+# Happy path releases the lock in finally; this TTL only bounds the skip window after a SIGKILL
+# strands it (~5 missed minute-cycles, then self-heals). A run outliving the TTL lets a second
+# start, but the per-cohort is_calculating flag bounds the double-pick.
+CALCULATE_COHORT_LOCK_TTL_SECONDS = 300
+
+CALCULATE_COHORT_LOCK_CONTENTION_COUNTER = Counter(
+    "posthog_calculate_cohort_lock_contentions_total",
+    "Times the cohort recalculation coordinator was skipped because its lock was held",
+)
+
+
 @shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
     from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
-    enqueue_cohorts_to_calculate(parallel_count)
-    reset_stuck_cohorts()
+    if not cache.add(CALCULATE_COHORT_LOCK_KEY, "locked", timeout=CALCULATE_COHORT_LOCK_TTL_SECONDS):
+        CALCULATE_COHORT_LOCK_CONTENTION_COUNTER.inc()
+        logger.info("calculate_cohort_coordinator_already_running")
+        return
+
+    try:
+        enqueue_cohorts_to_calculate(parallel_count)
+        reset_stuck_cohorts()
+    finally:
+        cache.delete(CALCULATE_COHORT_LOCK_KEY)
+
+
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def record_cohort_metrics(self: PushGatewayTask) -> None:
+    from posthog.tasks.calculate_cohort import update_cohort_metrics
+
+    registry = self.metrics_registry
+    if registry is None:
+        # mypy narrowing; unreachable via Celery dispatch
+        raise RuntimeError("record_cohort_metrics must run via PushGatewayTask")
+    update_cohort_metrics(registry)
 
 
 class Polling:
