@@ -1,4 +1,5 @@
 import { HostBudget, HostBudgetOptions } from './host-budget'
+import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const OPTIONS: HostBudgetOptions = {
@@ -15,10 +16,14 @@ const ORIGIN = 'https://example.com'
 
 describe('OriginRequestScheduler', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(1_700_000_000_000))
-    afterEach(() => jest.useRealTimers())
+    afterEach(() => {
+        jest.restoreAllMocks()
+        jest.useRealTimers()
+    })
 
     it('keeps concurrent request start times at least one second apart', async () => {
         const scheduler = new OriginRequestScheduler(new HostBudget(OPTIONS), 300)
+        const observeSchedulerWait = jest.spyOn(ImageFetchRequestMetrics, 'observeSchedulerWait')
         const startedAtMs: number[] = []
         const deadlineMs = Date.now() + 10_000
 
@@ -36,6 +41,8 @@ describe('OriginRequestScheduler', () => {
             { ran: true, value: undefined },
         ])
         expect(startedAtMs).toEqual([1_700_000_000_000, 1_700_000_001_000, 1_700_000_002_000])
+        expect(observeSchedulerWait).toHaveBeenCalledWith('origin_budget', 1)
+        expect(observeSchedulerWait).toHaveBeenCalledWith('request_capacity', 0)
     })
 
     it('runs one half-open probe while later requests remain blocked', async () => {

@@ -208,12 +208,16 @@ export class ImageBatcher {
         this.activeBatch = controller
         this.partitionsRevoked = false
         const startedAt = performance.now()
+        if (planned.length > 0) {
+            ImageScrubConsumerMetrics.startBatch()
+        }
         try {
             await this.scrubAndStage(messages, planned, controller, nowMs)
         } finally {
             // Empty polls arrive on a timer under callEachBatchWhenEmpty and would otherwise bury
             // the real distribution of both histograms in a zero bucket.
             if (planned.length > 0) {
+                ImageScrubConsumerMetrics.finishBatch()
                 ImageScrubConsumerMetrics.observeBatchProgress(
                     this.retiredInBatch,
                     planned.length,

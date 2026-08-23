@@ -52,6 +52,14 @@ export class RetryDelayConsumer {
             RetryDelayMetrics.incReleased('abandoned', messages.length)
             return
         }
+        const invalidTimestampCount = messages.filter(
+            (message) =>
+                message.timestamp === undefined || !Number.isFinite(message.timestamp) || message.timestamp <= 0
+        ).length
+        if (invalidTimestampCount > 0) {
+            RetryDelayMetrics.incReleased('invalid_timestamp', invalidTimestampCount)
+            throw new Error('the image fetch retry lane requires broker append timestamps')
+        }
         const waitMs = this.remainingBatchWaitMs(messages)
         if (waitMs > 0) {
             RetryDelayMetrics.observeWait(waitMs / 1000)
@@ -76,14 +84,7 @@ export class RetryDelayConsumer {
      * which is not nullish, so a plain `??` would make the whole period look already spent.
      */
     private remainingBatchWaitMs(messages: Message[]): number {
-        const latestReadyAtMs = Math.max(
-            ...messages.map((message) => {
-                if (message.timestamp === undefined || message.timestamp <= 0) {
-                    throw new Error('the image fetch retry lane requires broker append timestamps')
-                }
-                return message.timestamp + this.options.delayMs
-            })
-        )
+        const latestReadyAtMs = Math.max(...messages.map((message) => message.timestamp! + this.options.delayMs))
         return Math.max(0, latestReadyAtMs - Date.now())
     }
 

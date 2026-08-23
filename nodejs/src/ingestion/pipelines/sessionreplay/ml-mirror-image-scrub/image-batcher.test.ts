@@ -4,6 +4,7 @@ import { gzipSync } from 'node:zlib'
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
+import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient, ScrubPoisoned } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
@@ -73,6 +74,8 @@ const options = {
 }
 
 describe('ImageBatcher', () => {
+    afterEach(() => jest.restoreAllMocks())
+
     it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
@@ -848,11 +851,16 @@ describe('ImageBatcher', () => {
                 ),
         } as unknown as ScrubClient
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, hangingClient, options, 0)
+        const startBatch = jest.spyOn(ImageScrubConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageScrubConsumerMetrics, 'finishBatch')
 
         const running = batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).not.toHaveBeenCalled()
         batcher.stop()
 
         await expect(running).resolves.toBeUndefined()
+        expect(finishBatch).toHaveBeenCalledTimes(1)
         // Nothing finished, so nothing may be committed over: the image replays under the next owner.
         expect(offsets.received.flat()).toEqual([])
         expect(store.writes).toHaveLength(0)

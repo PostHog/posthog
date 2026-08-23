@@ -36,88 +36,83 @@ export class UrlFetchConsumer {
         const drops = new Map<UrlDropReason, number>()
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
+        let originCount = 0
+        ImageFetchConsumerMetrics.startBatch()
 
-        for (const message of messages) {
-            const parsed = this.parse(message)
-            if (!parsed.ok) {
-                drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
-                continue
-            }
-            ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
-            for (const rejected of parsed.rejected) {
-                drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
-            }
-            for (const candidate of parsed.candidates) {
-                const existing = candidatesByRef.get(candidate.originalRef)
-                if (existing) {
-                    dedupedInBatch += 1
-                    candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
+        try {
+            for (const message of messages) {
+                const parsed = this.parse(message)
+                if (!parsed.ok) {
+                    drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
                     continue
                 }
-                ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                candidatesByRef.set(candidate.originalRef, candidate)
+                ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
+                for (const rejected of parsed.rejected) {
+                    drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
+                }
+                for (const candidate of parsed.candidates) {
+                    const existing = candidatesByRef.get(candidate.originalRef)
+                    if (existing) {
+                        dedupedInBatch += 1
+                        candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
+                        continue
+                    }
+                    ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
+                    candidatesByRef.set(candidate.originalRef, candidate)
+                }
             }
-        }
-        const candidates = [...candidatesByRef.values()]
-        const origins = new Set(candidates.map((candidate) => candidate.origin))
+            const candidates = [...candidatesByRef.values()]
+            const origins = new Set(candidates.map((candidate) => candidate.origin))
+            originCount = origins.size
 
-        if (this.options.dryRun || candidates.length === 0) {
-            this.recordMetrics(drops, dedupedInBatch, origins.size, startedAt)
-            return
-        }
+            if (this.options.dryRun || candidates.length === 0) {
+                return
+            }
 
-        const keys = [
-            ...candidates.map((candidate) => candidate.originalRef),
-            ...[...origins].flatMap((origin) => [
-                configurationCacheKey(origin, 'robots'),
-                configurationCacheKey(origin, 'tdmrep'),
-            ]),
-        ]
-        let stored: Map<string, CrawlHistoryItem>
-        try {
-            stored = await this.crawlHistory.read(keys)
-        } catch (error) {
-            ImageFetchConsumerMetrics.incStoreError('read', keys.length)
-            throw error
-        }
+            const keys = [
+                ...candidates.map((candidate) => candidate.originalRef),
+                ...[...origins].flatMap((origin) => [
+                    configurationCacheKey(origin, 'robots'),
+                    configurationCacheKey(origin, 'tdmrep'),
+                ]),
+            ]
+            const stored = await this.runCrawlHistoryOperation('read', keys.length, () => this.crawlHistory.read(keys))
 
-        const fetchable: FetchCandidate[] = []
-        const notReady: FetchCandidate[] = []
-        for (const candidate of candidates) {
-            const history = stored.get(candidate.originalRef)
-            if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
-                ImageFetchConsumerMetrics.incDeduped('store', 1)
-                continue
+            const fetchable: FetchCandidate[] = []
+            const notReady: FetchCandidate[] = []
+            for (const candidate of candidates) {
+                const history = stored.get(candidate.originalRef)
+                if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
+                    ImageFetchConsumerMetrics.incDeduped('store', 1)
+                    continue
+                }
+                if (candidate.notBeforeMs > nowMs) {
+                    notReady.push(candidate)
+                } else {
+                    fetchable.push(candidate)
+                }
             }
-            if (candidate.notBeforeMs > nowMs) {
-                notReady.push(candidate)
-            } else {
-                fetchable.push(candidate)
-            }
-        }
-        ImageFetchConsumerMetrics.incFetchable(fetchable.length)
+            ImageFetchConsumerMetrics.incFetchable(fetchable.length)
 
-        const attempts = await this.runner!.run(fetchable, stored)
-        attempts.push(...(await Promise.all(notReady.map((candidate) => this.republishNotReady(candidate, nowMs)))))
-        const updates: CrawlHistoryItem[] = []
-        for (const attempt of attempts) {
-            updates.push(...attempt.configurationUpdates)
-            if (attempt.history) {
-                updates.push(attempt.history)
+            const attempts = await this.runner!.run(fetchable, stored)
+            attempts.push(...(await Promise.all(notReady.map((candidate) => this.republishNotReady(candidate, nowMs)))))
+            const updates: CrawlHistoryItem[] = []
+            for (const attempt of attempts) {
+                updates.push(...attempt.configurationUpdates)
+                if (attempt.history) {
+                    updates.push(attempt.history)
+                }
             }
-        }
-        if (updates.length > 0) {
-            try {
-                await this.crawlHistory.write(updates)
-            } catch (error) {
-                ImageFetchConsumerMetrics.incStoreError('write', updates.length)
-                throw error
+            if (updates.length > 0) {
+                await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
-        }
-        const lost = attempts.filter((attempt) => attempt.lost).length
-        this.recordMetrics(drops, dedupedInBatch, origins.size, startedAt)
-        if (lost > 0) {
-            throw new Error(`the image fetch lane could not account for ${lost} URLs`)
+            const lost = attempts.filter((attempt) => attempt.lost).length
+            if (lost > 0) {
+                throw new Error(`the image fetch lane could not account for ${lost} URLs`)
+            }
+        } finally {
+            ImageFetchConsumerMetrics.finishBatch()
+            this.recordMetrics(drops, dedupedInBatch, originCount, startedAt)
         }
     }
 
@@ -129,6 +124,28 @@ export class UrlFetchConsumer {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             return { ok: false, reason: 'malformed' }
+        }
+    }
+
+    private async runCrawlHistoryOperation<T>(
+        operation: 'read' | 'write',
+        affectedKeys: number,
+        run: () => Promise<T>
+    ): Promise<T> {
+        const startedAt = process.hrtime.bigint()
+        let outcome: 'success' | 'error' = 'success'
+        try {
+            return await run()
+        } catch (error) {
+            outcome = 'error'
+            ImageFetchConsumerMetrics.incStoreError(operation, affectedKeys)
+            throw error
+        } finally {
+            ImageFetchConsumerMetrics.observeStoreDuration(
+                operation,
+                outcome,
+                Number(process.hrtime.bigint() - startedAt) / 1e9
+            )
         }
     }
 

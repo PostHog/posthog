@@ -4,6 +4,7 @@ import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-u
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
 import { DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
+import { ImageFetchConsumerMetrics } from './metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const NOW_MS = 1_700_000_000_000
@@ -107,6 +108,8 @@ function build(dryRun = false): Harness {
 }
 
 describe('UrlFetchConsumer', () => {
+    afterEach(() => jest.restoreAllMocks())
+
     it.each([Number.NaN, 0, 3_599, 3_600.5])('refuses an invalid crawl-history TTL of %p', (seenTtlSeconds) => {
         expect(
             () =>
@@ -292,8 +295,16 @@ describe('UrlFetchConsumer', () => {
     it('throws when the bulk read fails', async () => {
         const harness = build()
         harness.history.readError = new Error('read failed')
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeStoreDuration = jest.spyOn(ImageFetchConsumerMetrics, 'observeStoreDuration')
+        const startBatch = jest.spyOn(ImageFetchConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageFetchConsumerMetrics, 'finishBatch')
 
         await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('read failed')
+        expect(observeBatch).toHaveBeenCalledWith(1, expect.any(Number))
+        expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).toHaveBeenCalledTimes(1)
     })
 
     it('throws when the final bulk write fails', async () => {

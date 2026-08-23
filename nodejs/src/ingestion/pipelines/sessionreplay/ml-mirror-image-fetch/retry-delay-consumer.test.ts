@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
+import { RetryDelayMetrics } from './metrics'
 import { RetryDelayConsumer } from './retry-delay-consumer'
 
 const NOW_MS = 1_700_000_000_000
@@ -45,7 +46,10 @@ function build(overrides: { isStopping?: () => boolean; delayMs?: number } = {})
 
 describe('RetryDelayConsumer', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(NOW_MS))
-    afterEach(() => jest.useRealTimers())
+    afterEach(() => {
+        jest.restoreAllMocks()
+        jest.useRealTimers()
+    })
 
     it.each([0, -1, Number.NaN])('refuses an invalid delay of %p', (delayMs) => {
         expect(() => build({ delayMs })).toThrow('positive delay')
@@ -101,15 +105,20 @@ describe('RetryDelayConsumer', () => {
         expect(harness.heartbeat).toHaveBeenCalledTimes(7)
     })
 
-    it.each([undefined, 0, -1])('throws for an invalid broker append timestamp of %p', async (timestamp) => {
-        const harness = build()
+    it.each([undefined, Number.NaN, 0, -1])(
+        'throws for an invalid broker append timestamp of %p',
+        async (timestamp) => {
+            const harness = build()
+            const incReleased = jest.spyOn(RetryDelayMetrics, 'incReleased')
 
-        await expect(harness.consumer.handleBatch([message(timestamp)])).rejects.toThrow(
-            'requires broker append timestamps'
-        )
-        expect(harness.produce).not.toHaveBeenCalled()
-        expect(harness.storeOffsets).not.toHaveBeenCalled()
-    })
+            await expect(harness.consumer.handleBatch([message(timestamp)])).rejects.toThrow(
+                'requires broker append timestamps'
+            )
+            expect(incReleased).toHaveBeenCalledWith('invalid_timestamp', 1)
+            expect(harness.produce).not.toHaveBeenCalled()
+            expect(harness.storeOffsets).not.toHaveBeenCalled()
+        }
+    )
 
     it('throws and stores no offset when any frontier publish fails', async () => {
         const harness = build()

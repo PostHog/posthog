@@ -74,6 +74,7 @@ export type UrlDropReason =
     | 'oversized_record'
 
 export type DedupScope = 'batch' | 'store'
+export type SchedulerWaitScope = 'origin_budget' | 'request_capacity'
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -114,10 +115,25 @@ export class ImageFetchConsumerMetrics {
         help: 'Crawl-history keys in a failed read or write. Either failure stops the batch before Kafka offsets advance',
         labelNames: ['operation'],
     })
+    private static readonly storeDuration = new Histogram({
+        name: 'ml_image_fetch_consumer_store_duration_seconds',
+        help: 'Crawl-history operation wall time by bounded operation and outcome',
+        labelNames: ['operation', 'outcome'],
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120],
+    })
     private static readonly batchDuration = new Histogram({
         name: 'ml_image_fetch_consumer_batch_duration_seconds',
-        help: 'Wall time per poll batch. Read against CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s), which binds long before max.poll.interval.ms: the batch refreshes the heartbeat from inside itself, so a batch past this means that refresh stopped',
-        buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60],
+        help: 'Wall time per completed poll batch. Read against Kafka max.poll.interval.ms (300s)',
+        buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 120, 240, 300, 600],
+    })
+    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchElapsed = new Gauge({
+        name: 'ml_image_fetch_consumer_active_batch_elapsed_seconds',
+        help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
+        collect() {
+            const startedAtMs = ImageFetchConsumerMetrics.activeBatchStartedAtMs
+            this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
+        },
     })
     private static readonly ageSeconds = new Histogram({
         name: 'ml_image_fetch_consumer_url_age_seconds',
@@ -144,9 +160,22 @@ export class ImageFetchConsumerMetrics {
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
     }
+    public static observeStoreDuration(
+        operation: 'read' | 'write',
+        outcome: 'success' | 'error',
+        durationSeconds: number
+    ): void {
+        this.storeDuration.labels(operation, outcome).observe(durationSeconds)
+    }
     public static observeBatch(origins: number, durationSeconds: number): void {
         this.originsPerBatch.observe(origins)
         this.batchDuration.observe(durationSeconds)
+    }
+    public static startBatch(nowMs = performance.now()): void {
+        this.activeBatchStartedAtMs = nowMs
+    }
+    public static finishBatch(): void {
+        this.activeBatchStartedAtMs = undefined
     }
     public static observeRecord(urls: number): void {
         this.urlsPerRecord.observe(urls)
@@ -230,9 +259,10 @@ export class ImageFetchRequestMetrics {
      * Read a rising tail with the `deadline` outcome to distinguish headroom from load that an
      * origin's allowed rate cannot carry within one pass.
      */
-    private static readonly budgetWait = new Histogram({
-        name: 'ml_image_fetch_budget_wait_seconds',
-        help: 'Time a URL waited for its origin rate limit before its request went out',
+    private static readonly schedulerWait = new Histogram({
+        name: 'ml_image_fetch_scheduler_wait_seconds',
+        help: 'Time a request waited for its origin budget or for a pod request slot',
+        labelNames: ['scope'],
         buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
     })
     private static readonly responseBytes = new Histogram({
@@ -308,8 +338,8 @@ export class ImageFetchRequestMetrics {
     public static observeOriginStatus(blocked: boolean, reason = 'none'): void {
         this.originStatus.labels(blocked ? 'true' : 'false', reason).inc()
     }
-    public static observeBudgetWait(waitSeconds: number): void {
-        this.budgetWait.observe(waitSeconds)
+    public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
+        this.schedulerWait.labels(scope).observe(waitSeconds)
     }
     public static observeBytes(bytes: number): void {
         this.responseBytes.observe(bytes)
@@ -391,7 +421,7 @@ export class ImageFetchRequestMetrics {
 export class RetryDelayMetrics {
     private static readonly released = new Counter({
         name: 'ml_image_fetch_retry_released_total',
-        help: 'Records this delay consumer finished with, by what happened: "released" back to the frontier, "failed" to publish, or "malformed" and dropped',
+        help: 'Records this delay consumer handled by outcome. A malformed record is dropped, while an invalid timestamp or failed publish leaves the offset uncommitted',
         labelNames: ['outcome'],
     })
     private static readonly waitSeconds = new Histogram({
@@ -400,7 +430,10 @@ export class RetryDelayMetrics {
         buckets: [1, 10, 60, 300, 600, 1800, 3600],
     })
 
-    public static incReleased(outcome: 'released' | 'failed' | 'malformed' | 'abandoned', count = 1): void {
+    public static incReleased(
+        outcome: 'released' | 'failed' | 'malformed' | 'invalid_timestamp' | 'abandoned',
+        count = 1
+    ): void {
         this.released.labels(outcome).inc(count)
     }
     public static observeWait(waitSeconds: number): void {

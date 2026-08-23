@@ -432,6 +432,12 @@ that scenario.
 
 **11.6** Each top-N metric uses 200 Space-Saving counters per pod for one 10-minute window. It exports the 20 largest labels and one `other` label as gauges. At the window boundary, it clears the estimator and removes the labels from the previous window before it starts the next window.
 
+**11.7** The lane counts republishes by reason and destination topic. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+
+**11.8** The lane observes completed poll batch duration, active batch age, crawl-history operation duration, scheduler waits by bounded scope, and URL age at ingestion. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+
+**11.9** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
+
 ### 12. Conditional requests
 
 **12.1** The lane stores the request time, response time, `ETag`, `Last-Modified`, `Date`, `Age`, `Cache-Control`, and `Expires` metadata in the crawl history for that URL.

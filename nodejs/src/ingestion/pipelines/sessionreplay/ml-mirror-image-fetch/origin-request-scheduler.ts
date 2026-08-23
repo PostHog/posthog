@@ -3,6 +3,7 @@ import { delay } from '~/common/utils/utils'
 
 import { ConfigurationRequestScheduler } from './configuration-policy'
 import { BudgetBlockReason, HostBudget } from './host-budget'
+import { ImageFetchRequestMetrics } from './metrics'
 
 export type ScheduledRequest<T> =
     | { ran: true; value: T }
@@ -46,6 +47,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                 return { ran: false, reason: grant.reason, waitMs: grant.waitMs }
             }
             if (grant.waitMs > 0) {
+                ImageFetchRequestMetrics.observeSchedulerWait('origin_budget', grant.waitMs / 1000)
                 await delay(grant.waitMs)
             }
             if (Date.now() > deadlineMs) {
@@ -53,10 +55,15 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                 return { ran: false, reason: 'deadline', waitMs: 0 }
             }
             for (;;) {
+                const capacityWaitStartedAtMs = Date.now()
                 const scheduled = await this.inFlight.run({
                     debugTag: origin,
                     fn: async () => {
                         const queuedUntilMs = Date.now()
+                        ImageFetchRequestMetrics.observeSchedulerWait(
+                            'request_capacity',
+                            Math.max(0, queuedUntilMs - capacityWaitStartedAtMs) / 1000
+                        )
                         const blocked = configurationRequest
                             ? null
                             : this.budget.blockedReason(origin, queuedUntilMs, grant.halfOpenProbe)
@@ -67,6 +74,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                             ? 0
                             : this.budget.requestStartWaitMs(origin, queuedUntilMs)
                         if (startWaitMs > 0) {
+                            ImageFetchRequestMetrics.observeSchedulerWait('origin_budget', startWaitMs / 1000)
                             return { kind: 'wait', waitMs: startWaitMs } as const
                         }
                         if (!this.budget.acquireConnection(origin, queuedUntilMs)) {
