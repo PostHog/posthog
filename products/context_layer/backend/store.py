@@ -279,7 +279,7 @@ def get_config(organization_id: uuid.UUID | str) -> ContextLayerConfig:
 def checkout_repo(organization_id: uuid.UUID | str) -> Iterator[RepoCheckout]:
     """Read-side checkout of the current head into a temporary working tree."""
     config = get_config(organization_id)
-    with tempfile.TemporaryDirectory(prefix="context-layer-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="context-layer-", ignore_cleanup_errors=True) as tmp:
         tmpdir = Path(tmp)
         bundle_path = _download_bundle(organization_id, config.head_sha, tmpdir)
         workdir = tmpdir / "repo"
@@ -298,7 +298,10 @@ def initialize_repo(
     if existing is not None:
         return existing
 
-    with repo_writer_lock(organization_id), tempfile.TemporaryDirectory(prefix="context-layer-") as tmp:
+    with (
+        repo_writer_lock(organization_id),
+        tempfile.TemporaryDirectory(prefix="context-layer-", ignore_cleanup_errors=True) as tmp,
+    ):
         workdir = Path(tmp) / "repo"
         workdir.mkdir()
         _run_git(["init", "--quiet", "--initial-branch", DEFAULT_BRANCH, str(workdir)], cwd=Path(tmp))
@@ -335,7 +338,7 @@ def apply_changes(
     for attempt in (1, 2):
         with repo_writer_lock(organization_id):
             expected_head = get_config(organization_id).head_sha
-            with tempfile.TemporaryDirectory(prefix="context-layer-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="context-layer-", ignore_cleanup_errors=True) as tmp:
                 tmpdir = Path(tmp)
                 bundle_path = _download_bundle(organization_id, expected_head, tmpdir)
                 workdir = tmpdir / "repo"
