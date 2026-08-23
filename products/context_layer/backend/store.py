@@ -208,6 +208,23 @@ def _prune_bundles_except(organization_id: uuid.UUID | str, keep_head: str) -> N
         )
 
 
+def _prune_bundles_best_effort(organization_id: uuid.UUID | str, keep_heads: set[str]) -> None:
+    """Delete bundles superseded by a landing, keeping the new and previous heads.
+
+    The previous head stays so a reader that fetched the old pointer just before
+    the CAS can still download it; the next landing removes it. Cleanup never
+    fails the write — a missed prune only costs storage until the next landing.
+    """
+    keep_keys = {bundle_key(organization_id, head) for head in keep_heads}
+    try:
+        existing = object_storage.list_objects(bundle_prefix(organization_id)) or []
+        stale = [key for key in existing if key not in keep_keys]
+        if stale:
+            object_storage.delete_objects(stale)
+    except Exception:
+        logger.exception("context_layer.prune_bundles_failed", organization_id=str(organization_id))
+
+
 def _clone_from_bundle(bundle_path: Path, workdir: Path) -> None:
     _run_git(["clone", "--quiet", str(bundle_path), str(workdir)], cwd=bundle_path.parent)
     _run_git(["checkout", "--quiet", DEFAULT_BRANCH], cwd=workdir)
@@ -313,6 +330,7 @@ def apply_changes(
                     organization_id=organization_id, head_sha=expected_head
                 ).update(head_sha=new_head)
                 if updated:
+                    _prune_bundles_best_effort(organization_id, {new_head, expected_head})
                     return new_head
         logger.warning(
             "context_layer.apply_changes.head_moved",

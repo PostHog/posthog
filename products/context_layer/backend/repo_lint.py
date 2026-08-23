@@ -81,19 +81,35 @@ def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
     return errors
 
 
+def _canonical_scripts() -> dict[str, str]:
+    """Byte-exact content each allowed script must carry.
+
+    Agents are told to execute these scripts, so a tampered copy must never
+    land: the server-side lint runs from PostHog's own module, making this
+    comparison authoritative at land time. (Run as `scripts/lint` inside a
+    wiki, the self-comparison is vacuous — the server check is the gate.)
+    """
+    return {"lint": Path(__file__).read_text(encoding="utf-8")}
+
+
 def _lint_scripts_directory(root: Path) -> list[str]:
     base = root / "scripts"
     if not base.is_dir():
         return []
 
+    canonical = _canonical_scripts()
     errors: list[str] = []
     for path in sorted(base.rglob("*")):
         relative = path.relative_to(root)
         if path.is_symlink():
             errors.append(f"{relative}: symlinks are only allowed for the root CLAUDE.md")
             continue
-        if path.parent != base or path.name != "lint" or not path.is_file():
-            errors.append(f"{relative}: scripts/ may only contain the lint file")
+        if path.parent != base or not path.is_file() or path.name not in canonical:
+            allowed = ", ".join(sorted(canonical))
+            errors.append(f"{relative}: scripts/ may only contain {allowed}")
+            continue
+        if path.read_text(encoding="utf-8", errors="replace") != canonical[path.name]:
+            errors.append(f"{relative}: must match the script PostHog ships; restore it from a fresh clone")
     return errors
 
 
