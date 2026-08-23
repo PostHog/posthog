@@ -81,6 +81,7 @@ Within each section write a sentence or two of natural, flowing prose, not bulle
 Hard rules:
 - Aim the whole summary at 200 words, and never go past 300. This is the part a busy reader actually finishes, and the signals, evidence, and research artefacts already carry the full trail for anyone who wants to go deeper. Length is not thoroughness: cutting a paragraph of supporting detail you researched is the right call, and a report nobody reads to the end has surfaced nothing.
 - Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
+- Keep every number self-consistent. Any total, count, or rate in the tl;dr must equal the per-item numbers you cite in the body. Never write a headline number the body does not support. If the body lists several numbers, add them in the body and state the same total in the tl;dr. When the tl;dr and the body disagree, correct the tl;dr to match the body, never the reverse.
 - Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
 - No filler ("various issues detected", "it's worth noting", "in conclusion").
 - Never use em dashes (—). Use an en dash (–) where you'd otherwise reach for a dash.
@@ -674,6 +675,8 @@ def build_report_presentation_prompt(
 
 Style rules:
 {previous_presentation_context}{charts_sections}
+
+Before you finalize, check every number in the summary for self-consistency. Any total, count, or rate in the tl;dr must equal the per-item numbers you cite in the body. If they disagree, correct the tl;dr to match the body, never the reverse.
 
 Respond with a JSON object matching this schema:
 

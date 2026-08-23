@@ -167,6 +167,15 @@ class TestBuildReportPresentationPrompt:
         assert "chartSettings.xAxis.column" in on
         assert "chartSettings.yAxis[].column" in on
 
+    # The numeric self-consistency rule is the only thing that stops the presentation step from
+    # writing a headline count the body does not support. It must ride on every report, opted in to
+    # charts or not, so guard it on both paths.
+    @pytest.mark.parametrize("charts_enabled", [True, False])
+    def test_numeric_self_consistency_rule_present(self, charts_enabled):
+        prompt = build_report_presentation_prompt(2, charts_enabled=charts_enabled)
+        assert "self-consistency" in prompt
+        assert "must equal the per-item numbers" in prompt
+
     def test_previous_charts_context_only_rendered_when_enabled(self):
         chart = _make_chart()
         on = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=True)
