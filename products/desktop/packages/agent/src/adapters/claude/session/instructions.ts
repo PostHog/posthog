@@ -97,7 +97,5 @@ export function buildAppendedInstructions(opts: {
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }
-  return opts.spokenNarration
-    ? instructions + SPOKEN_NARRATION
-    : instructions;
+  return opts.spokenNarration ? instructions + SPOKEN_NARRATION : instructions;
 }

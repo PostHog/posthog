@@ -32,9 +32,9 @@ describe("buildAppendedInstructions", () => {
     });
     expect(mounted).toContain("# Context Wiki");
     expect(mounted).toContain("mounted at /tmp/workspace/context");
-    expect(
-      buildAppendedInstructions({ spokenNarration: false }),
-    ).not.toContain("Context Wiki");
+    expect(buildAppendedInstructions({ spokenNarration: false })).not.toContain(
+      "Context Wiki",
+    );
   });
 
   it("keeps the base blocks in both modes", () => {
