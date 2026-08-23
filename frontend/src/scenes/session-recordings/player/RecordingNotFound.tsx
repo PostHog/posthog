@@ -5,7 +5,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsPanel } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsPanel'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?: string }): JSX.Element {
@@ -25,10 +25,17 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                             troubleshooting guide
                         </Link>
                         .
-                        {currentTeam?.session_recording_opt_in ? (
-                            <LemonBanner type="success" className="mt-4 max-w-xl mx-auto">
+                        {isAuthenticatedTeam(currentTeam) ? (
+                            <LemonBanner
+                                type={currentTeam.session_recording_opt_in ? 'success' : 'warning'}
+                                className="mt-4 max-w-xl mx-auto"
+                            >
                                 <div className="flex justify-between items-center">
-                                    <div>Session replay is enabled for this project</div>
+                                    <div>
+                                        {currentTeam.session_recording_opt_in
+                                            ? 'Session replay is enabled for this project'
+                                            : 'Session replay is disabled for this project'}
+                                    </div>
                                     <LemonButton
                                         data-attr="recording-404-edit-settings"
                                         type="secondary"
@@ -39,21 +46,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                                     </LemonButton>
                                 </div>
                             </LemonBanner>
-                        ) : (
-                            <LemonBanner type="warning" className="mt-4 max-w-xl mx-auto">
-                                <div className="flex justify-between items-center">
-                                    <div>Session replay is disabled for this project</div>
-                                    <LemonButton
-                                        data-attr="recording-404-edit-settings"
-                                        type="secondary"
-                                        size="small"
-                                        to={urls.settings('project-replay')}
-                                    >
-                                        Edit settings
-                                    </LemonButton>
-                                </div>
-                            </LemonBanner>
-                        )}
+                        ) : null}
                     </>
                 }
             />
