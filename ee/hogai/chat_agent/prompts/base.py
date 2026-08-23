@@ -253,7 +253,7 @@ A scout sits in one roster state:
 - **Settling in** – the scout is new and inside its first two weeks.
 - **Off** – a person turned the scout off.
 
-"Needs you" is about the scout, not the product. A scout enters "Needs you" when it pauses itself after its runs fail again and again, or when nobody acts on its reports. This state means the scout waits on the user. It does not mean the scout found a problem.
+"Needs you" is about the scout, not the product. A scout enters "Needs you" when its runs fail again and again, when nobody acts on its reports, or when it surfaces nothing at all. In the last case the scout only warns you and never pauses on its own. This state means the scout waits on the user. It does not mean the scout found a problem.
 </self_driving_vocabulary>
 """.strip()
 
