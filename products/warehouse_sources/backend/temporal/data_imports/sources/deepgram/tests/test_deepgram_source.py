@@ -85,10 +85,15 @@ class TestDeepgramSourceClass:
             ok, _error = self.source.validate_credentials(DeepgramSourceConfig(api_key="k"), team_id=1)
         assert ok is expected
 
-    def test_non_retryable_errors_cover_auth(self) -> None:
+    def test_non_retryable_errors_cover_auth_and_bad_request(self) -> None:
         errors = self.source.get_non_retryable_errors()
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
+        # A 400 is a deterministic client error; it must fail the sync with a friendly message rather
+        # than retry and store the raw "400 Client Error: Bad Request".
+        bad_request = [message for key, message in errors.items() if "400 Client Error: Bad Request" in key]
+        assert len(bad_request) == 1
+        assert bad_request[0]
 
     def test_resumable_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_inputs())
