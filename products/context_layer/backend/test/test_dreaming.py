@@ -116,7 +116,7 @@ class TestDreamingLane(BaseTest):
             )
         assert result.dispatched is True
         context = trigger_mock.call_args.args[1]
-        assert context.runtime == "pi"
+        assert context.runtime == "acp"
         assert context.runtime_adapter == "codex"
         assert context.model == "gpt-5.6-luna"
         assert context.initial_permission_mode == "bypassPermissions"

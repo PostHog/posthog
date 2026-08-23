@@ -190,11 +190,12 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
             # Read-only MCP surface: the dream gathers from reads and lands its
             # branch through the commits endpoint, which accepts the run token's
             # task:write + internal_run:read pair — it never needs user-facing writes.
+            # ACP carries that MCP surface and the publish environment into tool shells.
             CustomPromptSandboxContext(
                 team_id=target.team_id,
                 user_id=target.user_id,
                 posthog_mcp_scopes="read_only",
-                runtime="pi",
+                runtime="acp",
                 runtime_adapter="codex",
                 model="gpt-5.6-luna",
                 initial_permission_mode="bypassPermissions",
