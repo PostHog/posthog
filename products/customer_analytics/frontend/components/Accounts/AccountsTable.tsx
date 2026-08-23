@@ -325,7 +325,7 @@ function CustomPropertyHistoryCell({
 }
 
 const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
-    'Last Slack message at': 'summaries',
+    'Last Slack message at': 'conversations',
 }
 
 export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {

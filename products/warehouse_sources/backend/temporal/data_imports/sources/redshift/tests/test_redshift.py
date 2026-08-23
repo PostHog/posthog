@@ -7,6 +7,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 from psycopg.pq import TransactionStatus
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
@@ -1277,6 +1278,26 @@ class TestRedshiftValidateCredentials:
         assert ok is False
         assert error is not None and "does not support SSL" in error
         capture.assert_not_called()
+
+    def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
+        # sshtunnel's raw "Could not establish session to SSH gateway" is meaningless to the user;
+        # it must be replaced with concrete guidance rather than surfaced verbatim.
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=BaseSSHTunnelForwarderError("Could not establish session to SSH gateway"),
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None
+        assert "Could not establish session to SSH gateway" not in error
+        assert "SSH tunnel" in error and "firewall" in error
 
 
 class TestRedshiftSourceForPipeline:

@@ -37,7 +37,15 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { compareScoutsByName, groupScouts, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import {
+    compareScoutsByName,
+    groupScouts,
+    listNeedsYouScouts,
+    NeedsYouScout,
+    scoutGroup,
+    ScoutGroupKey,
+    ScoutRosterRow,
+} from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 import {
@@ -55,7 +63,9 @@ import {
 import { configMatchesScoutTags, listScoutTagOptions } from '../utils/scoutTags'
 import type { ScoutTagOption } from '../utils/scoutTags'
 
-type SignalScoutConfig = SignalScoutConfigApi
+// Exported because kea-typegen writes an import for it into any logic that connects `scoutConfigs`,
+// which Replay Vision's scanner scouts do.
+export type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
 
 /**
@@ -114,6 +124,7 @@ export interface scoutFleetLogicValues {
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
     manualRunScoutIds: string[]
+    needsYouScouts: NeedsYouScout[]
     rollups: Map<string, ScoutRollup>
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
@@ -316,6 +327,10 @@ export interface scoutFleetLogicMeta {
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
         ) => Record<ScoutGroupKey, number>
+        needsYouScouts: (
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            rollups: Map<string, ScoutRollup>
+        ) => NeedsYouScout[]
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -705,6 +720,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
                 return counts
             },
+        ],
+        /**
+         * The scouts behind that count, so the header stat can name them. Same inputs as
+         * `rosterGroupCounts`, so the tooltip can never disagree with the number it hangs off.
+         */
+        needsYouScouts: [
+            (s) => [s.scoutConfigs, s.rollups],
+            (scoutConfigs: SignalScoutConfig[] | null, rollups: Map<string, ScoutRollup>): NeedsYouScout[] =>
+                listNeedsYouScouts(scoutConfigs ?? [], rollups, new Date()),
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
         // summary rather than the paginated runs window. Covers both emit channels — legacy findings

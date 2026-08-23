@@ -1556,7 +1556,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Slack integration',
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
-                docsUrl: 'https://posthog.com/docs/webhooks/slack',
+                docsUrl: Slack.docsUrl,
                 component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
@@ -1564,7 +1564,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-github',
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: GitHub.docsUrl,
                 component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
@@ -1572,15 +1572,41 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-linear',
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: Linear.docsUrl,
                 component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                description:
+                    'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
+                component: (
+                    <IntegrationsList
+                        omitKinds={['slack', 'github', 'linear']}
+                        titleText=""
+                        emptyState={
+                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
+                                <p className="mb-1">No other integrations connected</p>
+                                <p className="text-xs text-muted text-balance mb-0">
+                                    These connect from the product area that uses them:{' '}
+                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
+                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
+                                    <Link
+                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
+                                    >
+                                        error tracking
+                                    </Link>{' '}
+                                    and{' '}
+                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
+                                        marketing analytics
+                                    </Link>
+                                    .
+                                </p>
+                            </div>
+                        }
+                    />
+                ),
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {

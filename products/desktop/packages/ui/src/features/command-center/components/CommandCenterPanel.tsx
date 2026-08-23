@@ -6,13 +6,25 @@ import {
   GitFork,
   Lightning,
   Plus,
+  Shapes,
   Terminal,
   X,
 } from "@phosphor-icons/react";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
-import { Spinner as QuillSpinner, Text as QuillText } from "@posthog/quill";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Spinner as QuillSpinner,
+  Text as QuillText,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
+import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
+import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
@@ -21,6 +33,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
@@ -390,6 +403,95 @@ function TerminalCell({
   );
 }
 
+function CanvasCell({
+  cellIndex,
+  canvasId,
+}: {
+  cellIndex: number;
+  canvasId: string;
+}) {
+  const clearCell = useCommandCenterStore((s) => s.clearCell);
+  const { dashboard, isLoading } = useDashboard(canvasId);
+  const navigate = useNavigate();
+  const canvasKind = dashboard?.kind;
+
+  useEffect(() => {
+    if (!canvasKind) return;
+    track(ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED, {
+      dashboard_id: canvasId,
+      canvas_kind: canvasKind,
+    });
+  }, [canvasId, canvasKind]);
+
+  const handleOpen = useCallback(() => {
+    if (!dashboard) return;
+    void navigate({
+      to: "/website/$channelId/dashboards/$dashboardId",
+      params: { channelId: dashboard.channelId, dashboardId: canvasId },
+    });
+  }, [canvasId, dashboard, navigate]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-gray-6 border-b px-2 py-1">
+        <Shapes size={12} className="shrink-0 text-violet-9" />
+        <QuillText
+          className="min-w-0 flex-1 truncate font-medium text-[12px]"
+          title={dashboard?.name}
+        >
+          {dashboard?.name ??
+            (isLoading ? "Loading canvas…" : "Canvas unavailable")}
+        </QuillText>
+        {dashboard && (
+          <button
+            type="button"
+            onClick={handleOpen}
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+            title="Open canvas"
+          >
+            <ArrowsOut size={12} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => clearCell(cellIndex)}
+          className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+          title="Remove from grid"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <QuillSpinner className="h-6 w-6" />
+          </div>
+        ) : dashboard?.kind === "grid" ? (
+          <GridCanvasView canvasId={canvasId} interactive={false} />
+        ) : dashboard ? (
+          <FreeformCanvasView
+            threadId={`dashboard:${canvasId}`}
+            interactive={false}
+            embedded
+          />
+        ) : (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Shapes size={20} />
+              </EmptyMedia>
+              <EmptyTitle>Canvas unavailable</EmptyTitle>
+              <EmptyDescription>
+                This canvas is no longer available.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PopulatedCell({
   cell,
   isActiveSession,
@@ -470,6 +572,10 @@ export function CommandCenterPanel({
 }: CommandCenterPanelProps) {
   if (cell.isBrainrot) {
     return <BrainrotCell cellIndex={cell.cellIndex} />;
+  }
+
+  if (cell.canvasId) {
+    return <CanvasCell cellIndex={cell.cellIndex} canvasId={cell.canvasId} />;
   }
 
   if (cell.terminalId) {

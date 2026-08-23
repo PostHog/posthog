@@ -110,14 +110,16 @@ pub fn inject_impl(
 }
 
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
-/// `_posthogReleaseId` payload.
+/// `_posthogReleaseId` payload. A bundler-emitted debug id, when present, is adopted as the
+/// chunk id so one id identifies the chunk across the whole toolchain.
 pub fn inject_pairs(
     mut pairs: Vec<SourcePair>,
     release_id: Option<&str>,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let Some(chunk_id) = pair.get_chunk_id() else {
-            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            let chunk_id = adopted_debug_id(pair)
+                .unwrap_or_else(|| stable_chunk_id(&pair.source.inner.content));
             pair.add_chunk_id(chunk_id, release_id)?;
             continue;
         };
@@ -138,6 +140,22 @@ pub fn inject_pairs(
     }
 
     Ok(pairs)
+}
+
+/// A bundler-emitted ECMA-426 debug id is already content-derived, so adopt it as the chunk id
+/// instead of deriving our own. Non-UUID values are refused: the id flows into upload rows and
+/// SDK events, and a malformed one is worse than a derived one.
+fn adopted_debug_id(pair: &SourcePair) -> Option<String> {
+    let debug_id = pair.get_debug_id()?;
+    if uuid::Uuid::parse_str(&debug_id).is_err() {
+        warn!(
+            "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
+            debug_id,
+            pair.source.inner.path.display()
+        );
+        return None;
+    }
+    Some(debug_id)
 }
 
 /// Symbol-set-mode injection (the default): a random per-build chunk id and the created release

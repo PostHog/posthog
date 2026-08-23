@@ -386,6 +386,10 @@ class TaskSummaryDTO:
     latest_run: TaskLatestRunSummaryDTO | None = None
 
 
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
+
+
 @dataclass(frozen=True)
 class TaskValidationError:
     """A structured validation-error payload the presentation layer renders as a 400/404.

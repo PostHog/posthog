@@ -62,7 +62,7 @@ from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
-from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
 
@@ -247,6 +247,8 @@ class MaterializeViewResult:
     # what the workflow gates the person-property child on. Defaulted to the skip value so an old
     # history decodes without it and never fires that child during replay.
     person_property_sync_enabled: bool = False
+    # Defaulted so workflow histories recorded before account staging do not start new children on replay.
+    account_property_sync_enabled: bool = False
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
@@ -685,6 +687,24 @@ async def _build_person_property_sink(
         return None
 
 
+async def _build_account_property_sink(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger, *, incremental: bool
+) -> AccountPropertyRowSink | None:
+    sink = AccountPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+        is_incremental=incremental,
+    )
+    try:
+        return sink if await sink.should_run() else None
+    except Exception as error:
+        await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
+        capture_exception(error)
+        return None
+
+
 async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
     """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
     try:
@@ -692,6 +712,15 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
     except Exception as e:
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
         capture_exception(e)
+
+
+async def _clear_account_property_staging(sink: AccountPropertyRowSink, logger: FilteringBoundLogger) -> None:
+    try:
+        await sink.clear()
+    except Exception as error:
+        await logger.awarning(f"Could not clear stale account-property staging: {error}")
+        capture_exception(error)
+        raise
 
 
 async def _stage_person_property_batch(
@@ -721,6 +750,20 @@ async def _stage_person_property_batch(
         capture_exception(e)
 
 
+async def _stage_account_property_batch(
+    sink: AccountPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch, *, fatal: bool
+) -> None:
+    if sink is None:
+        return
+    try:
+        await sink.stage_chunk(batch_index, pa.Table.from_batches([batch]))
+    except Exception as error:
+        await sink.logger.awarning(f"Failed to stage account-property batch {batch_index}: {error}")
+        if fatal:
+            raise
+        capture_exception(error)
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -730,6 +773,7 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    account_property_sink: AccountPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
@@ -768,6 +812,7 @@ async def _materialize_fully(
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
         await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+        await _stage_account_property_batch(account_property_sink, batch_index, batch, fatal=True)
         batch_index += 1
         if delta_table is None:
             pa_schema = batch.schema
@@ -830,6 +875,7 @@ async def _materialize_incrementally(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    account_property_sink: AccountPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
 
@@ -870,6 +916,7 @@ async def _materialize_incrementally(
             # of the later batch silently replacing the earlier one.
             await asyncio.to_thread(tracker.check, batch)
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
+            await _stage_account_property_batch(account_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
 
             stats = await asyncio.to_thread(
@@ -1007,6 +1054,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # what sweeps long-abandoned sibling job prefixes.
         await _clear_person_property_staging(person_property_sink, logger)
 
+    account_property_sink = await _build_account_property_sink(
+        objects, inputs.job_id, logger, incremental=plan.incremental
+    )
+    if account_property_sink is not None:
+        await _clear_account_property_staging(account_property_sink, logger)
+
     cdp_sink = _CDPRowSink(
         CDPProducer.for_view(
             team_id=inputs.team_id,
@@ -1034,11 +1087,27 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             try:
                 if plan.incremental:
                     row_count, file_uris = await _materialize_incrementally(
-                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                        account_property_sink,
                     )
                 else:
                     row_count, file_uris = await _materialize_fully(
-                        objects, plan, hogql_query, table_uri, storage_options, logger, cdp_sink, person_property_sink
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                        account_property_sink,
                     )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1060,6 +1129,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             quality_audit=quality_audit,
             incremental=plan.incremental,
             person_property_sync_enabled=person_property_sink is not None,
+            account_property_sync_enabled=account_property_sink is not None,
             should_trigger_cdp_producer=cdp_sink.enabled,
         )
         published = True

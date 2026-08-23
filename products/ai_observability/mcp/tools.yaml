@@ -514,6 +514,11 @@ tools:
         description: >
             Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views.
             Historical evaluation results ($ai_evaluation events) are preserved.
+        param_overrides:
+            id:
+                aliases:
+                    - evaluationId
+                    - evaluation_id
         soft_delete: true
     llma-evaluation-directory-create:
         operation: evaluation_directories_create
@@ -590,6 +595,11 @@ tools:
             Get a specific AI observability evaluation by its UUID. Requires the evaluation `id` (UUID) as a parameter —
             if you don't have it, call llma-evaluation-list first to look it up by name. Returns the full evaluation
             configuration including type, config, output type, enabled status, and model configuration.
+        param_overrides:
+            id:
+                aliases:
+                    - evaluationId
+                    - evaluation_id
     llma-evaluation-judge-models:
         operation: llm_analytics_models_retrieve
         enabled: true
@@ -601,11 +611,14 @@ tools:
             idempotent: true
         title: List supported llm_judge models
         description: >
-            List provider+model combinations supported for llm_judge. `provider` is required and must be exactly one of
-            these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai,
-            minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call
-            before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for
-            (see llma-provider-key-list).
+            List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported
+            provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider`
+            to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai,
+            together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly
+            azure_openai) and implies that key's provider. The `providers` list in the response flags providers whose
+            models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call
+            this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a
+            key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -627,7 +640,7 @@ tools:
         operation: llm_analytics_evaluation_reports_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false
@@ -667,7 +680,7 @@ tools:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false
@@ -682,7 +695,7 @@ tools:
         operation: llm_analytics_evaluation_reports_retrieve
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -695,7 +708,7 @@ tools:
         operation: llm_analytics_evaluation_reports_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -709,7 +722,7 @@ tools:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: true
         scopes:
-            - llm_analytics:read
+            - evaluation:read
         annotations:
             readOnly: true
             destructive: false
@@ -723,7 +736,7 @@ tools:
         operation: llm_analytics_evaluation_reports_partial_update
         enabled: true
         scopes:
-            - llm_analytics:write
+            - evaluation:write
         annotations:
             readOnly: false
             destructive: false
@@ -753,6 +766,11 @@ tools:
             asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a
             workflow_id and status "started". Pair with execute-sql to query results: SELECT * FROM events WHERE event =
             '$ai_evaluation'.
+        param_overrides:
+            evaluation_id:
+                aliases:
+                    - evaluationId
+                    - id
     llma-evaluation-test-hog:
         operation: evaluations_test_hog_create
         enabled: true
@@ -791,6 +809,11 @@ tools:
             editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
             'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a
             directory, or pass null to move it to the top level.
+        param_overrides:
+            id:
+                aliases:
+                    - evaluationId
+                    - evaluation_id
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false
@@ -857,8 +880,11 @@ tools:
             idempotent: true
         title: Get prompt
         description: |
-            Get a specific LLM prompt by name. Requires `prompt_name`, the prompt's exact name — call
-            llma-prompt-list to discover valid names; an unknown or guessed name returns a 404.
+            Get a specific LLM prompt by name. Requires `prompt_name`, which takes either the prompt's exact name or
+            the `id` UUID from any llma-prompt-list or llma-prompt-get response. Call llma-prompt-list to discover
+            valid names; a guessed name that matches nothing returns a 404.
+            An id identifies the prompt, not the version it came from, so passing a specific version's id still
+            returns the latest version. Pass `version` or `label` to pin one.
             Uses the cached endpoint for fast retrieval.
             Pass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an
             exact version number — not both. With neither, the latest version is returned.
@@ -867,6 +893,14 @@ tools:
             or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
             With full content the response also includes `config`, the JSON object of model parameters or agent
             configuration stored with the version (null when the version has none).
+        param_overrides:
+            prompt_name:
+                aliases:
+                    - name
+                    - promptName
+                    - prompt_id
+                    - promptId
+                    - id
     llma-prompt-label-delete:
         operation: llm_prompts_name_labels_destroy
         enabled: true
