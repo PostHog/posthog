@@ -57,6 +57,8 @@ interface InboxDetailFrameProps {
   metaSuffix?: ReactNode;
   /** Variant-specific primary action button (e.g. "Open in GitHub" or "Copy link"). */
   primaryAction?: ReactNode;
+  /** Rendered at the top of the main column, before the summary (the verdict banner). */
+  aboveSummary?: ReactNode;
   /** Summary section: icon + title (e.g. "Summary" / "What the agent looked at"). */
   summarySection: {
     Icon: ComponentType<IconProps>;
@@ -97,6 +99,7 @@ export function InboxDetailFrame({
   metaPrefix,
   metaSuffix,
   primaryAction,
+  aboveSummary,
   summarySection,
   belowSummary,
   evidenceSection,
@@ -238,6 +241,7 @@ export function InboxDetailFrame({
         ) : (
           <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
             <div className="flex min-w-0 flex-col gap-5">
+              {aboveSummary}
               <DetailSection
                 Icon={SummaryIcon}
                 title={summarySection.title}

@@ -42,8 +42,8 @@ const isMac =
 /**
  * The report header's action cluster: Discuss and Canvas stay visible, and
  * everything occasional (GitHub, copy link, refund) folds into an overflow
- * menu. Starting or continuing implementation work lives in the decision
- * block under the summary (ReportDecisionSection / PrDecisionBlock), not here.
+ * menu. Starting or continuing implementation work lives in the verdict
+ * banner above the summary (ReportVerdictBanner / PrDecisionBlock), not here.
  */
 export function ReportDetailActions({
   report,

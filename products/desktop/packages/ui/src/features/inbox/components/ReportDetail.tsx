@@ -3,8 +3,8 @@ import type { SignalReport } from "@posthog/shared/types";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
-import { ReportDecisionSection } from "@posthog/ui/features/inbox/components/ReportDecisionSection";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 
 interface ReportDetailProps {
   reportId: string;
@@ -44,9 +44,10 @@ export function ReportDetail({
 }
 
 /**
- * A report reads as: the story (summary + charts), then its one ask (the
- * decision block), then the evidence. Pipeline machinery (runs, activity
- * logs, reviewer reasoning) deliberately doesn't render.
+ * A report reads answer-first: the verdict (what state it's in and what it
+ * asks, with the action beside it), then the story (summary + charts), then
+ * the evidence. Pipeline machinery (runs, activity logs, reviewer reasoning)
+ * deliberately doesn't render.
  */
 function ReportDetailContent({
   report,
@@ -64,13 +65,9 @@ function ReportDetailContent({
       backLabel={backLabel}
       fallbackTitle="Untitled report"
       primaryAction={<ReportDetailActions report={report} />}
+      aboveSummary={<ReportVerdictBanner report={report} />}
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
-      belowSummary={
-        <>
-          <ReportDecisionSection report={report} />
-          <ReportFeedbackFooter report={report} />
-        </>
-      }
+      belowSummary={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
     />
   );
