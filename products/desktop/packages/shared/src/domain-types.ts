@@ -951,6 +951,10 @@ export interface Signal {
   timestamp: string;
   extra: Record<string, unknown>;
   match_metadata?: SignalMatchMetadata | null;
+  /** Emissions of the same source object collapsed into this entry (>= 1). */
+  duplicate_count?: number;
+  /** Every collapsed occurrence's signal_id, the entry's own included. */
+  collapsed_signal_ids?: string[];
 }
 
 export interface SignalReportsResponse {

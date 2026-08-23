@@ -475,6 +475,8 @@ class TestCollapseDuplicateSignals(SimpleTestCase):
         collapsed = collapse_duplicate_signals(signals)
 
         assert [(s["signal_id"], s["duplicate_count"]) for s in collapsed] == [("e3", 3), ("other", 1)]
+        assert collapsed[0]["collapsed_signal_ids"] == ["e1", "e2", "e3"]
+        assert collapsed[1]["collapsed_signal_ids"] == ["other"]
         assert collapsed[0]["content"] == "fresh stack"
         assert collapsed[0]["weight"] == 0.9
 

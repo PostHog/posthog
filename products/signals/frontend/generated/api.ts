@@ -441,7 +441,7 @@ export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: strin
 }
 
 /**
- * Fetch all signals for a report from ClickHouse, including full metadata.
+ * Fetch a report's signals from ClickHouse, one entry per source object: repeat emissions of the same object are collapsed, with duplicate_count and collapsed_signal_ids carrying the occurrence history. The report's signal_count remains the raw emission count.
  * @summary List a report's signals
  */
 export const signalsReportsSignalsRetrieve = async (

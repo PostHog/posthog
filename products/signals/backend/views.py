@@ -1708,12 +1708,14 @@ class SignalReportViewSet(
 
     @extend_schema(
         summary="List a report's signals",
-        description="Fetch all signals for a report from ClickHouse, including full metadata.",
+        description="Fetch a report's signals from ClickHouse, one entry per source object: repeat "
+        "emissions of the same object are collapsed, with duplicate_count and collapsed_signal_ids "
+        "carrying the occurrence history. The report's signal_count remains the raw emission count.",
         responses={200: ReportSignalsResponseSerializer},
     )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
-        """Fetch all signals for a report from ClickHouse, including full metadata."""
+        """Fetch a report's signals from ClickHouse, collapsed to one entry per source object."""
         report = self.get_object()
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))

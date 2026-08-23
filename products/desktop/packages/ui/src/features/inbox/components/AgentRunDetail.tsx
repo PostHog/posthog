@@ -225,6 +225,11 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
     report.status,
   );
   const signals = signalsResp?.signals ?? [];
+  // Collapsed entries undercount raw emissions; sum duplicate_count instead.
+  const rawSignalCount = signals.reduce(
+    (total, signal) => total + (signal.duplicate_count ?? 1),
+    0,
+  );
   const hasSource = hasKnownSourceProduct(report.source_products);
   const isLive = report.status === "in_progress";
   const headerVariant = resolveRunVariant(report);
@@ -321,11 +326,11 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
                 />
               </>
             )}
-            {signals.length > 0 && (
+            {rawSignalCount > 0 && (
               <>
                 <InboxMetaSeparator />
                 <InboxMetaText className="tabular-nums">
-                  {signals.length} signal{signals.length === 1 ? "" : "s"}
+                  {rawSignalCount} signal{rawSignalCount === 1 ? "" : "s"}
                 </InboxMetaText>
               </>
             )}
@@ -406,14 +411,14 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
           </Flex>
 
           <Flex direction="column" gap="5" className="min-w-0">
-            {(signals.length > 0 || report.signal_count > 0) && (
+            {(rawSignalCount > 0 || report.signal_count > 0) && (
               <RightColumnSection
                 Icon={MagnifyingGlassIcon}
                 title="Evidence so far"
                 rightSlot={
                   <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
-                    {signals.length || report.signal_count} signal
-                    {(signals.length || report.signal_count) === 1 ? "" : "s"}
+                    {rawSignalCount || report.signal_count} signal
+                    {(rawSignalCount || report.signal_count) === 1 ? "" : "s"}
                   </Text>
                 }
               >

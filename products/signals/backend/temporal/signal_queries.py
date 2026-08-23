@@ -593,6 +593,10 @@ def collapse_duplicate_signals(signals: list[dict]) -> list[dict]:
     order of first appearances is preserved. Distinct source_types for one object
     (issue created vs issue spiking) stay separate entries, keeping the lifecycle story.
     Signals without a source_id never collapse.
+
+    Each entry carries ``collapsed_signal_ids`` — every occurrence's signal_id, in read
+    order — so per-occurrence references (signal_finding artefacts store the raw id)
+    still resolve to the collapsed entry.
     """
     collapsed: dict[tuple, dict] = {}
     for signal in signals:
@@ -604,11 +608,13 @@ def collapse_duplicate_signals(signals: list[dict]) -> list[dict]:
         )
         existing = collapsed.get(key)
         if existing is None:
-            collapsed[key] = {**signal, "duplicate_count": 1}
+            collapsed[key] = {**signal, "duplicate_count": 1, "collapsed_signal_ids": [signal["signal_id"]]}
         else:
             count = existing["duplicate_count"] + 1
+            ids = [*existing["collapsed_signal_ids"], signal["signal_id"]]
             existing.update(signal)
             existing["duplicate_count"] = count
+            existing["collapsed_signal_ids"] = ids
     return list(collapsed.values())
 
 

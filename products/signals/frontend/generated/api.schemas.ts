@@ -1561,6 +1561,8 @@ export interface SignalNodeApi {
     weight: number
     /** Emissions of the same source object (same source_product, source_type, source_id) collapsed into this entry. Fields reflect the latest occurrence. */
     duplicate_count?: number
+    /** Every collapsed occurrence's signal_id, in read order (the entry's own signal_id included) — per-occurrence references such as signal_finding artefacts resolve through this. */
+    collapsed_signal_ids?: string[]
     /** Emission timestamp. */
     timestamp: string
     /** Product-specific payload; shape depends on (source_product, source_type). */

@@ -820,6 +820,12 @@ class SignalNodeSerializer(serializers.Serializer):
         help_text="Emissions of the same source object (same source_product, source_type, source_id) "
         "collapsed into this entry. Fields reflect the latest occurrence.",
     )
+    collapsed_signal_ids = serializers.ListField(
+        child=serializers.CharField(),
+        default=list,
+        help_text="Every collapsed occurrence's signal_id, in read order (the entry's own signal_id "
+        "included) — per-occurrence references such as signal_finding artefacts resolve through this.",
+    )
     timestamp = serializers.DateTimeField(help_text="Emission timestamp.")
     extra = SignalExtraField(help_text="Product-specific payload; shape depends on (source_product, source_type).")
     match_metadata = SignalMatchMetadataField(
