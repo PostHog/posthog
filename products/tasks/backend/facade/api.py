@@ -7452,10 +7452,15 @@ def organization_has_context(organization_id: UUID | str) -> bool:
     # Until that row exists, a #general space with published instructions is the only
     # org-wide evidence that the research already ran, so the whole heuristic stays inside
     # this function and swapping it later is a single edit here.
-    for team_id in Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", flat=True):
+    # parent_team_id is read alongside id so the scope is entered with an already-canonical id
+    # (parent for a child environment, own id for a root team), which is exactly what
+    # resolve_effective_team_id returns. Passing canonical=True then spares one Team lookup per team.
+    for team_id, parent_team_id in (
+        Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", "parent_team_id")
+    ):
         # Channels and their instructions are fail-closed and team-scoped, so an
         # org-wide read has to declare a scope for each team it touches.
-        with team_scope(team_id):
+        with team_scope(parent_team_id or team_id, canonical=True):
             channel_id = find_general_channel_id(team_id)
             if channel_id is None:
                 continue
