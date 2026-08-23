@@ -17,16 +17,21 @@ describe('error tracking routes', () => {
     // Legacy settings links (from docs, bookmarks, and old onboarding) used to dead-end on a blank
     // issue page. Each must now land on its tab in the configuration panel.
     it.each([
-        ['/error_tracking/symbol_sets', {}, 'error-tracking-symbol-sets'],
-        ['/error_tracking/symbol-sets', {}, 'error-tracking-symbol-sets'],
-        ['/error_tracking/configuration/:tab', { tab: 'symbol_sets' }, 'error-tracking-symbol-sets'],
-        ['/error_tracking/configuration/:tab', { tab: 'alerting' }, 'error-tracking-alerting'],
-        ['/error_tracking/settings/:tab', { tab: 'symbol-sets' }, 'error-tracking-symbol-sets'],
-    ])('redirects %s to the configuration tab with the right setting', (path, params, settingId) => {
-        const redirect = manifest.redirects![path] as RedirectFn
-        const url = redirect(params as Record<string, string>, {}, {})
+        ['/error_tracking/symbol_sets', {}, {}, 'error-tracking-symbol-sets'],
+        ['/error_tracking/symbol-sets', {}, {}, 'error-tracking-symbol-sets'],
+        ['/error_tracking/configuration/:tab', { tab: 'symbol_sets' }, {}, 'error-tracking-symbol-sets'],
+        ['/error_tracking/configuration/:tab', { tab: 'alerting' }, {}, 'error-tracking-alerting'],
+        ['/error_tracking/settings/:tab', { tab: 'symbol-sets' }, {}, 'error-tracking-symbol-sets'],
+        // Legacy links also carried the tab in the query string, so it must survive the redirect.
+        ['/error_tracking/settings', {}, { tab: 'symbol_sets' }, 'error-tracking-symbol-sets'],
+    ])(
+        'redirects %s to the configuration tab with the right setting',
+        (path, params, searchParams, settingId) => {
+            const redirect = manifest.redirects![path] as RedirectFn
+            const url = redirect(params as Record<string, string>, searchParams as Record<string, string>, {})
 
-        expect(url).toContain('activeTab=configuration')
-        expect(url).toContain(`selectedSetting=${settingId}`)
-    })
+            expect(url).toContain('activeTab=configuration')
+            expect(url).toContain(`selectedSetting=${settingId}`)
+        }
+    )
 })

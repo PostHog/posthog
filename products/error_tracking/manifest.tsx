@@ -81,7 +81,7 @@ export const manifest: ProductManifest = {
         '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
             configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
         '/error_tracking/settings': (_params, searchParams, hashParams) =>
-            configurationRedirect(undefined, searchParams, hashParams),
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
         '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
             configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
         '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
