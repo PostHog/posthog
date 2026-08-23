@@ -189,6 +189,46 @@ describe('dropInjectedScriptExceptions', () => {
         expect(dropInjectedScriptExceptions(walletTypeError(value))).toBeNull()
     })
 
+    // Another injected script reports its only frame as anonymous (`?`) with the page URL as the
+    // filename, not one of our `.js` chunks.
+    const injectedInlineTypeError = (value: string): { event: string; properties: any } => ({
+        event: '$exception',
+        properties: {
+            $exception_list: [
+                {
+                    type: 'TypeError',
+                    value,
+                    mechanism: { type: 'generic', handled: false },
+                    stacktrace: { frames: [{ function: '?', filename: 'https://posthog.com/cool-tech-jobs' }] },
+                },
+            ],
+        },
+    })
+
+    it('drops the unhandled, anonymous page-frame TypeError "undefined is not an object (evaluating \'n.standardSelectors\')"', () => {
+        const value = "undefined is not an object (evaluating 'n.standardSelectors')"
+        expect(dropInjectedScriptExceptions(injectedInlineTypeError(value))).toBeNull()
+    })
+
+    it('keeps an anonymous-frame TypeError from our own bundle, whose filename is a .js chunk', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'undefined is not an object',
+                        mechanism: { type: 'generic', handled: false },
+                        stacktrace: {
+                            frames: [{ function: '?', filename: 'https://us-assets.i.posthog.com/static/chunk.js' }],
+                        },
+                    },
+                ],
+            },
+        }
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
+    })
+
     it('keeps a ReferenceError from our own bundle, which carries a stack', () => {
         const event = {
             event: '$exception',

@@ -107,12 +107,20 @@ export function dropUnactionableNetworkExceptions<
 // identifier. Our own bundle never leaves such an identifier undefined at runtime.
 const UNKNOWN_IDENTIFIER_REFERENCE_ERROR = /^(Can't find variable: \S+|\S+ is not defined)$/
 
-// A script that a wallet in-app browser or an extension injects runs as top-level code in the page
-// document, so WebKit reports its only stack frame with the function name `global code`. Our own
-// bundle always runs inside module and chunk functions, never as a document's global code, so a lone
-// `global code` frame marks an injected script rather than our code.
-function isInjectedGlobalCodeFrame(frames: Array<{ function?: string }>): boolean {
-    return frames.length === 1 && frames[0]?.function === 'global code'
+// A script that a wallet in-app browser or a browser extension injects runs as top-level code in the
+// host HTML document. WebKit reports its only stack frame in one of two shapes: the function name
+// `global code`, or an anonymous frame (`?`) whose filename is the page URL rather than one of our
+// `.js` bundle chunks. Our own bundle always runs inside module and chunk functions loaded from `.js`
+// files, so a lone frame of either shape marks an injected script rather than our code.
+function isInjectedTopLevelFrame(frames: Array<{ function?: string; filename?: string }>): boolean {
+    if (frames.length !== 1) {
+        return false
+    }
+    const frame = frames[0]
+    if (frame?.function === 'global code') {
+        return true
+    }
+    return frame?.function === '?' && typeof frame?.filename === 'string' && !frame.filename.includes('.js')
 }
 
 // Filters `$exception` events that a browser extension or an in-app browser injected into the page.
@@ -122,9 +130,10 @@ function isInjectedGlobalCodeFrame(frames: Array<{ function?: string }>): boolea
 //      `WeixinJSBridge`, `__firefox__`, or `Can't find variable: pos`). posthog-js captures it
 //      through the global handler with no stack frames because the throwing script is not ours, and a
 //      real ReferenceError in our own bundle carries a stack, so the empty-stack check keeps those.
-//   2. An unhandled TypeError that a crypto wallet browser throws while it probes or defines
-//      `window.ethereum` before the page owns it (for example accessing `selectedAddress` on an
-//      undefined `window.ethereum`). Its only stack frame is `global code` in the document itself.
+//   2. An unhandled TypeError from an injected script that runs as top-level code in the host
+//      document. Its only stack frame comes from the document, not our bundle (a crypto wallet
+//      probing `window.ethereum` reports a `global code` frame; other injected scripts report an
+//      anonymous `?` frame whose filename is the page URL, for example `n.standardSelectors`).
 //
 // Each injected variant fingerprints to its own error tracking issue, so drop the whole class here.
 // Exported for unit testing.
@@ -138,17 +147,17 @@ export function dropInjectedScriptExceptions<T extends { event?: string; propert
         type?: string
         value?: string
         mechanism?: { handled?: boolean }
-        stacktrace?: { frames?: Array<{ function?: string }> }
+        stacktrace?: { frames?: Array<{ function?: string; filename?: string }> }
     }>
     const hasFrames = list.some((ex) => (ex?.stacktrace?.frames?.length ?? 0) > 0)
     const isUnhandled = list.every((ex) => ex?.mechanism?.handled === false)
     const isUnknownIdentifierReferenceError = list.some(
         (ex) => ex?.type === 'ReferenceError' && ex?.value != null && UNKNOWN_IDENTIFIER_REFERENCE_ERROR.test(ex.value)
     )
-    const isInjectedGlobalCodeTypeError = list.some(
-        (ex) => ex?.type === 'TypeError' && isInjectedGlobalCodeFrame(ex?.stacktrace?.frames ?? [])
+    const isInjectedTopLevelTypeError = list.some(
+        (ex) => ex?.type === 'TypeError' && isInjectedTopLevelFrame(ex?.stacktrace?.frames ?? [])
     )
-    if (isUnhandled && ((!hasFrames && isUnknownIdentifierReferenceError) || isInjectedGlobalCodeTypeError)) {
+    if (isUnhandled && ((!hasFrames && isUnknownIdentifierReferenceError) || isInjectedTopLevelTypeError)) {
         return null
     }
     return event
