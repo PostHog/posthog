@@ -227,7 +227,6 @@ export function ReportDetailSkeleton(): JSX.Element {
                 <div className="h-3.5 w-24 rounded bg-fill-highlight-50 animate-pulse" />
                 <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
                     <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
-                        <div className="size-7 shrink-0 mt-0.5 rounded bg-fill-highlight-100 animate-pulse" />
                         <div className="flex flex-col gap-2 min-w-0 flex-1">
                             <div className="h-6 w-2/3 rounded bg-fill-highlight-100 animate-pulse" />
                             <div className="h-3 w-1/2 rounded bg-fill-highlight-50 animate-pulse" />
