@@ -11,9 +11,8 @@ import uuid
 import posixpath
 from pathlib import Path
 
-from django.core.cache import cache
-
 from posthog.dataclasses import frozen
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.context_layer.backend import repo_lint, store
 
@@ -79,7 +78,7 @@ def normalize_page_path(path: str) -> str:
 def get_tree(organization_id: uuid.UUID | str) -> WikiTree:
     """Every page path in the wiki at the current head."""
     head_sha = store.get_config(organization_id).head_sha
-    paths = cache.get(_tree_cache_key(organization_id, head_sha))
+    paths = get_safe_cache(_tree_cache_key(organization_id, head_sha))
     if paths is None:
         # The head can move between the read above and the checkout; trust the
         # checkout's head so the returned sha always matches the returned paths.
@@ -90,7 +89,7 @@ def get_tree(organization_id: uuid.UUID | str) -> WikiTree:
 def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
     path = normalize_page_path(path)
     head_sha = store.get_config(organization_id).head_sha
-    content = cache.get(_page_cache_key(organization_id, head_sha, path))
+    content = get_safe_cache(_page_cache_key(organization_id, head_sha, path))
     if content is None:
         head_sha, _, pages = _warm_cache(organization_id)
         content = pages.get(path)
@@ -136,7 +135,7 @@ def _warm_cache(organization_id: uuid.UUID | str) -> tuple[str, list[str], dict[
             relative = str(file_path.relative_to(checkout.path))
             pages[relative] = file_path.read_text(encoding="utf-8")
         paths = sorted(pages)
-        cache.set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
+        safe_cache_set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
         for relative, content in pages.items():
-            cache.set(_page_cache_key(organization_id, checkout.head_sha, relative), content, CACHE_TTL_SECONDS)
+            safe_cache_set(_page_cache_key(organization_id, checkout.head_sha, relative), content, CACHE_TTL_SECONDS)
         return checkout.head_sha, paths, pages
