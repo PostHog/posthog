@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import sys
+import uuid
 import subprocess
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
@@ -82,6 +83,7 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     titles: dict[str, Path] = {}
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory, titles))
+    errors.extend(_lint_channel_ids(root))
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
     total_bytes = 0
     file_count = 0
@@ -214,6 +216,29 @@ def _git_age(root: Path, relative: str) -> timedelta | None:
 
 def _canonical_scripts() -> dict[str, str]:
     return {"lint": Path(__file__).read_text(encoding="utf-8"), "publish": PUBLISH_SCRIPT}
+
+
+def _lint_channel_ids(root: Path) -> list[str]:
+    channels = root / "channels"
+    if not channels.is_dir():
+        return []
+    errors: list[str] = []
+    paths_by_id: dict[str, list[Path]] = {}
+    for path in sorted(channels.rglob("*.md")):
+        channel_id = _frontmatter(path).get("channel_id")
+        if not channel_id:
+            continue
+        try:
+            uuid.UUID(channel_id)
+        except ValueError:
+            errors.append(f"{path.relative_to(root)}: `channel_id` must be a UUID")
+            continue
+        paths_by_id.setdefault(channel_id, []).append(path)
+    for channel_id, paths in paths_by_id.items():
+        if len(paths) > 1:
+            joined_paths = ", ".join(str(path.relative_to(root)) for path in paths)
+            errors.append(f"channel_id {channel_id} appears in more than one page: {joined_paths}")
+    return errors
 
 
 PUBLISH_SCRIPT = """\

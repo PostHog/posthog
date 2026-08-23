@@ -3,7 +3,10 @@ import {
   GitBranchIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
-import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
+import {
+  ContextWikiUnavailableError,
+  FolderInstructionsConflictError,
+} from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
   Empty,
@@ -90,6 +93,32 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   if (contextLayerEnabled && wikiPage.data) {
     return (
       <WikiWebsiteContext channelId={channelId} path={wikiPage.data.path} />
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.error) {
+    const unavailable = wikiPage.error instanceof ContextWikiUnavailableError;
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileTextIcon size={28} />
+          </EmptyMedia>
+          <EmptyTitle>
+            {unavailable
+              ? "Context wiki unavailable"
+              : "Could not load context"}
+          </EmptyTitle>
+          <EmptyDescription>{wikiPage.error.message}</EmptyDescription>
+        </EmptyHeader>
+        {!unavailable ? (
+          <EmptyContent>
+            <QuillButton variant="outline" onClick={() => wikiPage.refetch()}>
+              Try again
+            </QuillButton>
+          </EmptyContent>
+        ) : null}
+      </Empty>
     );
   }
 

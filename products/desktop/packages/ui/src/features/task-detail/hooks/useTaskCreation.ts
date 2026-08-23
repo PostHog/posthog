@@ -91,6 +91,7 @@ interface UseTaskCreationOptions {
   signalReportId?: string;
   channelContext?: string;
   channelContextPath?: string;
+  submissionBlocked?: boolean;
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
@@ -199,6 +200,7 @@ export function useTaskCreation({
   signalReportId,
   channelContext,
   channelContextPath,
+  submissionBlocked = false,
   channelName,
   channelId,
   channelContextId,
@@ -253,7 +255,11 @@ export function useTaskCreation({
       ? !!selectedRepository
       : !!selectedDirectory;
   const canSubmitBase =
-    isAuthenticated && isOnline && hasRequiredPath && !isCreatingTask;
+    isAuthenticated &&
+    isOnline &&
+    hasRequiredPath &&
+    !isCreatingTask &&
+    !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(

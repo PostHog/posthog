@@ -171,19 +171,6 @@ def _existing_channel_pages(root: Path) -> ImportedChannelIndex:
     return ImportedChannelIndex(channel_ids=channel_ids, paths=paths)
 
 
-def resolve_channel_page(organization_id: uuid.UUID | str, channel_id: uuid.UUID | str) -> str | None:
-    """Resolve a channel through frontmatter identity, never its mutable display name."""
-    expected_channel_id = str(channel_id)
-    with store.checkout_repo(organization_id) as checkout:
-        channels_dir = checkout.path / "channels"
-        if not channels_dir.is_dir():
-            return None
-        for page in sorted(channels_dir.rglob("*.md")):
-            if _frontmatter_value(page, "channel_id") == expected_channel_id:
-                return str(page.relative_to(checkout.path))
-    return None
-
-
 def _frontmatter_value(page: Path, key: str) -> str | None:
     lines = page.read_text(encoding="utf-8", errors="replace").splitlines()
     if not lines or lines[0].strip() != "---":

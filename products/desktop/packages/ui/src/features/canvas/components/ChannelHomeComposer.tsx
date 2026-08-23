@@ -96,10 +96,11 @@ export const ChannelHomeComposer = forwardRef<
 ) {
   const sessionId = `channel-home:${channelId}`;
   const contextLayerEnabled = useContextLayerFlag();
-  const { data: wikiPage } = useChannelContextWikiPage(
-    channelId,
-    contextLayerEnabled,
-  );
+  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+  const effectiveChannelContext =
+    !contextLayerEnabled || (wikiPage.data === null && !wikiPage.error)
+      ? channelContext
+      : undefined;
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
@@ -293,8 +294,9 @@ export const ChannelHomeComposer = forwardRef<
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
-    channelContext,
-    channelContextPath: wikiPage?.path,
+    channelContext: effectiveChannelContext,
+    channelContextPath: wikiPage.data?.path,
+    submissionBlocked: contextLayerEnabled && wikiPage.isLoading,
     channelName,
     channelId,
     channelContextId: channelId,

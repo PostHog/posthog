@@ -20,7 +20,6 @@ from products.context_layer.backend.enablement import (
     RestrictedProjectsError,
     enable_context_layer,
     organization_has_private_projects,
-    resolve_channel_page,
 )
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
@@ -34,6 +33,7 @@ from products.context_layer.backend.pages import (
     get_health_report,
     get_page,
     get_tree,
+    resolve_channel_page,
     write_page,
 )
 from products.context_layer.backend.store import (

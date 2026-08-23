@@ -19,7 +19,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useContextWikiTree,
   useEnableContextWiki,
@@ -79,6 +79,12 @@ function ContextWikiBody({ initialPath }: { initialPath?: string }) {
   const discardDraft = useCallback((path: string) => {
     setDrafts(({ [path]: _discarded, ...rest }) => rest);
   }, []);
+
+  useEffect(() => {
+    if (initialPath) {
+      setSelectedPath(initialPath);
+    }
+  }, [initialPath]);
 
   const wikiRoot = useMemo(
     () => (tree ? buildWikiTree(tree.paths) : null),
