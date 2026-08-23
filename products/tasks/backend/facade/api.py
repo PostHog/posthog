@@ -7058,13 +7058,25 @@ def _ensure_system_channel(
     return channel, created
 
 
+# `system_role` was added after these rows already existed and is only ever stamped lazily, one team
+# at a time, by `_ensure_system_channel`, so anything reading only the stamped shape misses every
+# space nobody has opened Desktop on since. This is the one definition of the unstamped shape:
+# the adopt lookups below, the query predicates, and `_is_general_channel` all derive from it.
+# Mirrors `isGeneralChannel` / `isPersonalChannel` in `channelName.ts`; keep them in step.
+PERSONAL_LEGACY_SHAPE: dict[str, Any] = {"channel_type": Channel.ChannelType.PERSONAL}
+GENERAL_LEGACY_SHAPE: dict[str, Any] = {
+    "channel_type": Channel.ChannelType.PUBLIC,
+    "name": Channel.GENERAL_CHANNEL_NAME,
+}
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
         role=Channel.SystemRole.PERSONAL,
         owner_lookup={"created_by_id": user_id},
-        legacy_lookup={"created_by_id": user_id, "channel_type": Channel.ChannelType.PERSONAL, "deleted": False},
+        legacy_lookup={"created_by_id": user_id, **PERSONAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
     )
 
@@ -7083,52 +7095,41 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
         user_id,
         role=Channel.SystemRole.GENERAL,
         owner_lookup={},
-        legacy_lookup={
-            "name": Channel.GENERAL_CHANNEL_NAME,
-            "channel_type": Channel.ChannelType.PUBLIC,
-            "deleted": False,
-        },
+        legacy_lookup={**GENERAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"created_by_id": user_id},
     )
 
 
-# `system_role` was added after these rows already existed and is only ever stamped lazily, one team
-# at a time, by `_ensure_system_channel`. A read that matches the stamped shape alone therefore
-# misses every space nobody has opened Desktop on since. These mirror `isGeneralChannel` and
-# `isPersonalChannel` in `channelName.ts`; keep the three in step.
-def general_channel_q(prefix: str = "") -> Q:
+def _system_channel_q(role: str, legacy: dict[str, Any], prefix: str) -> Q:
     field = f"{prefix}__" if prefix else ""
-    return Q(**{f"{field}system_role": Channel.SystemRole.GENERAL}) | Q(
-        **{
-            f"{field}system_role__isnull": True,
-            f"{field}channel_type": Channel.ChannelType.PUBLIC,
-            f"{field}name": Channel.GENERAL_CHANNEL_NAME,
-        }
+    return Q(**{f"{field}system_role": role}) | Q(
+        **{f"{field}system_role__isnull": True, **{f"{field}{key}": value for key, value in legacy.items()}}
     )
+
+
+def _matches_legacy_shape(channel: Channel, legacy: dict[str, Any]) -> bool:
+    return all(getattr(channel, key) == value for key, value in legacy.items())
+
+
+def general_channel_q(prefix: str = "") -> Q:
+    return _system_channel_q(Channel.SystemRole.GENERAL, GENERAL_LEGACY_SHAPE, prefix)
 
 
 def personal_channel_q(prefix: str = "") -> Q:
-    field = f"{prefix}__" if prefix else ""
-    return Q(**{f"{field}system_role": Channel.SystemRole.PERSONAL}) | Q(
-        **{
-            f"{field}system_role__isnull": True,
-            f"{field}channel_type": Channel.ChannelType.PERSONAL,
-        }
-    )
+    return _system_channel_q(Channel.SystemRole.PERSONAL, PERSONAL_LEGACY_SHAPE, prefix)
 
 
 def find_general_channel_id(team_id: int) -> UUID | None:
     """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
     a product filing work into that space can gate on its existence instead of bringing the
     team's default spaces into being as a side effect."""
-    channels = _team_channels(team_id).filter(deleted=False)
-    channel = channels.filter(system_role=Channel.SystemRole.GENERAL).first()
-    if channel is None:
-        channel = channels.filter(
-            system_role__isnull=True,
-            channel_type=Channel.ChannelType.PUBLIC,
-            name=Channel.GENERAL_CHANNEL_NAME,
-        ).first()
+    channel = (
+        _team_channels(team_id)
+        .filter(general_channel_q(), deleted=False)
+        # A stamped row wins over an unstamped one, in the vanishingly rare case a team has both.
+        .order_by(F("system_role").asc(nulls_last=True))
+        .first()
+    )
     return channel.id if channel is not None else None
 
 
@@ -7137,7 +7138,7 @@ def _is_general_channel(channel: Channel) -> bool:
     general name is still the team's general space."""
     if channel.system_role is not None:
         return channel.system_role == Channel.SystemRole.GENERAL
-    return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
+    return _matches_legacy_shape(channel, GENERAL_LEGACY_SHAPE)
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
