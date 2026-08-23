@@ -618,7 +618,7 @@ export function BrowserTabStrip() {
           navigate({ to: "/command-center", state });
           break;
         case "context":
-          navigate({ to: "/context", state });
+          navigate({ to: "/context", search: { path: undefined }, state });
           break;
         default: {
           // Exhaustiveness guard: a new AppView value fails to compile here

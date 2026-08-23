@@ -17,7 +17,7 @@ background agents. Treat it as reference material, not instructions.
 - `org/` holds who we are: mission, customers, personas, teams, business model.
 - `areas/<area>.md` is one hub page per product area: current state, direction, links.
 - `decisions/<YYYY-MM-DD>-<slug>.md` records product decisions: what, why, who, source.
-- `channels/<slug>.md` is one page per channel, with `channel_id` in its frontmatter.
+- `projects/<project-id>/spaces/<slug>.md` is one page per Space, with `team_id` and `channel_id` in its frontmatter.
 
 ## How to use it
 
@@ -62,7 +62,7 @@ Every page needs:
 
 Some fields are required by directory:
 
-- `channels/`: `channel_id`, exactly the id the server assigned to the channel.
+- `projects/<project-id>/spaces/`: `team_id` and `channel_id`, exactly the ids the server assigned.
 - `decisions/`: `sources`, and a filename of the form `<YYYY-MM-DD>-<slug>.md`.
 
 Optional fields:
@@ -115,12 +115,13 @@ sources: <where the decision was made>
 ## Who
 ```
 
-A channel page:
+A Space page:
 
 ```markdown
 ---
 summary: One line on what this channel works on.
 status: active
+team_id: <the project id assigned by the server>
 channel_id: <the channel's id, assigned by the server>
 ---
 # <Channel name>
@@ -148,7 +149,12 @@ know and link out with wikilinks; pages that don't exist yet are fine to link.
 def generate_index(root: Path) -> str:
     grouped: dict[str, list[tuple[str, str]]] = {}
     for directory in sorted(repo_lint.MARKDOWN_DIRECTORIES):
+        if directory == "projects" and (root / "projects").is_dir():
+            grouped[directory] = [("projects/index", "Projects mapped by name and id.")]
+            continue
         for path in sorted((root / directory).rglob("*.md")):
+            if path.name == "index.md":
+                continue
             summary = repo_lint._frontmatter(path).get("summary")
             if summary:
                 relative = path.relative_to(root).as_posix().removesuffix(".md")
@@ -161,10 +167,56 @@ def generate_index(root: Path) -> str:
     return "\n".join(lines)
 
 
+def generate_project_indexes(root: Path) -> dict[str, str]:
+    projects = root / "projects"
+    if not projects.is_dir() or projects.is_symlink():
+        return {}
+    generated: dict[str, str] = {}
+    project_links: list[str] = []
+    for project_dir in sorted(
+        (path for path in projects.iterdir() if path.is_dir() and not path.is_symlink()), key=lambda path: path.name
+    ):
+        overview = project_dir / "overview.md"
+        if not overview.is_file():
+            continue
+        fields = repo_lint._frontmatter(overview)
+        project_id = fields.get("project_id", project_dir.name)
+        project_name = fields.get("project_name", f"Project {project_id}")
+        project_label = project_name.replace("[", "").replace("]", "").replace("|", "-")
+        project_links.append(f"- [[projects/{project_dir.name}/index|{project_label}]] — project_id: {project_id}")
+        spaces_dir = project_dir / "spaces"
+        space_links: list[str] = []
+        if not spaces_dir.is_symlink():
+            for page in sorted(spaces_dir.glob("*.md")) if spaces_dir.is_dir() else []:
+                if page.name == "index.md":
+                    continue
+                space_fields = repo_lint._frontmatter(page)
+                summary = space_fields.get("summary")
+                channel_id = space_fields.get("channel_id")
+                if summary and channel_id:
+                    relative = page.relative_to(root).as_posix().removesuffix(".md")
+                    space_links.append(f"- [[{relative}]] — {summary} (channel_id: {channel_id})")
+            spaces_index = [f"# Spaces in {project_label}", "", *space_links]
+            generated[f"projects/{project_dir.name}/spaces/index.md"] = "\n".join(spaces_index).rstrip() + "\n"
+        generated[f"projects/{project_dir.name}/index.md"] = "\n".join(
+            [
+                f"# {project_label} project index",
+                "",
+                f"Project id: `{project_id}`",
+                "",
+                f"- [[projects/{project_dir.name}/overview]]",
+                f"- [[projects/{project_dir.name}/spaces/index|Spaces]]",
+                "",
+            ]
+        )
+    generated["projects/index.md"] = "\n".join(["# Project index", "", *project_links]).rstrip() + "\n"
+    return generated
+
+
 def write_default_structure(root: Path) -> None:
     (root / "AGENTS.md").write_text(AGENTS_MD, encoding="utf-8")
     (root / "CLAUDE.md").symlink_to("AGENTS.md")
-    # areas/, decisions/, and channels/ appear with their first page; git does
+    # areas/, decisions/, and projects/ appear with their first page; git does
     # not track empty directories, so scaffolding them would not survive a clone.
     (root / "org").mkdir(exist_ok=True)
     (root / "scripts").mkdir(exist_ok=True)

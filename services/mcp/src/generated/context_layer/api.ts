@@ -1,48 +1,54 @@
 /**
- * Auto-generated Zod validation schemas from the Django backend OpenAPI schema.
- * To modify these schemas, update the Django serializers or views, then run:
- *   hogli build:openapi
- * Questions or issues? #team-devex on Slack
+ * Auto-generated from the Django backend OpenAPI schema.
+ * MCP service uses these Zod schemas for generated tool handlers.
+ * To regenerate: hogli build:openapi
  *
- * PostHog API - generated
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
- * @summary Land agent commits from a git bundle
+ * @summary Resolve a channel's wiki page
  */
-export const contextLayerCommitsCreateBodySummaryMax = 10000
+export const ContextLayerChannelPagesRetrieveParams = /* @__PURE__ */ zod.object({
+    channel_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
 
-export const contextLayerCommitsCreateBodyBranchMax = 64
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Read a wiki page
+ */
+export const ContextLayerPagesRetrieveParams = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
 
-export const ContextLayerCommitsCreateBody = /* @__PURE__ */ zod
-    .object({
-        bundle: zod
-            .url()
-            .describe(
-                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
-            ),
-        summary: zod
-            .string()
-            .max(contextLayerCommitsCreateBodySummaryMax)
-            .optional()
-            .describe('Optional run summary stored in the landed commit body.'),
-        branch: zod
-            .string()
-            .max(contextLayerCommitsCreateBodyBranchMax)
-            .nullish()
-            .describe(
-                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
-            ),
-    })
-    .describe('Request body for landing agent commits posted back as a git bundle.')
+export const ContextLayerPagesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Repo-relative Markdown path of the page to read.'),
+})
 
 /**
  * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
  * @summary Create or replace a wiki page
  */
+export const ContextLayerPagesUpdateParams = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
 export const contextLayerPagesUpdateBodyPathMax = 512
 
 export const contextLayerPagesUpdateBodyContentMax = 1000000
@@ -69,6 +75,19 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for creating or replacing one wiki page.')
 
 /**
+ * The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
+ * @summary Resolve a channel's wiki page
+ */
+export const ContextLayerAgentChannelPagesRetrieveParams = /* @__PURE__ */ zod.object({
+    channel_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * The same organization wiki, reached by an agent run inside a sandbox.
  *
  * This exists as a second, project-nested route because a sandbox run token
@@ -77,33 +96,19 @@ export const ContextLayerPagesUpdateBody = /* @__PURE__ */ zod
  * token is refused before it reaches any of this. The wiki is still one repo
  * per organization; the project in the path is how a run token proves which
  * organization it may act for, and is not a scope on the wiki itself.
- * @summary Land agent commits from a git bundle
+ * @summary Read a wiki page
  */
-export const contextLayerAgentCommitsCreateBodySummaryMax = 10000
+export const ContextLayerAgentPagesRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const contextLayerAgentCommitsCreateBodyBranchMax = 64
-
-export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
-    .object({
-        bundle: zod
-            .url()
-            .describe(
-                "A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin\/main..main`)."
-            ),
-        summary: zod
-            .string()
-            .max(contextLayerAgentCommitsCreateBodySummaryMax)
-            .optional()
-            .describe('Optional run summary stored in the landed commit body.'),
-        branch: zod
-            .string()
-            .max(contextLayerAgentCommitsCreateBodyBranchMax)
-            .nullish()
-            .describe(
-                'Land a dated dreaming branch (`dream\/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.'
-            ),
-    })
-    .describe('Request body for landing agent commits posted back as a git bundle.')
+export const ContextLayerAgentPagesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    path: zod.string().describe('Repo-relative Markdown path of the page to read.'),
+})
 
 /**
  * The same organization wiki, reached by an agent run inside a sandbox.
@@ -116,6 +121,14 @@ export const ContextLayerAgentCommitsCreateBody = /* @__PURE__ */ zod
  * organization it may act for, and is not a scope on the wiki itself.
  * @summary Create or replace a wiki page
  */
+export const ContextLayerAgentPagesUpdateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
 export const contextLayerAgentPagesUpdateBodyPathMax = 512
 
 export const contextLayerAgentPagesUpdateBodyContentMax = 1000000

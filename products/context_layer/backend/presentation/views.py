@@ -10,9 +10,12 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.redis import get_client
+from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE
 
 from products.context_layer.backend.facade import api as facade
 from products.context_layer.backend.presentation.serializers import (
+    ChannelWikiPageSerializer,
     CommitBundleSerializer,
     ContextLayerStatusSerializer,
     HeadConflictSerializer,
@@ -23,6 +26,11 @@ from products.context_layer.backend.presentation.serializers import (
     WikiPageWriteSerializer,
     WikiTreeSerializer,
 )
+from products.tasks.backend.facade import api as tasks_facade
+
+# Ordinary task runs can land wiki commits with nothing but the writer lock
+# pacing them, so a runaway sandbox agent gets a hard daily ceiling per run.
+RUN_COMMITS_PER_DAY_CAP = 20
 
 
 def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
@@ -79,10 +87,97 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(WikiPageSerializer(wiki_page).data)
 
 
+def _assert_loop_write_in_scope(organization_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
+    """A loop run may only write the context page it was configured to maintain.
+
+    Reads stay open, because the wiki is organization-wide reference material
+    every agent is meant to draw on. Writes cannot be: the agent route's scope
+    override accepts a `task:write` token, so without this a loop steered by
+    injected text could rewrite AGENTS.md, and with it the instructions every
+    agent in the organization starts from. Mirrors the target check the legacy
+    channel-instructions endpoint already makes.
+
+    A no-op for any caller without the loop provenance scope, so it is safe to
+    run on every write and both routes stay bound by it.
+    """
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE not in token_scopes:
+        return
+
+    denied = PermissionDenied("This loop can update only the context page configured for this run.")
+    sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+    if sandbox_task_id is None:
+        raise denied
+
+    # Both sides resolve inside this organization's own wiki index, so a run
+    # cannot reach another organization's pages even by naming its channel.
+    configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
+    if configured_channel_id is None:
+        raise denied
+    requested_channel_id = facade.resolve_page_channel(organization_id, path)
+    if configured_channel_id == requested_channel_id:
+        return
+    if requested_channel_id is not None:
+        raise denied
+    try:
+        _assert_loop_may_create_channel_page(organization_id, configured_channel_id, path, content, denied)
+    except facade.ContextLayerStoreError as error:
+        # A vanished channel or wiki mid-write reads as out of scope, not a 500.
+        raise denied from error
+
+
+def _assert_loop_may_create_channel_page(
+    organization_id,  # noqa: ANN001
+    channel_id: str,
+    path: str,
+    content: str,
+    denied: PermissionDenied,
+) -> None:
+    """A loop may create its channel's page when the channel truly has none.
+
+    Channels created after wiki enablement never went through the one-time
+    import, so their loops would otherwise fall back to legacy channel
+    instructions forever. Everything is pinned: the channel must have no page,
+    the path must be exactly the one resolution proposed, nothing may already
+    exist there, and the content's frontmatter must claim the configured
+    channel — so the loop cannot plant a page that resolution would hand to a
+    different channel.
+    """
+    if facade.resolve_channel_page(organization_id, channel_id) is not None:
+        raise denied
+    if path in facade.get_tree(organization_id).paths:
+        raise denied
+    if path != facade.proposed_channel_page_path(organization_id, channel_id):
+        raise denied
+    if facade.page_frontmatter_channel_id(content) != channel_id:
+        raise denied
+
+
+def _read_channel_page(organization_id, channel_id: str, *, propose_on_miss: bool = False) -> Response:  # noqa: ANN001
+    _assert_no_private_projects(organization_id)
+    try:
+        path = facade.resolve_channel_page(organization_id, channel_id)
+        if path is None and propose_on_miss:
+            # The channel has no page yet (created after enablement); hand the
+            # caller the canonical path to create it at instead of a dead end.
+            proposed = facade.proposed_channel_page_path(organization_id, channel_id)
+            return Response(ChannelWikiPageSerializer({"path": proposed, "exists": False}).data)
+    except facade.ContextLayerStoreError as error:
+        return _store_error_response(error)
+    if path is None:
+        raise NotFound("This channel has no page in the context wiki.")
+    return Response(ChannelWikiPageSerializer({"path": path}).data)
+
+
 def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    _assert_loop_write_in_scope(
+        organization_id, request, serializer.validated_data["path"], serializer.validated_data["content"]
+    )
+    _assert_run_commit_cap(request)
     user = request.user
     author = (
         facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
@@ -102,10 +197,37 @@ def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
 
 
+def _assert_run_commit_cap(request: Request) -> None:
+    """Cap how many landings (bundles or page writes) one sandbox run gets per day.
+
+    Loops have their own daily fire caps, but an ordinary task run landing
+    wiki changes has nothing but the writer lock pacing it. Keyed on the run
+    provenance the token carries; human and PAT callers have none and stay
+    uncapped.
+    """
+    access_token = get_oauth_access_token(request)
+    sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+    if sandbox_task_id is None:
+        return
+    redis_client = get_client()
+    key = f"context_layer:run_commit_cap:{sandbox_task_id}"
+    landed = redis_client.incr(key)
+    redis_client.expire(key, 86400)
+    if landed > RUN_COMMITS_PER_DAY_CAP:
+        raise Throttled(detail="This run has landed too many wiki commits today.")
+
+
 def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
+        # Bundles bypass the page binding _assert_loop_write_in_scope enforces,
+        # so a loop run must land its edits through the page endpoint instead.
+        raise PermissionDenied("This loop can update only its context page, not land commit bundles.")
     serializer = CommitBundleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    _assert_run_commit_cap(request)
     bundle_bytes = serializer.validated_data["bundle"].read()
     branch = serializer.validated_data.get("branch")
     try:
@@ -137,7 +259,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     posthog_feature_flag = "context-layer"
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "organization"
-    scope_object_read_actions = ["status", "tree", "page", "report", "export"]
+    scope_object_read_actions = ["status", "tree", "page", "report", "channel_page", "export"]
     scope_object_write_actions = ["enable", "update_page", "commits"]
 
     # No sandbox-token override here: a run token carries `scoped_teams`, which
@@ -224,10 +346,24 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return _read_page(self.organization.id, request)
 
     @extend_schema(
+        responses={
+            200: ChannelWikiPageSerializer,
+            404: OpenApiResponse(description="This channel has no page in the context wiki."),
+        },
+        summary="Resolve a channel's wiki page",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
+    def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
+        return _read_channel_page(self.organization.id, channel_id)
+
+    @extend_schema(
         request=WikiPageWriteSerializer,
         responses={
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
+            403: OpenApiResponse(
+                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+            ),
             409: HeadConflictSerializer,
         },
         summary="Create or replace a wiki page",
@@ -287,26 +423,88 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # `scoped_teams` enforcement. It also drops the default scope derivation, so
     # every action below states its scopes explicitly.
     scope_object = "INTERNAL"
-    write_actions = ["commits"]
+    read_actions = ["page", "channel_page"]
+    write_actions = ["update_page", "commits"]
+
+    # Which task scope each action accepts, and the provenance marker that has to
+    # come with it. A sandbox run lands commits; a context-maintaining loop run
+    # reads and rewrites its own page.
+    _RUN_SCOPES = {
+        "commits": ("task:write", INTERNAL_RUN_SCOPE),
+        "page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
+        "channel_page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
+        "update_page": ("task:write", LOOP_CONTEXT_INTERNAL_SCOPE),
+    }
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
-        """A sandbox run lands commits with task scopes; everyone else uses the organization one.
+        """A run acts with task scopes; everyone else faces the organization ones.
 
-        `task:write` alone is user-grantable, so it only counts together with
-        `internal_run:read` — minted server-side for sandbox runs and rejected by
+        A task scope alone is user-grantable, so it only counts together with the
+        action's provenance marker — minted server-side for runs and rejected by
         every user-facing scope validator, so a person cannot ask for it. Callers
-        without that marker need the same `organization:write` the human route asks
+        without that marker need the same organization scope the human route asks
         for, which `scope_object = "INTERNAL"` means naming here rather than
         deriving. One consequence of INTERNAL: a `*` (full access) token does not
         short-circuit this check, so it has to carry the organization scope too.
         """
-        if self.action not in self.write_actions:
-            return None
-        access_token = get_oauth_access_token(request)
-        token_scopes = set((getattr(access_token, "scope", "") or "").split())
-        if INTERNAL_RUN_SCOPE in token_scopes:
-            return ["task:write", INTERNAL_RUN_SCOPE]
-        return ["organization:write"]
+        required = self._RUN_SCOPES.get(self.action)
+        if required is not None:
+            task_scope, provenance_scope = required
+            access_token = get_oauth_access_token(request)
+            token_scopes = set((getattr(access_token, "scope", "") or "").split())
+            if provenance_scope in token_scopes:
+                return [task_scope, provenance_scope]
+        if self.action in self.write_actions:
+            return ["organization:write"]
+        if self.action in self.read_actions:
+            return ["organization:read"]
+        return None
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="path", type=str, required=True, description="Repo-relative Markdown path of the page to read."
+            )
+        ],
+        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
+        summary="Read a wiki page",
+    )
+    @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
+    def page(self, request: Request, **kwargs) -> Response:
+        return _read_page(self.organization.id, request)
+
+    @extend_schema(
+        responses={
+            200: ChannelWikiPageSerializer,
+            404: OpenApiResponse(description="This channel does not exist, or the wiki is not enabled."),
+        },
+        summary="Resolve a channel's wiki page",
+        description=(
+            "The channel's page path. When the channel has no page yet, responds with the canonical "
+            "path to create it at and `exists: false`."
+        ),
+    )
+    @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
+    def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
+        # Unlike the organization route, a miss proposes a create path: a loop
+        # maintaining a post-enablement channel needs somewhere to publish.
+        return _read_channel_page(self.organization.id, channel_id, propose_on_miss=True)
+
+    @extend_schema(
+        request=WikiPageWriteSerializer,
+        responses={
+            200: ContextLayerStatusSerializer,
+            400: LintErrorSerializer,
+            403: OpenApiResponse(
+                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+            ),
+            409: HeadConflictSerializer,
+        },
+        summary="Create or replace a wiki page",
+    )
+    @page.mapping.put
+    def update_page(self, request: Request, **kwargs) -> Response:
+        return _write_page(self.organization.id, request)
 
     @extend_schema(
         request=CommitBundleSerializer,

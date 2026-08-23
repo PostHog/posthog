@@ -18,12 +18,34 @@ function makeClient(fetch: ReturnType<typeof vi.fn>): PostHogAPIClient {
 }
 
 const PAGE_INPUT = {
-  path: "channels/growth.md",
+  path: "projects/12/spaces/growth.md",
   content: "# Growth\n",
   baseHead: "abc123",
 };
 
 describe("context wiki client", () => {
+  it("resolves a channel wiki page without deriving its path from the channel name", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ path: "projects/12/spaces/growth-renamed.md" }),
+        {
+          status: 200,
+        },
+      ),
+    );
+
+    await expect(
+      makeClient(fetch).getChannelContextWikiPage("channel-id"),
+    ).resolves.toEqual({ path: "projects/12/spaces/growth-renamed.md" });
+  });
+
+  it("returns null when a channel has no wiki page", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    await expect(
+      makeClient(fetch).getChannelContextWikiPage("channel-id"),
+    ).resolves.toBeNull();
+  });
+
   it("returns null from getContextWikiTree when the wiki is not enabled", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
     await expect(makeClient(fetch).getContextWikiTree()).resolves.toBeNull();
@@ -54,7 +76,7 @@ describe("context wiki client", () => {
     ).resolves.toEqual({ head_sha: "def456" });
     const request = fetch.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(request.body as string)).toEqual({
-      path: "channels/growth.md",
+      path: "projects/12/spaces/growth.md",
       content: "# Growth\n",
       base_head: "abc123",
     });

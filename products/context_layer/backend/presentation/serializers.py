@@ -44,12 +44,25 @@ class WikiHealthReportSerializer(serializers.Serializer):
     findings = WikiHealthFindingSerializer(many=True, help_text="Health findings for the current wiki head.")
 
 
+class ChannelWikiPageSerializer(serializers.Serializer):
+    """Response shape for a channel's page identity in the wiki."""
+
+    path = serializers.CharField(help_text="Repo-relative path of the wiki page whose frontmatter names the channel.")
+    exists = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Whether a page exists at this path. False when the path is a proposal for a channel "
+            "whose page has not been created yet."
+        ),
+    )
+
+
 class WikiPageWriteSerializer(serializers.Serializer):
     """Request body for creating or replacing one wiki page."""
 
     path = serializers.CharField(
         max_length=512,
-        help_text="Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.",
+        help_text="Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
     )
     content = serializers.CharField(
         allow_blank=True,

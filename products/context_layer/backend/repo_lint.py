@@ -5,14 +5,15 @@ from __future__ import annotations
 
 import re
 import sys
+import uuid
 import subprocess
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 ALLOWED_ROOT_FILES = {"AGENTS.md", "CLAUDE.md", "index.md"}
-ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "channels", "scripts"}
-MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "channels"}
+ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "projects", "scripts"}
+MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "projects"}
 MAX_FILE_BYTES = 16_000
 # Aggregate bounds keep a whole wiki readable in one pass: reads warm every page
 # from a single checkout, so the repository must stay far below worker memory.
@@ -38,7 +39,7 @@ def _page_paths(root: Path) -> list[Path]:
         path
         for directory in MARKDOWN_DIRECTORIES
         for path in sorted((root / directory).rglob("*.md"))
-        if path.is_file() and not path.is_symlink()
+        if path.is_file() and not path.is_symlink() and path.name != "index.md"
     ]
 
 
@@ -82,6 +83,7 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
     titles: dict[str, Path] = {}
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory, titles))
+    errors.extend(_lint_channel_ids(root))
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
     total_bytes = 0
     file_count = 0
@@ -120,8 +122,18 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
         if directory == "decisions" and not DECISION_FILE_RE.fullmatch(path.name):
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
         fields = _frontmatter(path)
-        if directory == "channels" and not fields.get("channel_id"):
-            errors.append(f"{relative}: channel pages need a non-empty `channel_id` in their frontmatter")
+        is_space_page = (
+            directory == "projects"
+            and len(relative.parts) == 4
+            and relative.parts[2] == "spaces"
+            and path.name != "index.md"
+        )
+        if is_space_page and not fields.get("channel_id"):
+            errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
+        if is_space_page and fields.get("team_id") != relative.parts[1]:
+            errors.append(f"{relative}: Space pages need `team_id: {relative.parts[1]}` in their frontmatter")
+        if path.name == "index.md":
+            continue
         if not fields.get("summary") or "\n" in fields.get("summary", ""):
             errors.append(f"{relative}: frontmatter needs a one-line `summary`")
         status = fields.get("status")
@@ -214,6 +226,38 @@ def _git_age(root: Path, relative: str) -> timedelta | None:
 
 def _canonical_scripts() -> dict[str, str]:
     return {"lint": Path(__file__).read_text(encoding="utf-8"), "publish": PUBLISH_SCRIPT}
+
+
+def _lint_channel_ids(root: Path) -> list[str]:
+    channels = root / "projects"
+    if not channels.is_dir():
+        return []
+    errors: list[str] = []
+    paths_by_id: dict[str, list[Path]] = {}
+    for path in sorted(channels.glob("*/spaces/*.md")):
+        if path.name == "index.md":
+            continue
+        channel_id = _frontmatter(path).get("channel_id")
+        if not channel_id:
+            continue
+        try:
+            parsed = uuid.UUID(channel_id)
+        except ValueError:
+            errors.append(f"{path.relative_to(root)}: `channel_id` must be a UUID")
+            continue
+        # Resolution looks the page up by the channel's canonical UUID string, so a
+        # non-canonical spelling (uppercase, braces, urn: prefix, unhyphenated) would
+        # land clean yet never match its own channel — and slip past the uniqueness
+        # check below, which keys on the raw text. Require the canonical form instead.
+        if channel_id != str(parsed):
+            errors.append(f"{path.relative_to(root)}: `channel_id` must be the canonical UUID form `{parsed}`")
+            continue
+        paths_by_id.setdefault(channel_id, []).append(path)
+    for channel_id, paths in paths_by_id.items():
+        if len(paths) > 1:
+            joined_paths = ", ".join(str(path.relative_to(root)) for path in paths)
+            errors.append(f"channel_id {channel_id} appears in more than one page: {joined_paths}")
+    return errors
 
 
 PUBLISH_SCRIPT = """\

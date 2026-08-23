@@ -195,8 +195,11 @@ export function navigateToCommandCenter(): void {
   void getRouterOrNull()?.navigate({ to: "/command-center" });
 }
 
-export function navigateToContext(): void {
-  void getRouterOrNull()?.navigate({ to: "/context" });
+export function navigateToContext(path?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/context",
+    search: { path },
+  });
 }
 
 export function navigateToSkills(): void {
@@ -212,8 +215,11 @@ export function navigateToSpaces(): void {
   void getRouterOrNull()?.navigate({ to: "/spaces" });
 }
 
-export function navigateToSpacesContext(): void {
-  void getRouterOrNull()?.navigate({ to: "/spaces/context" });
+export function navigateToSpacesContext(path?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/context",
+    search: { path },
+  });
 }
 
 export function navigateToSettings(

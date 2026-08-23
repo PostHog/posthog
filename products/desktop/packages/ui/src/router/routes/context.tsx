@@ -6,6 +6,14 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/context")({
-  component: ContextWikiView,
+  validateSearch: (search: Record<string, unknown>) => ({
+    path: typeof search.path === "string" ? search.path : undefined,
+  }),
+  component: ContextRoute,
   ...withRouteSkeleton(AppPageSkeleton),
 });
+
+function ContextRoute() {
+  const { path } = Route.useSearch();
+  return <ContextWikiView initialPath={path} />;
+}

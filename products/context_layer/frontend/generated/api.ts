@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ChannelWikiPageApi,
     CommitBundleApi,
+    ContextLayerAgentPagesRetrieveParams,
     ContextLayerPagesRetrieveParams,
     ContextLayerStatusApi,
     WikiExportApi,
@@ -18,6 +20,25 @@ import type {
     WikiPageWriteApi,
     WikiTreeApi,
 } from './api.schemas'
+
+export const getContextLayerChannelPagesRetrieveUrl = (organizationId: string, channelId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/channel-pages/${channelId}/`
+}
+
+/**
+ * The organization's context wiki: a git repo of Markdown pages hosted by PostHog.
+ * @summary Resolve a channel's wiki page
+ */
+export const contextLayerChannelPagesRetrieve = async (
+    organizationId: string,
+    channelId: string,
+    options?: RequestInit
+): Promise<ChannelWikiPageApi> => {
+    return apiMutator<ChannelWikiPageApi>(getContextLayerChannelPagesRetrieveUrl(organizationId, channelId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getContextLayerCommitsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/context_layer/commits/`
@@ -187,6 +208,25 @@ export const contextLayerWikiReportRetrieve = async (
     })
 }
 
+export const getContextLayerAgentChannelPagesRetrieveUrl = (projectId: string, channelId: string) => {
+    return `/api/projects/${projectId}/context_layer/agent/channel-pages/${channelId}/`
+}
+
+/**
+ * The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
+ * @summary Resolve a channel's wiki page
+ */
+export const contextLayerAgentChannelPagesRetrieve = async (
+    projectId: string,
+    channelId: string,
+    options?: RequestInit
+): Promise<ChannelWikiPageApi> => {
+    return apiMutator<ChannelWikiPageApi>(getContextLayerAgentChannelPagesRetrieveUrl(projectId, channelId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getContextLayerAgentCommitsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/context_layer/agent/commits/`
 }
@@ -220,5 +260,74 @@ export const contextLayerAgentCommitsCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getContextLayerAgentPagesRetrieveUrl = (
+    projectId: string,
+    params: ContextLayerAgentPagesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/context_layer/agent/pages/?${stringifiedParams}`
+        : `/api/projects/${projectId}/context_layer/agent/pages/`
+}
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Read a wiki page
+ */
+export const contextLayerAgentPagesRetrieve = async (
+    projectId: string,
+    params: ContextLayerAgentPagesRetrieveParams,
+    options?: RequestInit
+): Promise<WikiPageApi> => {
+    return apiMutator<WikiPageApi>(getContextLayerAgentPagesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getContextLayerAgentPagesUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/context_layer/agent/pages/`
+}
+
+/**
+ * The same organization wiki, reached by an agent run inside a sandbox.
+ *
+ * This exists as a second, project-nested route because a sandbox run token
+ * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+ * project-nested view — on the organization-scoped route above, every sandbox
+ * token is refused before it reaches any of this. The wiki is still one repo
+ * per organization; the project in the path is how a run token proves which
+ * organization it may act for, and is not a scope on the wiki itself.
+ * @summary Create or replace a wiki page
+ */
+export const contextLayerAgentPagesUpdate = async (
+    projectId: string,
+    wikiPageWriteApi: WikiPageWriteApi,
+    options?: RequestInit
+): Promise<ContextLayerStatusApi> => {
+    return apiMutator<ContextLayerStatusApi>(getContextLayerAgentPagesUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(wikiPageWriteApi),
     })
 }
