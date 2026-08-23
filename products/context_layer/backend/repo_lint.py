@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
+import subprocess
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -131,7 +131,9 @@ def _links(text: str) -> tuple[list[str], bool]:
     matches = list(WIKILINK_RE.finditer(text))
     targets = [_wikilink_target(match.group(1)) for match in matches]
     remainder = WIKILINK_RE.sub("", text)
-    return [target for target in targets if target], any(target is None for target in targets) or bool(MALFORMED_WIKILINK_RE.search(remainder))
+    return [target for target in targets if target], any(target is None for target in targets) or bool(
+        MALFORMED_WIKILINK_RE.search(remainder)
+    )
 
 
 def report_repo(root: Path | str) -> list[str]:
@@ -168,7 +170,9 @@ def report_repo(root: Path | str) -> list[str]:
         for marker in DISAGREEMENT_RE.findall(path.read_text(encoding="utf-8", errors="replace")):
             findings.append(f"disagreement: {relative}: {marker.strip()}")
     existing = {path.relative_to(root).as_posix().removesuffix(".md") for path in pages}
-    ghost_counts = Counter(target for targets in targets_by_page.values() for target in targets if target not in existing)
+    ghost_counts = Counter(
+        target for targets in targets_by_page.values() for target in targets if target not in existing
+    )
     for target, count in sorted(ghost_counts.items()):
         findings.append(f"ghost_link: {target}.md: referenced by {count} page(s)")
     return findings

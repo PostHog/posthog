@@ -67,6 +67,10 @@ class TestPruneBundles(SimpleTestCase):
 
 
 @override_settings(OBJECT_STORAGE_ENABLED=True)
+def _page(title: str) -> str:
+    return f"---\nsummary: {title} page for store tests.\nstatus: active\n---\n# {title}\n"
+
+
 class TestContextLayerStore(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -97,7 +101,7 @@ class TestContextLayerStore(BaseTest):
 
         def add_area_page(root: Path) -> None:
             (root / "areas").mkdir(exist_ok=True)
-            (root / "areas" / "analytics.md").write_text("# Analytics\n\nCurrent state and direction.\n")
+            (root / "areas" / "analytics.md").write_text(_page("Analytics"))
 
         new_head = store.apply_changes(
             self.organization.id, message="Add the analytics area page", mutate=add_area_page
@@ -140,7 +144,7 @@ class TestContextLayerStore(BaseTest):
 
         def add_page(root: Path) -> None:
             (root / "areas").mkdir(exist_ok=True)
-            (root / "areas" / "replay.md").write_text("# Replay\n")
+            (root / "areas" / "replay.md").write_text(_page("Replay"))
 
         store.apply_changes(self.organization.id, message="Add the replay area page", mutate=add_page)
         store.purge_repo_history(self.organization.id)
@@ -157,7 +161,7 @@ class TestContextLayerStore(BaseTest):
         def add_page(name: str):
             def mutate(root: Path) -> None:
                 (root / "areas").mkdir(exist_ok=True)
-                (root / "areas" / f"{name}.md").write_text(f"# {name}\n")
+                (root / "areas" / f"{name}.md").write_text(_page(name))
 
             return mutate
 
@@ -174,7 +178,7 @@ class TestContextLayerStore(BaseTest):
         def tamper(root: Path) -> None:
             (root / "scripts" / "lint").write_text("#!/bin/sh\necho pwned\n")
             (root / "areas").mkdir(exist_ok=True)
-            (root / "areas" / "clean.md").write_text("# Clean\n")
+            (root / "areas" / "clean.md").write_text(_page("Clean"))
 
         store.apply_changes(self.organization.id, message="Edit with tampered script", mutate=tamper)
 

@@ -46,6 +46,82 @@ retrieved live from their authoritative system.
 
 - `areas/`: Current state, Direction, Links.
 - `decisions/`: `sources:` frontmatter, then What, Why, Who.
+
+## Frontmatter contract
+
+`scripts/lint` enforces these rules on every page, and the server runs the same
+rules before a commit lands. Checking here is cheaper than a rejected commit.
+
+Every page needs:
+
+- `summary`: one line, used to build `index.md`.
+- `status`: `active`, `superseded`, or `historical`.
+
+Some fields are required by directory:
+
+- `channels/`: `channel_id`, exactly the id the server assigned to the channel.
+- `decisions/`: `sources`, and a filename of the form `<YYYY-MM-DD>-<slug>.md`.
+
+Optional fields:
+
+- `sources`: where a claim comes from. Recommended on every page; the
+  consolidation report flags pages without it.
+- `review_after`: an ISO date (`2026-09-01`). The consolidation report flags
+  active pages once the date passes.
+
+Structural rules the linter also checks:
+
+- A page with `status: superseded` must wikilink its replacement, and the
+  replacement page must exist.
+- H1 titles must be unique across the wiki.
+- Pages must be UTF-8 and at most 16 KB. Split a page that outgrows this.
+
+## Templates
+
+An area page:
+
+```markdown
+---
+summary: One line on what this area covers.
+status: active
+sources: <task, PR, or conversation this synthesizes>
+---
+# <Area name>
+
+## Current state
+
+## Direction
+
+## Links
+```
+
+A decision page, named `decisions/<YYYY-MM-DD>-<slug>.md`:
+
+```markdown
+---
+summary: One line on what was decided.
+status: active
+sources: <where the decision was made>
+---
+# <Decision>
+
+## What
+
+## Why
+
+## Who
+```
+
+A channel page:
+
+```markdown
+---
+summary: One line on what this channel works on.
+status: active
+channel_id: <the channel's id, assigned by the server>
+---
+# <Channel name>
+```
 """
 
 ORG_OVERVIEW_MD = """\
