@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_shell/spaces/$channelId/tasks/$taskId")(
   {
     component: ChannelTaskDetailRoute,
     pendingComponent: TaskDetailSkeleton,
-    // Cache-only loader (same as /code/tasks/$taskId): never block navigation on
+    // Cache-only loader (same as /tasks/$taskId): never block navigation on
     // the network; the cold-miss fetch lives in the component. The single-frame
     // yield lets the skeleton paint before TaskDetail's heavy mount.
     loader: async ({ params }): Promise<Task | null> => {

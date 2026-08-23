@@ -23,8 +23,8 @@ import * as nav from "./navigationBridge";
  * stale folder, we redirect to folder settings.
  *
  * When `opts.channelId` is provided (the task is filed to a Project Bluebird
- * channel), navigation targets the channel-organized view under /website,
- * keeping the channels chrome; otherwise it targets /code/tasks/$taskId. Every
+ * channel), navigation targets the channel-organized view under /spaces,
+ * keeping the channels chrome; otherwise it targets /tasks/$taskId. Every
  * other side effect is identical — channel tasks still need workspace
  * provisioning so TaskDetail resolves a cwd.
  *

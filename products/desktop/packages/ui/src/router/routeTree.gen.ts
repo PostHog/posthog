@@ -15,11 +15,14 @@ import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as WebsiteIndexRouteImport } from './routes/website.index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as LoopsIndexRouteImport } from './routes/loops/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
+import { Route as CodeIndexRouteImport } from './routes/code.index'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
+import { Route as WebsiteSplatRouteImport } from './routes/website.$'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
 import { Route as LoopsNewRouteImport } from './routes/loops/new'
@@ -30,6 +33,7 @@ import { Route as InboxPullsRouteImport } from './routes/inbox/pulls'
 import { Route as InboxDismissedRouteImport } from './routes/inbox/dismissed'
 import { Route as InboxAgentsRouteImport } from './routes/inbox/agents'
 import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
+import { Route as CodeSplatRouteImport } from './routes/code.$'
 import { Route as AgentsScoutsRouteImport } from './routes/agents/scouts'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
@@ -93,6 +97,11 @@ const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WebsiteIndexRoute = WebsiteIndexRouteImport.update({
+  id: '/website/',
+  path: '/website/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -108,6 +117,11 @@ const InboxIndexRoute = InboxIndexRouteImport.update({
   path: '/',
   getParentRoute: () => InboxRoute,
 } as any)
+const CodeIndexRoute = CodeIndexRouteImport.update({
+  id: '/code/',
+  path: '/code/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -117,6 +131,11 @@ const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ShellRoute,
+} as any)
+const WebsiteSplatRoute = WebsiteSplatRouteImport.update({
+  id: '/website/$',
+  path: '/website/$',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   id: '/tasks/$taskId',
@@ -166,6 +185,11 @@ const InboxAgentsRoute = InboxAgentsRouteImport.update({
 const FoldersFolderIdRoute = FoldersFolderIdRouteImport.update({
   id: '/folders/$folderId',
   path: '/folders/$folderId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CodeSplatRoute = CodeSplatRouteImport.update({
+  id: '/code/$',
+  path: '/code/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsScoutsRoute = AgentsScoutsRouteImport.update({
@@ -356,6 +380,7 @@ export interface FileRoutesByFullPath {
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
   '/agents/scouts': typeof AgentsScoutsRouteWithChildren
+  '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
   '/inbox/dismissed': typeof InboxDismissedRouteWithChildren
@@ -366,10 +391,13 @@ export interface FileRoutesByFullPath {
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/website/$': typeof WebsiteSplatRoute
   '/agents/': typeof AgentsIndexRoute
+  '/code/': typeof CodeIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/website/': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameRouteWithChildren
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
@@ -407,16 +435,20 @@ export interface FileRoutesByTo {
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
   '/skills': typeof ShellSkillsRoute
+  '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/website/$': typeof WebsiteSplatRoute
   '/': typeof ShellIndexRoute
   '/agents': typeof AgentsIndexRoute
+  '/code': typeof CodeIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/loops': typeof LoopsIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/website': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
   '/agents/scouts/scratchpad': typeof AgentsScoutsScratchpadRoute
@@ -458,6 +490,7 @@ export interface FileRoutesById {
   '/_shell/new': typeof ShellNewRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/agents/scouts': typeof AgentsScoutsRouteWithChildren
+  '/code/$': typeof CodeSplatRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/inbox/agents': typeof InboxAgentsRoute
   '/inbox/dismissed': typeof InboxDismissedRouteWithChildren
@@ -468,11 +501,14 @@ export interface FileRoutesById {
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
+  '/website/$': typeof WebsiteSplatRoute
   '/_shell/': typeof ShellIndexRoute
   '/agents/': typeof AgentsIndexRoute
+  '/code/': typeof CodeIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/website/': typeof WebsiteIndexRoute
   '/_shell/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/agents/scouts/$skillName': typeof AgentsScoutsSkillNameRouteWithChildren
   '/agents/scouts/findings': typeof AgentsScoutsFindingsRoute
@@ -516,6 +552,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/skills'
     | '/agents/scouts'
+    | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
     | '/inbox/dismissed'
@@ -526,10 +563,13 @@ export interface FileRouteTypes {
     | '/loops/new'
     | '/settings/$category'
     | '/tasks/$taskId'
+    | '/website/$'
     | '/agents/'
+    | '/code/'
     | '/inbox/'
     | '/loops/'
     | '/settings/'
+    | '/website/'
     | '/feeds/$feedId'
     | '/agents/scouts/$skillName'
     | '/agents/scouts/findings'
@@ -567,16 +607,20 @@ export interface FileRouteTypes {
     | '/mcp-servers'
     | '/new'
     | '/skills'
+    | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
     | '/loops/new'
     | '/settings/$category'
     | '/tasks/$taskId'
+    | '/website/$'
     | '/'
     | '/agents'
+    | '/code'
     | '/inbox'
     | '/loops'
     | '/settings'
+    | '/website'
     | '/feeds/$feedId'
     | '/agents/scouts/findings'
     | '/agents/scouts/scratchpad'
@@ -617,6 +661,7 @@ export interface FileRouteTypes {
     | '/_shell/new'
     | '/_shell/skills'
     | '/agents/scouts'
+    | '/code/$'
     | '/folders/$folderId'
     | '/inbox/agents'
     | '/inbox/dismissed'
@@ -627,11 +672,14 @@ export interface FileRouteTypes {
     | '/loops/new'
     | '/settings/$category'
     | '/tasks/$taskId'
+    | '/website/$'
     | '/_shell/'
     | '/agents/'
+    | '/code/'
     | '/inbox/'
     | '/loops/'
     | '/settings/'
+    | '/website/'
     | '/_shell/feeds/$feedId'
     | '/agents/scouts/$skillName'
     | '/agents/scouts/findings'
@@ -668,13 +716,17 @@ export interface RootRouteChildren {
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
   UsageRoute: typeof UsageRoute
+  CodeSplatRoute: typeof CodeSplatRoute
   FoldersFolderIdRoute: typeof FoldersFolderIdRoute
   LoopsLoopIdRoute: typeof LoopsLoopIdRouteWithChildren
   LoopsNewRoute: typeof LoopsNewRoute
   SettingsCategoryRoute: typeof SettingsCategoryRoute
   TasksTaskIdRoute: typeof TasksTaskIdRoute
+  WebsiteSplatRoute: typeof WebsiteSplatRoute
+  CodeIndexRoute: typeof CodeIndexRoute
   LoopsIndexRoute: typeof LoopsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  WebsiteIndexRoute: typeof WebsiteIndexRoute
   TasksPendingKeyRoute: typeof TasksPendingKeyRoute
 }
 
@@ -722,6 +774,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/website/': {
+      id: '/website/'
+      path: '/website'
+      fullPath: '/website/'
+      preLoaderRoute: typeof WebsiteIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/': {
       id: '/settings/'
       path: '/settings'
@@ -743,6 +802,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InboxIndexRouteImport
       parentRoute: typeof InboxRoute
     }
+    '/code/': {
+      id: '/code/'
+      path: '/code'
+      fullPath: '/code/'
+      preLoaderRoute: typeof CodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/agents/': {
       id: '/agents/'
       path: '/'
@@ -756,6 +822,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ShellIndexRouteImport
       parentRoute: typeof ShellRoute
+    }
+    '/website/$': {
+      id: '/website/$'
+      path: '/website/$'
+      fullPath: '/website/$'
+      preLoaderRoute: typeof WebsiteSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/tasks/$taskId': {
       id: '/tasks/$taskId'
@@ -825,6 +898,13 @@ declare module '@tanstack/react-router' {
       path: '/folders/$folderId'
       fullPath: '/folders/$folderId'
       preLoaderRoute: typeof FoldersFolderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/code/$': {
+      id: '/code/$'
+      path: '/code/$'
+      fullPath: '/code/$'
+      preLoaderRoute: typeof CodeSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents/scouts': {
@@ -1245,13 +1325,17 @@ const rootRouteChildren: RootRouteChildren = {
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,
   UsageRoute: UsageRoute,
+  CodeSplatRoute: CodeSplatRoute,
   FoldersFolderIdRoute: FoldersFolderIdRoute,
   LoopsLoopIdRoute: LoopsLoopIdRouteWithChildren,
   LoopsNewRoute: LoopsNewRoute,
   SettingsCategoryRoute: SettingsCategoryRoute,
   TasksTaskIdRoute: TasksTaskIdRoute,
+  WebsiteSplatRoute: WebsiteSplatRoute,
+  CodeIndexRoute: CodeIndexRoute,
   LoopsIndexRoute: LoopsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  WebsiteIndexRoute: WebsiteIndexRoute,
   TasksPendingKeyRoute: TasksPendingKeyRoute,
 }
 export const routeTree = rootRouteImport
