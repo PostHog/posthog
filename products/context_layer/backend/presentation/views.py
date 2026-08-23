@@ -82,10 +82,53 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(WikiPageSerializer(wiki_page).data)
 
 
+def _assert_loop_write_in_scope(organization_id, request: Request, path: str) -> None:  # noqa: ANN001
+    """A loop run may only write the context page it was configured to maintain.
+
+    Reads stay open, because the wiki is organization-wide reference material
+    every agent is meant to draw on. Writes cannot be: the agent route's scope
+    override accepts a `task:write` token, so without this a loop steered by
+    injected text could rewrite AGENTS.md, and with it the instructions every
+    agent in the organization starts from. Mirrors the target check the legacy
+    channel-instructions endpoint already makes.
+
+    A no-op for any caller without the loop provenance scope, so it is safe to
+    run on every write and both routes stay bound by it.
+    """
+    access_token = get_oauth_access_token(request)
+    token_scopes = set((getattr(access_token, "scope", "") or "").split())
+    if LOOP_CONTEXT_INTERNAL_SCOPE not in token_scopes:
+        return
+
+    denied = PermissionDenied("This loop can update only the context page configured for this run.")
+    sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+    if sandbox_task_id is None:
+        raise denied
+
+    # Both sides resolve inside this organization's own wiki index, so a run
+    # cannot reach another organization's pages even by naming its channel.
+    configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
+    requested_channel_id = facade.resolve_page_channel(organization_id, path)
+    if configured_channel_id is None or configured_channel_id != requested_channel_id:
+        raise denied
+
+
+def _read_channel_page(organization_id, channel_id: str) -> Response:  # noqa: ANN001
+    _assert_no_private_projects(organization_id)
+    try:
+        path = facade.resolve_channel_page(organization_id, channel_id)
+    except facade.ContextLayerStoreError as error:
+        return _store_error_response(error)
+    if path is None:
+        raise NotFound("This channel has no page in the context wiki.")
+    return Response(ChannelWikiPageSerializer({"path": path}).data)
+
+
 def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     _assert_no_private_projects(organization_id)
     serializer = WikiPageWriteSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    _assert_loop_write_in_scope(organization_id, request, serializer.validated_data["path"])
     user = request.user
     author = (
         facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
@@ -148,33 +191,6 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # reaches these actions. Sandbox runs land commits through the project-nested
     # `ContextLayerAgentViewSet` instead; this route serves humans and
     # `organization:write` tokens.
-
-    def _assert_loop_write_in_scope(self, request: Request, path: str) -> None:
-        """A loop run may only write the context page it was configured to maintain.
-
-        Reads stay open, because the wiki is organization-wide reference material
-        every agent is meant to draw on. Writes cannot be: the scope override
-        above accepts a `task:write` token, so without this a loop steered by
-        injected text could rewrite AGENTS.md, and with it the instructions every
-        agent in the organization starts from. Mirrors the target check the legacy
-        channel-instructions endpoint already makes.
-        """
-        access_token = get_oauth_access_token(request)
-        token_scopes = set((getattr(access_token, "scope", "") or "").split())
-        if LOOP_CONTEXT_INTERNAL_SCOPE not in token_scopes:
-            return
-
-        denied = PermissionDenied("This loop can update only the context page configured for this run.")
-        sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
-        if sandbox_task_id is None:
-            raise denied
-
-        # Both sides resolve inside this organization's own wiki index, so a run
-        # cannot reach another organization's pages even by naming its channel.
-        configured_channel_id = tasks_facade.loop_context_channel_id_for_task(sandbox_task_id)
-        requested_channel_id = facade.resolve_page_channel(self.organization.id, path)
-        if configured_channel_id is None or configured_channel_id != requested_channel_id:
-            raise denied
 
     @extend_schema(
         request=None,
@@ -262,14 +278,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
     def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
-        try:
-            path = facade.resolve_channel_page(self.organization.id, channel_id)
-        except facade.ContextLayerStoreError as error:
-            return _store_error_response(error)
-        if path is None:
-            raise NotFound("This channel has no page in the context wiki.")
-        return Response(ChannelWikiPageSerializer({"path": path}).data)
+        return _read_channel_page(self.organization.id, channel_id)
 
     @extend_schema(
         request=WikiPageWriteSerializer,
@@ -338,26 +347,82 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # `scoped_teams` enforcement. It also drops the default scope derivation, so
     # every action below states its scopes explicitly.
     scope_object = "INTERNAL"
-    write_actions = ["commits"]
+    read_actions = ["page", "channel_page"]
+    write_actions = ["update_page", "commits"]
+
+    # Which task scope each action accepts, and the provenance marker that has to
+    # come with it. A sandbox run lands commits; a context-maintaining loop run
+    # reads and rewrites its own page.
+    _RUN_SCOPES = {
+        "commits": ("task:write", INTERNAL_RUN_SCOPE),
+        "page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
+        "channel_page": ("task:read", LOOP_CONTEXT_INTERNAL_SCOPE),
+        "update_page": ("task:write", LOOP_CONTEXT_INTERNAL_SCOPE),
+    }
 
     def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
-        """A sandbox run lands commits with task scopes; everyone else uses the organization one.
+        """A run acts with task scopes; everyone else faces the organization ones.
 
-        `task:write` alone is user-grantable, so it only counts together with
-        `internal_run:read` — minted server-side for sandbox runs and rejected by
+        A task scope alone is user-grantable, so it only counts together with the
+        action's provenance marker — minted server-side for runs and rejected by
         every user-facing scope validator, so a person cannot ask for it. Callers
-        without that marker need the same `organization:write` the human route asks
+        without that marker need the same organization scope the human route asks
         for, which `scope_object = "INTERNAL"` means naming here rather than
         deriving. One consequence of INTERNAL: a `*` (full access) token does not
         short-circuit this check, so it has to carry the organization scope too.
         """
-        if self.action not in self.write_actions:
-            return None
-        access_token = get_oauth_access_token(request)
-        token_scopes = set((getattr(access_token, "scope", "") or "").split())
-        if INTERNAL_RUN_SCOPE in token_scopes:
-            return ["task:write", INTERNAL_RUN_SCOPE]
-        return ["organization:write"]
+        required = self._RUN_SCOPES.get(self.action)
+        if required is not None:
+            task_scope, provenance_scope = required
+            access_token = get_oauth_access_token(request)
+            token_scopes = set((getattr(access_token, "scope", "") or "").split())
+            if provenance_scope in token_scopes:
+                return [task_scope, provenance_scope]
+        if self.action in self.write_actions:
+            return ["organization:write"]
+        if self.action in self.read_actions:
+            return ["organization:read"]
+        return None
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="path", type=str, required=True, description="Repo-relative Markdown path of the page to read."
+            )
+        ],
+        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
+        summary="Read a wiki page",
+    )
+    @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
+    def page(self, request: Request, **kwargs) -> Response:
+        return _read_page(self.organization.id, request)
+
+    @extend_schema(
+        responses={
+            200: ChannelWikiPageSerializer,
+            404: OpenApiResponse(description="This channel has no page in the context wiki."),
+        },
+        summary="Resolve a channel's wiki page",
+    )
+    @action(methods=["GET"], detail=False, url_path=r"channel-pages/(?P<channel_id>[^/.]+)")
+    def channel_page(self, request: Request, channel_id: str, **kwargs) -> Response:
+        return _read_channel_page(self.organization.id, channel_id)
+
+    @extend_schema(
+        request=WikiPageWriteSerializer,
+        responses={
+            200: ContextLayerStatusSerializer,
+            400: LintErrorSerializer,
+            403: OpenApiResponse(
+                description="The wiki is unavailable, or a loop run targeted a page outside its own context."
+            ),
+            409: HeadConflictSerializer,
+        },
+        summary="Create or replace a wiki page",
+    )
+    @page.mapping.put
+    def update_page(self, request: Request, **kwargs) -> Response:
+        return _write_page(self.organization.id, request)
 
     @extend_schema(
         request=CommitBundleSerializer,
