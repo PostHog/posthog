@@ -36,3 +36,13 @@ export const useRailHistoryStore = create<RailHistoryState>()((set) => ({
   record: (pane, visit) =>
     set((state) => ({ lastByPane: { ...state.lastByPane, [pane]: visit } })),
 }));
+
+/**
+ * Forget every remembered destination. Called on logout and project switch
+ * (beside `resetCurrentChannel`) because a visit holds hrefs and space ids from
+ * the current project; without this a rail pick after a switch would restore a
+ * page — or re-scope the app to a space — from the project the user just left.
+ */
+export function resetRailHistory(): void {
+  useRailHistoryStore.setState({ lastByPane: {} });
+}
