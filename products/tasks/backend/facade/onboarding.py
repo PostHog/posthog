@@ -37,6 +37,9 @@ ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
 
 ONBOARDING_SESSION_EFFORT = "medium"
 
+# Channel instructions live under the "task" scope object (ChannelViewSet.scope_object).
+ONBOARDING_SESSION_SCOPES = ["task:read", "task:write"]
+
 # The session lands in #general, so it is gated on the flag that decides whether spaces exist
 # for this person at all. Nothing to gain from a second rollout dial.
 SPACES_LAYOUT_FLAG = "code-spaces-layout"
@@ -61,6 +64,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         return (
             OnboardingFacts(
                 org_has_context=True,
+                has_events=bool(team.ingested_event),
                 signal_reports_waiting=visible_report_count(team.id),
                 other_members=prose_list(desktop_users_in_team(team.id, user.id)),
                 sources_enabled=sources.labels,
@@ -142,6 +146,10 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         mode="interactive",
         model=ONBOARDING_SESSION_MODEL,
         reasoning_effort=ONBOARDING_SESSION_EFFORT,
+        # The session talks and writes the space's context, nothing else. Scoping the token to
+        # that keeps a hostile page in the scraped homepage from steering a full-scope agent,
+        # which the untrusted `<homepage>` block cannot rule out on its own.
+        posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
         # The session only ever talks and writes the space's context, so a permission prompt
         # would be the first thing a new user had to answer, about a tool they cannot see.
         initial_permission_mode="auto",

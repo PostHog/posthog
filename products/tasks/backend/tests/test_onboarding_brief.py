@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_brief import (
     NO_FOLLOWUP,
+    RESEARCH_LINE,
     OnboardingFacts,
     build_followup,
     build_opening_brief,
@@ -39,12 +40,15 @@ class TestOpeningBrief(SimpleTestCase):
         assert "Sources:" not in joined
         assert any("could not read their site" in line for line in brief)
 
-    def test_no_research_at_all_reads_like_a_failed_read(self) -> None:
+    def test_research_that_never_ran_is_never_claimed(self) -> None:
         brief = build_opening_brief(_setup_facts(research=None))
 
         joined = " ".join(brief)
+        assert RESEARCH_LINE not in joined
+        assert "could not read their site" not in joined
         assert "Summarize what the company does" not in joined
         assert "Sources:" not in joined
+        assert any("what are they working on right now" in line for line in brief)
 
     def test_the_first_thing_they_read_says_where_they_are(self) -> None:
         brief = build_opening_brief(_setup_facts())
@@ -121,6 +125,20 @@ class TestOpeningBrief(SimpleTestCase):
         (status,) = [line for line in brief if "you turned on" in line]
         assert "error tracking, health checks and 3 others" in status
         assert "Sentry" not in status
+
+    def test_a_joiner_with_no_findings_still_hears_what_is_watching(self) -> None:
+        brief = build_opening_brief(
+            OnboardingFacts(
+                org_has_context=True,
+                has_events=True,
+                signal_reports_waiting=0,
+                sources_enabled=("error tracking", "health checks"),
+            )
+        )
+
+        assert any("you are watching error tracking and health checks" in line for line in brief)
+        assert not any("findings are waiting" in line for line in brief)
+        assert not any(line.startswith("Offer to") for line in brief)
 
 
 class TestProseList(SimpleTestCase):

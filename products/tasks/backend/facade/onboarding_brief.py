@@ -55,8 +55,10 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
     if facts.other_members:
         welcome += f" Say that {facts.other_members} are already here."
     brief = [welcome]
+    status = _status_line(facts)
+    if status:
+        brief.append(status)
     if facts.signal_reports_waiting:
-        brief.append(_findings_line(facts))
         brief.append("Offer to walk them through one of the findings.")
     brief.append(TOP_OF_MIND)
     return brief
@@ -98,11 +100,19 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
         return _joining_brief(facts)
 
     scraped = facts.research is not None and facts.research.outcome == "scraped"
-    brief = [WELCOME_LINE, RESEARCH_LINE]
+    brief = [WELCOME_LINE]
 
-    if scraped:
+    if facts.research is None:
+        # No company domain to read, so no research was attempted. Claiming any is a lie, and
+        # "I could not read your site" names a site nobody has.
+        brief.append(
+            "Ask one real question so you can be useful rather than generic: what are they working on right now?"
+        )
+    elif scraped:
+        brief.append(RESEARCH_LINE)
         brief.append("Summarize what the company does, from the page below, and ask whether that is right.")
     else:
+        brief.append(RESEARCH_LINE)
         brief.append("Say you could not read their site, and ask what the company does.")
 
     status = _status_line(facts)

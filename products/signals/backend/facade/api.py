@@ -422,14 +422,14 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSo
     through a grid of toggles. Best-effort by design: a source that fails to enable is logged and
     skipped, because a half-enabled workspace still beats a failed sign-in.
 
-    A team that already runs a source is left alone, which is what makes this safe to call on every
-    sign-in: re-running would restamp ``created_by`` onto whoever signed in last, and a team that
-    picked its own sources did not ask us to add to them.
+    A source the team already has a row for is left alone, enabled or not. That is what makes this
+    safe to call on every sign-in: a team that switched a source off did not ask us to switch it
+    back on, and re-running would restamp ``created_by`` onto whoever signed in last. Deciding per
+    source rather than per team also means a source whose write failed is retried next time,
+    instead of being stranded off because a sibling succeeded.
     """
-    if has_enabled_source(team_id):
-        return OnboardingSources(labels=_active_source_labels(team_id), newly_enabled=False)
-
-    labels: list[str] = []
+    known = set(SignalSourceConfig.objects.filter(team_id=team_id).values_list("source_product", "source_type"))
+    created: list[str] = []
     bundles: list[tuple[str, tuple[str, ...], str]] = [
         *_ONBOARDING_NATIVE_SOURCES,
         *(
@@ -438,19 +438,24 @@ def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSo
         ),
     ]
     for source_product, source_types, label in bundles:
+        missing = tuple(t for t in source_types if (source_product, t) not in known)
+        if not missing:
+            continue
         try:
             set_signal_source_types_enabled(
                 team_id=team_id,
                 source_product=source_product,
-                source_types=source_types,
+                source_types=missing,
                 enabled=True,
                 created_by_id=user_id,
             )
         except Exception:
             logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
             continue
-        labels.append(label)
-    return OnboardingSources(labels=tuple(labels), newly_enabled=bool(labels))
+        created.append(label)
+    if created:
+        return OnboardingSources(labels=tuple(created), newly_enabled=True)
+    return OnboardingSources(labels=_active_source_labels(team_id), newly_enabled=False)
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,

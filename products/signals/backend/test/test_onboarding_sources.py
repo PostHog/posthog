@@ -29,16 +29,42 @@ class TestOnboardingSignalSources(BaseTest):
         assert sources.newly_enabled
         assert sources.labels[:2] == ("error tracking", "health checks")
 
-    def test_a_team_that_picked_its_own_sources_is_left_alone(self) -> None:
+    def test_a_source_the_team_switched_off_is_never_switched_back_on(self) -> None:
         SignalSourceConfig.objects.create(
-            team_id=self.team.id, source_product="linear", source_type="issue", enabled=True
+            team_id=self.team.id, source_product="health_checks", source_type="health_issue", enabled=False
         )
+
+        enable_onboarding_signal_sources(self.team.id, self.user.id)
+
+        assert ("health_checks", "health_issue") not in _enabled_pairs(self.team.id)
+        assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
+
+    def test_a_source_whose_write_failed_is_retried_next_time(self) -> None:
+        real = SignalSourceConfig.objects.update_or_create
+
+        def explode_on_health_checks(**kwargs: Any) -> Any:
+            if kwargs.get("source_product") == "health_checks":
+                raise RuntimeError("boom")
+            return real(**kwargs)
+
+        with patch.object(SignalSourceConfig.objects, "update_or_create", side_effect=explode_on_health_checks):
+            enable_onboarding_signal_sources(self.team.id, self.user.id)
+        assert ("health_checks", "health_issue") not in _enabled_pairs(self.team.id)
+
+        sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
+
+        assert ("health_checks", "health_issue") in _enabled_pairs(self.team.id)
+        assert sources.newly_enabled
+
+    def test_a_team_that_already_runs_everything_is_left_alone(self) -> None:
+        enable_onboarding_signal_sources(self.team.id, self.user.id)
+        before = _enabled_pairs(self.team.id)
 
         sources = enable_onboarding_signal_sources(self.team.id, self.user.id)
 
         assert not sources.newly_enabled
-        assert sources.labels == ("Linear",)
-        assert _enabled_pairs(self.team.id) == {("linear", "issue")}
+        assert "error tracking" in sources.labels
+        assert _enabled_pairs(self.team.id) == before
 
     def test_a_warehouse_source_the_team_already_syncs_is_turned_on_too(self) -> None:
         with patch(
