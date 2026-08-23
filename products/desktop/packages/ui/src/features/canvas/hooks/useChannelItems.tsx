@@ -94,7 +94,7 @@ export function useChannelItems(channelId: string): {
   });
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
+  const { archiveTask } = useArchiveTask();
   const { setPinned: setCanvasPinned, invalidateDashboards } =
     useDashboardMutations();
   const client = useOptionalAuthenticatedClient();
@@ -156,12 +156,12 @@ export function useChannelItems(channelId: string): {
       open: (item) => {
         if (item.kind === "canvas") {
           void navigate({
-            to: "/website/$channelId/dashboards/$dashboardId",
+            to: "/spaces/$channelId/dashboards/$dashboardId",
             params: { channelId, dashboardId: item.id },
           });
         } else {
           void navigate({
-            to: "/website/$channelId/tasks/$taskId",
+            to: "/spaces/$channelId/tasks/$taskId",
             params: { channelId, taskId: item.id },
           });
         }

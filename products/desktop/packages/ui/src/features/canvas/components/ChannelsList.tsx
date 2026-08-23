@@ -431,7 +431,7 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
     // asks for the channel pane opens on the right one.
     setCurrentChannel(spaceId);
     void navigate({
-      to: "/website/$channelId/tasks/$taskId",
+      to: "/spaces/$channelId/tasks/$taskId",
       params: { channelId: spaceId, taskId },
     });
   };
@@ -769,8 +769,8 @@ function useChannelActions(channel: Channel): {
         success: true,
       });
       // If we're inside the channel being deleted, fall back to the index.
-      if (pathname.startsWith(`/website/${channel.id}`)) {
-        void navigate({ to: "/website" });
+      if (pathname.startsWith(`/spaces/${channel.id}`)) {
+        void navigate({ to: "/spaces" });
       }
       return true;
     } catch (error) {
@@ -968,7 +968,7 @@ const ChannelSection = memo(
     const noun = spacesLayout ? "space" : "channel";
     const pathname = useRouterState({ select: (s) => s.location.pathname });
     const openChannel = useOpenChannel();
-    const base = `/website/${channel.id}`;
+    const base = `/spaces/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
@@ -1321,7 +1321,7 @@ function useOpenPersonalChannel(): {
     showChannelPane();
     setCurrentChannel(channelId);
     if (!spacesLayout) {
-      void navigate({ to: "/website/$channelId", params: { channelId } });
+      void navigate({ to: "/spaces/$channelId", params: { channelId } });
     }
   };
 
@@ -1347,7 +1347,7 @@ function useOpenChannel(): (channel: Channel) => void {
     setCurrentChannel(channel.id);
     if (!spacesLayout) {
       void navigate({
-        to: "/website/$channelId",
+        to: "/spaces/$channelId",
         params: { channelId: channel.id },
       });
     }
@@ -1379,8 +1379,8 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
   const isActive =
     !!meChannel &&
-    (pathname === `/website/${meChannel.id}` ||
-      pathname.startsWith(`/website/${meChannel.id}/`));
+    (pathname === `/spaces/${meChannel.id}` ||
+      pathname.startsWith(`/spaces/${meChannel.id}/`));
 
   const newTask = () => {
     const channelId = ensureChannelId();

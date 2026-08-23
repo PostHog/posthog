@@ -25,12 +25,22 @@ const general = {
 describe("startup location", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("restores the exact last location without provisioning", async () => {
-    vi.spyOn(stateStorage, "getItem").mockResolvedValue("/code");
+  it("reopens a location saved before the routes were flattened", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue("/website/eng/loops");
     const client = { provisionDefaultTaskChannels: vi.fn() };
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/code",
+      href: "/spaces/eng/loops",
+      firstRun: null,
+    });
+  });
+
+  it("restores the exact last location without provisioning", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue("/new");
+    const client = { provisionDefaultTaskChannels: vi.fn() };
+
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/new",
       firstRun: null,
     });
     expect(client.provisionDefaultTaskChannels).not.toHaveBeenCalled();
@@ -47,7 +57,7 @@ describe("startup location", () => {
     };
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/general-id",
+      href: "/spaces/general-id",
       firstRun: { generalChannelId: "general-id" },
     });
   });
@@ -64,7 +74,7 @@ describe("startup location", () => {
     };
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/general-id",
+      href: "/spaces/general-id",
       firstRun: null,
     });
   });
@@ -73,7 +83,7 @@ describe("startup location", () => {
     // The old key is the only trace of an install that predates the default
     // spaces, and it still has to land where the user left off.
     vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
-      key.includes(":v2:") ? null : "/website/old-space",
+      key.includes(":v2:") ? null : "/spaces/old-space",
     );
     const removeItem = vi
       .spyOn(stateStorage, "removeItem")
@@ -87,7 +97,7 @@ describe("startup location", () => {
     };
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/old-space",
+      href: "/spaces/old-space",
       firstRun: null,
     });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
@@ -97,7 +107,7 @@ describe("startup location", () => {
   it("opens anyway when provisioning is unavailable", async () => {
     // A server that cannot provision yet must not cost someone their location.
     vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
-      key.includes(":v2:") ? null : "/website/old-space",
+      key.includes(":v2:") ? null : "/spaces/old-space",
     );
     const removeItem = vi
       .spyOn(stateStorage, "removeItem")
@@ -107,7 +117,7 @@ describe("startup location", () => {
     };
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/old-space",
+      href: "/spaces/old-space",
       firstRun: null,
     });
     expect(removeItem).not.toHaveBeenCalled();
@@ -135,7 +145,7 @@ describe("startup location", () => {
     );
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/general-id",
+      href: "/spaces/general-id",
       firstRun: null,
     });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
@@ -154,7 +164,7 @@ describe("startup location", () => {
     );
 
     await expect(resolveStartupLocation("project", client)).resolves.toEqual({
-      href: "/website/general-id",
+      href: "/spaces/general-id",
       firstRun: { generalChannelId: "general-id" },
     });
     expect(client.provisionDefaultTaskChannels).not.toHaveBeenCalled();
