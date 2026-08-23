@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -84,7 +84,7 @@ describe("prepareCodexHome", () => {
     );
   });
 
-  it("symlinks the user's ~/.codex/config.toml when present", async () => {
+  it("copies the user's ~/.codex/config.toml when present", async () => {
     const codexConfigDir = path.join(testHome.dir, ".codex");
     await mkdir(codexConfigDir, { recursive: true });
     const configPath = path.join(codexConfigDir, "config.toml");
@@ -97,9 +97,10 @@ describe("prepareCodexHome", () => {
       log: noopLog,
     });
 
-    const link = path.join(codexHome, "config.toml");
-    expect(existsSync(link)).toBe(true);
-    expect(await readlink(link)).toBe(realpathSync(configPath));
+    const privateConfig = path.join(codexHome, "config.toml");
+    expect(readFileSync(privateConfig, "utf-8")).toBe(
+      'model = "gpt-5-codex"\n',
+    );
   });
 
   it("rebuilds the skills dir, dropping stale links", async () => {

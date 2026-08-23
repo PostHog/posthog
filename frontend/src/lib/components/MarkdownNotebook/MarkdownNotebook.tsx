@@ -5745,9 +5745,7 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
-        // Only edit mode persists panel visibility to the document. Persisting encodes "open" as
-        // the ABSENCE of hide* props, which a canvas fallback of filters-closed would immediately
-        // override — opening filters would round-trip to closed. View-mode toggles stay local.
+        // View-mode toggles stay local so interacting with a read-only canvas does not edit the document.
         const persistComponentPanelVisibility =
             mode === 'edit' && node.type === 'component'
                 ? shouldPersistComponentPanelProps(node, componentDefinition)

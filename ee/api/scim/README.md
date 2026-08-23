@@ -6,11 +6,14 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ## Architecture
 
-### Domain-Level Tenancy
+### IdP-Config-Level Tenancy
 
-- SCIM configuration stored on `OrganizationDomain` model (follows SAML pattern)
-- Each domain has unique bearer token for authentication
-- URL structure: `/scim/v2/{domain_id}/Users`
+- SCIM configuration is stored on the `IdentityProviderConfig`
+- Each identity provider configuration has a bearer token and `scim_slug` for authentication
+- URL structure: `/scim/v2/{scim_slug}/Users`, where `scim_slug` comes from the `IdentityProviderConfig`
+- The config is the SCIM tenant: it can back several `OrganizationDomain` rows, and a request names
+  none of them, so requests are scoped by the config's organization. SCIM still requires at least
+  one verified domain on the config
 - Ensures tenant isolation matching existing SAML implementation
 
 ### User Provisioning Strategy
@@ -38,7 +41,22 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 
 ### Models
 
-- `posthog/models/organization_domain.py` - Added `scim_enabled`, `scim_bearer_token` fields
+- `posthog/models/identity_provider_config.py` - Stores `scim_enabled`, `scim_bearer_token`, and `scim_slug`
+- `ee/models/scim_provisioned_user.py` - One provisioning record per (user, config)
+- `ee/models/scim_request_log.py` - Request log per config, listed per domain in the UI
+
+Both carry a legacy `organization_domain` from when SCIM was addressed per domain. Provisioning
+records are attributed to their config by migration `ee.0058`; request logs by the
+`backfill_scim_request_log_config` command, which runs outside the deploy because that table grows
+with every SCIM request:
+
+```bash
+python manage.py backfill_scim_request_log_config --dry-run
+python manage.py backfill_scim_request_log_config --batch-size 1000 --sleep 0.1
+```
+
+It is resumable and safe to re-run. Until it has finished, the per-domain log listing reads both
+keys, so no history is hidden while it works.
 
 ### Core SCIM Implementation (`ee/api/scim/`)
 
@@ -69,23 +87,23 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 ### SCIM Endpoints (IdP Integration)
 
 ```text
-GET    /scim/v2/{domain_id}/Users              # List users
-POST   /scim/v2/{domain_id}/Users              # Create user
-GET    /scim/v2/{domain_id}/Users/{id}         # Get user
-PUT    /scim/v2/{domain_id}/Users/{id}         # Replace user
-PATCH  /scim/v2/{domain_id}/Users/{id}         # Update user
-DELETE /scim/v2/{domain_id}/Users/{id}         # Deactivate user
+GET    /scim/v2/{scim_slug}/Users              # List users
+POST   /scim/v2/{scim_slug}/Users              # Create user
+GET    /scim/v2/{scim_slug}/Users/{id}         # Get user
+PUT    /scim/v2/{scim_slug}/Users/{id}         # Replace user
+PATCH  /scim/v2/{scim_slug}/Users/{id}         # Update user
+DELETE /scim/v2/{scim_slug}/Users/{id}         # Deactivate user
 
-GET    /scim/v2/{domain_id}/Groups             # List groups
-POST   /scim/v2/{domain_id}/Groups             # Create group
-GET    /scim/v2/{domain_id}/Groups/{id}        # Get group
-PUT    /scim/v2/{domain_id}/Groups/{id}        # Replace group
-PATCH  /scim/v2/{domain_id}/Groups/{id}        # Update group
-DELETE /scim/v2/{domain_id}/Groups/{id}        # Delete group
+GET    /scim/v2/{scim_slug}/Groups             # List groups
+POST   /scim/v2/{scim_slug}/Groups             # Create group
+GET    /scim/v2/{scim_slug}/Groups/{id}        # Get group
+PUT    /scim/v2/{scim_slug}/Groups/{id}        # Replace group
+PATCH  /scim/v2/{scim_slug}/Groups/{id}        # Update group
+DELETE /scim/v2/{scim_slug}/Groups/{id}        # Delete group
 
-GET    /scim/v2/{domain_id}/ServiceProviderConfig  # Provider capabilities
-GET    /scim/v2/{domain_id}/ResourceTypes          # Resource types
-GET    /scim/v2/{domain_id}/Schemas                # SCIM schemas
+GET    /scim/v2/{scim_slug}/ServiceProviderConfig  # Provider capabilities
+GET    /scim/v2/{scim_slug}/ResourceTypes          # Resource types
+GET    /scim/v2/{scim_slug}/Schemas                # SCIM schemas
 ```
 
 ### Management Endpoints (PostHog UI)
@@ -114,7 +132,7 @@ Successful response includes the one-time bearer token and SCIM base URL:
   "id": "<domain_id>",
   "domain": "example.com",
   "scim_enabled": true,
-  "scim_base_url": "https://app.posthog.com/scim/v2/<domain_id>",
+  "scim_base_url": "https://app.posthog.com/scim/v2/<scim_slug>",
   "scim_bearer_token": "<plain_token_once>",
   ...
 }
@@ -135,10 +153,11 @@ Response mirrors JIT disabling: `scim_enabled` becomes `false` and no token is r
 ## Authentication Flow
 
 1. IdP makes request to SCIM endpoint with `Authorization: Bearer {token}`
-2. `SCIMBearerTokenAuthentication` extracts domain_id from URL
-3. Retrieves `OrganizationDomain` and validates token (hashed comparison)
-4. Returns domain as `request.auth` for tenant scoping
-5. Views filter all queries by `organization_domain.organization`
+2. `SCIMBearerTokenAuthentication` extracts `scim_slug` from the URL
+3. Retrieves the `IdentityProviderConfig` with that slug, requires SCIM enabled on at least one
+   verified domain, and validates the token (hashed comparison)
+4. Returns the config as `request.auth` for tenant scoping
+5. Views filter all queries by `config.organization`
 
 ## PATCH Operations Support
 
@@ -238,10 +257,11 @@ org.save()
 Get the bearer token and base URL from Settings → Authentication domains or via Django shell:
 
 ```python
-token = enable_scim_for_domain(domain)
+config = domain.identity_provider_config
+token = enable_scim_for_config(config)
 print(f"Bearer Token: {token}")
 
-scim_url = get_scim_base_url(domain)
+scim_url = get_scim_base_url(config)
 print(f"SCIM Base URL: {scim_url}")
 ```
 
@@ -250,7 +270,7 @@ print(f"SCIM Base URL: {scim_url}")
 ### Create User (New)
 
 ```json
-POST /scim/v2/{domain_id}/Users
+POST /scim/v2/{scim_slug}/Users
 {
   "userName": "alice@example.com",
   "name": {"givenName": "Alice", "familyName": "Smith"},
@@ -275,7 +295,7 @@ If user exists in another org:
 ### Update User
 
 ```json
-PATCH /scim/v2/{domain_id}/Users/{id}
+PATCH /scim/v2/{scim_slug}/Users/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"name": {"givenName": "Alicia"}}}
@@ -288,7 +308,7 @@ PATCH /scim/v2/{domain_id}/Users/{id}
 ### Deactivate User
 
 ```json
-PATCH /scim/v2/{domain_id}/Users/{id}
+PATCH /scim/v2/{scim_slug}/Users/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"active": false}}
@@ -303,7 +323,7 @@ PATCH /scim/v2/{domain_id}/Users/{id}
 ### Create Group
 
 ```json
-POST /scim/v2/{domain_id}/Groups
+POST /scim/v2/{scim_slug}/Groups
 {
   "displayName": "Engineering",
   "members": [{"value": "user-id"}]
@@ -318,7 +338,7 @@ POST /scim/v2/{domain_id}/Groups
 ### Update Group Members
 
 ```json
-PATCH /scim/v2/{domain_id}/Groups/{id}
+PATCH /scim/v2/{scim_slug}/Groups/{id}
 {
   "Operations": [
     {"op": "replace", "value": {"members": [{"value": "user-id-1"}, {"value": "user-id-2"}]}}
@@ -365,7 +385,7 @@ pytest ee/api/scim/test/test_groups_api.py
 ### OneLogin
 
 1. Go to Applications → Applications → Add App → Search for **"SCIM Provisioner with SAML (SCIM v2 full SAML)"**
-2. SCIM Base URL: For cloud, use `https://app.posthog.com/scim/v2/{domain_id}`. For local testing, use your ngrok URL, e.g. `https://<ngrok-subdomain>.ngrok.io/scim/v2/{domain_id}`. The `{domain_id}` can be copied directly from the SCIM configuration screen in PostHog.
+2. SCIM Base URL: Use the `scim_base_url` returned by the OrganizationDomain API. It includes the `scim_slug` configured on the linked identity provider configuration.
 3. Bearer Token: Paste the generated Bearer Token from PostHog. It's only shown on first enable or when regenerating.
 4. Enable provisioning in the Configuration and Provisioning tabs (otherwise, OneLogin won't push any updates).
 5. In "Rules", you can sync Role membership by: - Mapping OneLogin roles or groups directly to existing groups in PostHog (by matching names), or - Mapping OneLogin roles/groups that will be upserted in PostHog as needed

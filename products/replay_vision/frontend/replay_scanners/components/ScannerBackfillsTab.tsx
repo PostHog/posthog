@@ -16,9 +16,11 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCredits } from '../../utils/credits'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import type { ScannerCreatedBy } from '../types'
 import { BackfillCostEstimate } from './BackfillCostEstimate'
@@ -69,8 +71,24 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         windowDateTo,
     } = useValues(logic)
     const { requestEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     const activeBackfill = backfills.find(isBackfillActive)
+
+    // A capped or disabled scanner holds its running backfill without changing the row's status, so
+    // the row itself has to say why nothing is progressing.
+    const runningHold = scanner?.limit_reached
+        ? {
+              label: "Waiting on the scanner's credit limit",
+              tooltip:
+                  'The backfill is on hold and resumes when the credit limit resets at the start of the next billing period.',
+          }
+        : scanner && !scanner.enabled
+          ? {
+                label: 'Waiting on the scanner to be enabled',
+                tooltip: 'The backfill is on hold and resumes when the scanner is enabled again.',
+            }
+          : null
 
     const estimateWindow = (dateFrom: string | null, dateTo: string | null): void => {
         setWindowRange(dateFrom, dateTo)
@@ -116,9 +134,16 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
             title: 'Status',
             key: 'status',
             render: (_, backfill) => (
-                <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
-                    {BACKFILL_STATUS_TAG[backfill.status].label}
-                </LemonTag>
+                <div className="flex items-center gap-1 flex-wrap">
+                    <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
+                        {BACKFILL_STATUS_TAG[backfill.status].label}
+                    </LemonTag>
+                    {backfill.status === 'running' && runningHold && (
+                        <Tooltip title={runningHold.tooltip}>
+                            <LemonTag type="warning">{runningHold.label}</LemonTag>
+                        </Tooltip>
+                    )}
+                </div>
             ),
         },
         {
@@ -126,18 +151,22 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
             key: 'progress',
             render: (_, backfill) => {
                 const settled = backfill.succeeded_count + backfill.failed_count + backfill.ineligible_count
-                // Skipped recordings are done with, so they count toward progress; leaving them out
-                // strands the bar short of its total on any window the scanner had already partly tried.
+                const skippedNote = backfill.skipped_count
+                    ? `, ${backfill.skipped_count} scanned by the live sweep first`
+                    : ''
+                // Both count as done: dispatched by this backfill, or taken over by the sweep while it ran.
                 const handled = backfill.dispatched_count + backfill.skipped_count
-                const skippedNote = backfill.skipped_count ? `, ${backfill.skipped_count} already scanned` : ''
+                const nothingToDo = backfill.status === 'completed' && handled === 0
+                const progress = nothingToDo
+                    ? 'Nothing left to scan'
+                    : `${handled.toLocaleString('en-US')} of ${backfill.total_count.toLocaleString(
+                          'en-US'
+                      )} scanned${settled > 0 ? ` (${settled.toLocaleString('en-US')} settled)` : ''}`
                 return (
                     <Tooltip
                         title={`${backfill.succeeded_count} succeeded, ${backfill.failed_count} failed, ${backfill.ineligible_count} ineligible, ${backfill.in_flight_count} in flight${skippedNote}`}
                     >
-                        <span>
-                            {handled.toLocaleString('en-US')} of {backfill.total_count.toLocaleString('en-US')} handled
-                            {settled > 0 ? ` (${settled.toLocaleString('en-US')} settled)` : ''}
-                        </span>
+                        <span className={nothingToDo ? 'text-muted' : undefined}>{progress}</span>
                     </Tooltip>
                 )
             },
@@ -261,7 +290,14 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                 columns={columns}
                 loading={backfillsLoading}
                 rowKey="id"
-                emptyState="No backfills yet. Pick a time range above to scan historical recordings."
+                emptyState={
+                    <>
+                        No backfills yet. Pick a time range above to scan historical recordings.{' '}
+                        <VisionDocsLink page="running-scanners" dataAttr="vision-empty-docs-link-backfills">
+                            Learn how backfills work
+                        </VisionDocsLink>
+                    </>
+                }
                 data-attr="vision-backfills-table"
             />
         </div>

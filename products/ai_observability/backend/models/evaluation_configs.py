@@ -54,7 +54,12 @@ class BooleanOutputConfig(BaseModel):
 
 
 class SentimentEvalConfig(BaseModel):
-    """Configuration for sentiment evaluations."""
+    """Configuration for sentiment evaluations.
+
+    The classifier is an English-trained model, so labels are unreliable for other languages. A
+    multilingual agent should use an llm_judge evaluation instead. See
+    posthog/temporal/ai_observability/sentiment/README.md.
+    """
 
     source: Literal["user_messages"] = Field(
         default="user_messages",

@@ -30,8 +30,6 @@ pub struct FlushBatch {
 struct Lane {
     buffer: PersonBuffer,
     flush_tx: mpsc::Sender<FlushBatch>,
-    /// Oldest message timestamp currently buffered in this lane.
-    oldest_message_ts_ms: Option<i64>,
 }
 
 /// Reads from Kafka, decodes Person protos, buffers with dedup per lane,
@@ -78,7 +76,6 @@ impl ConsumerTask {
             .map(|flush_tx| Lane {
                 buffer: PersonBuffer::new(per_lane_capacity),
                 flush_tx,
-                oldest_message_ts_ms: None,
             })
             .collect();
         Self {
@@ -97,7 +94,9 @@ impl ConsumerTask {
         info!(lanes = self.lanes.len(), "Consumer task starting");
 
         loop {
-            // Backpressure: flush a full lane immediately
+            // Backpressure: a full lane drains one capped batch before the
+            // loop re-checks, so even the hard-cap path releases its backlog
+            // as bounded batches rather than one giant flush.
             if let Some(idx) = self.lanes.iter().position(|l| l.buffer.is_full()) {
                 counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "backpressure")
                     .increment(1);
@@ -111,7 +110,7 @@ impl ConsumerTask {
                 _ = self.handle.shutdown_recv() => {
                     info!("Shutdown signal, flushing remaining buffers");
                     for idx in 0..self.lanes.len() {
-                        if !self.lanes[idx].buffer.is_empty() {
+                        while !self.lanes[idx].buffer.is_empty() {
                             counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "shutdown")
                                 .increment(1);
                             self.send_flush(idx).await;
@@ -121,8 +120,12 @@ impl ConsumerTask {
                 }
 
                 _ = flush_timer.tick() => {
+                    // Drain each lane fully, one capped batch at a time. The
+                    // blocking send paces the drain at the writer's speed, so
+                    // a backlogged lane empties as a sequence of bounded
+                    // batches instead of one giant one.
                     for idx in 0..self.lanes.len() {
-                        if !self.lanes[idx].buffer.is_empty() {
+                        while !self.lanes[idx].buffer.is_empty() {
                             counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "timer")
                                 .increment(1);
                             self.send_flush(idx).await;
@@ -144,20 +147,7 @@ impl ConsumerTask {
                                             .increment(1);
                                         let idx = (partition as usize) % self.lanes.len();
                                         let lane = &mut self.lanes[idx];
-
-                                        if let Some(ts_ms) = ts_ms {
-                                            match lane.oldest_message_ts_ms {
-                                                Some(existing) if ts_ms < existing => {
-                                                    lane.oldest_message_ts_ms = Some(ts_ms);
-                                                }
-                                                None => {
-                                                    lane.oldest_message_ts_ms = Some(ts_ms);
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-
-                                        lane.buffer.insert(person, partition, offset);
+                                        lane.buffer.insert(person, partition, offset, ts_ms);
 
                                         // Size-triggered flushes never block the
                                         // consume loop: if this lane's writer is
@@ -209,18 +199,15 @@ impl ConsumerTask {
         info!("Consumer task stopped");
     }
 
-    /// Drain a lane's buffer into a batch. Offset and buffer-size gauges
-    /// are recorded here, per flush — updating them per message is too
+    /// Drain up to `flush_buffer_size` rows (whole partitions only) from a
+    /// lane's buffer into a batch. Offset and buffer-size gauges are
+    /// recorded here, per flush — updating them per message is too
     /// expensive for the consume loop (dynamic-label registry lookups).
     fn take_batch(&mut self, idx: usize) -> Option<FlushBatch> {
         let lane = &mut self.lanes[idx];
-        let (persons, offsets) = lane.buffer.drain();
-        let oldest_message_ts_ms = lane.oldest_message_ts_ms.take();
-        if persons.is_empty() {
-            return None;
-        }
+        let batch = lane.buffer.drain_up_to(self.flush_buffer_size)?;
 
-        for (partition, offset) in &offsets {
+        for (partition, offset) in &batch.offsets {
             gauge!(
                 "personhog_writer_partition_offset",
                 "partition" => partition.to_string()
@@ -231,15 +218,16 @@ impl ConsumerTask {
         gauge!("personhog_writer_buffer_size").set(total as f64);
 
         Some(FlushBatch {
-            persons,
-            offsets,
-            oldest_message_ts_ms,
+            persons: batch.persons,
+            offsets: batch.offsets,
+            oldest_message_ts_ms: batch.oldest_message_ts_ms,
         })
     }
 
-    /// Drain a lane's buffer and send to its writer task, waiting until the
-    /// writer accepts it. Used on the timer, shutdown, and hard-capacity
-    /// paths, where blocking the consume loop is intended backpressure.
+    /// Drain one capped batch from a lane and send it to the writer task,
+    /// waiting until the writer accepts it. Used on the timer, shutdown, and
+    /// hard-capacity paths, where blocking the consume loop is intended
+    /// backpressure.
     async fn send_flush(&mut self, idx: usize) {
         let Some(batch) = self.take_batch(idx) else {
             return;

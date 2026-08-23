@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Team
 from posthog.models.integration import Integration
 
@@ -42,11 +42,6 @@ class TestVisionActionDelivery(APIBaseTest):
         super().setUp()
         sync_template_to_db(template_slack)
         sync_template_to_db(_WEBHOOK_TEMPLATE)
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Saving a HogFunction pushes it to the CDP workers; there are none in tests.
         self.reload_patcher = patch(
             "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
@@ -58,7 +53,6 @@ class TestVisionActionDelivery(APIBaseTest):
 
     def tearDown(self) -> None:
         self.reload_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -71,7 +65,7 @@ class TestVisionActionDelivery(APIBaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self) -> Integration:

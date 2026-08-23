@@ -10,6 +10,7 @@ import pyarrow.compute as pc
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
@@ -80,22 +81,34 @@ async def setup_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
+        pa_table = partition_result.table
 
         if (
             not schema.partitioning_enabled
-            or schema.partition_mode != partition_mode
-            or schema.partition_format != partition_format
-            or schema.partitioning_keys != updated_partition_keys
+            or schema.partition_mode != partition_result.partition_mode
+            or schema.partition_format != partition_result.partition_format
+            or schema.partitioning_keys != partition_result.partition_keys
         ):
             logger.debug(
-                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_result.partition_mode}. partition_format={partition_result.partition_format}"
             )
             await database_sync_to_async_pool(schema.set_partitioning_enabled)(
-                updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
+                partition_result.partition_keys,
+                partition_count,
+                partition_size,
+                partition_result.partition_mode,
+                partition_result.partition_format,
             )
 
     return pa_table
+
+
+@frozen
+class PartitionedTable:
+    table: pa.Table
+    partition_mode: PartitionMode
+    partition_format: PartitionFormat | None
+    partition_keys: list[str]
 
 
 def append_partition_key_to_table(
@@ -106,7 +119,7 @@ def append_partition_key_to_table(
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[pa.Table, PartitionMode, PartitionFormat | None, list[str]]:
+) -> PartitionedTable | None:
     """
     Partitions the pyarrow table via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
@@ -250,4 +263,9 @@ def append_partition_key_to_table(
 
     new_column = pa.array(partition_array, type=pa.string())
 
-    return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys
+    return PartitionedTable(
+        table=table.append_column(PARTITION_KEY, new_column),
+        partition_mode=mode,
+        partition_format=partition_format,
+        partition_keys=normalized_partition_keys,
+    )

@@ -149,8 +149,6 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,
-        flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
-        personlessWritesDisabledTeams: perDistinctIdOptions.PERSONLESS_WRITES_DISABLED_TEAMS,
     }
 
     const perEventConfig: EventSubpipelineConfig = {
@@ -192,6 +190,7 @@ export function createJoinedIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    pipelineWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.

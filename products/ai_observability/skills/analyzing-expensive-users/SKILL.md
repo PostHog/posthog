@@ -344,3 +344,8 @@ Lead with the answer, not the queries. A good response has:
 Avoid generic advice. "Use cheaper models" is not useful unless the data shows
 that model mix is the driver. "Reduce prompt size" is not useful unless input
 tokens are high relative to the baseline.
+
+## Related skills
+
+- **`exploring-llm-costs`** — project-wide spend: totals, breakdowns, and cost regressions
+- **`exploring-llm-traces`** — read the traces behind a user's expensive generations

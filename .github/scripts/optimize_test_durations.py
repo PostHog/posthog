@@ -13,12 +13,14 @@ Prepare test durations for pytest-split sharding.
 Merges timing artifacts from CI shards and removes migration-tax
 contamination using JUnit call times as a setup-free contamination signal.
 
-Under --reuse-db the per-shard Django DB build (~7 min on master) is
-absorbed into whichever test first touches the DB, inflating its recorded
-duration and skewing pytest-split. This script merges the per-shard
-artifacts, floors any test recorded far above its JUnit call time (or
-sitting at a flat-default placeholder) back to that call time, and outputs
-clean durations for balanced distribution.
+Jobs without a restored schema cache build the test DB in the "Migrate
+test_posthog from scratch" workflow step, but when that step fails,
+--reuse-db falls back to building it in-process and the walk is absorbed
+into whichever test first touches the DB, inflating its recorded duration
+and skewing pytest-split.
+This script merges the per-shard artifacts, floors any test recorded far
+above its JUnit call time (or sitting at a flat-default placeholder) back
+to that call time, and outputs clean durations for balanced distribution.
 """
 
 import re
@@ -43,10 +45,11 @@ MIN_DURATION = 0.01
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
 # A test recorded this far above its JUnit call time absorbed per-shard DB
-# setup. Under --reuse-db the migration walk lands on whichever test first
-# touches the DB (not reliably the first test in the file), so detect it by
-# the call-time gap rather than by position. Migration/DB setup is hundreds
-# of seconds; legit per-test setup is tens at most, so this separates them.
+# setup. When the out-of-process migrate step fell back to in-pytest, the
+# walk lands on whichever test first touches the DB (not reliably the first
+# test in the file), so detect it by the call-time gap rather than by
+# position. Migration/DB setup is hundreds of seconds; legit per-test setup
+# is tens at most, so this separates them.
 MIGRATION_TAX_THRESHOLD_SECONDS = 120.0
 # pytest-split writes these flat values for tests it has no timing for. They
 # are placeholders, not measurements — when JUnit has a real call time for
@@ -77,10 +80,13 @@ class ShardTimings:
         return shards
 
 
-# Maps the script's segment names to the artifact-key fragment used by
-# ci-backend.yml ("junit-results-backend-<artifact-key>-<group>"). Add new
-# segments here when adding JUnit-mode carrier detection for them.
-_JUNIT_ARTIFACT_KEY = {"Core": "core", "CorePOE": "core-poe", "Temporal": "temporal"}
+# Maps segment names to the JUnit artifact prefix used by ci-backend.yml.
+_JUNIT_ARTIFACT_PREFIX = {
+    "Core": "junit-results-backend-core",
+    "CorePOE": "junit-results-backend-core-poe",
+    "Temporal": "junit-results-backend-temporal",
+    "Products": "product-junit-results",
+}
 
 
 @dataclass
@@ -112,10 +118,10 @@ class JUnitShard:
                 continue
 
             if segment:
-                artifact_key = _JUNIT_ARTIFACT_KEY.get(segment, segment.lower())
+                artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
-                pattern = re.compile(rf"^junit-results-backend-{re.escape(artifact_key)}-\d+$")
+                pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
                 if not pattern.match(shard_dir.name.lower()):
                     continue
 
@@ -123,7 +129,11 @@ class JUnitShard:
             if not xml_files:
                 continue
 
-            shards.append(cls(name=shard_dir.name, call_times=cls._parse_call_times(xml_files[0])))
+            call_times: dict[str, float] = {}
+            for xml_file in xml_files:
+                for test_id, call_time in cls._parse_call_times(xml_file).items():
+                    call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
+            shards.append(cls(name=shard_dir.name, call_times=call_times))
 
         return shards
 
@@ -239,10 +249,13 @@ class TimingMerger:
 class MigrationTaxCorrector:
     """Removes migration-tax contamination from merged durations.
 
-    Under --reuse-db the per-shard Django DB build (~7 min on master) lands
-    on whichever test first touches the DB, inflating that test's recorded
-    setup+call duration and skewing pytest-split's shard balancing. The
-    outlier-merge then prefers that inflated value over the test's real one.
+    When a job's out-of-process migrate step fails, --reuse-db builds the
+    DB in-process and the walk lands on whichever test first touches the
+    DB, inflating that test's recorded setup+call duration and skewing
+    pytest-split's shard balancing. The outlier-merge then prefers that
+    inflated value over the test's real one. Normally the walk happens in
+    its own workflow step (or a cached schema is restored), so no test
+    carries tax and both modes below are cheap no-ops.
 
     Two modes:
     - JUnit-based (preferred): JUnit call time is the call phase only, so a
@@ -313,7 +326,11 @@ class MigrationTaxCorrector:
             )
         else:
             logger.info("  No JUnit-detected contamination")
-        return MigrationTaxResult(corrected, migration_tax_seconds=avg_removed, carriers_found=len(removed))
+        return MigrationTaxResult(
+            corrected,
+            migration_tax_seconds=avg_removed,
+            carriers_found=len(removed),
+        )
 
     @staticmethod
     def _lookup_call_time(test_id: str, junit_call: dict[str, float]) -> float | None:
@@ -352,7 +369,11 @@ class MigrationTaxCorrector:
 
         Uses expected_shard_count as the number of carriers to look for.
         Only selects tests above CARRIER_THRESHOLD_SECONDS to avoid
-        false positives from genuinely slow tests.
+        false positives from genuinely slow tests. That guard is now the
+        whole story on tax-free runs (the normal path migrates
+        out-of-process): a genuine test above the threshold would be
+        misread as a carrier and floored, so if one ever appears, raise
+        the threshold or drop this mode rather than trusting it.
         """
         candidates = sorted(self.durations.items(), key=lambda x: -x[1])
 
@@ -436,6 +457,12 @@ def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
     return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
 
 
+def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
+    timing_ids = {shard.name.rsplit("-", 1)[-1] for shard in timing_shards}
+    junit_ids = {shard.name.rsplit("-", 1)[-1] for shard in junit_shards}
+    return timing_ids == junit_ids
+
+
 def collect_existing_tests(segment: str | None = None) -> set[str]:
     """Collect test names that actually exist in the codebase.
 
@@ -486,7 +513,7 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
-def run_merge_files(input_files: list[Path], output_file: Path) -> None:
+def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
@@ -504,6 +531,10 @@ def run_merge_files(input_files: list[Path], output_file: Path) -> None:
         logger.error("No input files found to merge — refusing to write empty %s", output_file)
         sys.exit(1)
 
+    if replace_prefix and len(sources) > 1:
+        sources[0] = {
+            test_id: duration for test_id, duration in sources[0].items() if not test_id.startswith(replace_prefix)
+        }
     merged = outlier_merge_durations(sources)
     with open(output_file, "w") as f:
         json.dump(merged, f, indent=4, sort_keys=True)
@@ -608,11 +639,16 @@ def main():
         default="mean",
         help="Aggregation for --average-files (default: mean).",
     )
+    parser.add_argument(
+        "--replace-prefix",
+        default=None,
+        help="In merge mode, remove matching entries from the first input before merging fresh segment data.",
+    )
 
     args = parser.parse_args()
 
     if args.merge_files:
-        run_merge_files(args.merge_files, args.output_file)
+        run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
         return
 
     if args.average_files:
@@ -628,6 +664,17 @@ def main():
         logger.info("  Filtering to segment: %s", args.segment)
     shards = ShardTimings.load_all(args.artifacts_dir, segment=args.segment)
     logger.info("  Loaded %d shards", len(shards))
+    if not shards:
+        # Same guard as run_merge_files/run_average_files: an empty durations file is
+        # worse than no file. It contributes nothing to the union merge, so every
+        # product the missing segment covers silently sizes to zero and gets packed
+        # into a bucket it then runs straight past.
+        logger.error(
+            "No timing artifacts for segment %s in %s — refusing to write an empty durations file",
+            args.segment or "all",
+            args.artifacts_dir,
+        )
+        sys.exit(1)
 
     # Merge using outlier detection (not naive last-wins)
     logger.info("Merging with outlier detection...")
@@ -683,6 +730,19 @@ def main():
             len(durations),
             before_count - len(durations),
         )
+
+    if args.segment == "Products" and junit_shards:
+        if shard_sets_match(shards, junit_shards):
+            ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
+            before_count = len(durations)
+            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            logger.info(
+                "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
+                len(junit_shards),
+                before_count - len(durations),
+            )
+        else:
+            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
 
     # Filter to only existing tests if requested
     if args.filter_existing:

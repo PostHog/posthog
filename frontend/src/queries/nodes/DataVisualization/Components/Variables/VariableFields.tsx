@@ -352,7 +352,14 @@ const RELATIVE_DATE_UNITS: Array<{ value: RelativeDateUnit; label: string }> = [
     { value: 'y', label: 'years' },
 ]
 
-export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVariable>): JSX.Element => {
+export const DateField = ({
+    variable,
+    updateVariable,
+    onApply,
+}: DirectFieldProps<DateVariable> & {
+    /** Called when the calendar's own Apply button is pressed, so a caller can treat it as the commit. */
+    onApply?: (value: string) => void
+}): JSX.Element => {
     const isRelative = isRelativeDateValue(variable.default_value)
     const relativeValue = parseRelativeDateValue(variable.default_value) ?? { amount: 0, unit: 'd' as RelativeDateUnit }
 
@@ -403,7 +410,10 @@ export const DateField = ({ variable, updateVariable }: DirectFieldProps<DateVar
                 <VariableCalendar
                     value={dayjs(variable.default_value)}
                     rawValue={variable.default_value}
-                    updateVariable={(date) => updateVariable({ ...variable, default_value: date })}
+                    updateVariable={(date) => {
+                        updateVariable({ ...variable, default_value: date })
+                        onApply?.(date)
+                    }}
                 />
             )}
             {isRelative && (

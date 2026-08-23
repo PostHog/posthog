@@ -20,6 +20,7 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     CheckTraceSettledInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
+    SettlePlan,
     check_session_settled_activity,
     check_trace_settled_activity,
     resolve_poll_interval,
@@ -89,26 +90,41 @@ class TestResolveSettlePlan:
     @pytest.mark.parametrize(
         "settle,expected",
         [
-            (None, ("fixed_window", 1800, 1800)),
-            ({}, ("fixed_window", 1800, 1800)),
-            ({"strategy": "fixed_window", "window_seconds": 60}, ("fixed_window", 60, 60)),
+            (None, SettlePlan(strategy="fixed_window", primary_seconds=1800, max_age_seconds=1800)),
+            ({}, SettlePlan(strategy="fixed_window", primary_seconds=1800, max_age_seconds=1800)),
+            (
+                {"strategy": "fixed_window", "window_seconds": 60},
+                SettlePlan(strategy="fixed_window", primary_seconds=60, max_age_seconds=60),
+            ),
             # Legacy sub-floor values are bumped to the floor (the old workflow only re-clamped the max).
-            ({"window_seconds": 0}, ("fixed_window", 10, 10)),
-            ({"window_seconds": 99999}, ("fixed_window", 7200, 7200)),
-            ({"strategy": "inactivity"}, ("inactivity", 300, 7200)),
+            ({"window_seconds": 0}, SettlePlan(strategy="fixed_window", primary_seconds=10, max_age_seconds=10)),
+            (
+                {"window_seconds": 99999},
+                SettlePlan(strategy="fixed_window", primary_seconds=7200, max_age_seconds=7200),
+            ),
+            ({"strategy": "inactivity"}, SettlePlan(strategy="inactivity", primary_seconds=300, max_age_seconds=7200)),
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 600},
-                ("inactivity", 120, 600),
+                SettlePlan(strategy="inactivity", primary_seconds=120, max_age_seconds=600),
             ),
             # Sub-floor and above-ceiling quiet_period_seconds are clamped the same way as window_seconds.
-            ({"strategy": "inactivity", "quiet_period_seconds": 5}, ("inactivity", 10, 7200)),
-            ({"strategy": "inactivity", "quiet_period_seconds": 5000}, ("inactivity", 1800, 7200)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 5},
+                SettlePlan(strategy="inactivity", primary_seconds=10, max_age_seconds=7200),
+            ),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 5000},
+                SettlePlan(strategy="inactivity", primary_seconds=1800, max_age_seconds=7200),
+            ),
             # max_age below quiet period is coerced up so the loop's min() can't fire before one quiet period.
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 600, "max_age_seconds": 60},
-                ("inactivity", 600, 600),
+                SettlePlan(strategy="inactivity", primary_seconds=600, max_age_seconds=600),
             ),
-            ({"strategy": "bogus", "window_seconds": 60}, ("fixed_window", 60, 60)),
+            (
+                {"strategy": "bogus", "window_seconds": 60},
+                SettlePlan(strategy="fixed_window", primary_seconds=60, max_age_seconds=60),
+            ),
         ],
     )
     def test_resolves_and_clamps(self, settle, expected):
@@ -118,19 +134,34 @@ class TestResolveSettlePlan:
         "settle,expected",
         [
             # Absent strategy resolves to the session default, not the trace default.
-            (None, ("inactivity", 3600, 86400)),
-            ({}, ("inactivity", 3600, 86400)),
+            (None, SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400)),
+            ({}, SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400)),
             # Session-sized values survive; the trace ceilings would have crushed these to 1800/7200.
             (
                 {"strategy": "inactivity", "quiet_period_seconds": 86400, "max_age_seconds": 604800},
-                ("inactivity", 86400, 604800),
+                SettlePlan(strategy="inactivity", primary_seconds=86400, max_age_seconds=604800),
             ),
-            ({"strategy": "inactivity", "quiet_period_seconds": 3600}, ("inactivity", 3600, 86400)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 3600},
+                SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=86400),
+            ),
             # Session ceilings still clamp above their own bounds.
-            ({"strategy": "inactivity", "quiet_period_seconds": 999999}, ("inactivity", 86400, 86400)),
-            ({"strategy": "inactivity", "max_age_seconds": 9999999}, ("inactivity", 3600, 604800)),
-            ({"strategy": "fixed_window", "window_seconds": 604800}, ("fixed_window", 604800, 604800)),
-            ({"strategy": "fixed_window", "window_seconds": 9999999}, ("fixed_window", 604800, 604800)),
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 999999},
+                SettlePlan(strategy="inactivity", primary_seconds=86400, max_age_seconds=86400),
+            ),
+            (
+                {"strategy": "inactivity", "max_age_seconds": 9999999},
+                SettlePlan(strategy="inactivity", primary_seconds=3600, max_age_seconds=604800),
+            ),
+            (
+                {"strategy": "fixed_window", "window_seconds": 604800},
+                SettlePlan(strategy="fixed_window", primary_seconds=604800, max_age_seconds=604800),
+            ),
+            (
+                {"strategy": "fixed_window", "window_seconds": 9999999},
+                SettlePlan(strategy="fixed_window", primary_seconds=604800, max_age_seconds=604800),
+            ),
         ],
     )
     def test_resolves_and_clamps_for_session_target(self, settle, expected):

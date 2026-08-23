@@ -144,6 +144,8 @@ class TestDockerSandboxUnit:
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
         (tmp_path / "patches").mkdir()
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "shared", "git", "enricher"):
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
@@ -159,6 +161,8 @@ class TestDockerSandboxUnit:
             monorepo_path.mkdir(exist_ok=True)
             (monorepo_path / file_name).touch()
         (monorepo_path / "patches").mkdir()
+        (monorepo_path / "scripts").mkdir()
+        (monorepo_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "shared", "git", "enricher"):
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
@@ -173,6 +177,7 @@ class TestDockerSandboxUnit:
 
         workspace_path = context_path / "local-workspace"
         assert (workspace_path / "pnpm-workspace.yaml").is_file()
+        assert (workspace_path / "scripts" / "rimraf.mjs").is_file()
         assert (workspace_path / "packages" / "harness" / "package.json").is_file()
         command = run.call_args.args[0]
         assert command[0:2] == ["docker", "build"]
@@ -340,13 +345,14 @@ class TestDockerSandboxUnit:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,expected_in_command,not_expected_in_command",
+        "shallow,blobless,expected_in_command,not_expected_in_command",
         [
-            (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (True, False, "--depth 1", "--filter=blob:"),
+            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -354,7 +360,9 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                sandbox.clone_repository(
+                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command

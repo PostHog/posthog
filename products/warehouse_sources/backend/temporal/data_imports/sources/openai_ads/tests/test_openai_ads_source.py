@@ -146,6 +146,10 @@ class TestRetryableErrors:
                 "malformed_json",
                 "Malformed JSON response from https://api.ads.openai.com/v1/campaigns: Expecting value: line 1 column 1 (char 0)",
             ),
+            (
+                "body_reported_server_error",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/ads?ad_group_id=adgrp_123&limit=500&order=asc | api error: code=server_error",
+            ),
         ]
     )
     def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
@@ -161,6 +165,10 @@ class TestRetryableErrors:
             (
                 "not_found",
                 "404 Client Error: Not Found for url: https://api.ads.openai.com/v1/campaigns/123",
+            ),
+            (
+                "genuine_bad_request",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/campaigns | api error: code=invalid_request_error",
             ),
         ]
     )

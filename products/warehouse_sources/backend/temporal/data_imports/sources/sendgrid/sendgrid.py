@@ -1,9 +1,10 @@
+import logging
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -21,9 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import (
+    MESSAGE_ACTIVITY_BACKFILL_DAYS,
     SENDGRID_ENDPOINTS,
     SendGridEndpointConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 SENDGRID_BASE_URL = "https://api.sendgrid.com/v3"
 
@@ -36,6 +40,11 @@ class SendGridResumeConfig:
     next_url: Optional[str] = None
     # Row offset of the next unfetched page (offset pagination).
     offset: Optional[int] = None
+    # Remaining unfetched Email Activity window (activity pagination), both bounds as normalized
+    # UTC ISO timestamps. Saved together so a resumed sync keeps walking the original window
+    # instead of recomputing it from "now" and losing the oldest slice of a first backfill.
+    activity_window_start: Optional[str] = None
+    activity_window_end: Optional[str] = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -97,6 +106,42 @@ def _flatten_daily_stats(item: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+_ACTIVITY_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _to_activity_timestamp(value: Any) -> str:
+    """Normalize a cursor, resume, or response timestamp to the UTC second-precision form the
+    Email Activity query's TIMESTAMP literal takes.
+
+    Flooring sub-second parts is safe: both window bounds are inclusive, so a floored bound only
+    re-fetches boundary rows and merge dedupes them on the primary key.
+    """
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+    elif isinstance(value, int | float):
+        dt = datetime.fromtimestamp(value, tz=UTC)
+    else:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    return dt.strftime(_ACTIVITY_TIMESTAMP_FORMAT)
+
+
+def _require_activity_timestamp(value: Any) -> str:
+    # Re-normalizing rejects a tampered Redis value before it can smuggle arbitrary syntax into
+    # the Email Activity query.
+    try:
+        return _to_activity_timestamp(value)
+    except (TypeError, ValueError, OverflowError, OSError):
+        raise ValueError(f"SendGrid resume state contains an unexpected timestamp: {value!r}")
+
+
+def _activity_query(window_start: str, window_end: str) -> str:
+    # Both bounds are inclusive; `requests` URL-encodes the spaces and quotes.
+    return f'last_event_time BETWEEN TIMESTAMP "{window_start}" AND TIMESTAMP "{window_end}"'
+
+
 def _offset_from_url(url: str) -> int:
     """Recover the `offset` query param so a resumed offset-paginated sync keeps advancing."""
     values = parse_qs(urlparse(url).query).get("offset", ["0"])
@@ -132,6 +177,83 @@ class SendGridMetadataPaginator(JSONResponsePaginator):
             self._has_next_page = False
 
 
+class SendGridMessagesPaginator(BasePaginator):
+    """Page the Email Activity API by narrowing its query window newest to oldest.
+
+    `GET /v3/messages` exposes no cursor or offset — `limit` (max 1000) just caps how many of the
+    most recent matches come back. Each full page therefore moves the window end back to the
+    oldest `last_event_time` on the page (inclusive, so boundary rows re-appear and merge dedupes
+    them on `msg_id`); a short page means the window is drained.
+    """
+
+    def __init__(self, window_start: str, window_end: str, limit: int) -> None:
+        super().__init__()
+        self._window_start = window_start
+        self._window_end = window_end
+        self._limit = limit
+
+    def _apply_window(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["query"] = _activity_query(self._window_start, self._window_end)
+        request.params["limit"] = self._limit
+
+    def init_request(self, request: Request) -> None:
+        self._apply_window(request)
+
+    def update_request(self, request: Request) -> None:
+        self._apply_window(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        rows = data or []
+        if len(rows) < self._limit:
+            self._has_next_page = False
+            return
+
+        oldest: Optional[str] = None
+        for row in rows:
+            raw = row.get("last_event_time") if isinstance(row, dict) else None
+            if not raw:
+                continue
+            try:
+                normalized = _to_activity_timestamp(raw)
+            except (TypeError, ValueError):
+                continue
+            if oldest is None or normalized < oldest:
+                oldest = normalized
+
+        if oldest is None or oldest >= self._window_end:
+            # A full page that can't narrow the window: more than `limit` messages share the
+            # window-end second, or no row carried a parseable last_event_time. Stop instead of
+            # refetching the same page until the activity times out; anything older is skipped.
+            logger.warning(
+                "SendGrid message activity window cannot advance; stopping pagination",
+                extra={"window_start": self._window_start, "window_end": self._window_end},
+            )
+            self._has_next_page = False
+            return
+
+        self._window_end = oldest
+        self._has_next_page = True
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {"activity_window_start": self._window_start, "activity_window_end": self._window_end}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        window_start = state.get("activity_window_start")
+        window_end = state.get("activity_window_end")
+        if window_start is None or window_end is None:
+            return
+        self._window_start = _require_activity_timestamp(window_start)
+        self._window_end = _require_activity_timestamp(window_end)
+        self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"SendGridMessagesPaginator(window_start={self._window_start}, window_end={self._window_end})"
+
+
 def _build_paginator(config: SendGridEndpointConfig) -> BasePaginator:
     if config.pagination == "offset":
         # No top-level `total`; termination is a short/empty page (OffsetPaginator default).
@@ -139,6 +261,27 @@ def _build_paginator(config: SendGridEndpointConfig) -> BasePaginator:
     if config.pagination == "metadata":
         return SendGridMetadataPaginator()
     return SinglePagePaginator()
+
+
+def _build_activity_paginator(
+    config: SendGridEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: Optional[str],
+) -> SendGridMessagesPaginator:
+    now = datetime.now(UTC)
+    if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
+        # The window is inclusive of the watermark, so the boundary message re-appears and merge
+        # updates it. Because the filter rides every request, pagination terminates at the
+        # watermark by construction.
+        window_start = _to_activity_timestamp(db_incremental_field_last_value)
+    else:
+        window_start = _to_activity_timestamp(now - timedelta(days=MESSAGE_ACTIVITY_BACKFILL_DAYS))
+    return SendGridMessagesPaginator(
+        window_start=window_start,
+        window_end=_to_activity_timestamp(now),
+        limit=config.page_size,
+    )
 
 
 def _build_params(
@@ -195,6 +338,17 @@ def _initial_paginator_state(
         _require_sendgrid_url(resume.next_url)
         return {"next_url": resume.next_url}
 
+    if (
+        config.pagination == "activity"
+        and resume.activity_window_start is not None
+        and resume.activity_window_end is not None
+    ):
+        # The paginator re-normalizes both bounds when seeded, rejecting tampered state.
+        return {
+            "activity_window_start": resume.activity_window_start,
+            "activity_window_end": resume.activity_window_end,
+        }
+
     return None
 
 
@@ -229,6 +383,16 @@ def sendgrid_source(
         # stats rows are nested one level deeper than the bare array; flatten them into flat daily rows.
         resource_config["data_map"] = _flatten_daily_stats
 
+    # Activity pagination owns its own request params (`query` window + `limit`), including the
+    # server-side incremental filter, so it is built with the cursor instead of via `params`.
+    paginator: BasePaginator = (
+        _build_activity_paginator(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+        if config.pagination == "activity"
+        else _build_paginator(config)
+    )
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": SENDGRID_BASE_URL,
@@ -236,7 +400,7 @@ def sendgrid_source(
             # and raised errors; only the non-secret Accept header is set here.
             "headers": {"Accept": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
-            "paginator": _build_paginator(config),
+            "paginator": paginator,
         },
         "resource_defaults": {},
         "resources": [resource_config],
@@ -251,6 +415,13 @@ def sendgrid_source(
             return
         if state.get("offset") is not None:
             resumable_source_manager.save_state(SendGridResumeConfig(offset=int(state["offset"])))
+        elif state.get("activity_window_end") is not None:
+            resumable_source_manager.save_state(
+                SendGridResumeConfig(
+                    activity_window_start=state.get("activity_window_start"),
+                    activity_window_end=state["activity_window_end"],
+                )
+            )
         elif state.get("next_url"):
             resumable_source_manager.save_state(SendGridResumeConfig(next_url=state["next_url"]))
 
@@ -272,7 +443,7 @@ def sendgrid_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )
 
 
@@ -296,6 +467,12 @@ def _probe_params(config: SendGridEndpointConfig) -> dict[str, Any]:
         params["limit"] = 1
     elif config.pagination == "metadata":
         params["page_size"] = 1
+    elif config.pagination == "activity":
+        # `query` is required on /messages, so probe a one-day window for one row. The 403 for a
+        # missing add-on or scope fires regardless of the window.
+        now = datetime.now(UTC)
+        params["limit"] = 1
+        params["query"] = _activity_query(_to_activity_timestamp(now - timedelta(days=1)), _to_activity_timestamp(now))
     return params
 
 

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -25,6 +24,7 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team, User
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
@@ -39,7 +39,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +140,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         triggered_metadata=alert_check.triggered_metadata,
         calculated_value=alert_check.calculated_value,
         interval=alert_check.interval,
+        # The alerted series, not series 0 — matching how the check and the chart pick it.
+        metric_definition=describe_metric_definition(
+            insight.query, series_index=(alert.config or {}).get("series_index", 0)
+        ),
     )
 
     # Render a chart of the metric with the detector's anomaly points marked and
@@ -341,6 +345,9 @@ def _build_signal_description(
         f"Insight: {insight_ref}.",
         report.summary,
     ]
+    if report.metric_meaning.strip():
+        # Grouping and triage both hinge on what the metric counts, which its name often misstates.
+        lines.append(f"What the metric measures: {report.metric_meaning.strip()}")
     if report.hypotheses:
         lines.append("Hypotheses:")
         lines.extend(f"- {h.title}: {h.rationale}" for h in report.hypotheses)
@@ -406,9 +413,8 @@ def _dispatch_gated_notification(
             else None
         )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
-            if targets is not None:
-                record_alert_delivery(alert, check, targets)
+            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
+            record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",
@@ -417,11 +423,6 @@ def _dispatch_gated_notification(
             )
             # Don't swallow — let the safety-net task retry on the next tick.
             raise
-
-        # Keep notification_sent_at updated in lock-step with the delivery so the
-        # safety-net's idempotency check still trips on a successful workflow dispatch.
-        check.notification_sent_at = timezone.now()
-        check.save(update_fields=["notification_sent_at"])
 
 
 def _build_breach_descriptions(

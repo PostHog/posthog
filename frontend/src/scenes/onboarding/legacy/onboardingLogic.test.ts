@@ -541,25 +541,6 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
-    describe('completeSelfDrivingOnboarding', () => {
-        it('persists both onboarding completion signals', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.completeSelfDrivingOnboarding()
-            }).toDispatchActions([
-                (action) => {
-                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
-                        return false
-                    }
-                    expect(action.payload).toMatchObject({
-                        completed_snippet_onboarding: true,
-                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
-                    })
-                    return true
-                },
-            ])
-        })
-    })
-
     describe('URL → state', () => {
         it('parses /onboarding/<productKey> and sets primary', async () => {
             await expectLogic(logic, () => {

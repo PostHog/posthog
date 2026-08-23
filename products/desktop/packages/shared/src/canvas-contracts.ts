@@ -13,15 +13,37 @@ export const CANVAS_ENTRY_HTML = "index.html";
 // compatibility adapter.
 export const CANVAS_COMPONENT_PATH = "src/canvas.tsx";
 
+// Every field is defaulted: the builder freezes project.capabilities into the
+// manifest VERBATIM, and a project declares only the capabilities it uses — a
+// required field here makes the whole build record unparseable client-side,
+// which reads as "this canvas has no build". Absent means deny at runtime, so
+// defaulting is the fail-closed direction.
 export const canvasCapabilitiesSchema = z.object({
-  posthog: z.object({
-    insights: z.array(z.string().min(1).max(128)).max(100),
-    inlineQueries: z.boolean(),
-    captureEvents: z.array(z.string().min(1).max(200)).max(100),
-  }),
-  network: z.object({
-    origins: z.array(z.string().url().max(2_048)).max(20),
-  }),
+  posthog: z
+    .object({
+      insights: z.array(z.string().min(1).max(128)).max(100).default([]),
+      inlineQueries: z.boolean().default(false),
+      captureEvents: z.array(z.string().min(1).max(200)).max(100).default([]),
+      state: z
+        .array(z.enum(["user", "shared"]))
+        .max(2)
+        .default([]),
+      actions: z.array(z.string().min(1).max(64)).max(32).default([]),
+      agentRequests: z.boolean().default(false),
+    })
+    .default({
+      insights: [],
+      inlineQueries: false,
+      captureEvents: [],
+      state: [],
+      actions: [],
+      agentRequests: false,
+    }),
+  network: z
+    .object({
+      origins: z.array(z.string().url().max(2_048)).max(20).default([]),
+    })
+    .default({ origins: [] }),
 });
 export type CanvasCapabilities = z.infer<typeof canvasCapabilitiesSchema>;
 

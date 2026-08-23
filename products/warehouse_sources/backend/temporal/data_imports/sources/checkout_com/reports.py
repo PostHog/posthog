@@ -26,6 +26,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
+    _error_details,
     _format_timestamp,
     _hosts,
     _make_auth,
@@ -54,7 +55,32 @@ MAX_DISCOVERY_PAGES = 10
 REPORTS_METADATA_ENDPOINT = "reports"
 REPORT_TABLE_SUFFIX = "_report"
 
+# Checkout.com regenerates the FinancialActions report over an overlapping date range every
+# day, and every generated file carries its own `file_id`. Keyed on file position, an action
+# that appears in ten daily files is retained ten times over. These report types carry a
+# business key in their own columns, so they are keyed on that instead. Report types that do
+# not overlap (settlement, balance breakdowns) keep the file-position key: their column sets
+# are account-configurable and carry no key we can rely on.
+BUSINESS_KEYED_REPORT_TABLES: dict[str, tuple[str, ...]] = {
+    "financial_actions_report": ("action_id", "breakdown_type"),
+    "financial_actions_by_payout_report": ("action_id", "breakdown_type"),
+}
+# The column a business key is meaningless without. `breakdown_type` only refines it, for the
+# accounts whose template breaks an action into several rows, and the writer already drops key
+# columns the data doesn't carry — so a missing `breakdown_type` degrades to keying on the
+# action alone, which is correct for a template that emits one row per action.
+BUSINESS_KEY_IDENTITY_COLUMN = "action_id"
+
 logger: FilteringBoundLogger = structlog.get_logger(__name__)
+
+
+class CheckoutComReportKeyError(Exception):
+    """A report file lacks the columns its table is keyed on.
+
+    Raised rather than falling back to another key: writing rows the merge cannot match
+    would silently accumulate a duplicate per re-generated file, which is the failure this
+    key exists to prevent.
+    """
 
 
 class CheckoutComReportsListingError(Exception):
@@ -147,7 +173,10 @@ def _list_reports(
             page_params["pagination_token"] = pagination_token
         response = session.get(f"{api_base}/reports", params=page_params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
         if not response.ok:
-            logger.error(f"Checkout.com API error: status={response.status_code}, url={api_base}/reports")
+            logger.error(
+                f"Checkout.com API error: status={response.status_code}, "
+                f"url={api_base}/reports, body={_error_details(response)}"
+            )
             response.raise_for_status()
         payload = response.json()
         data = payload.get("data") if isinstance(payload, dict) else None
@@ -249,6 +278,7 @@ def _parse_report_file_rows(
     lines: Iterable[str],
     metadata: dict[str, Any],
     logger: FilteringBoundLogger,
+    required_column: str = "",
 ) -> Iterator[dict[str, Any]]:
     # `lines` is any iterator of physical CSV lines (a live response stream or a
     # StringIO), so a large report is parsed row-by-row without buffering the file.
@@ -258,6 +288,11 @@ def _parse_report_file_rows(
     for row in reader:
         if headers is None:
             headers = [_normalize_header(header) for header in row]
+            if required_column and required_column not in headers:
+                raise CheckoutComReportKeyError(
+                    f"Checkout.com report file {metadata.get('file_id')} has no "
+                    f"{required_column!r} column, so its rows cannot be deduplicated"
+                )
             continue
         if not any(cell.strip() for cell in row):
             continue
@@ -297,6 +332,7 @@ def _report_file_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CheckoutComResumeConfig],
     completed_report_id: Optional[str],
+    required_column: str = "",
 ) -> Iterator[list[dict[str, Any]]]:
     for report in reports:
         report_id = str(report.get("id") or "")
@@ -306,9 +342,14 @@ def _report_file_rows(
         raw_account = report.get("account")
         account: dict[str, Any] = raw_account if isinstance(raw_account, dict) else {}
         chunk: list[dict[str, Any]] = []
-        for file in report.get("files") or []:
-            if not isinstance(file, dict):
-                continue
+        # Read order decides which copy of a restated row survives: the writer keeps the last
+        # occurrence of a key per batch, and reports arrive oldest-first, so the newest report
+        # wins. Sorting files by id makes the tie-break within one report deterministic too.
+        files = sorted(
+            (file for file in (report.get("files") or []) if isinstance(file, dict)),
+            key=lambda file: str(file.get("id") or ""),
+        )
+        for file in files:
             file_id = str(file.get("id") or "")
             file_format = str(file.get("format") or "")
             if not file_id:
@@ -335,7 +376,7 @@ def _report_file_rows(
                 # the terminators csv needs).
                 download.raw.decode_content = True
                 lines = codecs.getreader("utf-8")(download.raw)
-                for parsed in _parse_report_file_rows(lines, metadata, logger):
+                for parsed in _parse_report_file_rows(lines, metadata, logger, required_column):
                     chunk.append(parsed)
                     if len(chunk) >= REPORT_CHUNK_SIZE:
                         yield chunk
@@ -353,8 +394,8 @@ def discover_report_types(environment: str, client_id: str, client_secret: str) 
     """Map table name -> report type for the report types visible to these credentials.
 
     Used by ``get_schemas``, which runs inline on API requests, so the listing is
-    bounded to the most recent pages. Raises on any API failure; the caller degrades
-    to the static schema catalog.
+    bounded to the most recent pages. Raises on any API failure; ``get_schemas``
+    decides which failures degrade to the static schema catalog.
     """
     hosts = _hosts(environment)
     auth = _make_auth(environment, client_id, client_secret)
@@ -408,6 +449,7 @@ def _get_rows(
         logger,
         resumable_source_manager,
         completed_report_id,
+        BUSINESS_KEY_IDENTITY_COLUMN if schema_name in BUSINESS_KEYED_REPORT_TABLES else "",
     )
 
 
@@ -424,9 +466,17 @@ def checkout_com_reports_source(
     if schema_name != REPORTS_METADATA_ENDPOINT and not schema_name.endswith(REPORT_TABLE_SUFFIX):
         raise ValueError(f"Unknown Checkout.com schema: {schema_name}")
 
+    partition_keys: Optional[list[str]]
     if schema_name == REPORTS_METADATA_ENDPOINT:
         primary_keys = ["id"]
         partition_keys = ["created_on"]
+    elif schema_name in BUSINESS_KEYED_REPORT_TABLES:
+        primary_keys = list(BUSINESS_KEYED_REPORT_TABLES[schema_name])
+        # The merge matches on primary key *and* partition, so partitioning these tables on
+        # report creation time would put a restatement in a different partition from the row
+        # it restates and insert a second copy instead of updating it. They stay unpartitioned
+        # so a key matches wherever it was first written.
+        partition_keys = None
     else:
         # Report templates are account-configurable, so CSV columns carry no reliable
         # natural key; a file's contents are immutable once generated, so the position
@@ -447,10 +497,10 @@ def checkout_com_reports_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime",
-        partition_format="month",
+        partition_count=1 if partition_keys else None,
+        partition_size=1 if partition_keys else None,
+        partition_mode="datetime" if partition_keys else None,
+        partition_format="month" if partition_keys else None,
         partition_keys=partition_keys,
         # Reports are sorted oldest-first before yielding, so the watermark only moves forward.
         sort_mode="asc",

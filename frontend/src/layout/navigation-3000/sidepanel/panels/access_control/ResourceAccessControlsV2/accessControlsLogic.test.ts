@@ -1,5 +1,11 @@
-import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
+import { expectLogic, partial } from 'kea-test-utils'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, SidePanelTab } from '~/types'
+
+import { accessControlsLogic } from './accessControlsLogic'
 import { getLevelOptionsForResource } from './helpers'
 import { AccessControlFilters, AccessControlMemberEntry, AccessControlRoleEntry } from './types'
 
@@ -46,8 +52,7 @@ const makeEffectiveEntry = (
 ): EffectiveAccessControlEntry => ({
     access_level: level,
     effective_access_level: level,
-    inherited_access_level: null,
-    inherited_access_level_reason: null,
+    inherited_access: null,
     minimum: AccessControlLevel.None,
     maximum: AccessControlLevel.Manager,
     ...overrides,
@@ -205,9 +210,9 @@ describe('accessControlsLogic', () => {
             expect(getLevelOptionsForResource(resourceLevels).every((o) => o.disabledReason === undefined)).toBe(true)
         })
 
-        it('formats None as "None" and capitalizes others', () => {
+        it('formats None as "No access" and capitalizes others', () => {
             const result = getLevelOptionsForResource(resourceLevels)
-            expect(result.find((o) => o.value === AccessControlLevel.None)?.label).toBe('None')
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.label).toBe('No access')
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.label).toBe('Viewer')
         })
 
@@ -228,6 +233,53 @@ describe('accessControlsLogic', () => {
             expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
                 'Maximum level for Dashboards is Editor'
             )
+        })
+    })
+
+    describe('panel entry loading', () => {
+        let logic: ReturnType<typeof accessControlsLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:id/access_control_members': {
+                        results: [
+                            {
+                                organization_membership_id: 'member-1',
+                                user: { uuid: 'u1', first_name: 'John', email: 'john@example.com' },
+                                organization_level: 1,
+                                project: makeEffectiveEntry(AccessControlLevel.Member),
+                                resources: {},
+                            },
+                        ],
+                    },
+                },
+            })
+            initKeaTests()
+            logic = accessControlsLogic.build({ projectId: '997' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('reloads the entry when the already-open subject is opened again', async () => {
+            // A member row click dispatches both of these (AccessControls.tsx)
+            const clickMemberRow = (): void => {
+                logic.actions.openAccessDetailPanel('member', 'member-1')
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-1')
+            }
+
+            await expectLogic(logic, clickMemberRow)
+                .toDispatchActions(['loadPanelEntry', 'loadPanelEntrySuccess'])
+                .toMatchValues({ panelEntry: partial({ organization_membership_id: 'member-1' }) })
+
+            // Re-clicking the open row nulls the entry without changing the subject or the panel
+            // options: the reload must fire again or the panel is stuck on "not found"
+            await expectLogic(logic, clickMemberRow)
+                .toDispatchActions(['loadPanelEntry', 'loadPanelEntrySuccess'])
+                .toMatchValues({ panelEntry: partial({ organization_membership_id: 'member-1' }) })
         })
     })
 })

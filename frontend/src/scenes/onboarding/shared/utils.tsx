@@ -6,6 +6,7 @@ import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
 import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import {
     IconBolt,
     IconBuilding,
@@ -38,7 +39,7 @@ import {
 } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
+import { ExplorerHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -53,6 +54,7 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
 const HedgehogReporter = pngHoggie(reporter)
 const HedgehogRobot = pngHoggie(robot)
+const HedgehogTrafficController = pngHoggie(trafficController)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -223,7 +225,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Release conditions', problem: 'Control who sees what based on properties or cohorts' },
             { title: 'Multivariate flags', problem: 'Test multiple variants without redeploying' },
         ],
-        hedgehog: FeatureFlagHog,
+        hedgehog: HedgehogTrafficController,
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         breadcrumbsName: 'Feature Flags',

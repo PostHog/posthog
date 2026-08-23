@@ -120,6 +120,7 @@ export type ThreadItemType =
     | 'error'
     | 'status'
     | 'compact_boundary'
+    | 'conversation_cleared'
     | 'task_notification'
     | 'progress'
     | 'debug'
@@ -140,7 +141,7 @@ export interface ThreadItem {
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */
     toolCallId?: string
-    /** For `error` items. */
+    /** For `error` items, and for `status` items whose status is a `*_failed` phase. */
     errorMessage?: string
     /**
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a

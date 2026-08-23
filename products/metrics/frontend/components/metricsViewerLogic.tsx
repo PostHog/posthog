@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { type SparklineTimeSeries } from 'lib/components/Sparkline'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
@@ -38,7 +37,7 @@ import type { Node } from '../../../../frontend/src/queries/schema/schema-genera
 import type { _MetricNameApi } from '../generated/api.schemas'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
-import { formatSeriesName, seriesColor } from './metricsSeries'
+import type { MetricsChartSeries } from './metricsSeries'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
 
@@ -166,7 +165,7 @@ export interface metricsViewerLogicValues {
         label: string
     }[]
     attributeKeyOptionsLoading: boolean
-    chartSeries: SparklineTimeSeries[]
+    chartSeries: MetricsChartSeries[]
     currentSeries: MetricsViewerSeries | undefined
     dateFrom: string | null
     dateTo: string | null
@@ -199,10 +198,16 @@ export interface metricsViewerLogicValues {
 export interface metricsViewerLogicActions {
     loadItemsSuccess: (
         items: _MetricNameApi[],
-        payload?: any
+        payload?:
+            | {
+                  debounce: boolean
+              }
+            | undefined
     ) => {
         items: _MetricNameApi[]
-        payload?: any
+        payload?: {
+            debounce: boolean
+        }
     } // metricNamePickerLogic
     addToDashboard: () => {
         value: true
@@ -357,7 +362,7 @@ export interface metricsViewerLogicMeta {
         queryFilters: (filterGroup: UniversalFiltersGroup) => _MetricFilterApi[]
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         currentSeries: (queryResults: _MetricSeriesApi[]) => MetricsViewerSeries | undefined
-        chartSeries: (queryResults: _MetricSeriesApi[], metricName: string) => SparklineTimeSeries[]
+        chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         sparklineValues: (currentSeries: _MetricSeriesApi | undefined) => number[]
         sparklineLabels: (currentSeries: _MetricSeriesApi | undefined) => string[]
         statTotal: (sparklineValues: number[]) => number
@@ -762,16 +767,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (results: MetricsViewerSeries[]): MetricsViewerSeries | undefined => results[0],
         ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
-        // The x-axis labels come from `sparklineLabels` (the backend grids every series onto one time axis).
+        // `MetricsSeriesChart` owns naming and colors; this only bridges the API's snake_case field.
         chartSeries: [
-            (s) => [s.queryResults, s.metricName],
-            (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
-                results.map((series, index) => ({
-                    name: formatSeriesName(series, metricName),
-                    // A null value is a gap (non-representable aggregate); Sparkline
-                    // takes plain numbers, so gaps chart as 0 for now.
-                    values: series.points.map((p) => p.value ?? 0),
-                    color: seriesColor(index),
+            (s) => [s.queryResults],
+            (results: MetricsViewerSeries[]): MetricsChartSeries[] =>
+                results.map((series) => ({
+                    labels: series.labels,
+                    points: series.points,
+                    metricName: series.metric_name,
                 })),
         ],
         sparklineValues: [

@@ -74,6 +74,23 @@ logger = structlog.get_logger(__name__)
 FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
 
 
+def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
+    """Whether ``active``/``deleted`` make the matcher skip this serialized flag before
+    it reads the filters.
+
+    The matcher filters out more flags per request (survey, evaluation runtime,
+    evaluation contexts), but those are request-scoped and must not gate what gets
+    written to a cache shared by every request.
+
+    Inverse of ``is_evaluable`` in rust/feature-flags/src/flags/cache_builder.rs. A
+    flag missing ``active`` counts as evaluable so a serializer regression leaves the
+    targeting in the payload instead of overwriting it. That protects the bytes only:
+    Rust's ``FeatureFlag.active`` is ``#[serde(default)]``, so a payload without the
+    field reads as inactive there and is filtered out regardless.
+    """
+    return not flag_data.get("active", True) or flag_data.get("deleted", False)
+
+
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     """
     Extract direct flag dependency IDs from a serialized flag's filters.
@@ -82,7 +99,7 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     their key as an integer flag ID. Inactive/deleted flags return empty deps
     to match Rust's extract_dependencies behavior.
     """
-    if not flag_data.get("active", True) or flag_data.get("deleted", False):
+    if _is_unevaluable(flag_data):
         return set()
 
     dep_ids: set[int] = set()
@@ -113,6 +130,8 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
         "last_calculation_duration_ms",
         "errors_calculating",
         "last_error_at",
+        "last_import_total_count",
+        "last_import_unmatched_count",
         # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
         # `filters`).  calculate_people_ch() always saves it in update_fields even when
         # unchanged (see cohort.py:347).  Real definition changes go through a full save
@@ -135,7 +154,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if not flag.get("active", True) or flag.get("deleted", False):
+        if _is_unevaluable(flag):
             continue
         for group in flag.get("filters", {}).get("groups") or []:
             for prop in group.get("properties") or []:
@@ -326,6 +345,63 @@ def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, An
     }
 
 
+def _drop_unreferenced_unevaluable_flags(flags_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the flags worth caching: evaluable ones, plus unevaluable ones that
+    another flag's dependency conditions reference.
+
+    An unreferenced inactive/deleted flag is dead weight — the matcher filters it
+    out before reading it and nothing resolves against it. A referenced one is
+    load-bearing: the matcher pre-seeds its id as false, so a dependent with
+    ``flag_evaluates_to: false`` on a disabled flag still matches; dropping it
+    would turn that dependent into a missing-dependency miss.
+
+    ``_extract_direct_dependency_ids`` returns nothing for unevaluable flags, so
+    only evaluable flags contribute references: a chain of inactive flags keeps
+    just the hop an evaluable flag points at.
+    """
+    referenced_ids: set[int] = set()
+    for flag in flags_data:
+        referenced_ids |= _extract_direct_dependency_ids(flag)
+    return [flag for flag in flags_data if not _is_unevaluable(flag) or flag["id"] in referenced_ids]
+
+
+def _blank_inactive_filters(flags_data: list[dict[str, Any]]) -> None:
+    """Empty the ``filters`` of flags that can never be evaluated, in place.
+
+    The matcher skips these flags before it reads filters, so the blob is
+    unreachable weight in Redis, in S3, and in the service's in-memory cache. The
+    flag entry itself stays, so a dependency condition on it still resolves to
+    false rather than raising DependencyNotFound.
+
+    Order-independent: dependency and cohort extraction guard on ``_is_unevaluable``
+    themselves.
+    """
+    for flag in flags_data:
+        if _is_unevaluable(flag):
+            # Matches an empty Rust ``FlagFilters``, whose ``groups`` has no
+            # ``skip_serializing_if`` and so serializes as a key rather than ``{}``.
+            # Both writers of this entry emit this same blank shape.
+            flag["filters"] = {"groups": []}
+
+
+def _build_flags_payload(
+    flags_data: list[dict[str, Any]],
+    cohorts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Assemble the ``flags.json`` wrapper: drop unreferenced unevaluable flags,
+    compute dependency metadata on the survivors, and blank the kept unevaluable
+    flags' filters.
+
+    These steps live here so no writer can assemble a payload without them, and so
+    the metadata can never be computed on a pre-drop flag list. The Rust side
+    reaches the same point through a single ``build_flags_cache``.
+    """
+    flags_data = _drop_unreferenced_unevaluable_flags(flags_data)
+    evaluation_metadata = _compute_flag_dependencies(flags_data)
+    _blank_inactive_filters(flags_data)
+    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
+
+
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
@@ -334,9 +410,10 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     must match rust/feature-flags/src/flags/flag_models.rs::HypercacheFlagsWrapper.
     Changes to this structure must follow the expand-and-contract pattern.
 
-    Fetches all feature flags for the team (including inactive, excluding deleted)
-    and returns them wrapped in a dict that HyperCache can serialize. The actual
-    flag data is in the "flags" key as a list of flag dictionaries.
+    Fetches the team's evaluable feature flags (active, not deleted), plus the
+    inactive flags another flag's dependency conditions reference, wrapped in a
+    dict that HyperCache can serialize. The actual flag data is in the "flags"
+    key as a list of flag dictionaries.
 
     Encrypted remote config flags are excluded since they can only be accessed via
     the dedicated /remote_config endpoint which handles decryption. Including them
@@ -350,20 +427,18 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
-    evaluation_metadata = _compute_flag_dependencies(flags_data)
-
     cohorts = _get_referenced_cohorts(team.id, flags_data)
+    payload = _build_flags_payload(flags_data, cohorts)
 
     logger.info(
         "Loaded feature flags for service cache",
         team_id=team.id,
         project_id=team.project_id,
-        flag_count=len(flags_data),
+        flag_count=len(payload["flags"]),
         cohort_count=len(cohorts),
     )
 
-    # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
+    return payload
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -387,8 +462,9 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         return {}
 
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
-    # Include disabled flags (active=False) so flag dependencies can reference them
-    # and evaluate them as false, rather than raising DependencyNotFound errors.
+    # Disabled flags (active=False) are loaded too: ones referenced by another
+    # flag's dependencies stay in the payload and evaluate as false, and
+    # _build_flags_payload drops the rest.
     # Exclude encrypted payload flags - they can only be accessed via the
     # dedicated /remote_config endpoint which handles decryption.
     # Note: We intentionally don't select_related("team") here because we only need
@@ -438,23 +514,18 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Build result for each team
     result: dict[int, dict[str, Any]] = {}
     for team in teams:
-        flags_data = flags_data_by_team[team.id]
-        evaluation_metadata = _compute_flag_dependencies(flags_data)
-
         team_cohorts = cohorts_by_team.get(team.id, [])
+        payload = _build_flags_payload(flags_data_by_team[team.id], team_cohorts)
+
         logger.info(
             "Loaded feature flags for service cache (batch)",
             team_id=team.id,
             project_id=team.project_id,
-            flag_count=len(flags_data),
+            flag_count=len(payload["flags"]),
             cohort_count=len(team_cohorts),
         )
 
-        result[team.id] = {
-            "flags": flags_data,
-            "evaluation_metadata": evaluation_metadata,
-            "cohorts": team_cohorts,
-        }
+        result[team.id] = payload
 
     return result
 
@@ -625,6 +696,12 @@ def verify_team_flags(
     # Find stale flags (in cache but not in DB)
     for flag_id in cached_flags_by_id:
         if flag_id not in db_flags_by_id:
+            # An unevaluable cached row is invisible to the matcher, so its presence
+            # is not drift worth repairing, and reporting it would repair-rewrite
+            # every old-shape entry at once. A stale ACTIVE flag still reports: its
+            # cached copy has active=True.
+            if _is_unevaluable(cached_flags_by_id[flag_id]):
+                continue
             diff = {
                 "type": "STALE_IN_CACHE",
                 "flag_id": flag_id,
@@ -637,7 +714,7 @@ def verify_team_flags(
         if flag_id in cached_flags_by_id:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
-            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag, tolerate_blanked_filters=True)
             if field_diffs:
                 diff = {
                     "type": "FIELD_MISMATCH",
@@ -743,7 +820,7 @@ def _strip_null_values(value: Any, in_group_level_list: bool = False) -> Any:
     return value
 
 
-def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
+def _compare_flag_fields(db_flag: dict, cached_flag: dict, *, tolerate_blanked_filters: bool = False) -> list[dict]:
     """Compare field values between DB and cached versions of a flag.
 
     The DB serialization is treated as the source of truth: only keys present in
@@ -759,10 +836,26 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     are compared directly; ``MinimalFeatureFlagSerializer`` emits all top-level
     keys explicitly today, so there is no top-level absent/null divergence to
     tolerate. See plans/verify-flags-cache-loose-comparison.md.
+
+    ``tolerate_blanked_filters`` exempts ``filters`` when both sides agree the flag
+    is unevaluable. Only the ``flags.json`` writers blank those filters, and entries
+    predating that still hold the full blob while the two writers deploy
+    independently, so the blob and ``{"groups": []}`` both occur and the matcher
+    ignores either one. It is opt-in because ``local_evaluation`` shares this
+    function for ``flags_with_cohorts.json``, which has a single writer and no
+    blanking: there any ``filters`` difference is real drift worth repairing. A
+    disagreement about ``active`` itself is reported in both modes.
     """
     field_diffs = []
 
+    # Mirrors the writers' own predicate so a flag they blank is never reported as
+    # unfixable drift.
+    both_unevaluable = tolerate_blanked_filters and _is_unevaluable(db_flag) and _is_unevaluable(cached_flag)
+
     for key in db_flag.keys():
+        if key == "filters" and both_unevaluable:
+            continue
+
         db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 

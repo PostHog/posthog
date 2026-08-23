@@ -50,6 +50,11 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            # hashFiles guard so an unrebased PR predating this script doesn't fail here.
+            - name: Workflow-run trace reporter tests (Python)
+              if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}
+              run: python -m pytest .github/scripts/test_report_workflow_run_traces.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
               run: node --test .github/scripts/schema-impact.test.js
@@ -73,8 +78,19 @@ jobs:
               if: ${{ hashFiles('.github/scripts/weekly-flaky-report.test.mjs') != '' }}
               run: node --test .github/scripts/weekly-flaky-report.test.mjs
 
+            - name: Weekly slow tests report tests (Node)
+              if: ${{ hashFiles('.github/scripts/weekly-slow-tests-report.test.mjs') != '' }}
+              run: node --test .github/scripts/weekly-slow-tests-report.test.mjs
+
+            - name: CLI npm installer patch tests (Node)
+              if: ${{ hashFiles('.github/scripts/patch-cli-npm-installer.test.mjs') != '' }}
+              run: node --test .github/scripts/patch-cli-npm-installer.test.mjs
+
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
+
+            - name: Selected Django shards tests (Node)
+              run: node --test .github/scripts/selected-django-shards.test.js
 
             - name: Trunk impacted-targets tests (Node)
               run: node --test .github/scripts/trunk-impacted-targets.test.js

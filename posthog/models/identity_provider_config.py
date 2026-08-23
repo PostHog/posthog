@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
@@ -48,15 +50,30 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     # ---- SAML attributes ----
-    # Field shapes intentionally mirror `OrganizationDomain` (including nullability) so
-    # values can be copied verbatim while domains remain the source of truth.
+    # Field shapes mirror `OrganizationDomain` (including nullability) so existing values can be
+    # migrated from the legacy domain columns without coercion.
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
-    saml_relay_state = models.CharField(max_length=36, blank=True, null=True)
+    # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
+    # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
+    # config already in use orphans those identities, so it is assigned once and never edited.
+    saml_relay_state = models.CharField(
+        max_length=36,
+        blank=True,
+        null=True,
+        unique=True,
+        default=uuid.uuid4,
+    )
 
     # ---- SCIM attributes ----
-    scim_slug = models.CharField(max_length=36, blank=True, null=True, unique=True)
+    scim_slug = models.CharField(
+        max_length=36,
+        blank=True,
+        null=True,
+        unique=True,
+        default=uuid.uuid4,
+    )
     scim_enabled = models.BooleanField(default=False)
     scim_bearer_token = models.CharField(
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"

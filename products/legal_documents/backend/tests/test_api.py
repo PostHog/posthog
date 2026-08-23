@@ -2,6 +2,7 @@ import hmac
 import json
 import hashlib
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -9,13 +10,16 @@ from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.test import override_settings
+from django.utils import timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.legal_documents.backend.facade import api as legal_api
 from products.legal_documents.backend.models import LegalDocument
 
 BAA_PAYLOAD = {
@@ -266,6 +270,7 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
             company_address="1 Analytics Way",
             representative_email="ada@acme.example",
             status=LegalDocument.Status.SIGNED,
+            signed_pdf_stored=True,
             pandadoc_document_id="doc_123",
             created_by=self.user,
         )
@@ -287,6 +292,16 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
     def test_unsigned_document_returns_404(self) -> None:
         self.document.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
         self.document.save()
+        with patch("products.legal_documents.backend.logic.object_storage.get_presigned_url") as presign_mock:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        presign_mock.assert_not_called()
+
+    def test_signed_but_unarchived_document_returns_404(self) -> None:
+        # The signature lands before the PDF archive job runs. Until the file is
+        # stored, the download must 404 instead of redirecting to a missing S3 key.
+        self.document.signed_pdf_stored = False
+        self.document.save(update_fields=["signed_pdf_stored"])
         with patch("products.legal_documents.backend.logic.object_storage.get_presigned_url") as presign_mock:
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -537,9 +552,9 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             PANDADOC_DPA_TEMPLATE_ID=self.DPA_TEMPLATE_ID,
         )
 
-    def test_valid_signature_streams_pdf_to_object_storage_and_flips_status(self) -> None:
-        # The streaming handle is opaque to the webhook layer; we just need to
-        # confirm it's threaded from PandaDoc into object storage.
+    def test_valid_signature_flips_status_and_archives_pdf_in_background(self) -> None:
+        # The signature is recorded synchronously; the PDF archive runs from the
+        # scheduled background task (fired here via captureOnCommitCallbacks).
         fake_stream = object()
 
         @contextmanager
@@ -555,10 +570,12 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             ) as stream_mock,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
         ):
-            response = self._post_raw(body, self._sign(body))
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
+        self.assertTrue(self.document.signed_pdf_stored)
         stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_called_once()
         args, kwargs = write_mock.call_args
@@ -567,7 +584,10 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.assertIs(args[1], fake_stream)
         self.assertEqual(kwargs["extras"], {"ContentType": "application/pdf"})
 
-    def test_download_failure_returns_503_and_leaves_row_unsigned(self) -> None:
+    def test_archive_failure_leaves_row_signed_but_unarchived(self) -> None:
+        # The whole point of the decoupling: a PDF download failure no longer
+        # blocks the signature. The row is signed and the webhook returns 200;
+        # only signed_pdf_stored stays False for the reconciliation sweep to fix.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_module
 
         body = json.dumps(self._completed_payload()).encode("utf-8")
@@ -576,16 +596,20 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch(
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
                 side_effect=pandadoc_module.PandaDocError("network boom"),
-            ),
+            ) as stream_mock,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
         ):
-            response = self._post_raw(body, self._sign(body))
+            # Celery runs eagerly in tests, and autoretry_for re-raises as Retry once
+            # every attempt is exhausted, the same pattern as the task's real retry behavior.
+            with self.assertRaises(Retry), self.captureOnCommitCallbacks(execute=True):
+                response = self._post_raw(body, self._sign(body))
 
-        # 503 surfaces so PandaDoc retries the delivery.
-        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_not_called()
         self.document.refresh_from_db()
-        self.assertEqual(self.document.status, "submitted_for_signature")
+        self.assertEqual(self.document.status, "signed")
+        self.assertFalse(self.document.signed_pdf_stored)
 
     def test_invalid_signature_returns_404(self) -> None:
         body = json.dumps(self._completed_payload()).encode("utf-8")
@@ -726,11 +750,16 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             yield
 
-    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+    # Both flags send customer data to a third party the BAA does not cover: one to the LLM
+    # subprocessors, one to the replay ML training mirror. Signing a BAA has to clear both.
+    AI_OPT_OUT_FLAGS = [("is_ai_data_processing_approved",), ("is_ai_training_opted_in",)]
+
+    @parameterized.expand(AI_OPT_OUT_FLAGS)
+    def test_signed_baa_opts_organization_out(self, flag: str) -> None:
         self._swap_to_baa_document()
-        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        # Both default to True now — explicitly set so this isn't accidentally testing the default.
+        setattr(self.organization, flag, True)
+        self.organization.save(update_fields=[flag])
 
         body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
         with self._override(), self._fake_pdf_pipeline():
@@ -738,12 +767,13 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        self.assertFalse(self.organization.is_ai_data_processing_approved)
+        self.assertFalse(getattr(self.organization, flag))
 
-    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+    @parameterized.expand(AI_OPT_OUT_FLAGS)
+    def test_signed_dpa_leaves_ai_flags_alone(self, flag: str) -> None:
         # Default fixture is a DPA, so don't swap.
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        setattr(self.organization, flag, True)
+        self.organization.save(update_fields=[flag])
 
         body = json.dumps(self._completed_payload()).encode("utf-8")
         with self._override(), self._fake_pdf_pipeline():
@@ -751,7 +781,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        self.assertTrue(self.organization.is_ai_data_processing_approved)
+        self.assertTrue(getattr(self.organization, flag))
 
     def test_signed_baa_emails_org_owners(self) -> None:
         self._swap_to_baa_document()
@@ -798,6 +828,265 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.organization.refresh_from_db()
         # Opt-out still happens even when there are no owners to notify.
         self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentReconciliation(APIBaseTest):
+    """
+    The reconciliation sweep and the background archive task — the safety net
+    that recovers signatures whose completion webhook was dropped, throttled, or
+    204'd, and re-archives signed rows whose PDF never landed.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            pandadoc_document_id="doc_123",
+            created_by=self.user,
+        )
+
+    @contextmanager
+    def _fake_pdf_pipeline(self):
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            yield
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_marks_completed_pending_document_signed(self, status_mock) -> None:
+        status_mock.return_value = "document.completed"
+        with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 1)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "signed")
+        self.assertTrue(self.document.signed_pdf_stored)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_captures_the_signed_event_through_a_scoped_client(self, status_mock) -> None:
+        # The sweep runs in a Celery worker, where the global analytics client's
+        # background flush may never run before the process exits. Losing the signed
+        # event here would leave a working sweep indistinguishable from a broken one,
+        # since that event is what the outage was detected on.
+        status_mock.return_value = "document.completed"
+        with (
+            patch("products.legal_documents.backend.facade.api.ph_scoped_capture") as scoped_mock,
+            patch("products.legal_documents.backend.logic.posthoganalytics.capture") as global_mock,
+        ):
+            capture = scoped_mock.return_value.__enter__.return_value
+            with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+                legal_api.reconcile_pending_signatures()
+
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "legal document signed")
+        global_mock.assert_not_called()
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_skips_documents_older_than_lookback_window(self, status_mock) -> None:
+        # Abandoned envelopes must not be polled forever, or the sweep re-asks PandaDoc
+        # about them every 15 minutes. 30 days is deliberately inside the window this
+        # started with, so widening it back would fail here rather than pass quietly.
+        status_mock.return_value = "document.completed"
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(days=30))
+
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        status_mock.assert_not_called()
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_leaves_still_pending_document_alone(self, status_mock) -> None:
+        status_mock.return_value = "document.sent"
+        result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_continues_past_a_row_that_raises(self, status_mock) -> None:
+        # Each org can only hold one DPA (unique constraint), so the extra pending
+        # rows live in separate orgs. list_pending_signature_documents orders
+        # oldest-first, so pin created_at explicitly to make the middle row deterministic.
+        middle_org = Organization.objects.create(name="Middle Co")
+        last_org = Organization.objects.create(name="Last Co")
+        middle = LegalDocument.objects.create(
+            organization=middle_org,
+            document_type="DPA",
+            company_name="Middle Co",
+            company_address="Elsewhere",
+            representative_email="middle@other.example",
+            pandadoc_document_id="doc_middle",
+            created_by=self.user,
+        )
+        last = LegalDocument.objects.create(
+            organization=last_org,
+            document_type="DPA",
+            company_name="Last Co",
+            company_address="Elsewhere",
+            representative_email="last@other.example",
+            pandadoc_document_id="doc_last",
+            created_by=self.user,
+        )
+        now = timezone.now()
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=now - timedelta(minutes=2))
+        LegalDocument.objects.filter(id=middle.id).update(created_at=now - timedelta(minutes=1))
+        LegalDocument.objects.filter(id=last.id).update(created_at=now)
+
+        def status_side_effect(*, document_id):
+            if document_id == "doc_middle":
+                raise RuntimeError("unexpected PandaDoc client bug")
+            return "document.completed"
+
+        status_mock.side_effect = status_side_effect
+
+        with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 2)
+        self.assertEqual(result.errors, 1)
+        self.document.refresh_from_db()
+        middle.refresh_from_db()
+        last.refresh_from_db()
+        self.assertEqual(self.document.status, "signed")
+        self.assertEqual(middle.status, "submitted_for_signature")
+        self.assertEqual(last.status, "signed")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:
+        status_mock.return_value = "document.completed"
+        with (
+            patch(
+                "products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.apply_async"
+            ) as enqueue_mock,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 1)
+        self.assertEqual(result.archives_requeued, 0)
+        enqueue_mock.assert_called_once_with(args=[str(self.document.id)], countdown=0)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_staggers_archives_one_per_second(self, status_mock) -> None:
+        # PandaDoc caps downloads per account, shared with live signings, so a backlog
+        # drain has to spread out rather than enqueue every archive at once.
+        for i in (1, 2):
+            org = self.create_organization_with_features([])
+            LegalDocument.objects.create(
+                organization=org,
+                document_type="DPA",
+                company_name=f"Later Co {i}",
+                company_address="2 Analytics Way",
+                representative_email=f"later{i}@other.example",
+                pandadoc_document_id=f"doc_later_{i}",
+                created_by=self.user,
+            )
+        status_mock.return_value = "document.completed"
+
+        with (
+            patch(
+                "products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.apply_async"
+            ) as enqueue_mock,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 3)
+        countdowns = [call.kwargs["countdown"] for call in enqueue_mock.call_args_list]
+        self.assertEqual(countdowns, [0, 1, 2])
+
+    def test_reconcile_skips_side_effects_for_concurrently_signed_row(self) -> None:
+        # A webhook can sign the row between the reconcile loop reading its queryset
+        # snapshot and processing it. BAA side effects include emailing org owners,
+        # so re-running them here would send a second email for a signature the
+        # webhook already handled.
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        def status_side_effect(*, document_id):  # noqa: ARG001
+            LegalDocument.objects.filter(id=self.document.id).update(status=LegalDocument.Status.SIGNED)
+            return "document.completed"
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+            side_effect=status_side_effect,
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.errors, 0)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_reconcile_leaves_pending_document_alone_when_pandadoc_unreachable(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+            side_effect=pandadoc_module.PandaDocError("network boom"),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.errors, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    def test_reconcile_requeues_archive_for_signed_row_missing_pdf(self) -> None:
+        self.document.status = LegalDocument.Status.SIGNED
+        self.document.save(update_fields=["status"])
+
+        with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.archives_requeued, 1)
+        self.document.refresh_from_db()
+        self.assertTrue(self.document.signed_pdf_stored)
+
+    def test_archive_is_noop_when_already_stored(self) -> None:
+        self.document.status = LegalDocument.Status.SIGNED
+        self.document.signed_pdf_stored = True
+        self.document.save(update_fields=["status", "signed_pdf_stored"])
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
+        ) as stream_mock:
+            legal_api.archive_signed_pdf(self.document.id)
+        stream_mock.assert_not_called()
+
+    def test_archive_failure_raises_for_task_retry(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        self.document.status = LegalDocument.Status.SIGNED
+        self.document.save(update_fields=["status"])
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+            side_effect=pandadoc_module.PandaDocError("boom"),
+        ):
+            with self.assertRaises(legal_api.LegalDocumentPdfArchiveFailed):
+                legal_api.archive_signed_pdf(self.document.id)
+        self.document.refresh_from_db()
+        self.assertFalse(self.document.signed_pdf_stored)
 
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)

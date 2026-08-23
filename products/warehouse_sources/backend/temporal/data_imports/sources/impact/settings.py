@@ -1,7 +1,20 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# impact.com's Brand API selects a version via the `IR-Version` header (or `IrVersion` query param),
+# carrying a dated integer label — see
+# https://integrations.impact.com/brand-api-reference/readme/versioning. The legacy label predates
+# our pinning any version and sends no header, so those syncs keep tracking the account's configured
+# default exactly as before. `"14"` (released 2026-06-01) pins the response shape explicitly.
+IMPACT_VERSION_HEADER = "IR-Version"
+IMPACT_API_VERSION_LEGACY = UNVERSIONED_API_VERSION
+IMPACT_API_VERSION_14 = "14"
+# Oldest→newest; the last entry is the default (enforced by test_source_versions.py).
+SUPPORTED_API_VERSIONS = (IMPACT_API_VERSION_LEGACY, IMPACT_API_VERSION_14)
+DEFAULT_API_VERSION = IMPACT_API_VERSION_14
 
 # Impact rejects an Actions StartDate/EndDate (or ActionDateStart/ActionDateEnd) span wider than
 # 45 days; 44 keeps every window safely inside the inclusive limit.

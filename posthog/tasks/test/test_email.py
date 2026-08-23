@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.models import Organization, Team, User
+from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
@@ -36,6 +36,7 @@ from posthog.tasks.email import (
     send_hog_functions_digest_email,
     send_invite,
     send_matview_failure_digest,
+    send_matview_failure_immediate_email,
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
@@ -51,6 +52,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -2058,6 +2060,28 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
 
+    @parameterized.expand(["task", "task_artifact", "desktop_canvas"])
+    def test_send_discussions_mentioned_skips_desktop_comments(self, MockEmailMessage: MagicMock, scope: str) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email=f"mentioned-{scope}@posthog.com", password=None
+        )
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Desktop comment",
+            scope=scope,
+            item_id="desktop-item",
+            created_by=self.user,
+        )
+
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert mocked_email_messages == []
+
     @parameterized.expand(
         [
             (
@@ -2131,7 +2155,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2163,11 +2186,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import (
-            DataModelingJob,
-            DataModelingJobEngine,
-            DataWarehouseSavedQuery,
-        )
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2202,11 +2220,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_shows_clickhouse_error_not_newer_shadow(
         self, MockEmailMessage: MagicMock
     ) -> None:
-        from products.data_modeling.backend.facade.models import (
-            DataModelingJob,
-            DataModelingJobEngine,
-            DataWarehouseSavedQuery,
-        )
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2242,7 +2255,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "duckgres boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2265,7 +2277,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2342,7 +2353,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-        from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2369,3 +2379,173 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
         assert rendered_error == expected_error
         assert len(rendered_error) <= 255
+
+    @parameterized.expand(
+        [
+            (
+                "immediate_on",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_immediate": True},
+                True,
+            ),
+            (
+                "immediate_off",
+                {"materialized_view_sync_failed": True, "materialized_view_sync_failed_immediate": False},
+                False,
+            ),
+            ("immediate_unset_defaults_off", {"materialized_view_sync_failed": True}, False),
+            (
+                "both_deliveries_on",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": True,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                True,
+            ),
+            (
+                "master_off_wins",
+                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_immediate": True},
+                False,
+            ),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_respects_immediate_preference(
+        self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
+    ) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = notification_settings
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        if expect_email:
+            assert len(mocked_email_messages) == 1
+            assert mocked_email_messages[0].send.call_count == 1
+            assert "failing_view" in mocked_email_messages[0].html_body
+        else:
+            assert len(mocked_email_messages) == 0
+
+    @parameterized.expand(
+        [
+            ("warehouse_access_granted", True, True, True, True),
+            ("warehouse_access_denied", True, False, True, False),
+            ("this_view_denied", True, True, False, False),
+            ("access_controls_unavailable_still_sends", False, False, False, True),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_respects_warehouse_access(
+        self,
+        MockEmailMessage: MagicMock,
+        name: str,
+        access_controls_supported: bool,
+        has_warehouse_access: bool,
+        has_view_access: bool,
+        expect_email: bool,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(team=self.team, name="failing_view", query={"query": "SELECT 1"})
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now(),
+        )
+
+        class FakeUserAccessControl:
+            def __init__(self, user: object, team: object) -> None:
+                pass
+
+            @property
+            def access_controls_supported(self) -> bool:
+                return access_controls_supported
+
+            @property
+            def is_organization_admin(self) -> bool:
+                return False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return has_warehouse_access
+
+            def check_access_level_for_object(self, obj: object, required_level: str) -> bool:
+                return has_view_access
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
+
+    @parameterized.expand(
+        [
+            ("daily_on", {"materialized_view_sync_failed": True, "materialized_view_sync_failed_daily": True}, True),
+            ("daily_off", {"materialized_view_sync_failed": True, "materialized_view_sync_failed_daily": False}, False),
+            ("daily_unset_defaults_on", {"materialized_view_sync_failed": True}, True),
+            (
+                "both_deliveries_on",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": True,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                True,
+            ),
+            (
+                "immediate_only_still_skips_digest",
+                {
+                    "materialized_view_sync_failed": True,
+                    "materialized_view_sync_failed_daily": False,
+                    "materialized_view_sync_failed_immediate": True,
+                },
+                False,
+            ),
+            (
+                "master_off_wins",
+                {"materialized_view_sync_failed": False, "materialized_view_sync_failed_daily": True},
+                False,
+            ),
+        ]
+    )
+    def test_send_matview_failure_digest_respects_daily_preference(
+        self, MockEmailMessage: MagicMock, name: str, notification_settings: dict, expect_email: bool
+    ) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = notification_settings
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="failing_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error="Some error",
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)

@@ -5,14 +5,24 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
-import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import {
+    BreakdownColorConfig,
+    computeTileFallbackTokens,
+    findBreakdownColorConfig,
+    getBreakdownPropertyKey,
+} from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
+import {
+    getFunnelDatasetKey,
+    getFunnelDatasetPosition,
+    getFunnelResultCustomization,
+    getFunnelResultCustomizationColorToken,
+} from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -221,6 +231,7 @@ export interface funnelDataLogicValues {
     exclusionDefaultStepRange: FunnelExclusionSteps
     exclusionFilters: FilterType
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
+    funnelVizType: FunnelVizType
     getFunnelsColor: (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
     getFunnelsColorToken: (
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
@@ -348,6 +359,7 @@ export interface funnelDataLogicMeta {
         isTimeToConvertFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isTrendsFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isEmptyFunnel: (querySource: FunnelsQuery | null) => boolean | null
+        funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
@@ -481,7 +493,9 @@ export interface funnelDataLogicMeta {
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
-            querySource: FunnelsQuery | null
+            querySource: FunnelsQuery | null,
+            flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+            disableFunnelBreakdownBaseline: boolean
         ) => (
             dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
         ) => [DataColorTheme | null, DataColorToken | null]
@@ -627,9 +641,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter: FunnelsFilter | null | undefined): boolean | null => {
                 return funnelsFilter === null
                     ? null
-                    : funnelsFilter === undefined
-                      ? true
-                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                    : (funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
@@ -653,6 +665,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                           .length === 0
                     : null
             },
+        ],
+
+        // Saved funnels can lack a viz type entirely: the backend relies on a schema default that never
+        // reaches the stored JSON the frontend reads. Resolve it once so every consumer agrees.
+        funnelVizType: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter | null | undefined): FunnelVizType =>
+                funnelsFilter?.funnelVizType ?? FunnelVizType.Steps,
         ],
 
         aggregationTargetLabel: [
@@ -1242,15 +1262,64 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         getFunnelsColorToken: [
-            (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (s) => [
+                s.resultCustomizations,
+                s.getTheme,
+                s.breakdownFilter,
+                s.querySource,
+                s.flattenedBreakdowns,
+                s.disableFunnelBreakdownBaseline,
+            ],
             (
                 resultCustomizations:
                     | Record<string, import('~/queries/schema/schema-general').ResultCustomizationByValue>
                     | undefined,
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
                 breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined,
-                querySource: FunnelsQuery | null
+                querySource: FunnelsQuery | null,
+                flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+                disableFunnelBreakdownBaseline: boolean
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // The dashboard's colors live in another logic and are read at call time, so the
+                // per-tile fallback map is memoized here on the identity of what it derives from.
+                let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
+                let fallbackTokens = new Map<number, DataColorToken>()
+                const tileFallbackToken = (
+                    overrides: BreakdownColorConfig[],
+                    theme: DataColorTheme,
+                    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+                ): DataColorToken | undefined => {
+                    if (fallbackSource?.overrides !== overrides || fallbackSource?.theme !== theme) {
+                        fallbackSource = { overrides, theme }
+                        // Completion only activates when a dashboard override actually sits on this
+                        // tile; a series customization alone must not shift its neighbors' colors.
+                        // Once active, customized series claim their slots like overrides do.
+                        let hasDashboardOverride = false
+                        const series = flattenedBreakdowns.map((breakdown) => {
+                            const overrideToken =
+                                findBreakdownColorConfig(
+                                    overrides,
+                                    JSON.parse(getFunnelDatasetKey(breakdown))['breakdown_value'],
+                                    breakdownFilter?.breakdown_type,
+                                    breakdownPropertyKey
+                                )?.colorToken ?? null
+                            hasDashboardOverride = hasDashboardOverride || !!overrideToken
+                            return {
+                                position: getFunnelDatasetPosition(breakdown, disableFunnelBreakdownBaseline),
+                                overrideToken:
+                                    overrideToken ??
+                                    getFunnelResultCustomization(breakdown, resultCustomizations)?.color ??
+                                    null,
+                            }
+                        })
+                        fallbackTokens = hasDashboardOverride
+                            ? computeTileFallbackTokens(series, Object.keys(theme).length)
+                            : new Map<number, DataColorToken>()
+                    }
+                    return fallbackTokens.get(getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline))
+                }
+
                 return (
                     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
                 ): [DataColorTheme | null, DataColorToken | null] => {
@@ -1261,7 +1330,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         logic?.values.effectiveBreakdownColors,
                         breakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {
@@ -1274,6 +1344,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
                     if (!theme) {
                         return [null, null]
+                    }
+
+                    // On dashboards with auto colors, series without a value override fill the
+                    // palette slots the tile's overrides don't use, because the plain
+                    // position-based fallback can land on the same slot as an override shown on
+                    // this very chart. An explicit per-series customization still wins below.
+                    if (logic?.values.autoBreakdownColorsEnabled) {
+                        const customizationColor = getFunnelResultCustomization(dataset, resultCustomizations)?.color
+                        const fallbackToken = customizationColor
+                            ? undefined
+                            : tileFallbackToken(logic.values.effectiveBreakdownColors, theme, dataset)
+                        if (fallbackToken) {
+                            return [theme, fallbackToken]
+                        }
                     }
 
                     return [

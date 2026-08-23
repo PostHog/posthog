@@ -476,7 +476,9 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 }
 
 export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
-    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    // Live persons only, matching production reads: in tombstone mode a merged-away
+    // source keeps its row with is_deleted = true.
+    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} AND is_deleted = false ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.fetchPersons`.

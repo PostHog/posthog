@@ -22,7 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.impact.imp
     impact_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import IMPACT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.impact.settings import (
+    IMPACT_API_VERSION_14,
+    IMPACT_API_VERSION_LEGACY,
+    IMPACT_ENDPOINTS,
+    IMPACT_VERSION_HEADER,
+)
 
 
 class FakeResumableManager:
@@ -196,6 +201,55 @@ class TestResumeIndex:
         work_items = [(window, 1)]
         resume = ImpactResumeConfig(campaign_id=999, window_start=window[0].isoformat())
         assert _resume_index(work_items, resume) == 0
+
+
+class TestApiVersionHeader:
+    def _session_headers(self, api_version: str) -> dict[str, str]:
+        with patch.object(impact, "make_tracked_session") as mock_session:
+            session = MagicMock()
+            session.headers = {}
+            mock_session.return_value = session
+            impact._get_session("sid", "token", api_version)
+        return session.headers
+
+    def test_legacy_version_sends_no_version_header(self) -> None:
+        headers = self._session_headers(IMPACT_API_VERSION_LEGACY)
+        assert IMPACT_VERSION_HEADER not in headers
+
+    def test_dated_version_sends_version_header(self) -> None:
+        headers = self._session_headers(IMPACT_API_VERSION_14)
+        assert headers[IMPACT_VERSION_HEADER] == "14"
+
+    @parameterized.expand([(IMPACT_API_VERSION_LEGACY, False), (IMPACT_API_VERSION_14, True)])
+    def test_get_rows_threads_version_to_session(self, api_version: str, expects_header: bool) -> None:
+        manager = FakeResumableManager()
+        with (
+            patch.object(impact, "make_tracked_session") as mock_session,
+            patch.object(impact, "_fetch", return_value={"Campaigns": [], "@numpages": "1"}),
+        ):
+            session = MagicMock()
+            session.headers = {}
+            mock_session.return_value = session
+            list(
+                get_rows(
+                    "sid",
+                    "token",
+                    "Campaigns",
+                    MagicMock(),
+                    manager,  # type: ignore[arg-type]
+                    api_version=api_version,
+                )
+            )
+        assert (session.headers.get(IMPACT_VERSION_HEADER) == api_version) is expects_header
+
+    def test_validate_credentials_threads_version_to_session(self) -> None:
+        with patch.object(impact, "make_tracked_session") as mock_session:
+            session = MagicMock()
+            session.headers = {}
+            session.get.return_value = MagicMock(status_code=200)
+            mock_session.return_value = session
+            validate_credentials("sid", "token", IMPACT_API_VERSION_14)
+        assert session.headers[IMPACT_VERSION_HEADER] == "14"
 
 
 class TestValidateCredentials:
