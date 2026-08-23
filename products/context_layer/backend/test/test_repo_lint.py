@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.context_layer.backend.repo_lint import lint_repo
+from products.context_layer.backend.repo_lint import lint_repo, report_repo
 from products.context_layer.backend.scaffold import write_default_structure
 
 
@@ -56,7 +56,7 @@ def _stray_symlink(root: Path) -> None:
 
 def _oversized_page(root: Path) -> None:
     (root / "areas").mkdir(exist_ok=True)
-    (root / "areas" / "huge.md").write_text("x" * 1_000_001)
+    (root / "areas" / "huge.md").write_text("---\nsummary: Huge\nstatus: active\nsources: test\n---\n# Huge\n" + "x" * 16_001)
 
 
 def _scripts_symlink(root: Path) -> None:
@@ -84,12 +84,17 @@ class TestRepoLint(SimpleTestCase):
 
     def test_valid_pages_in_every_directory_are_clean(self) -> None:
         (self.root / "areas").mkdir()
-        (self.root / "areas" / "analytics.md").write_text("# analytics")
+        (self.root / "areas" / "analytics.md").write_text("---\nsummary: Analytics\nstatus: active\nsources: test\n---\n# analytics")
         (self.root / "decisions").mkdir()
-        (self.root / "decisions" / "2026-08-18-pricing-tiers.md").write_text("# pricing tiers")
+        (self.root / "decisions" / "2026-08-18-pricing-tiers.md").write_text("---\nsummary: Pricing\nstatus: active\nsources: test\n---\n# pricing tiers")
         (self.root / "channels").mkdir()
-        (self.root / "channels" / "general.md").write_text("---\nchannel_id: abc123\n---\n# general")
+        (self.root / "channels" / "general.md").write_text("---\nchannel_id: abc123\nsummary: General\nstatus: active\nsources: test\n---\n# general")
         assert lint_repo(self.root) == []
+
+    def test_report_findings_do_not_fail_lint(self) -> None:
+        _oversized_page(self.root)
+        assert lint_repo(self.root) == []
+        assert any(finding.startswith("oversized:") for finding in report_repo(self.root))
 
     @parameterized.expand(
         [
@@ -102,7 +107,6 @@ class TestRepoLint(SimpleTestCase):
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
             ("stray_symlink", _stray_symlink),
-            ("oversized_page", _oversized_page),
             ("scripts_symlink", _scripts_symlink),
             ("scripts_extra_file", _scripts_extra_file),
             ("scripts_tampered_lint", _scripts_tampered_lint),

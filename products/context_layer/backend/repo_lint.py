@@ -1,39 +1,62 @@
 #!/usr/bin/env python3
-"""Structure linter for a context layer wiki checkout.
-
-Deliberately stdlib-only and dependency-free: the scaffolder copies this file
-verbatim into every wiki as `scripts/lint`, so agents run the exact rules the
-server enforces at land time. Keep it runnable as a standalone script.
-"""
+"""Structure linter for a context layer wiki checkout."""
 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
-from pathlib import Path
+from collections import Counter
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path, PurePosixPath
 
-ALLOWED_ROOT_FILES = {"AGENTS.md", "CLAUDE.md"}
+ALLOWED_ROOT_FILES = {"AGENTS.md", "CLAUDE.md", "index.md"}
 ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "channels", "scripts"}
 MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "channels"}
-# Pages are prose; anything near this size is a dump of raw data, not a wiki page.
-MAX_FILE_BYTES = 1_000_000
+MAX_FILE_BYTES = 16_000
 DECISION_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$")
+WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
+MALFORMED_WIKILINK_RE = re.compile(r"\[\[|\]\]")
+H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+DISAGREEMENT_RE = re.compile(r"^.*\*\*Disagreement:\*\*.*$", re.MULTILINE)
 FRONTMATTER_DELIMITER = "---"
+ALLOWED_STATUSES = {"active", "superseded", "historical"}
+REQUIRED_AGENTS_FRAGMENTS = (
+    "## Admission test",
+    "A fact enters the wiki only if it changes a durable fact, decision, priority, ownership, reusable definition, constraint, or an evidenced recurring pattern.",
+    "External systems remain authoritative",
+    "never edit `index.md`",
+)
+
+
+def _page_paths(root: Path) -> list[Path]:
+    return [
+        path
+        for directory in MARKDOWN_DIRECTORIES
+        for path in sorted((root / directory).rglob("*.md"))
+        if path.is_file() and not path.is_symlink()
+    ]
+
+
+def _wikilink_target(raw_target: str) -> str | None:
+    target = raw_target.split("|", 1)[0].split("#", 1)[0].strip().removesuffix(".md")
+    path = PurePosixPath(target)
+    if not target or path.is_absolute() or ".." in path.parts or target.startswith("."):
+        return None
+    return path.as_posix()
 
 
 def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
-    """Return every structure violation in the checkout at `root`, empty when clean.
-
-    `pin_scripts=False` skips the script-content comparison; use it when linting
-    historical trees, which legitimately carry earlier script versions. The tree
-    that actually lands (and gets executed by agents) must keep the default.
-    """
     root = Path(root)
     errors: list[str] = []
-
     agents_md = root / "AGENTS.md"
     if not agents_md.is_file() or agents_md.is_symlink():
         errors.append("AGENTS.md must exist at the repo root as a regular file")
+    else:
+        agents_text = agents_md.read_text(encoding="utf-8", errors="replace")
+        for fragment in REQUIRED_AGENTS_FRAGMENTS:
+            if fragment not in agents_text:
+                errors.append(f"AGENTS.md: required guidance is missing: {fragment}")
 
     claude_md = root / "CLAUDE.md"
     if not claude_md.is_symlink() or claude_md.resolve() != agents_md.resolve():
@@ -45,29 +68,20 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
         if entry.is_dir() and not entry.is_symlink():
             if entry.name not in ALLOWED_DIRECTORIES:
                 errors.append(f"{entry.name}/: only {', '.join(sorted(ALLOWED_DIRECTORIES))} are allowed at the root")
-            continue
-        if entry.name not in ALLOWED_ROOT_FILES:
-            errors.append(f"{entry.name}: only AGENTS.md and CLAUDE.md are allowed as root files")
+        elif entry.name not in ALLOWED_ROOT_FILES:
+            errors.append(f"{entry.name}: only {', '.join(sorted(ALLOWED_ROOT_FILES))} are allowed as root files")
 
+    titles: dict[str, Path] = {}
     for directory in sorted(MARKDOWN_DIRECTORIES):
-        errors.extend(_lint_markdown_directory(root, directory))
-
+        errors.extend(_lint_markdown_directory(root, directory, titles))
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
-
-    for path in sorted(root.rglob("*")):
-        if ".git" in path.parts or not path.is_file() or path.is_symlink():
-            continue
-        if path.stat().st_size > MAX_FILE_BYTES:
-            errors.append(f"{path.relative_to(root)}: exceeds the {MAX_FILE_BYTES // 1_000_000} MB page size limit")
-
     return errors
 
 
-def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
+def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]) -> list[str]:
     base = root / directory
     if not base.is_dir():
         return []
-
     errors: list[str] = []
     for path in sorted(base.rglob("*")):
         relative = path.relative_to(root)
@@ -81,19 +95,96 @@ def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
             continue
         if directory == "decisions" and not DECISION_FILE_RE.fullmatch(path.name):
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
-        if directory == "channels" and not _frontmatter(path).get("channel_id"):
+        fields = _frontmatter(path)
+        if directory == "channels" and not fields.get("channel_id"):
             errors.append(f"{relative}: channel pages need a non-empty `channel_id` in their frontmatter")
+        if not fields.get("summary") or "\n" in fields.get("summary", ""):
+            errors.append(f"{relative}: frontmatter needs a one-line `summary`")
+        status = fields.get("status")
+        if status not in ALLOWED_STATUSES:
+            errors.append(f"{relative}: frontmatter `status` must be active, superseded, or historical")
+        review_after = fields.get("review_after")
+        if review_after:
+            try:
+                date.fromisoformat(review_after)
+            except ValueError:
+                errors.append(f"{relative}: frontmatter `review_after` must be an ISO date")
+        if directory == "decisions" and not fields.get("sources"):
+            errors.append(f"{relative}: decision pages need non-empty `sources` frontmatter")
+        text = path.read_text(encoding="utf-8", errors="replace")
+        links, malformed = _links(text)
+        if malformed:
+            errors.append(f"{relative}: contains a malformed or escaping wikilink")
+        if status == "superseded" and not any((root / f"{target}.md").is_file() for target in links):
+            errors.append(f"{relative}: superseded pages must wikilink an existing replacement")
+        title_match = H1_RE.search(text)
+        if title_match:
+            normalized = re.sub(r"[^a-z0-9]+", " ", title_match.group(1).casefold()).strip()
+            if normalized in titles:
+                errors.append(f"{relative}: duplicates the normalized title in {titles[normalized].relative_to(root)}")
+            else:
+                titles[normalized] = path
     return errors
 
 
-def _canonical_scripts() -> dict[str, str]:
-    """Byte-exact content each allowed script must carry.
+def _links(text: str) -> tuple[list[str], bool]:
+    matches = list(WIKILINK_RE.finditer(text))
+    targets = [_wikilink_target(match.group(1)) for match in matches]
+    remainder = WIKILINK_RE.sub("", text)
+    return [target for target in targets if target], any(target is None for target in targets) or bool(MALFORMED_WIKILINK_RE.search(remainder))
 
-    Agents are told to execute these scripts, so a tampered copy must never
-    land: the server-side lint runs from PostHog's own module, making this
-    comparison authoritative at land time. (Run as `scripts/lint` inside a
-    wiki, the self-comparison is vacuous — the server check is the gate.)
-    """
+
+def report_repo(root: Path | str) -> list[str]:
+    root = Path(root)
+    pages = _page_paths(root)
+    targets_by_page: dict[Path, list[str]] = {}
+    inbound: Counter[str] = Counter()
+    for path in pages:
+        targets, _ = _links(path.read_text(encoding="utf-8", errors="replace"))
+        targets_by_page[path] = targets
+        inbound.update(targets)
+    findings: list[str] = []
+    today = datetime.now(UTC).date()
+    for path in pages:
+        relative = path.relative_to(root).as_posix()
+        target = relative.removesuffix(".md")
+        fields = _frontmatter(path)
+        age = _git_age(root, relative)
+        if age is not None and age > timedelta(days=90):
+            findings.append(f"stale: {relative}: last changed {age.days} days ago")
+        review_after = fields.get("review_after")
+        if fields.get("status") == "active" and review_after:
+            try:
+                if date.fromisoformat(review_after) < today:
+                    findings.append(f"past_review: {relative}: review_after {review_after} has passed")
+            except ValueError:
+                pass
+        if not inbound[target]:
+            findings.append(f"orphan: {relative}: no page links here")
+        if path.stat().st_size > MAX_FILE_BYTES:
+            findings.append(f"oversized: {relative}: exceeds {MAX_FILE_BYTES // 1000} KB")
+        if path.parts[-2] != "decisions" and not fields.get("sources"):
+            findings.append(f"missing_sources: {relative}: no sources recorded")
+        for marker in DISAGREEMENT_RE.findall(path.read_text(encoding="utf-8", errors="replace")):
+            findings.append(f"disagreement: {relative}: {marker.strip()}")
+    existing = {path.relative_to(root).as_posix().removesuffix(".md") for path in pages}
+    ghost_counts = Counter(target for targets in targets_by_page.values() for target in targets if target not in existing)
+    for target, count in sorted(ghost_counts.items()):
+        findings.append(f"ghost_link: {target}.md: referenced by {count} page(s)")
+    return findings
+
+
+def _git_age(root: Path, relative: str) -> timedelta | None:
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%ct", "--", relative], cwd=root, capture_output=True, text=True, check=False
+    )
+    if not result.stdout.strip():
+        return None
+    changed = datetime.fromtimestamp(int(result.stdout.strip()), tz=UTC)
+    return datetime.now(UTC) - changed
+
+
+def _canonical_scripts() -> dict[str, str]:
     return {"lint": Path(__file__).read_text(encoding="utf-8")}
 
 
@@ -101,19 +192,15 @@ def _lint_scripts_directory(root: Path, *, pin_scripts: bool = True) -> list[str
     base = root / "scripts"
     if not base.is_dir():
         return []
-
     canonical = _canonical_scripts()
     errors: list[str] = []
     for path in sorted(base.rglob("*")):
         relative = path.relative_to(root)
         if path.is_symlink():
             errors.append(f"{relative}: symlinks are only allowed for the root CLAUDE.md")
-            continue
-        if path.parent != base or not path.is_file() or path.name not in canonical:
-            allowed = ", ".join(sorted(canonical))
-            errors.append(f"{relative}: scripts/ may only contain {allowed}")
-            continue
-        if pin_scripts and path.read_text(encoding="utf-8", errors="replace") != canonical[path.name]:
+        elif path.parent != base or not path.is_file() or path.name not in canonical:
+            errors.append(f"{relative}: scripts/ may only contain {', '.join(sorted(canonical))}")
+        elif pin_scripts and path.read_text(encoding="utf-8", errors="replace") != canonical[path.name]:
             errors.append(f"{relative}: must match the script PostHog ships; restore it from a fresh clone")
     return errors
 
@@ -136,10 +223,18 @@ def _frontmatter(path: Path) -> dict[str, str]:
 
 
 def main(argv: list[str]) -> int:
-    root = Path(argv[1]) if len(argv) > 1 else Path.cwd()
+    report = False
+    args = argv[1:]
+    if "--report" in args:
+        report = True
+        args.remove("--report")
+    root = Path(args[0]) if args else Path.cwd()
     errors = lint_repo(root)
     for error in errors:
         print(error)  # noqa: T201
+    if report:
+        for finding in report_repo(root):
+            print(finding)  # noqa: T201
     if errors:
         print(f"{len(errors)} problem(s) found")  # noqa: T201
         return 1
