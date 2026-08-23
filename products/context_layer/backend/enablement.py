@@ -14,6 +14,7 @@ from django.utils.text import slugify
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -39,7 +40,7 @@ def enable_context_layer(
     # Context extracted with one project's credentials must not become readable
     # through another, so orgs with private projects cannot enable until the
     # wiki is partitioned per project.
-    if _organization_has_private_projects(organization_id):
+    if organization_has_private_projects(organization_id):
         raise RestrictedProjectsError(
             "This organization has private projects. The context layer does not support them yet."
         )
@@ -48,7 +49,7 @@ def enable_context_layer(
     return config
 
 
-def _organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
+def organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
     """Private projects exist in two representations: the deprecated
     `Team.access_control` flag (orgs not yet RBAC-migrated) and a project-level
     `AccessControl` row with `access_level="none"`. Enablement must respect
@@ -100,12 +101,12 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
 
     def mutate(root: Path) -> None:
         written.clear()
-        already_imported, taken_paths = _existing_channel_pages(root)
+        index = _existing_channel_pages(root)
         for channel_id, name, content in candidates:
-            if channel_id in already_imported:
+            if channel_id in index.channel_ids:
                 continue
-            path = _unique_channel_path(name, channel_id, taken_paths)
-            taken_paths.add(path)
+            path = _unique_channel_path(name, channel_id, index.paths)
+            index.paths.add(path)
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(_channel_page(channel_id, name, content), encoding="utf-8")
@@ -115,19 +116,25 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
     return sorted(written)
 
 
-def _existing_channel_pages(root: Path) -> tuple[set[str], set[str]]:
-    """The channel ids already imported and the page paths already occupied."""
+@frozen
+class ImportedChannelIndex:
+    """What already lives under channels/: imported channel ids and taken paths."""
+
+    channel_ids: set[str]
+    paths: set[str]
+
+
+def _existing_channel_pages(root: Path) -> ImportedChannelIndex:
     channel_ids: set[str] = set()
     paths: set[str] = set()
     channels_dir = root / "channels"
-    if not channels_dir.is_dir():
-        return channel_ids, paths
-    for page in channels_dir.rglob("*.md"):
-        paths.add(str(page.relative_to(root)))
-        channel_id = _frontmatter_value(page, "channel_id")
-        if channel_id:
-            channel_ids.add(channel_id)
-    return channel_ids, paths
+    if channels_dir.is_dir():
+        for page in channels_dir.rglob("*.md"):
+            paths.add(str(page.relative_to(root)))
+            channel_id = _frontmatter_value(page, "channel_id")
+            if channel_id:
+                channel_ids.add(channel_id)
+    return ImportedChannelIndex(channel_ids=channel_ids, paths=paths)
 
 
 def _frontmatter_value(page: Path, key: str) -> str | None:
