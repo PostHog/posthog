@@ -121,46 +121,51 @@ def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Respons
     return resp
 
 
+def _drive(
+    endpoint: str,
+    manager: MagicMock,
+    responses: list[Response],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> tuple[MagicMock, list[dict[str, Any]]]:
+    """Drive ``chargebee_source`` with a mocked HTTP session.
+
+    Returns ``(mock_session, sent_params)`` where ``sent_params`` is a list
+    of shallow copies of ``request.params`` captured at send-time — the
+    underlying Request object is mutated in-place by the paginator between
+    pages, so we can't rely on mock ``call_args_list`` to preserve history.
+    """
+    sent_params: list[dict[str, Any]] = []
+    response_iter = iter(responses)
+
+    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+        sent_params.append(dict(request.params or {}))
+        return next(response_iter)
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    ) as MockSession:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+
+        resource = chargebee_source(
+            api_key="test-key",
+            site_name="site-test",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="test_job",
+            resumable_source_manager=manager,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        list(cast(Iterable[Any], resource))
+        return mock_session, sent_params
+
+
 class TestChargebeeSourceResumeBehavior:
     """End-to-end resume behaviour of ``chargebee_source`` via ``rest_api_resource``."""
-
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        """Drive ``chargebee_source`` with a mocked HTTP session.
-
-        Returns ``(mock_session, sent_params)`` where ``sent_params`` is a list
-        of shallow copies of ``request.params`` captured at send-time — the
-        underlying Request object is mutated in-place by the paginator between
-        pages, so we can't rely on mock ``call_args_list`` to preserve history.
-        """
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = chargebee_source(
-                api_key="test-key",
-                site_name="site-test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                should_use_incremental_field=False,
-            )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
 
     @pytest.mark.parametrize("endpoint", ["Customers", "Events", "Invoices", "Subscriptions", "Transactions", "Orders"])
     def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
@@ -174,7 +179,7 @@ class TestChargebeeSourceResumeBehavior:
             _make_http_response({"list": [{"customer": {"id": "c2"}}], "next_offset": "cursor-2"}),
             _make_http_response({"list": [{"customer": {"id": "c3"}}]}),
         ]
-        _, sent_params = self._drive(endpoint, manager, responses)
+        _, sent_params = _drive(endpoint, manager, responses)
 
         # First request has no offset (fresh run); subsequent requests carry the prior page's cursor.
         offsets_sent = [p.get("offset") for p in sent_params]
@@ -194,7 +199,7 @@ class TestChargebeeSourceResumeBehavior:
         responses = [
             _make_http_response({"list": [{"customer": {"id": "c4"}}]}),
         ]
-        _, sent_params = self._drive("Customers", manager, responses)
+        _, sent_params = _drive("Customers", manager, responses)
 
         assert [p.get("offset") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
@@ -206,7 +211,7 @@ class TestChargebeeSourceResumeBehavior:
         responses = [
             _make_http_response({"list": [{"customer": {"id": "only"}}]}),
         ]
-        self._drive("Customers", manager, responses)
+        _drive("Customers", manager, responses)
 
         manager.save_state.assert_not_called()
 
@@ -217,9 +222,79 @@ class TestChargebeeSourceResumeBehavior:
         responses = [
             _make_http_response({"list": [{"customer": {"id": "a"}}]}),
         ]
-        self._drive("Customers", manager, responses)
+        _drive("Customers", manager, responses)
 
         manager.load_state.assert_not_called()
+
+
+class TestChargebeeIncrementalCursorFilter:
+    """Chargebee excludes records with no `updated_at`/`occurred_at` when the cursor filter is
+    sent, and a resync can't recover them once excluded — so the filter must be omitted until a
+    real watermark exists (first sync, or a full resync that resets the watermark), and only
+    sent once one does."""
+
+    @pytest.mark.parametrize(
+        ("endpoint", "cursor_param"),
+        [
+            ("Customers", "updated_at[after]"),
+            ("Events", "occurred_at[after]"),
+            ("Invoices", "updated_at[after]"),
+            ("Orders", "updated_at[after]"),
+            ("Subscriptions", "updated_at[after]"),
+            ("Transactions", "updated_at[after]"),
+        ],
+    )
+    def test_first_incremental_sync_omits_cursor_filter(self, endpoint: str, cursor_param: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [_make_http_response({"list": [{"customer": {"id": "c1"}}]})]
+
+        _, sent_params = _drive(
+            endpoint,
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+
+        assert cursor_param not in sent_params[0]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "cursor_param"),
+        [
+            ("Customers", "updated_at[after]"),
+            ("Events", "occurred_at[after]"),
+        ],
+    )
+    def test_later_incremental_sync_sends_cursor_filter(self, endpoint: str, cursor_param: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [_make_http_response({"list": [{"customer": {"id": "c1"}}]})]
+
+        _, sent_params = _drive(
+            endpoint,
+            manager,
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
+        )
+
+        assert sent_params[0][cursor_param] == 1700000000
+
+    def test_non_incremental_sync_never_sends_cursor_filter(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [_make_http_response({"list": [{"customer": {"id": "c1"}}]})]
+
+        _, sent_params = _drive(
+            "Customers",
+            manager,
+            responses,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1700000000,
+        )
+
+        assert "updated_at[after]" not in sent_params[0]
 
 
 class TestChargebeeSiteNameValidation:
