@@ -34,6 +34,8 @@ logger = structlog.get_logger(__name__)
 
 BUNDLE_KEY_PREFIX = "context_layer"
 DEFAULT_BRANCH = "main"
+BUNDLE_MAX_COMMITS = 100
+BUNDLE_MAX_UNPACKED_BYTES = 200_000_000
 LOCK_TTL_MS = 60_000
 LOCK_RENEW_INTERVAL_SECONDS = 20.0
 GIT_TIMEOUT_SECONDS = 60
@@ -415,13 +417,53 @@ def apply_changes(
     return _run_landing(organization_id, prepare=prepare, required_head=required_head)
 
 
+def _assert_bundle_within_bounds(workdir: Path, fetched: str) -> None:
+    """Reject bundles whose unpacked contents are out of proportion for a wiki.
+
+    The upload cap only bounds the compressed pack: a small bundle can expand
+    into gigabytes of objects or thousands of commits. Both limits are far
+    above anything a legitimate write-back produces.
+    """
+    incoming_commits = int(_run_git(["rev-list", "--count", f"{DEFAULT_BRANCH}..{fetched}"], cwd=workdir))
+    if incoming_commits > BUNDLE_MAX_COMMITS:
+        raise BundleConflictError(
+            f"the posted bundle carries {incoming_commits} commits; at most {BUNDLE_MAX_COMMITS} can land at once"
+        )
+    size_kib = int(_run_git(["count-objects", "-v"], cwd=workdir).partition("size-pack: ")[2].split()[0])
+    disk_kib = sum(f.stat().st_size for f in (workdir / ".git").rglob("*") if f.is_file()) // 1024
+    if max(size_kib, disk_kib) * 1024 > BUNDLE_MAX_UNPACKED_BYTES:
+        raise BundleConflictError(
+            f"the posted bundle unpacks past the {BUNDLE_MAX_UNPACKED_BYTES // 1_000_000} MB limit"
+        )
+
+
+def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
+    """Lint every incoming commit's tree, not just the final one.
+
+    Landed history is exportable and clonable, so a hazardous intermediate
+    commit (a secret, an oversized dump) must fail the land even when a later
+    commit removes it. The commit-count cap bounds this loop.
+    """
+    shas = _run_git(["rev-list", "--reverse", f"{base}..{tip}"], cwd=workdir).split()
+    for sha in shas:
+        _run_git(["checkout", "--quiet", "--force", sha], cwd=workdir)
+        # Historical trees may carry earlier script versions (nothing executes
+        # them); the landed tree is pinned separately by the final lint.
+        errors = lint_repo(workdir, pin_scripts=False)
+        if errors:
+            _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
+            raise LintFailedError([f"commit {sha[:12]}: {error}" for error in errors])
+    _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
+
+
 def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) -> str:
     """Land commits an agent made in its own clone, posted back as a bundle.
 
     The bundle must carry the wiki's `main` ref, with the commits based on some
     (possibly stale) head we already store. The incoming commits are rebased
     onto the current head; a rebase conflict raises `BundleConflictError` so the
-    agent can re-pull and retry.
+    agent can re-pull and retry. Every incoming commit is linted, and bundles
+    that unpack past sane bounds are rejected.
     """
 
     def prepare(workdir: Path) -> str | None:
@@ -435,12 +477,14 @@ def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) ->
         fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
         if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
             return None
+        _assert_bundle_within_bounds(workdir, fetched)
         _run_git(["checkout", "--quiet", "-B", "incoming", fetched], cwd=workdir)
         try:
             _run_git(["rebase", "--quiet", DEFAULT_BRANCH], cwd=workdir)
         except ContextLayerStoreError as error:
             raise BundleConflictError(f"the posted commits conflict with the current head: {error}") from error
         rebased = _run_git(["rev-parse", "HEAD"], cwd=workdir)
+        _lint_incoming_commits(workdir, DEFAULT_BRANCH, rebased)
         _run_git(["checkout", "--quiet", DEFAULT_BRANCH], cwd=workdir)
         _run_git(["merge", "--ff-only", "--quiet", rebased], cwd=workdir)
         return _run_git(["rev-parse", "HEAD"], cwd=workdir)

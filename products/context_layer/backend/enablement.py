@@ -21,6 +21,8 @@ from products.context_layer.backend import store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.tasks.backend.facade import api as tasks_facade
 
+from ee.models.rbac.access_control import AccessControl
+
 logger = structlog.get_logger(__name__)
 
 
@@ -37,7 +39,7 @@ def enable_context_layer(
     # Context extracted with one project's credentials must not become readable
     # through another, so orgs with private projects cannot enable until the
     # wiki is partitioned per project.
-    if Team.objects.filter(organization_id=organization_id, access_control=True).exists():
+    if _organization_has_private_projects(organization_id):
         raise RestrictedProjectsError(
             "This organization has private projects. The context layer does not support them yet."
         )
@@ -46,15 +48,35 @@ def enable_context_layer(
     return config
 
 
+def _organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
+    """Private projects exist in two representations: the deprecated
+    `Team.access_control` flag (orgs not yet RBAC-migrated) and a project-level
+    `AccessControl` row with `access_level="none"`. Enablement must respect
+    both, and cares about the row existing rather than whether access control
+    is currently entitled, so it does not gate on the feature."""
+    if Team.objects.filter(organization_id=organization_id, access_control=True).exists():
+        return True
+    return AccessControl.objects.filter(
+        team__organization_id=organization_id,
+        resource="project",
+        resource_id__isnull=False,
+        organization_member=None,
+        role=None,
+        access_level="none",
+    ).exists()
+
+
 def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
     """Write each public channel's latest CONTEXT.md as `channels/<slug>.md`.
 
-    Pages that already exist are left alone, so the import runs once per channel
-    and never overwrites later wiki edits. Personal channels are skipped: their
-    context belongs to one person, and the wiki is org-visible.
+    A channel is identified by the `channel_id` in its page's frontmatter, not
+    by its slug: a channel that already has a page anywhere under `channels/`
+    is never re-imported (later wiki edits win), and a new channel whose name
+    collides with an existing page gets a suffixed slug instead of being
+    silently dropped. Personal channels are skipped: their context belongs to
+    one person, and the wiki is org-visible.
     """
-    imported: dict[str, str] = {}
-    existing_slugs: set[str] = set()
+    candidates: list[tuple[str, str, str]] = []
     # Order the teams so a same-named channel in two projects always resolves its
     # slug collision the same way; an unordered scan could swap the pages between runs.
     for team_id in Team.objects.filter(organization_id=organization_id).order_by("id").values_list("id", flat=True):
@@ -67,37 +89,67 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
                 instructions = tasks_facade.get_channel_instructions(channel.id, team_id, None)
                 if instructions is None or instructions.version == 0 or not instructions.content.strip():
                     continue
-                slug = _unique_slug(channel.name, channel.id, existing_slugs)
-                existing_slugs.add(slug)
-                imported[f"channels/{slug}.md"] = _channel_page(channel.id, channel.name, instructions.content)
+                candidates.append((str(channel.id), channel.name, instructions.content))
 
-    if not imported:
+    if not candidates:
         return []
 
     written: list[str] = []
 
     def mutate(root: Path) -> None:
         written.clear()
-        for path, content in imported.items():
-            target = root / path
-            if target.exists():
+        already_imported, taken_paths = _existing_channel_pages(root)
+        for channel_id, name, content in candidates:
+            if channel_id in already_imported:
                 continue
+            path = _unique_channel_path(name, channel_id, taken_paths)
+            taken_paths.add(path)
+            target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(_channel_page(channel_id, name, content), encoding="utf-8")
             written.append(path)
 
     store.apply_changes(organization_id, message="Import channel context", mutate=mutate)
     return sorted(written)
 
 
-def _unique_slug(name: str, channel_id: uuid.UUID, taken: set[str]) -> str:
-    slug = slugify(name) or str(channel_id)
-    if slug in taken:
+def _existing_channel_pages(root: Path) -> tuple[set[str], set[str]]:
+    """The channel ids already imported and the page paths already occupied."""
+    channel_ids: set[str] = set()
+    paths: set[str] = set()
+    channels_dir = root / "channels"
+    if not channels_dir.is_dir():
+        return channel_ids, paths
+    for page in channels_dir.glob("*.md"):
+        paths.add(f"channels/{page.name}")
+        channel_id = _frontmatter_value(page, "channel_id")
+        if channel_id:
+            channel_ids.add(channel_id)
+    return channel_ids, paths
+
+
+def _frontmatter_value(page: Path, key: str) -> str | None:
+    lines = page.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return None
+        name, separator, value = line.partition(":")
+        if separator and name.strip() == key:
+            return value.strip() or None
+    return None
+
+
+def _unique_channel_path(name: str, channel_id: str, taken: set[str]) -> str:
+    slug = slugify(name) or channel_id
+    path = f"channels/{slug}.md"
+    if path in taken:
         # Channel names are only unique per team, so cross-team collisions get
         # the channel id appended.
-        slug = f"{slug}-{str(channel_id)[:8]}"
-    return slug
+        path = f"channels/{slug}-{channel_id[:8]}.md"
+    return path
 
 
-def _channel_page(channel_id: uuid.UUID, channel_name: str, content: str) -> str:
+def _channel_page(channel_id: str, channel_name: str, content: str) -> str:
     return f"---\nchannel_id: {channel_id}\nsource: channel-instructions-import\n---\n\n# {channel_name}\n\n{content}\n"

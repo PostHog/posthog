@@ -10,10 +10,13 @@ from django.test import override_settings
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.scoping import team_scope
+from posthog.models.team.team import Team
 from posthog.storage.object_storage import UnavailableStorage
 
-from products.context_layer.backend import store
+from products.context_layer.backend import enablement, store
 from products.tasks.backend.facade import api as tasks_facade
+
+from ee.models.rbac.access_control import AccessControl
 
 
 @override_settings(OBJECT_STORAGE_ENABLED=True)
@@ -53,6 +56,42 @@ class TestContextLayerAPI(APIBaseTest):
         response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 400
         assert "private projects" in response.json()["detail"]
+
+    def test_enable_is_blocked_for_orgs_with_rbac_private_projects(self, _flag) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+        )
+        response = self.client.post(f"{self.base_url}/enable/")
+        assert response.status_code == 400
+        assert "private projects" in response.json()["detail"]
+
+    def test_reimport_keeps_existing_pages_and_suffixes_colliding_new_channels(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="First import.", base_version=0
+            )
+        self._enable()
+
+        other_team = Team.objects.create(organization=self.organization, name="Second project")
+        with team_scope(other_team.id):
+            colliding = tasks_facade.resolve_channel(other_team.id, self.user.id, name="growth", star=False)
+            assert colliding is not None
+            tasks_facade.publish_channel_instructions(
+                colliding.id, other_team.id, self.user.id, content="Same name, other project.", base_version=0
+            )
+        enablement.import_channel_context(self.organization.id)
+
+        tree = self.client.get(f"{self.base_url}/tree/").json()
+        suffixed = f"channels/growth-{str(colliding.id)[:8]}.md"
+        assert "channels/growth.md" in tree["paths"]
+        assert suffixed in tree["paths"]
+        original = self.client.get(f"{self.base_url}/pages/", {"path": "channels/growth.md"}).json()
+        assert "First import." in original["content"]
 
     def test_enable_returns_429_when_a_writer_holds_the_lock(self, _flag) -> None:
         with patch(
@@ -141,6 +180,63 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["errors"]
+
+    def test_commits_endpoint_rejects_bundles_whose_history_violates_structure(self, _flag) -> None:
+        self._enable()
+        with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            rogue = checkout.path / "secrets.txt"
+            rogue.write_text("hazardous dump")
+            subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Add hazard"], cwd=checkout.path, check=True)
+            rogue.unlink()
+            (checkout.path / "areas").mkdir(exist_ok=True)
+            (checkout.path / "areas" / "clean.md").write_text("# Clean\n")
+            subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+            subprocess.run([*env_git, "commit", "--quiet", "-m", "Remove hazard"], cwd=checkout.path, check=True)
+            with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
+                subprocess.run(
+                    [*env_git, "bundle", "create", bundle_file.name, "origin/main..main"],
+                    cwd=checkout.path,
+                    check=True,
+                )
+                bundle_bytes = Path(bundle_file.name).read_bytes()
+
+        response = self.client.post(
+            f"{self.base_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+            format="multipart",
+        )
+        assert response.status_code == 400
+        assert any("secrets.txt" in error for error in response.json()["errors"])
+
+    def test_commits_endpoint_rejects_bundles_with_too_many_commits(self, _flag) -> None:
+        self._enable()
+        with store.checkout_repo(self.organization.id) as checkout:
+            env_git = ["git", "-c", "user.name=agent", "-c", "user.email=agent@example.com"]
+            (checkout.path / "areas").mkdir(exist_ok=True)
+            for index in range(4):
+                (checkout.path / "areas" / f"page-{index}.md").write_text(f"# Page {index}\n")
+                subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
+                subprocess.run(
+                    [*env_git, "commit", "--quiet", "-m", f"Add page {index}"], cwd=checkout.path, check=True
+                )
+            with tempfile.NamedTemporaryFile(suffix=".bundle") as bundle_file:
+                subprocess.run(
+                    [*env_git, "bundle", "create", bundle_file.name, "origin/main..main"],
+                    cwd=checkout.path,
+                    check=True,
+                )
+                bundle_bytes = Path(bundle_file.name).read_bytes()
+
+        with patch.object(store, "BUNDLE_MAX_COMMITS", 3):
+            response = self.client.post(
+                f"{self.base_url}/commits/",
+                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+                format="multipart",
+            )
+        assert response.status_code == 409
+        assert "at most 3" in response.json()["detail"]
 
     def test_export_returns_a_download_url(self, _flag) -> None:
         head = self._enable()

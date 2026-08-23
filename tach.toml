@@ -510,6 +510,7 @@ layer = "modules"
 [[modules]]
 path = "products.context_layer"
 depends_on = [
+    "ee",
     "posthog",
     "products.tasks",
 ]
