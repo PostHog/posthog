@@ -14,7 +14,7 @@ import {
 } from "@posthog/shared/domain-types";
 import { BuildLogPane } from "@posthog/ui/features/settings/sections/environments/BuildLogPane";
 import { imageFailureDetail } from "@posthog/ui/features/settings/sections/environments/imageBuildWatcher";
-import { ImageSetupPage } from "@posthog/ui/features/settings/sections/environments/setup/ImageSetupPage";
+import { EnvironmentSetupFlow } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentSetupFlow";
 import { useSandboxCustomImageDetail } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useState } from "react";
 
@@ -55,7 +55,9 @@ export function CustomImageBuildDialog({
               </DialogDescription>
             </DialogHeader>
             <DialogBody>
-              <ImageSetupPage
+              <EnvironmentSetupFlow
+                scope="image"
+                buildImage
                 embedded
                 defaultRepository={defaultRepository}
                 onDone={(image) => {

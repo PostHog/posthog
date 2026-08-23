@@ -8,7 +8,6 @@ import {
   type ImagePresetTool,
   imagePresetName,
   imagePresetTools,
-  type RepoHost,
 } from "../billing/imagePreset";
 import {
   type ImageSpecInput,
@@ -75,7 +74,6 @@ export interface EmptyPlanOptions {
   scope?: SetupScope;
   /** True when the flow was entered to build an image, e.g. from the image list. */
   buildImage?: boolean;
-  host?: RepoHost;
 }
 
 /**
@@ -86,7 +84,6 @@ export interface EmptyPlanOptions {
 export function emptyEnvironmentSetupPlan({
   repository = null,
   buildImage = false,
-  host = "github",
   scope = "environment",
 }: EmptyPlanOptions = {}): EnvironmentSetupPlan {
   return {
@@ -105,7 +102,7 @@ export function emptyEnvironmentSetupPlan({
     existingImageId: null,
     imageName: repository === null ? "" : imagePresetName(repository),
     imageNameEdited: false,
-    excludedToolIds: imagePresetTools(host)
+    excludedToolIds: imagePresetTools()
       .filter((tool) => !DEFAULT_TOOL_IDS.includes(tool.id))
       .map((tool) => tool.id),
     setupLines: [],
@@ -175,24 +172,6 @@ export function withRepositories(
   };
 }
 
-export function withRepositoryAdded(
-  plan: EnvironmentSetupPlan,
-  repository: string,
-): EnvironmentSetupPlan {
-  if (plan.repositories.includes(repository)) return plan;
-  return withRepositories(plan, [...plan.repositories, repository]);
-}
-
-export function withRepositoryRemoved(
-  plan: EnvironmentSetupPlan,
-  repository: string,
-): EnvironmentSetupPlan {
-  return withRepositories(
-    plan,
-    plan.repositories.filter((current) => current !== repository),
-  );
-}
-
 export function withEnvironmentName(
   plan: EnvironmentSetupPlan,
   environmentName: string,
@@ -219,11 +198,8 @@ export function withToolToggled(
   };
 }
 
-export function planTools(
-  plan: EnvironmentSetupPlan,
-  host: RepoHost,
-): ImagePresetTool[] {
-  return imagePresetTools(host).filter(
+export function planTools(plan: EnvironmentSetupPlan): ImagePresetTool[] {
+  return imagePresetTools().filter(
     (tool) => !plan.excludedToolIds.includes(tool.id),
   );
 }
@@ -234,12 +210,9 @@ export function planSetupCommands(plan: EnvironmentSetupPlan): string[] {
     .filter((command) => command.trim() !== "");
 }
 
-export function planSpecInput(
-  plan: EnvironmentSetupPlan,
-  host: RepoHost,
-): ImageSpecInput {
+export function planSpecInput(plan: EnvironmentSetupPlan): ImageSpecInput {
   return {
-    tools: planTools(plan, host),
+    tools: planTools(plan),
     setupCommands: planSetupCommands(plan),
     repository: primaryRepository(plan),
   };
@@ -349,7 +322,6 @@ export function filledEnvVars(plan: EnvironmentSetupPlan): EnvVarRow[] {
 export function stepError(
   plan: EnvironmentSetupPlan,
   key: SetupStepKey,
-  host: RepoHost,
 ): string | null {
   switch (key) {
     case "environment":
@@ -390,7 +362,7 @@ export function stepError(
       return null;
 
     case "tools":
-      return imageSpecError(planSpecInput(plan, host));
+      return imageSpecError(planSpecInput(plan));
 
     case "setup": {
       for (const command of planSetupCommands(plan)) {
@@ -403,7 +375,7 @@ export function stepError(
     case "review": {
       for (const step of setupSteps(plan)) {
         if (step.key === "review") continue;
-        const error = stepError(plan, step.key, host);
+        const error = stepError(plan, step.key);
         if (error) return error;
       }
       return null;
@@ -412,13 +384,8 @@ export function stepError(
 }
 
 /** Per-step completeness, in the order `setupSteps` returns. */
-export function setupStepsComplete(
-  plan: EnvironmentSetupPlan,
-  host: RepoHost,
-): boolean[] {
-  return setupSteps(plan).map(
-    (step) => stepError(plan, step.key, host) === null,
-  );
+export function setupStepsComplete(plan: EnvironmentSetupPlan): boolean[] {
+  return setupSteps(plan).map((step) => stepError(plan, step.key) === null);
 }
 
 /**

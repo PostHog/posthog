@@ -4,7 +4,6 @@ import {
   type ImagePresetTool,
   imagePresetTools,
   isDirectlyInstallable,
-  type RepoHost,
   toolInstallMethod,
   toolsSizeMb,
 } from "@posthog/core/billing/imagePreset";
@@ -29,7 +28,6 @@ const TOOLTIP_DELAY_MS = 400;
 
 interface ToolsStepProps {
   plan: EnvironmentSetupPlan;
-  host: RepoHost;
   onChange: (plan: EnvironmentSetupPlan) => void;
 }
 
@@ -37,11 +35,11 @@ interface ToolsStepProps {
  * The tools the image carries, grouped by what they are for, with the size and
  * install method each one adds so a long list's cost on the image is visible.
  */
-export function ToolsStep({ plan, host, onChange }: ToolsStepProps) {
+export function ToolsStep({ plan, onChange }: ToolsStepProps) {
   const [query, setQuery] = useState("");
   const searchId = useId();
-  const all = imagePresetTools(host);
-  const error = stepError(plan, "tools", host);
+  const all = imagePresetTools();
+  const error = stepError(plan, "tools");
   const needle = query.trim().toLowerCase();
   const matches = (tool: ImagePresetTool) =>
     needle === "" ||

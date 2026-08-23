@@ -6,7 +6,6 @@ const meta: Meta<typeof CostManagementView> = {
   title: "Cost management/CostManagementView",
   component: CostManagementView,
   args: {
-    installingSkill: false,
     onSwitchModel: () => {},
     onCreateImage: () => {},
     onInstallSkill: () => {},

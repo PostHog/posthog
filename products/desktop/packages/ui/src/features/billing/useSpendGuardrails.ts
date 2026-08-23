@@ -1,54 +1,27 @@
 import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
 import {
   evaluateSpendLimits,
-  hasAnySpendLimit,
   type SpendLimitCrossing,
   spendLimitNoticeKey,
-  spendTotalsFromDays,
   utcDayIso,
 } from "@posthog/core/billing/spendLimits";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import {
-  fetchSpendWindow,
-  SPEND_TOTALS_QUERY_KEY,
-} from "@posthog/ui/features/billing/useSpendTotals";
+import { useSpendTotals } from "@posthog/ui/features/billing/useSpendTotals";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { toast } from "../../primitives/toast";
 
-const POLL_INTERVAL_MS = 5 * 60_000;
-
 /**
  * Watches the user's personal spend in this app against their configured
- * spend lines and raises inform-only notices when a line is crossed. Never
- * pauses or blocks anything.
+ * spend lines and raises a notice when a line is crossed.
  */
 export function useSpendGuardrails(): void {
-  const client = useOptionalAuthenticatedClient();
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
+  const totals = useSpendTotals();
   const spendLimits = useSettingsStore((state) => state.spendLimits);
-  const anyLimit = hasAnySpendLimit(spendLimits);
-
-  const query = useQuery({
-    queryKey: SPEND_TOTALS_QUERY_KEY,
-    queryFn: () => {
-      if (!client) throw new Error("Not authenticated");
-      return fetchSpendWindow(client);
-    },
-    enabled: client !== null && spendAnalysisEnabled && anyLimit,
-    refetchInterval: POLL_INTERVAL_MS,
-    staleTime: 60_000,
-  });
-
-  const days = query.data?.by_day?.items;
 
   useEffect(() => {
-    if (!days) return;
+    if (!totals) return;
     const todayIso = utcDayIso();
-    const totals = spendTotalsFromDays(days, todayIso);
     const crossings = evaluateSpendLimits(spendLimits, totals, todayIso);
     // Read seen-state imperatively: marking a notice seen must not re-run
     // this effect and re-evaluate the same fetch.
@@ -60,7 +33,7 @@ export function useSpendGuardrails(): void {
       markSpendNoticeSeen(key, crossing.anchor, todayIso);
       showSpendNotice(crossing);
     }
-  }, [days, spendLimits]);
+  }, [totals, spendLimits]);
 }
 
 function showSpendNotice(crossing: SpendLimitCrossing): void {

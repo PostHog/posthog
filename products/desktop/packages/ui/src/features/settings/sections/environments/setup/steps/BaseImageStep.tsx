@@ -1,4 +1,3 @@
-import type { RepoHost } from "@posthog/core/billing/imagePreset";
 import {
   type BaseImageChoice,
   type EnvironmentSetupPlan,
@@ -13,7 +12,6 @@ import { useId } from "react";
 
 interface BaseImageStepProps {
   plan: EnvironmentSetupPlan;
-  host: RepoHost;
   images: readonly SandboxCustomImage[];
   onChange: (plan: EnvironmentSetupPlan) => void;
   /**

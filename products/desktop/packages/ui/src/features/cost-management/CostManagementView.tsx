@@ -6,7 +6,6 @@ import { SpendLimitsSettings } from "@posthog/ui/features/settings/sections/Spen
 
 interface CostManagementViewProps {
   items: CostChecklistItem[];
-  installingSkill: boolean;
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
   onInstallSkill: (skillId: string) => void;
@@ -17,7 +16,6 @@ interface CostManagementViewProps {
 
 export function CostManagementView({
   items,
-  installingSkill,
   onSwitchModel,
   onCreateImage,
   onInstallSkill,
@@ -35,7 +33,6 @@ export function CostManagementView({
       >
         <CostChecklistPanel
           items={items}
-          installingSkill={installingSkill}
           onSwitchModel={onSwitchModel}
           onCreateImage={onCreateImage}
           onInstallSkill={onInstallSkill}

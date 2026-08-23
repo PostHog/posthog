@@ -1,7 +1,4 @@
-import {
-  isDirectlyInstallable,
-  type RepoHost,
-} from "@posthog/core/billing/imagePreset";
+import { isDirectlyInstallable } from "@posthog/core/billing/imagePreset";
 import {
   buildImageSpec,
   imageSpecToYaml,
@@ -19,7 +16,6 @@ import { StepBody } from "@posthog/ui/features/settings/sections/environments/se
 
 interface ReviewStepProps {
   plan: EnvironmentSetupPlan;
-  host: RepoHost;
   /** Names the target and the base image, since the plan holds only their ids. */
   targetName: string;
   baseImageName: string;
@@ -28,13 +24,12 @@ interface ReviewStepProps {
 /** What gets created, including the spec as it will be written. */
 export function ReviewStep({
   plan,
-  host,
   targetName,
   baseImageName,
 }: ReviewStepProps) {
-  const error = stepError(plan, "review", host);
+  const error = stepError(plan, "review");
   const builderOnly = buildsImage(plan)
-    ? planTools(plan, host).filter((tool) => !isDirectlyInstallable(tool))
+    ? planTools(plan).filter((tool) => !isDirectlyInstallable(tool))
     : [];
 
   return (
@@ -106,7 +101,7 @@ export function ReviewStep({
             Image spec
           </Text>
           <pre className="max-h-[176px] overflow-auto rounded-(--radius-3) border border-(--gray-5) bg-(--gray-2) px-3 py-2.5 font-mono text-(--gray-11) text-[11.5px] leading-relaxed">
-            {imageSpecToYaml(buildImageSpec(planSpecInput(plan, host)))}
+            {imageSpecToYaml(buildImageSpec(planSpecInput(plan)))}
           </pre>
         </div>
       )}

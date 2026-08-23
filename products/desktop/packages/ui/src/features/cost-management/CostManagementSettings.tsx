@@ -108,7 +108,6 @@ export function CostManagementSettings() {
     <>
       <CostManagementView
         items={items}
-        installingSkill={busySkillId !== null}
         onSwitchModel={switchDefaultModel}
         onCreateImage={() => setBuildingImage(true)}
         onInstallSkill={(skillId) => void installById(skillId)}

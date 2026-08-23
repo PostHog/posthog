@@ -37,7 +37,7 @@ export function useImageFromPlan(): ImageFromPlan {
         name: plan.imageName.trim(),
         description: imagePresetBrief(
           repository,
-          planTools(plan, "github"),
+          planTools(plan),
           planSetupCommands(plan),
         ),
         ...(repository ? { repository } : {}),
@@ -48,9 +48,7 @@ export function useImageFromPlan(): ImageFromPlan {
     build: async (plan, imageId) => {
       await buildMutation.mutateAsync({
         id: imageId,
-        specYaml: imageSpecToYaml(
-          buildImageSpec(planSpecInput(plan, "github")),
-        ),
+        specYaml: imageSpecToYaml(buildImageSpec(planSpecInput(plan))),
       });
     },
     pending: createMutation.isPending || buildMutation.isPending,

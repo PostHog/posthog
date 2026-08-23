@@ -36,7 +36,6 @@ function EnvironmentSetupFormStory({
       <EnvironmentSetupForm
         plan={plan}
         onChange={setPlan}
-        host="github"
         environments={environments}
         images={images}
         saving={saving}

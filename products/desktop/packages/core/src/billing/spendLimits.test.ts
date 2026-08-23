@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeSpendLevel,
   activeSpendStop,
   EMPTY_SPEND_LIMITS,
   evaluateSpendLimits,
@@ -173,30 +172,6 @@ describe("spendLimits", () => {
       monthlyStopUsd: 1000,
     });
     expect(suggestedSpendLimits(0, "2026-08-22")).toBeNull();
-  });
-
-  it.each([
-    // A stop supersedes a warning the page would otherwise flag as amber.
-    [
-      { dailyWarnUsd: 20, dailyStopUsd: 50 },
-      { todayUsd: 60, monthUsd: 60 },
-      "stop",
-    ],
-    [
-      { dailyWarnUsd: 20, dailyStopUsd: 50 },
-      { todayUsd: 30, monthUsd: 30 },
-      "warn",
-    ],
-    [
-      { dailyWarnUsd: 20, dailyStopUsd: 50 },
-      { todayUsd: 5, monthUsd: 5 },
-      null,
-    ],
-    // A monthly line crossed on its own still shows.
-    [{ monthlyWarnUsd: 500 }, { todayUsd: 5, monthUsd: 600 }, "warn"],
-    [{}, { todayUsd: 900, monthUsd: 9000 }, null],
-  ] as const)("activeSpendLevel %#", (partial, totals, expected) => {
-    expect(activeSpendLevel(limits(partial), totals)).toBe(expected);
   });
 
   it.each([

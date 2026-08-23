@@ -1,4 +1,4 @@
-import { ArrowSquareOut, Star } from "@phosphor-icons/react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
 import {
   type LeanSkill,
   leanSkillRepoUrl,
@@ -14,7 +14,6 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
-import { useRepoStars } from "@posthog/ui/features/cost-management/useRepoStars";
 
 interface LeanSkillDialogProps {
   skill: LeanSkill;
@@ -38,8 +37,6 @@ export function LeanSkillDialog({
   onUninstall,
   onClose,
 }: LeanSkillDialogProps) {
-  const stars = useRepoStars(skill.source);
-
   return (
     <Dialog
       open
@@ -83,7 +80,6 @@ export function LeanSkillDialog({
               {skill.license}
             </Text>
             <SkillLink href={leanSkillRepoUrl(skill)}>Repository</SkillLink>
-            {stars !== null && <RepoStars count={stars} />}
           </span>
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
@@ -167,25 +163,6 @@ function ExampleRow({
     </span>
   );
 }
-
-function RepoStars({ count }: { count: number }) {
-  return (
-    <Text
-      size="xxs"
-      variant="muted"
-      render={<span />}
-      className="inline-flex items-center gap-1"
-    >
-      <Star size={11} weight="fill" aria-hidden="true" />
-      {starFormat.format(count).toLowerCase()}
-    </Text>
-  );
-}
-
-const starFormat = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 
 function SkillLink({ href, children }: { href: string; children: string }) {
   return (

@@ -6,7 +6,6 @@ const meta: Meta<typeof CostChecklistPanel> = {
   title: "Cost management/CostChecklistPanel",
   component: CostChecklistPanel,
   args: {
-    installingSkill: false,
     onSwitchModel: () => {},
     onCreateImage: () => {},
     onInstallSkill: () => {},

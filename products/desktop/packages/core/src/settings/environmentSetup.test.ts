@@ -9,8 +9,7 @@ import {
   setupStepsComplete,
   stepError,
   withEnvironmentName,
-  withRepositoryAdded,
-  withRepositoryRemoved,
+  withRepositories,
 } from "./environmentSetup";
 
 describe("environmentSetup", () => {
@@ -27,21 +26,15 @@ describe("environmentSetup", () => {
 
   it("keeps a typed environment name when the repositories change", () => {
     const typed = withEnvironmentName(plan(), "Internal APIs");
-    const moved = withRepositoryAdded(
-      withRepositoryRemoved(typed, "posthog/posthog"),
-      "posthog/hogql",
-    );
+    const moved = withRepositories(typed, ["posthog/hogql"]);
     expect(moved.environmentName).toBe("Internal APIs");
     expect(moved.imageName).toBe("hogql toolchain");
   });
 
   it("keeps the first repository as the one the image is built for", () => {
-    const two = withRepositoryAdded(plan(), "posthog/hogql");
+    const two = withRepositories(plan(), ["posthog/posthog", "posthog/hogql"]);
     expect(two.repositories).toEqual(["posthog/posthog", "posthog/hogql"]);
     expect(two.imageName).toBe("posthog toolchain");
-    expect(withRepositoryAdded(two, "posthog/hogql").repositories).toHaveLength(
-      2,
-    );
   });
 
   it("shows access only for a new environment, and image steps only when building", () => {
@@ -59,13 +52,13 @@ describe("environmentSetup", () => {
   });
 
   it("names what is unresolved on each step", () => {
-    expect(
-      stepError(plan({ environmentName: " " }), "environment", "github"),
-    ).toBe("Give the environment a name.");
-    expect(
-      stepError(plan({ target: "existing" }), "environment", "github"),
-    ).toBe("Pick the environment to add to.");
-    expect(stepError(plan({ baseImage: "existing" }), "image", "github")).toBe(
+    expect(stepError(plan({ environmentName: " " }), "environment")).toBe(
+      "Give the environment a name.",
+    );
+    expect(stepError(plan({ target: "existing" }), "environment")).toBe(
+      "Pick the environment to add to.",
+    );
+    expect(stepError(plan({ baseImage: "existing" }), "image")).toBe(
       "Pick an image.",
     );
     expect(
@@ -75,32 +68,26 @@ describe("environmentSetup", () => {
           allowedDomainsText: "http://nope",
         }),
         "access",
-        "github",
       ),
     ).toBe("Invalid domain: http://nope");
   });
 
   it("holds a custom access level that allows nothing", () => {
-    expect(
-      stepError(plan({ networkAccessLevel: "custom" }), "access", "github"),
-    ).toBe("Add a domain, or pick another access level.");
+    expect(stepError(plan({ networkAccessLevel: "custom" }), "access")).toBe(
+      "Add a domain, or pick another access level.",
+    );
   });
 
   it("holds review until every visible step resolves", () => {
-    expect(
-      stepError(plan({ baseImage: "new", imageName: "" }), "review", "github"),
-    ).toBe("Give the image a name.");
-    expect(setupStepsComplete(plan(), "github")).toEqual([
-      true,
-      true,
-      true,
-      true,
-    ]);
+    expect(stepError(plan({ baseImage: "new", imageName: "" }), "review")).toBe(
+      "Give the image a name.",
+    );
+    expect(setupStepsComplete(plan())).toEqual([true, true, true, true]);
   });
 
   it("carries the repositories and image onto the environment payload", () => {
     const input = planEnvironmentInput(
-      withRepositoryAdded(plan(), "posthog/hogql"),
+      withRepositories(plan(), ["posthog/posthog", "posthog/hogql"]),
       "image-1",
     );
     expect(input).toMatchObject({

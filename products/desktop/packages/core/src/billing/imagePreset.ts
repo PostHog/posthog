@@ -344,9 +344,6 @@ export const IMAGE_PRESET_TOOLS: readonly ImagePresetTool[] = [
   },
 ];
 
-export type RepoHost = "github" | "gitlab";
-
-/** The platform CLI matched to where the repo lives. */
 /**
  * Tools for looking at what the agent built. A browser install belongs in the
  * setup step instead: it has to match the repository's own Playwright version
@@ -424,38 +421,19 @@ export const PLATFORM_TOOLS: readonly ImagePresetTool[] = [
   },
 ];
 
-export function platformCliTool(host: RepoHost): ImagePresetTool {
-  if (host === "gitlab") {
-    return {
-      id: "glab",
-      category: "platform",
-      version: "1.75.0",
-      command: "glab",
-      name: "GitLab CLI",
-      url: "https://gitlab.com/gitlab-org/cli",
-      sizeMb: 30,
-      reason: "Reads issues and merge requests without scraping web pages",
-    };
-  }
-  return {
-    id: "gh",
-    category: "platform",
-    version: "2.97.0",
-    command: "gh",
-    name: "GitHub CLI",
-    url: "https://cli.github.com",
-    sizeMb: 40,
-    reason: "Reads issues, pull requests and CI logs without scraping",
-  };
-}
+const GITHUB_CLI: ImagePresetTool = {
+  id: "gh",
+  category: "platform",
+  version: "2.97.0",
+  command: "gh",
+  name: "GitHub CLI",
+  url: "https://cli.github.com",
+  sizeMb: 40,
+  reason: "Reads issues, pull requests and CI logs without scraping",
+};
 
-export function imagePresetTools(host: RepoHost): ImagePresetTool[] {
-  return [
-    ...IMAGE_PRESET_TOOLS,
-    ...MEDIA_TOOLS,
-    platformCliTool(host),
-    ...PLATFORM_TOOLS,
-  ];
+export function imagePresetTools(): ImagePresetTool[] {
+  return [...IMAGE_PRESET_TOOLS, ...MEDIA_TOOLS, GITHUB_CLI, ...PLATFORM_TOOLS];
 }
 
 /** A short, human name for the image, derived from the repo it serves. */

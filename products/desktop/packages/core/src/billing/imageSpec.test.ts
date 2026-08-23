@@ -146,7 +146,7 @@ describe("buildImageSpec", () => {
 
 describe("tool pinning", () => {
   it("pins a version for every tool apt does not carry", () => {
-    const unpinned = imagePresetTools("github")
+    const unpinned = imagePresetTools()
       .filter((tool) => toolInstallMethod(tool) === "mise")
       .filter((tool) => !tool.version);
     expect(unpinned.map((tool) => tool.id)).toEqual([]);
@@ -154,7 +154,7 @@ describe("tool pinning", () => {
 
   it("never emits an unpinned mise install", () => {
     const spec = buildImageSpec({
-      tools: imagePresetTools("github"),
+      tools: imagePresetTools(),
       setupCommands: [],
       repository: null,
     });

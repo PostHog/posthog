@@ -7,44 +7,22 @@ interface StepperProps {
   /** Per-step gate: a step is reachable once every step before it is complete. */
   complete: readonly boolean[];
   onSelect: (step: number) => void;
-  /** Vertical reads as a rail beside the step it describes. */
-  orientation?: "horizontal" | "vertical";
 }
 
 /**
- * Numbered step header for a multi-step form. A step can be revisited once
+ * Numbered step rail for a multi-step form. A step can be revisited once
  * reached, and skipped ahead to only when everything between is complete.
  */
-export function Stepper({
-  labels,
-  current,
-  complete,
-  onSelect,
-  orientation = "horizontal",
-}: StepperProps) {
-  const vertical = orientation === "vertical";
+export function Stepper({ labels, current, complete, onSelect }: StepperProps) {
   return (
-    <div
-      className={
-        vertical
-          ? "flex w-full min-w-0 flex-col items-stretch"
-          : "flex w-full min-w-0 items-center gap-0"
-      }
-    >
+    <div className="flex w-full min-w-0 flex-col items-stretch">
       {labels.map((label, index) => {
         const isCurrent = index === current;
         const isDone = index < current && complete[index] === true;
         const canSelect =
           index <= current || complete.slice(current, index).every(Boolean);
         return (
-          <div
-            key={label}
-            className={
-              vertical
-                ? "flex min-w-0 flex-col items-stretch"
-                : "flex min-w-0 flex-1 items-center last:flex-none last:shrink"
-            }
-          >
+          <div key={label} className="flex min-w-0 flex-col items-stretch">
             <button
               type="button"
               disabled={!canSelect}
@@ -52,9 +30,7 @@ export function Stepper({
               onClick={() => {
                 if (canSelect) onSelect(index);
               }}
-              className={`flex min-w-0 cursor-pointer items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                vertical ? "text-left" : ""
-              }`}
+              className="flex min-w-0 cursor-pointer items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span
                 className={`flex size-5 shrink-0 items-center justify-center rounded-full border font-medium text-[11px] ${
@@ -77,12 +53,9 @@ export function Stepper({
                 {label}
               </Text>
             </button>
-            {index < labels.length - 1 &&
-              (vertical ? (
-                <span className="my-1 ml-2.5 h-4 w-px shrink-0 bg-(--gray-5)" />
-              ) : (
-                <span className="mx-2 h-px min-w-2 flex-1 bg-(--gray-5)" />
-              ))}
+            {index < labels.length - 1 && (
+              <span className="my-1 ml-2.5 h-4 w-px shrink-0 bg-(--gray-5)" />
+            )}
           </div>
         );
       })}

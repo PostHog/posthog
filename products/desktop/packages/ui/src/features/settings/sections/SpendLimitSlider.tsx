@@ -1,26 +1,14 @@
 import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
 import {
+  niceCeil,
   type SpendLimitLevel,
   spendTickIncrement,
 } from "@posthog/core/billing/spendLimits";
 import { SpendKnobValue } from "@posthog/ui/features/settings/sections/SpendKnobValue";
 import { useRef, useState } from "react";
 
-export type SpendSliderTone = "ok" | "warn" | "stop";
-
 function isPositive(value: number | null): value is number {
   return value !== null && value > 0;
-}
-
-/** Smallest 1/2/5 × 10^k at or above `value`, so the track's end is round. */
-export function niceCeil(value: number): number {
-  if (value <= 0) return 100;
-  const exponent = Math.floor(Math.log10(value));
-  const base = 10 ** exponent;
-  for (const mantissa of [1, 2, 5, 10]) {
-    if (value <= mantissa * base * (1 + 1e-9)) return mantissa * base;
-  }
-  return 10 * base;
 }
 
 /**
@@ -43,16 +31,6 @@ export function sliderStep(scale: number): number {
   if (scale <= 120) return 1;
   if (scale <= 600) return 5;
   return 10;
-}
-
-export function sliderTone(
-  warnUsd: number | null,
-  stopUsd: number | null,
-  spentUsd: number,
-): SpendSliderTone {
-  if (isPositive(stopUsd) && spentUsd >= stopUsd) return "stop";
-  if (isPositive(warnUsd) && spentUsd >= warnUsd) return "warn";
-  return "ok";
 }
 
 /**

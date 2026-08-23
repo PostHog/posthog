@@ -1,5 +1,4 @@
 import { ArrowLeft, Trash } from "@phosphor-icons/react";
-import type { RepoHost } from "@posthog/core/billing/imagePreset";
 import {
   type EnvironmentSetupPlan,
   stepError,
@@ -14,7 +13,6 @@ import type { ReactNode } from "react";
 interface EnvironmentEditFormProps {
   plan: EnvironmentSetupPlan;
   onChange: (plan: EnvironmentSetupPlan) => void;
-  host: RepoHost;
   images: readonly SandboxCustomImage[];
   /** The name shown in the heading, which a rename must not change mid-edit. */
   environmentName: string;
@@ -38,7 +36,6 @@ interface EnvironmentEditFormProps {
 export function EnvironmentEditForm({
   plan,
   onChange,
-  host,
   images,
   environmentName,
   variablesAlreadySet,
@@ -51,9 +48,9 @@ export function EnvironmentEditForm({
   dirty,
 }: EnvironmentEditFormProps) {
   const error =
-    stepError(plan, "environment", host) ??
-    stepError(plan, "access", host) ??
-    stepError(plan, "image", host);
+    stepError(plan, "environment") ??
+    stepError(plan, "access") ??
+    stepError(plan, "image");
 
   return (
     <div className="flex flex-col gap-5">
@@ -95,7 +92,6 @@ export function EnvironmentEditForm({
         <Section>
           <BaseImageStep
             plan={plan}
-            host={host}
             images={images}
             onChange={onChange}
             onBuildNewImage={onBuildNewImage}

@@ -22,7 +22,7 @@ interface ImageDetailsStepProps {
 export function ImageDetailsStep({ plan, onChange }: ImageDetailsStepProps) {
   const nameId = useId();
   const privateId = useId();
-  const error = stepError(plan, "image", "github");
+  const error = stepError(plan, "image");
 
   return (
     <StepBody

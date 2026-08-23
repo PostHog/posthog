@@ -21,7 +21,6 @@ export const EMPTY_SPEND_LIMITS: SpendLimits = {
 
 export type SpendLimitLevel = "warn" | "stop";
 export type SpendLimitPeriod = "day" | "month";
-export type SpendLimitScope = SpendLimitPeriod;
 
 export interface SpendLimitCrossing {
   period: SpendLimitPeriod;
@@ -113,18 +112,27 @@ export function projectedMonthUsd(
   return avgDailyUsd * daysInMonth;
 }
 
+/** The 1/2/5 × 10^k ladder both spend roundings land on. */
+function spendLadder(value: number): number[] {
+  const base = 10 ** Math.floor(Math.log10(value));
+  return [1, 2, 5, 10].map((m) => m * base);
+}
+
 /**
- * Nearest 1/2/5 × 10^k, so suggested lines land on round numbers and the
- * warn/stop pair never rounds onto near-identical values.
+ * Nearest rung, so suggested lines land on round numbers and the warn/stop
+ * pair never rounds onto near-identical values.
  */
 export function niceRound(value: number): number {
   if (value <= 0) return 0;
-  const exponent = Math.floor(Math.log10(value));
-  const base = 10 ** exponent;
-  const candidates = [1, 2, 5, 10].map((m) => m * base);
-  return candidates.reduce((best, candidate) =>
+  return spendLadder(value).reduce((best, candidate) =>
     Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
   );
+}
+
+/** Smallest rung at or above `value`, so a track's end is round. */
+export function niceCeil(value: number): number {
+  if (value <= 0) return 100;
+  return spendLadder(value).find((rung) => value <= rung * (1 + 1e-9)) ?? value;
 }
 
 /**
@@ -242,33 +250,6 @@ export function activeSpendStop(
       limitUsd: monthlyStopUsd,
       spentUsd: totals.monthUsd,
     };
-  }
-  return null;
-}
-
-/**
- * The highest level any line currently sits past, for at-a-glance
- * indicators: "stop" beats "warn"; null when nothing is crossed.
- */
-export function activeSpendLevel(
-  limits: SpendLimits,
-  totals: SpendTotals,
-): SpendLimitLevel | null {
-  if (activeSpendStop(limits, totals) !== null) return "stop";
-  const { dailyWarnUsd, monthlyWarnUsd } = limits;
-  if (
-    dailyWarnUsd !== null &&
-    dailyWarnUsd > 0 &&
-    totals.todayUsd >= dailyWarnUsd
-  ) {
-    return "warn";
-  }
-  if (
-    monthlyWarnUsd !== null &&
-    monthlyWarnUsd > 0 &&
-    totals.monthUsd >= monthlyWarnUsd
-  ) {
-    return "warn";
   }
   return null;
 }

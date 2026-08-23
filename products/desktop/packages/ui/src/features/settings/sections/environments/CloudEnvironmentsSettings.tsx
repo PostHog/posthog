@@ -8,8 +8,7 @@ import { CustomImageList } from "@posthog/ui/features/settings/sections/environm
 import { EnvironmentList } from "@posthog/ui/features/settings/sections/environments/EnvironmentList";
 import { ImageDetailPage } from "@posthog/ui/features/settings/sections/environments/ImageDetailPage";
 import { EnvironmentEditPage } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentEditPage";
-import { EnvironmentSetupPage } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentSetupPage";
-import { ImageSetupPage } from "@posthog/ui/features/settings/sections/environments/setup/ImageSetupPage";
+import { EnvironmentSetupFlow } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentSetupFlow";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
@@ -54,18 +53,12 @@ export function CloudEnvironmentsSettings() {
       (environment) => environment.custom_image_id === imageId,
     );
 
-  if (setupFlow?.kind === "image") {
-    return (
-      <ImageSetupPage
-        defaultRepository={setupFlow.repository}
-        onDone={() => setSetupFlow(null)}
-      />
-    );
-  }
-
   if (setupFlow) {
+    const isImage = setupFlow.kind === "image";
     return (
-      <EnvironmentSetupPage
+      <EnvironmentSetupFlow
+        scope={isImage ? "image" : "environment"}
+        buildImage={isImage}
         defaultRepository={setupFlow.repository}
         onDone={() => setSetupFlow(null)}
       />

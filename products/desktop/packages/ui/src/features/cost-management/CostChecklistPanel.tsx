@@ -1,18 +1,14 @@
 import { ArrowRight, Check } from "@phosphor-icons/react";
 import type { CostChecklistItem } from "@posthog/core/billing/costChecklist";
 import { leanSkillById } from "@posthog/core/billing/leanSkills";
-import {
-  formatModelRates,
-  MODEL_COST_BASELINE_NAME,
-  modelCostInfo,
-} from "@posthog/core/billing/modelPricing";
+import { modelCostInfo } from "@posthog/core/billing/modelPricing";
 import { Button, Text } from "@posthog/quill";
 import { formatModelId } from "@posthog/shared";
+import { modelCostTitle } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import type { ReactNode } from "react";
 
 interface CostChecklistPanelProps {
   items: CostChecklistItem[];
-  installingSkill: boolean;
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
   onInstallSkill: (skillId: string) => void;
@@ -30,7 +26,6 @@ interface CostChecklistPanelProps {
  */
 export function CostChecklistPanel({
   items,
-  installingSkill,
   onSwitchModel,
   onCreateImage,
   onInstallSkill,
@@ -63,7 +58,6 @@ export function CostChecklistPanel({
             }
             done={item.done}
             {...rowContent(item, {
-              installingSkill,
               onSwitchModel,
               onCreateImage,
               onInstallSkill,
@@ -84,7 +78,6 @@ export function CostChecklistPanel({
 }
 
 interface RowHandlers {
-  installingSkill: boolean;
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
   onInstallSkill: (skillId: string) => void;
@@ -263,11 +256,7 @@ function ModelChip({
       className={`inline-flex items-center gap-1.5 rounded-(--radius-2) bg-(--gray-3) px-1.5 py-0.5 ${
         emphasis ? "text-(--gray-12)" : "text-(--gray-11)"
       }`}
-      title={
-        cost
-          ? `Cost per token vs ${MODEL_COST_BASELINE_NAME} · ${formatModelRates(cost.price)}`
-          : undefined
-      }
+      title={modelCostTitle(modelId)}
     >
       <span className={`text-[11px] ${emphasis ? "font-medium" : ""}`}>
         {formatModelId(modelId)}

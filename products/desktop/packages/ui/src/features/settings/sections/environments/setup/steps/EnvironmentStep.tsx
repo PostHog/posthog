@@ -41,7 +41,7 @@ export function EnvironmentStep({
 }: EnvironmentStepProps) {
   const nameId = useId();
   const privateId = useId();
-  const nameError = stepError(plan, "environment", "github");
+  const nameError = stepError(plan, "environment");
 
   return (
     <StepBody

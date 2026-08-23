@@ -59,7 +59,6 @@ export function EnvironmentEditPage({
     <EnvironmentEditForm
       plan={plan}
       onChange={setPlan}
-      host="github"
       images={images}
       environmentName={environment.name}
       variablesAlreadySet={environment.has_environment_variables}

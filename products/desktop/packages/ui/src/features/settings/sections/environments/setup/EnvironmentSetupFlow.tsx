@@ -1,28 +1,17 @@
-import { imagePresetBrief } from "@posthog/core/billing/imagePreset";
 import {
-  buildImageSpec,
-  imageSpecToYaml,
-} from "@posthog/core/billing/imageSpec";
-import {
-  buildsImage,
   type EnvironmentSetupPlan,
   emptyEnvironmentSetupPlan,
   planEnvironmentInput,
-  planSetupCommands,
-  planSpecInput,
-  planTools,
-  primaryRepository,
   type SetupScope,
 } from "@posthog/core/settings/environmentSetup";
-import type {
-  SandboxCustomImage,
-  SandboxEnvironment,
-} from "@posthog/shared/domain-types";
+import { Spinner } from "@posthog/quill";
+import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import {
   EnvironmentSetupForm,
   type ImageBuildMode,
 } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentSetupForm";
+import { useImageFromPlan } from "@posthog/ui/features/settings/sections/environments/setup/useImageFromPlan";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -34,8 +23,6 @@ interface EnvironmentSetupFlowProps {
   defaultRepository: string | null;
   /** True when the flow should start with a new image selected. */
   buildImage?: boolean;
-  environments: readonly SandboxEnvironment[];
-  images: readonly SandboxCustomImage[];
   /** Called with the image whose build just started, so a caller can follow it. */
   onDone: (building: SandboxCustomImage | null) => void;
   /** True when a surrounding dialog already supplies the title and the way back. */
@@ -45,19 +32,23 @@ interface EnvironmentSetupFlowProps {
 /**
  * Creates the image the plan describes, then the environment that uses it, so
  * the flow always ends with something a session can start on.
+ *
+ * Waits for the environments and images first: both decide which choices the
+ * early steps can offer, and a plan seeded from an empty list offers the wrong
+ * ones.
  */
 export function EnvironmentSetupFlow({
   scope = "environment",
   defaultRepository,
   buildImage = false,
-  environments,
-  images,
   onDone,
   embedded = false,
 }: EnvironmentSetupFlowProps) {
-  const { createMutation: createImage, buildMutation } =
-    useSandboxCustomImages();
+  const image = useImageFromPlan();
+  const { images, isLoading: imagesLoading } = useSandboxCustomImages();
   const {
+    environments,
+    isLoading: environmentsLoading,
     createMutation: createEnvironment,
     updateMutation: updateEnvironment,
   } = useSandboxEnvironments();
@@ -70,27 +61,10 @@ export function EnvironmentSetupFlow({
     }),
   );
 
-  /** The image the environment will point at, creating one when asked to. */
-  const resolveImage = async (): Promise<SandboxCustomImage | null> => {
-    if (!buildsImage(plan)) return null;
-    const repository = primaryRepository(plan);
-    const image = await createImage.mutateAsync({
-      name: plan.imageName.trim(),
-      description: imagePresetBrief(
-        repository,
-        planTools(plan, "github"),
-        planSetupCommands(plan),
-      ),
-      ...(repository ? { repository } : {}),
-      ...(plan.private ? { private: true } : {}),
-    });
-    return image;
-  };
-
   const submit = async (mode: ImageBuildMode | null) => {
-    const image = await resolveImage();
+    const created = await image.create(plan);
     const customImageId =
-      image?.id ??
+      created?.id ??
       (plan.baseImage === "existing" ? plan.existingImageId : null);
 
     if (plan.scope === "environment") {
@@ -106,36 +80,37 @@ export function EnvironmentSetupFlow({
       }
     }
 
-    if (image !== null && mode === "build") {
-      await buildMutation.mutateAsync({
-        id: image.id,
-        specYaml: imageSpecToYaml(
-          buildImageSpec(planSpecInput(plan, "github")),
-        ),
-      });
+    if (created !== null && mode === "build") {
+      await image.build(plan, created.id);
       toast.success("Building your image", {
         description: "It scans first, then builds. This takes a few minutes.",
       });
-      onDone(image);
+      onDone(created);
       return;
     }
     onDone(null);
-    if (image?.builder_task_id) void handleOpenTask(image.builder_task_id);
+    if (created?.builder_task_id) void handleOpenTask(created.builder_task_id);
   };
+
+  if (imagesLoading || environmentsLoading) {
+    return (
+      <div className="flex h-40 items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <EnvironmentSetupForm
       plan={plan}
       onChange={setPlan}
-      host="github"
       environments={environments.map((environment) => ({
         id: environment.id,
         name: environment.name,
       }))}
       images={images}
       saving={
-        createImage.isPending ||
-        buildMutation.isPending ||
+        image.pending ||
         createEnvironment.isPending ||
         updateEnvironment.isPending
       }

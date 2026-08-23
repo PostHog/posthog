@@ -1,16 +1,25 @@
 import type {
-  SpendLimitScope,
+  SpendLimitLevel,
+  SpendLimitPeriod,
   SpendLimits,
 } from "@posthog/core/billing/spendLimits";
 import { Switch, Text } from "@posthog/quill";
 import {
-  SPEND_LIMIT_KEYS,
-  SpendLimitRow,
-} from "@posthog/ui/features/settings/sections/SpendLimitRow";
+  clampSpendLine,
+  SpendLimitSlider,
+} from "@posthog/ui/features/settings/sections/SpendLimitSlider";
 import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
 
+const SPEND_LIMIT_KEYS: Record<
+  SpendLimitPeriod,
+  Record<SpendLimitLevel, keyof SpendLimits>
+> = {
+  day: { warn: "dailyWarnUsd", stop: "dailyStopUsd" },
+  month: { warn: "monthlyWarnUsd", stop: "monthlyStopUsd" },
+};
+
 interface SpendLimitCardProps {
-  scope: SpendLimitScope;
+  scope: SpendLimitPeriod;
   title: string;
   /** Spend so far in this scope; null when it has no running total. */
   spentUsd: number | null;
@@ -49,7 +58,9 @@ export function SpendLimitCard({
 }: SpendLimitCardProps) {
   const warnKey = SPEND_LIMIT_KEYS[scope].warn;
   const stopKey = SPEND_LIMIT_KEYS[scope].stop;
-  const enabled = limits[warnKey] !== null || limits[stopKey] !== null;
+  const warnUsd = limits[warnKey];
+  const stopUsd = limits[stopKey];
+  const enabled = warnUsd !== null || stopUsd !== null;
   const summary =
     spentUsd !== null
       ? `${formatSpent(spentUsd)}${soFarLabel ? ` ${soFarLabel}` : ""}`
@@ -103,16 +114,24 @@ export function SpendLimitCard({
       </div>
       {enabled && (
         <div className="border-(--gray-4) border-t border-dashed pt-3.5">
-          <SpendLimitRow
-            scope={scope}
-            title={title}
-            spentUsd={spentUsd}
+          <SpendLimitSlider
+            warnUsd={warnUsd}
+            stopUsd={stopUsd}
+            spentUsd={spentUsd ?? 0}
             markerUsd={markerUsd}
             markerTitle={markerTitle}
             markerLabel={markerLabel}
             tickReferenceUsd={tickReferenceUsd}
-            limits={limits}
-            onCommit={onCommit}
+            periodLabel={title}
+            onCommit={(level, value) =>
+              onCommit({
+                [SPEND_LIMIT_KEYS[scope][level]]: clampSpendLine(
+                  level,
+                  value,
+                  level === "warn" ? stopUsd : warnUsd,
+                ),
+              })
+            }
           />
         </div>
       )}

@@ -1,9 +1,6 @@
 import { PreviewCard } from "@base-ui/react/preview-card";
 import { ArrowLeft } from "@phosphor-icons/react";
-import {
-  isDirectlyInstallable,
-  type RepoHost,
-} from "@posthog/core/billing/imagePreset";
+import { isDirectlyInstallable } from "@posthog/core/billing/imagePreset";
 import {
   buildsImage,
   type EnvironmentSetupPlan,
@@ -33,7 +30,6 @@ export type ImageBuildMode = "build" | "builder";
 interface EnvironmentSetupFormProps {
   plan: EnvironmentSetupPlan;
   onChange: (plan: EnvironmentSetupPlan) => void;
-  host: RepoHost;
   environments: readonly SetupEnvironmentOption[];
   images: readonly SandboxCustomImage[];
   saving: boolean;
@@ -52,7 +48,6 @@ interface EnvironmentSetupFormProps {
 export function EnvironmentSetupForm({
   plan,
   onChange,
-  host,
   environments,
   images,
   saving,
@@ -62,15 +57,14 @@ export function EnvironmentSetupForm({
 }: EnvironmentSetupFormProps) {
   const [step, setStep] = useState(0);
   const steps = setupSteps(plan);
-  const complete = setupStepsComplete(plan, host);
+  const complete = setupStepsComplete(plan);
   const current = Math.min(step, steps.length - 1);
   const currentKey = steps[current].key;
   const isLastStep = current === steps.length - 1;
   const building = buildsImage(plan);
   const needsBuilder =
-    building &&
-    planTools(plan, host).some((tool) => !isDirectlyInstallable(tool));
-  const canSubmit = !saving && stepError(plan, "review", host) === null;
+    building && planTools(plan).some((tool) => !isDirectlyInstallable(tool));
+  const canSubmit = !saving && stepError(plan, "review") === null;
 
   const targetName =
     plan.target === "new"
@@ -120,7 +114,6 @@ export function EnvironmentSetupForm({
       <div className="flex items-start gap-6">
         <div className="w-[124px] shrink-0 pt-0.5">
           <Stepper
-            orientation="vertical"
             labels={steps.map((entry) => entry.label)}
             current={current}
             complete={complete}
@@ -142,15 +135,10 @@ export function EnvironmentSetupForm({
             <ImageDetailsStep plan={plan} onChange={onChange} />
           )}
           {currentKey === "image" && plan.scope === "environment" && (
-            <BaseImageStep
-              plan={plan}
-              host={host}
-              images={images}
-              onChange={onChange}
-            />
+            <BaseImageStep plan={plan} images={images} onChange={onChange} />
           )}
           {currentKey === "tools" && (
-            <ToolsStep plan={plan} host={host} onChange={onChange} />
+            <ToolsStep plan={plan} onChange={onChange} />
           )}
           {currentKey === "setup" && (
             <SetupStep
@@ -162,7 +150,6 @@ export function EnvironmentSetupForm({
           {currentKey === "review" && (
             <ReviewStep
               plan={plan}
-              host={host}
               targetName={targetName}
               baseImageName={baseImageName}
             />
