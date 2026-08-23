@@ -66,6 +66,16 @@ class TestOpeningBrief(SimpleTestCase):
         assert "Sources:" not in joined
         assert "Dana and 4 others" in joined
 
+    def test_joining_a_workspace_with_no_findings_yet_promises_none(self) -> None:
+        brief = build_opening_brief(
+            OnboardingFacts(org_has_context=True, signal_reports_waiting=0, other_members="Dana")
+        )
+
+        joined = " ".join(brief)
+        assert "findings are waiting" not in joined
+        assert not any(line.startswith("Offer to") for line in brief)
+        assert "Dana" in joined
+
     @parameterized.expand(
         [
             ("no events offers to instrument, asking which repo", False, 0, "add PostHog to their codebase"),

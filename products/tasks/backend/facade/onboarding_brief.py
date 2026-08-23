@@ -51,12 +51,12 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
     welcome = "Welcome them to the workspace."
     if facts.other_members:
         welcome += f" Say that {facts.other_members} are already here."
-    return [
-        welcome,
-        _findings_line(facts),
-        "Offer to walk them through one of the findings.",
-        TOP_OF_MIND,
-    ]
+    brief = [welcome]
+    if facts.signal_reports_waiting:
+        brief.append(_findings_line(facts))
+        brief.append("Offer to walk them through one of the findings.")
+    brief.append(TOP_OF_MIND)
+    return brief
 
 
 def _findings_line(facts: OnboardingFacts) -> str:
