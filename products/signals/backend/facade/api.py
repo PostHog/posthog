@@ -256,6 +256,11 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
+def visible_report_count(team_id: int) -> int:
+    """How many reports have surfaced to this team's inbox."""
+    return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 

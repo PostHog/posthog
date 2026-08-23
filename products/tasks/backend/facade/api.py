@@ -7422,6 +7422,21 @@ def get_channel_instructions(
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
 
 
+def desktop_users_in_team(team_id: int, exclude_user_id: int) -> list[str]:
+    channels = (
+        Channel.objects.for_team(team_id)
+        .filter(system_role=Channel.SystemRole.PERSONAL, deleted=False)
+        .exclude(created_by_id=exclude_user_id)
+        .select_related("created_by")
+        .order_by("created_at")[:4]
+    )
+    return [
+        channel.created_by.first_name or channel.created_by.email.split("@")[0]
+        for channel in channels
+        if channel.created_by
+    ]
+
+
 def organization_has_context(organization_id: UUID | str) -> bool:
     """Whether anyone in this organization has already recorded what the company does.
 
