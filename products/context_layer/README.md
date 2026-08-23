@@ -21,7 +21,8 @@ CLAUDE.md            symlink -> AGENTS.md, for Claude-native harnesses
 org/                 mission, ICP, personas, teams, business model
 areas/<area>.md      one hub page per product area
 decisions/<date>-<slug>.md   product decisions: what, why, who, source
-channels/<slug>.md   one page per Desktop channel (frontmatter: channel_id)
+projects/<project-id>/overview.md              project identity and context
+projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id)
 scripts/lint         the structure linter (also run server-side at land)
 ```
 

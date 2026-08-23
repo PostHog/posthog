@@ -33,7 +33,7 @@ from posthog.storage import object_storage
 from products.context_layer.backend import repo_lint
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.repo_lint import lint_repo
-from products.context_layer.backend.scaffold import generate_index, write_default_structure
+from products.context_layer.backend.scaffold import generate_index, generate_project_indexes, write_default_structure
 
 logger = structlog.get_logger(__name__)
 
@@ -410,6 +410,18 @@ def _run_landing(
                 if not index_path.exists() or index_path.read_text(encoding="utf-8") != generated_index:
                     index_path.write_text(generated_index, encoding="utf-8")
                     new_head = _commit_all(workdir, "Refresh the generated wiki index", SYSTEM_AUTHOR)
+                generated_project_indexes = generate_project_indexes(workdir)
+                project_indexes_changed = False
+                for relative, content in generated_project_indexes.items():
+                    generated_path = workdir / relative
+                    if generated_path.is_symlink():
+                        generated_path.unlink()
+                    generated_path.parent.mkdir(parents=True, exist_ok=True)
+                    if not generated_path.exists() or generated_path.read_text(encoding="utf-8") != content:
+                        generated_path.write_text(content, encoding="utf-8")
+                        project_indexes_changed = True
+                if project_indexes_changed:
+                    new_head = _commit_all(workdir, "Refresh generated project indexes", SYSTEM_AUTHOR)
                 _lint_or_raise(workdir)
                 stats = _landing_stats(workdir, expected_head, new_head)
                 _upload_bundle(organization_id, new_head, workdir)

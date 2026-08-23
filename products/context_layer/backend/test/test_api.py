@@ -116,15 +116,19 @@ class TestContextLayerAPI(APIBaseTest):
 
         tree = self.client.get(f"{self.base_url}/tree/").json()
         assert "AGENTS.md" in tree["paths"]
-        assert "channels/growth.md" in tree["paths"]
-        page = self.client.get(f"{self.base_url}/pages/", {"path": "channels/growth.md"}).json()
+        path = f"projects/{self.team.id}/spaces/growth.md"
+        assert path in tree["paths"]
+        assert f"projects/{self.team.id}/index.md" in tree["paths"]
+        assert f"projects/{self.team.id}/spaces/index.md" in tree["paths"]
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
         assert page["updated_at"]
+        assert f"team_id: {self.team.id}" in page["content"]
         assert f"channel_id: {channel.id}" in page["content"]
         assert "Focus on activation." in page["content"]
 
         resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
         assert resolved.status_code == 200
-        assert resolved.json() == {"path": "channels/growth.md", "exists": True}
+        assert resolved.json() == {"path": path, "exists": True}
 
     def test_channel_page_resolution_uses_frontmatter_identity(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -136,13 +140,14 @@ class TestContextLayerAPI(APIBaseTest):
         head = self._enable()
 
         def rename_page(root: Path) -> None:
-            (root / "channels/growth.md").rename(root / "channels/renamed.md")
+            source = root / f"projects/{self.team.id}/spaces/growth.md"
+            source.rename(source.with_name("renamed.md"))
 
         store.apply_changes(self.organization.id, message="Rename channel page", mutate=rename_page, required_head=head)
 
         resolved = self.client.get(f"{self.base_url}/channel-pages/{channel.id}/")
         assert resolved.status_code == 200
-        assert resolved.json() == {"path": "channels/renamed.md", "exists": True}
+        assert resolved.json() == {"path": f"projects/{self.team.id}/spaces/renamed.md", "exists": True}
 
     def test_channel_page_resolution_404s_when_channel_has_no_page(self, _flag) -> None:
         self._enable()
@@ -171,7 +176,7 @@ class TestContextLayerAPI(APIBaseTest):
         assert body["code"] == "private_projects"
         assert self.team.name in body["detail"]
 
-    def test_reimport_keeps_existing_pages_and_suffixes_colliding_new_channels(self, _flag) -> None:
+    def test_same_named_spaces_are_scoped_to_their_projects(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
             assert channel is not None
@@ -190,11 +195,27 @@ class TestContextLayerAPI(APIBaseTest):
         enablement.import_channel_context(self.organization.id)
 
         tree = self.client.get(f"{self.base_url}/tree/").json()
-        suffixed = f"channels/growth-{str(colliding.id)[:8]}.md"
-        assert "channels/growth.md" in tree["paths"]
-        assert suffixed in tree["paths"]
-        original = self.client.get(f"{self.base_url}/pages/", {"path": "channels/growth.md"}).json()
+        original_path = f"projects/{self.team.id}/spaces/growth.md"
+        colliding_path = f"projects/{other_team.id}/spaces/growth.md"
+        assert original_path in tree["paths"]
+        assert colliding_path in tree["paths"]
+        assert f"projects/{self.team.id}/index.md" in tree["paths"]
+        assert f"projects/{other_team.id}/index.md" in tree["paths"]
+        project_index = self.client.get(f"{self.base_url}/pages/", {"path": "projects/index.md"}).json()
+        assert f"project_id: {self.team.id}" in project_index["content"]
+        assert f"project_id: {other_team.id}" in project_index["content"]
+        original_spaces_index = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{self.team.id}/spaces/index.md"}
+        ).json()
+        colliding_spaces_index = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{other_team.id}/spaces/index.md"}
+        ).json()
+        assert str(channel.id) in original_spaces_index["content"]
+        assert str(colliding.id) in colliding_spaces_index["content"]
+        original = self.client.get(f"{self.base_url}/pages/", {"path": original_path}).json()
         assert "First import." in original["content"]
+        colliding_page = self.client.get(f"{self.base_url}/pages/", {"path": colliding_path}).json()
+        assert "Same name, other project." in colliding_page["content"]
 
     def test_enable_returns_429_when_a_writer_holds_the_lock(self, _flag) -> None:
         with patch(
@@ -350,10 +371,10 @@ class TestContextLayerAPI(APIBaseTest):
         in_scope = self.client.put(
             f"{self.agent_url}/pages/",
             {
-                "path": "channels/growth.md",
+                "path": f"projects/{self.team.id}/spaces/growth.md",
                 # A real loop reads the page and edits in place, so the frontmatter
                 # that identifies the channel survives the write.
-                "content": f"---\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n\nRefreshed by the loop.\n",
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n\nRefreshed by the loop.\n",
                 "base_head": head,
             },
             format="json",
@@ -387,7 +408,7 @@ class TestContextLayerAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         assert proposed.status_code == 200, proposed.content
-        assert proposed.json() == {"path": "channels/growth.md", "exists": False}
+        assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
 
     def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
         self._enable()
@@ -400,8 +421,8 @@ class TestContextLayerAPI(APIBaseTest):
         created = self.client.put(
             f"{self.agent_url}/pages/",
             {
-                "path": "channels/growth.md",
-                "content": f"---\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n\nWritten by the loop.\n",
+                "path": f"projects/{self.team.id}/spaces/growth.md",
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n\nWritten by the loop.\n",
             },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
@@ -412,12 +433,12 @@ class TestContextLayerAPI(APIBaseTest):
             f"{self.agent_url}/channel-pages/{channel.id}/",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        assert resolved.json() == {"path": "channels/growth.md", "exists": True}
+        assert resolved.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": True}
 
     @parameterized.expand(
         [
-            ("mismatched_frontmatter_channel", "channels/growth.md", False),
-            ("non_proposed_path", "channels/somewhere-else.md", True),
+            ("mismatched_frontmatter_channel", "projects/{team_id}/spaces/growth.md", False),
+            ("non_proposed_path", "projects/{team_id}/spaces/somewhere-else.md", True),
         ]
     )
     def test_loop_token_cannot_create_a_channel_page_off_its_proposal(
@@ -434,8 +455,8 @@ class TestContextLayerAPI(APIBaseTest):
         response = self.client.put(
             f"{self.agent_url}/pages/",
             {
-                "path": path,
-                "content": f"---\nchannel_id: {frontmatter_channel_id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n",
+                "path": path.format(team_id=self.team.id),
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {frontmatter_channel_id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n",
             },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token}",

@@ -12,8 +12,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 ALLOWED_ROOT_FILES = {"AGENTS.md", "CLAUDE.md", "index.md"}
-ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "channels", "scripts"}
-MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "channels"}
+ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "projects", "scripts"}
+MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "projects"}
 MAX_FILE_BYTES = 16_000
 # Aggregate bounds keep a whole wiki readable in one pass: reads warm every page
 # from a single checkout, so the repository must stay far below worker memory.
@@ -39,7 +39,7 @@ def _page_paths(root: Path) -> list[Path]:
         path
         for directory in MARKDOWN_DIRECTORIES
         for path in sorted((root / directory).rglob("*.md"))
-        if path.is_file() and not path.is_symlink()
+        if path.is_file() and not path.is_symlink() and path.name != "index.md"
     ]
 
 
@@ -122,8 +122,18 @@ def _lint_markdown_directory(root: Path, directory: str, titles: dict[str, Path]
         if directory == "decisions" and not DECISION_FILE_RE.fullmatch(path.name):
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
         fields = _frontmatter(path)
-        if directory == "channels" and not fields.get("channel_id"):
-            errors.append(f"{relative}: channel pages need a non-empty `channel_id` in their frontmatter")
+        is_space_page = (
+            directory == "projects"
+            and len(relative.parts) == 4
+            and relative.parts[2] == "spaces"
+            and path.name != "index.md"
+        )
+        if is_space_page and not fields.get("channel_id"):
+            errors.append(f"{relative}: Space pages need a non-empty `channel_id` in their frontmatter")
+        if is_space_page and fields.get("team_id") != relative.parts[1]:
+            errors.append(f"{relative}: Space pages need `team_id: {relative.parts[1]}` in their frontmatter")
+        if path.name == "index.md":
+            continue
         if not fields.get("summary") or "\n" in fields.get("summary", ""):
             errors.append(f"{relative}: frontmatter needs a one-line `summary`")
         status = fields.get("status")
@@ -219,12 +229,14 @@ def _canonical_scripts() -> dict[str, str]:
 
 
 def _lint_channel_ids(root: Path) -> list[str]:
-    channels = root / "channels"
+    channels = root / "projects"
     if not channels.is_dir():
         return []
     errors: list[str] = []
     paths_by_id: dict[str, list[Path]] = {}
-    for path in sorted(channels.rglob("*.md")):
+    for path in sorted(channels.glob("*/spaces/*.md")):
+        if path.name == "index.md":
+            continue
         channel_id = _frontmatter(path).get("channel_id")
         if not channel_id:
             continue

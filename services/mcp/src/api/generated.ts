@@ -83347,7 +83347,7 @@ export namespace Schemas {
      */
     export interface WikiPageWrite {
       /**
-         * Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
          * @maxLength 512
          */
       path: string;

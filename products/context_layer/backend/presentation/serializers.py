@@ -62,7 +62,7 @@ class WikiPageWriteSerializer(serializers.Serializer):
 
     path = serializers.CharField(
         max_length=512,
-        help_text="Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.",
+        help_text="Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
     )
     content = serializers.CharField(
         allow_blank=True,

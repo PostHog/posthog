@@ -11,10 +11,10 @@ describe("buildChannelContextText", () => {
       "legacy body must not be injected",
       "growth",
       "chan-1",
-      "channels/growth.md",
+      "projects/12/spaces/growth.md",
     );
 
-    expect(text).toContain("channels/growth.md");
+    expect(text).toContain("projects/12/spaces/growth.md");
     expect(text).not.toContain("legacy body must not be injected");
     expect(text).not.toContain("channel-instructions-update");
   });
