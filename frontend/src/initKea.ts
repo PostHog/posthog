@@ -204,7 +204,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                if (shouldReportApiFailure(error, { isLoadAction })) {
                     posthog.captureException(error)
                 }
             },

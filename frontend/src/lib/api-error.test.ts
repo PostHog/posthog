@@ -101,13 +101,19 @@ describe('api-error', () => {
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
-            ['a 404', { status: 404 }, true],
+            ['a 404 on a write action', { status: 404 }, true],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
             ['null', null, true],
         ])('decides whether to report %s', (_, error, expected) => {
             expect(shouldReportApiFailure(error)).toBe(expected)
+        })
+
+        it('does not report a 404 on a load action', () => {
+            // A project-scoped loader hitting a resource the user cannot reach is correct backend
+            // behavior, so the toast is enough — see experimentsLogic loading a stale project id.
+            expect(shouldReportApiFailure({ status: 404 }, { isLoadAction: true })).toBe(false)
         })
 
         // The hand-written cases above use literals; this proves the shape `fromResponse` actually

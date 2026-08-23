@@ -52,6 +52,9 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 404 on a load action — a project-scoped loader asking for a resource the user cannot reach (a
+ *   stale project id in the URL, say) is correct backend behavior, not a defect. The loader fails
+ *   and toasts on its own, so reporting it only files noise. Write actions keep their 404 reportable.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
@@ -63,7 +66,7 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * A plain 500 stays reportable on purpose, being a genuine backend exception, and so does anything
  * without an HTTP status (a thrown string, a bare `Error`) — there is no response to excuse it.
  */
-export function shouldReportApiFailure(error: unknown): boolean {
+export function shouldReportApiFailure(error: unknown, options?: { isLoadAction?: boolean }): boolean {
     if (error === null || typeof error !== 'object') {
         return true
     }
@@ -73,6 +76,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return true
     }
     if (status === 401 || isTransientGatewayStatus(status)) {
+        return false
+    }
+    if (status === 404 && options?.isLoadAction) {
         return false
     }
     if (isAccessDeniedError(failure)) {
