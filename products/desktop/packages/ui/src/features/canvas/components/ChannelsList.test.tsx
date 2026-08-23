@@ -140,6 +140,12 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
+// Stands in for the real dialog, whose hooks need the DI container and a query
+// client. Rendering a marker while open is enough to tell that it was asked to.
+vi.mock("@posthog/ui/features/canvas/components/CreateChannelModal", () => ({
+  CreateChannelModal: ({ open }: { open: boolean }) =>
+    open ? <div>create dialog</div> : null,
+}));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
   useRouterState: () => "/website",
@@ -262,6 +268,18 @@ describe("ChannelsList", () => {
       mocks.channelsLayout = false;
       renderList();
       expect(screen.getByText("Channels")).toBeTruthy();
+    });
+
+    // The create control sits over the heading, which is itself the collapse
+    // trigger. Nested inside it, every click would fold the group away instead.
+    it("opens the create dialog from the Spaces heading without collapsing it", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.click(screen.getByLabelText("New space"));
+
+      expect(screen.getByText("create dialog")).toBeTruthy();
+      expect(screen.getByText("design")).toBeTruthy();
     });
   });
 

@@ -969,6 +969,8 @@ export type ChannelsSurface =
   | "title_bar"
   | "nav"
   | "sidebar"
+  /** The create control on the sidebar's Spaces heading. */
+  | "spaces_heading"
   | "command_menu"
   | "new_task"
   | "task_input"

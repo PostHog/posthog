@@ -27,7 +27,10 @@ import {
   Switch,
   Textarea,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import {
+  ANALYTICS_EVENTS,
+  type ChannelsSurface,
+} from "@posthog/shared/analytics-events";
 import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -105,6 +108,8 @@ interface CreateChannelModalProps {
   // When set, the dialog is the "Create your CONTEXT.md" flow for an existing
   // context: no name field, just a description that seeds the build session.
   existingContext?: { channelId: string; channelName: string };
+  /** Which control opened the dialog, so create can be attributed to it. */
+  surface?: ChannelsSurface;
 }
 
 // Two dialogs in one, split on `existingContext`:
@@ -122,6 +127,7 @@ export function CreateChannelModal({
   open,
   onOpenChange,
   existingContext,
+  surface = "sidebar",
 }: CreateChannelModalProps) {
   const isDescribeMode = !!existingContext;
   const spacesLayout = useChannelsLayout();
@@ -198,7 +204,7 @@ export function CreateChannelModal({
       const channel = await createChannel(trimmedName, { star });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         channel_id: channel.id,
         success: true,
       });
@@ -206,7 +212,7 @@ export function CreateChannelModal({
     } catch (error) {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         success: false,
       });
       toast.error(`Couldn't create ${spacesLayout ? "space" : "channel"}`, {
