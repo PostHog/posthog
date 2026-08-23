@@ -641,6 +641,34 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
 
+def _assert_dream_paths(workdir: Path, base: str, tip: str) -> None:
+    changed: set[tuple[str, str]] = set()
+    for sha in _run_git(["rev-list", "--reverse", f"{base}..{tip}"], cwd=workdir).split():
+        for line in _run_git(
+            ["diff-tree", "--no-commit-id", "--name-status", "--no-renames", "-r", sha], cwd=workdir
+        ).splitlines():
+            status, _, path = line.partition("\t")
+            changed.add((status, path))
+    forbidden = sorted(path for status, path in changed if not _dream_may_edit(path, status=status))
+    if forbidden:
+        raise BundleConflictError(
+            "dreaming may edit context pages only; server-owned or structural paths changed: " + ", ".join(forbidden)
+        )
+
+
+def _dream_may_edit(path: str, *, status: str = "M") -> bool:
+    parts = Path(path).parts
+    if not path.endswith(".md") or not parts or Path(path).name == "index.md":
+        return False
+    if parts[0] in {"org", "areas", "decisions"}:
+        return True
+    return status == "M" and (
+        len(parts) >= 3
+        and parts[0] == "projects"
+        and (parts[2] == "overview.md" or (parts[2] == "spaces" and len(parts) == 4))
+    )
+
+
 def _fetch_incoming_bundle(workdir: Path, bundle_bytes: bytes, ref: str) -> str | None:
     """Fetch `ref` from a posted bundle into the working clone; returns its sha,
     or None when it already equals the current head."""
@@ -710,6 +738,7 @@ def land_dream_branch(
         if fetched is None:
             return None
         _assert_bundle_within_bounds(workdir, fetched)
+        _assert_dream_paths(workdir, DEFAULT_BRANCH, fetched)
         _lint_incoming_commits(workdir, DEFAULT_BRANCH, fetched)
         # The lint walk leaves HEAD detached at the branch tip; the merge below
         # must run from main or it silently no-ops and the landing keeps the

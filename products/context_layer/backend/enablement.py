@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 
 from products.context_layer.backend import store
 from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
 
 from ee.models.rbac.access_control import AccessControl
@@ -105,7 +106,7 @@ def private_project_names(organization_id: uuid.UUID | str) -> list[str]:
 
 
 def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
-    """Write each public channel's latest CONTEXT.md under its project.
+    """Write every public channel under its project, importing CONTEXT.md when present.
 
     A channel is identified by the `channel_id` in its page's frontmatter, not
     by its slug: a channel that already has a page anywhere under `projects/`
@@ -115,7 +116,7 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
     one person, and the wiki is org-visible.
     """
     projects: list[tuple[int, str]] = []
-    candidates: list[tuple[int, str, str, str]] = []
+    candidates: list[tuple[int, str, str, str | None]] = []
     # Order the teams so a same-named channel in two projects always resolves its
     # slug collision the same way; an unordered scan could swap the pages between runs.
     for team_id, team_name in (
@@ -129,9 +130,12 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
                 if channel.channel_type != "public":
                     continue
                 instructions = tasks_facade.get_channel_instructions(channel.id, team_id, None)
-                if instructions is None or instructions.version == 0 or not instructions.content.strip():
-                    continue
-                candidates.append((team_id, str(channel.id), channel.name, instructions.content))
+                content = (
+                    instructions.content
+                    if instructions is not None and instructions.version > 0 and instructions.content.strip()
+                    else None
+                )
+                candidates.append((team_id, str(channel.id), channel.name, content))
 
     if not projects:
         return []
@@ -140,6 +144,10 @@ def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
 
     def mutate(root: Path) -> None:
         written.clear()
+        agents_path = root / "AGENTS.md"
+        if not agents_path.is_file() or agents_path.read_text(encoding="utf-8") != AGENTS_MD:
+            agents_path.write_text(AGENTS_MD, encoding="utf-8")
+            written.append("AGENTS.md")
         index = _existing_channel_pages(root)
         for team_id, team_name in projects:
             overview_path = f"projects/{team_id}/overview.md"
@@ -210,6 +218,14 @@ def _project_page(team_id: int, team_name: str) -> str:
     return f"---\nproject_id: {team_id}\nproject_name: {title}\nsummary: Context for project {team_id}.\nstatus: active\nsources: project-catalog\n---\n\n# {title} (project {team_id})\n"
 
 
-def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str) -> str:
+def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str | None) -> str:
     title = " ".join(channel_name.split()) or channel_id
-    return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: Context imported from {title}.\nstatus: active\nsources: channel-instructions-import\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n\n{content}\n"
+    if content is None:
+        summary = f"Context for {title}."
+        source = "channel-catalog"
+        body = ""
+    else:
+        summary = f"Context imported from {title}."
+        source = "channel-instructions-import"
+        body = f"\n{content.strip()}\n"
+    return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: {summary}\nstatus: active\nsources: {source}\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"

@@ -7,6 +7,8 @@ description: Keep the context wiki coherent using the deterministic lint report 
 
 Start with `scripts/lint --report`. Work the queue on the current dream branch.
 
+Only edit sourced Markdown content under `org/`, `areas/`, `decisions/`, and existing Space pages. Never edit repository instructions, generated indexes, or `scripts/`; report structural failures in the run summary for the server to repair.
+
 - Remove unsupported synthesis.
 - Remove expired priorities unless historically significant; mark those `status: historical`.
 - Mark replaced decisions `superseded` and link their replacement.

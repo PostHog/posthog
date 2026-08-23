@@ -130,6 +130,24 @@ class TestContextLayerAPI(APIBaseTest):
         assert resolved.status_code == 200
         assert resolved.json() == {"path": path, "exists": True}
 
+    def test_enable_scaffolds_space_page_without_legacy_context(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="empty-space", star=False)
+            assert channel is not None
+
+        self._enable()
+
+        path = f"projects/{self.team.id}/spaces/empty-space.md"
+        tree = self.client.get(f"{self.base_url}/tree/").json()
+        assert path in tree["paths"]
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+        assert f"channel_id: {channel.id}" in page["content"]
+        assert "sources: channel-catalog" in page["content"]
+        spaces_index = self.client.get(
+            f"{self.base_url}/pages/", {"path": f"projects/{self.team.id}/spaces/index.md"}
+        ).json()
+        assert f"[[projects/{self.team.id}/spaces/empty-space]]" in spaces_index["content"]
+
     def test_channel_page_resolution_uses_frontmatter_identity(self, _flag) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)

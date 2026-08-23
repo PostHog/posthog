@@ -171,6 +171,9 @@ def _record_dispatch_failure(config: ContextLayerConfig) -> None:
 async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOutput:
     """Start one org's nightly dream as a normal cloud task. Never raises:
     failures bump the org's streak and pause the lane at the threshold."""
+    from products.context_layer.backend.enablement import (  # noqa: PLC0415 — avoids the enablement/Temporal import cycle
+        import_channel_context,
+    )
     from products.tasks.backend.facade.agents import (  # noqa: PLC0415 because the heavy sandbox stack should load only when a dream dispatches
         CustomPromptSandboxContext,
         create_task_and_trigger,
@@ -180,11 +183,11 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
     if target is None:
         return DispatchDreamRunOutput(dispatched=False)
 
-    # Read the previous night's stamp before _record_dispatch_success overwrites
-    # it: it is the start of the activity window this dream should review.
-    previous_dream_started_at = target.config.last_dream_started_at
-
     try:
+        await sync_to_async(import_channel_context, thread_sensitive=False)(input.organization_id)
+        # Read the previous night's stamp before _record_dispatch_success
+        # overwrites it: it starts the activity window this dream reviews.
+        previous_dream_started_at = target.config.last_dream_started_at
         await create_task_and_trigger(
             _build_dream_prompt(previous_dream_started_at),
             # Read-only MCP surface: the dream gathers from reads and lands its
@@ -197,7 +200,8 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
                 posthog_mcp_scopes="read_only",
                 runtime="acp",
                 runtime_adapter="codex",
-                model="gpt-5.6-luna",
+                model="gpt-5.6-sol",
+                reasoning_effort="high",
                 initial_permission_mode="bypassPermissions",
             ),
             step_name="context-layer-dream",
