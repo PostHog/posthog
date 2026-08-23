@@ -67,38 +67,6 @@ tools:
                 input_schema: ChannelInstructionsBaseVersionSchema
         feature_flag: context-layer
         feature_flag_behavior: disable
-    loop-channel-instructions-retrieve:
-        operation: task_channels_instructions_retrieve
-        enabled: true
-        scopes:
-            - task:read
-            - loop_context_internal:write
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Read fallback loop context
-        description: Read legacy channel context when an unattended loop cannot access an initialized context wiki.
-        param_overrides:
-            id:
-                description: ID of the loop's context channel.
-    loop-channel-instructions-update:
-        operation: task_channels_instructions_update
-        enabled: true
-        scopes:
-            - task:write
-            - loop_context_internal:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Update fallback loop context
-        description: Update legacy channel context when an unattended loop cannot access an initialized context wiki.
-        param_overrides:
-            id:
-                description: ID of the loop's context channel.
-            base_version:
-                input_schema: ChannelInstructionsBaseVersionSchema
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -136,6 +104,38 @@ tools:
     code-sandbox-pricing-list:
         operation: code_sandbox_pricing_list
         enabled: false
+    loop-channel-instructions-retrieve:
+        operation: task_channels_instructions_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read fallback loop context
+        description: Read legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+    loop-channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update fallback loop context
+        description: Update legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     loops-create:
         operation: loops_create
         enabled: true

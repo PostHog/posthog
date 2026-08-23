@@ -9,6 +9,9 @@ feature: context_layer
 url_prefix: /
 ui_apps: {}
 tools:
+    context-layer-agent-commits-create:
+        operation: context_layer_agent_commits_create
+        enabled: false
     context-layer-commits-create:
         operation: context_layer_commits_create
         enabled: false
@@ -23,6 +26,9 @@ tools:
         enabled: false
     context-layer-tree-retrieve:
         operation: context_layer_tree_retrieve
+        enabled: false
+    context-layer-wiki-report-retrieve:
+        operation: context_layer_wiki_report_retrieve
         enabled: false
     context-wiki-channel-resolve:
         operation: context_layer_channel_pages_retrieve
