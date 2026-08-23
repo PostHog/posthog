@@ -1,4 +1,3 @@
-import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import {
   buildBulkActionEvents,
   type InboxBulkActionType,
@@ -14,6 +13,7 @@ import type {
 } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import type { DismissReportDialogResult } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxReportSelectionStore } from "@posthog/ui/features/inbox/stores/inboxReportSelectionStore";
