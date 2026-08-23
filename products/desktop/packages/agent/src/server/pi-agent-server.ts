@@ -1,4 +1,3 @@
-import { resolveContextWikiPath } from "../context-wiki";
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -20,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
+import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,

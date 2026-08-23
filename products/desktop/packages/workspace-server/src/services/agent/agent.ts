@@ -649,6 +649,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private async mountContextWiki(credentials: Credentials): Promise<void> {
     delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
     delete process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH;
+    delete process.env.POSTHOG_PERSONAL_API_KEY;
     const authToken = await this.agentAuthAdapter.gatewayAuthToken();
     if (!authToken) {
       return;
@@ -666,7 +667,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
     process.env.POSTHOG_CONTEXT_LAYER_PATH = mount.path;
     process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = mount.commitsPath;
-    process.env.POSTHOG_PERSONAL_API_KEY ??= authToken;
+    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
+    // just re-synced it, so it is absent for impersonated sessions (an
+    // impersonation credential must never reach agent subprocesses) and fresh
+    // after any token rotation or account switch. The delete above keeps a
+    // prior session's token from surviving into a session that must not have one.
+    if (process.env.POSTHOG_API_KEY) {
+      process.env.POSTHOG_PERSONAL_API_KEY = process.env.POSTHOG_API_KEY;
+    }
   }
 
   private buildSystemPrompt(

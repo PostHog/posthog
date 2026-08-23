@@ -6,8 +6,10 @@ import {
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import {
   AGENT_AUTH,
   MCP_SERVER_CONNECTION_SOURCE,
@@ -18,8 +20,6 @@ import type {
 } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
-import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import { prepareContextWiki } from "@posthog/workspace-server/services/agent/context-wiki";
 import type { PiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/identifiers";
 import { inject, injectable } from "inversify";
 

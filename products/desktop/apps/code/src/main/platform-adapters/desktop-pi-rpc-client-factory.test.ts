@@ -1,6 +1,6 @@
-import type { RootLogger } from "@posthog/di/logger";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import type { RootLogger } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import type { AgentAuth } from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";

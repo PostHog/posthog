@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { execGit } from "@posthog/git/git-exec";
@@ -9,6 +9,11 @@ import type { AgentScopedLogger } from "./ports";
 const API_TIMEOUT_MS = 10_000;
 const BUNDLE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const GIT_TIMEOUT_MS = 60_000;
+// The server bounds a wiki at 50MB of content; a bundle materially above that
+// is not a wiki, so stop the download instead of filling the disk.
+const MAX_BUNDLE_BYTES = 200_000_000;
+// A checkout is only pruned once no session plausibly still reads it.
+const STALE_CHECKOUT_MS = 24 * 60 * 60 * 1000;
 
 export type AuthenticatedFetch = (
   input: string,
@@ -137,14 +142,13 @@ async function prepare(
     return null;
   }
 
-  const mountDir = path.join(options.cacheDir, organizationId);
+  // One directory per head, created by an atomic rename: existence means the
+  // clone completed, sessions on an older head keep their checkout across a
+  // head move, and a failed refresh never destroys a working mount.
+  const orgDir = path.join(options.cacheDir, organizationId);
+  const mountDir = path.join(orgDir, headSha);
   const commitsPath = `/api/organizations/${organizationId}/context_layer/commits/`;
-  const headMarker = `${mountDir}.head`;
-  if (
-    fs.existsSync(mountDir) &&
-    fs.existsSync(headMarker) &&
-    fs.readFileSync(headMarker, "utf8").trim() === headSha
-  ) {
+  if (fs.existsSync(mountDir)) {
     return { path: mountDir, commitsPath };
   }
 
@@ -155,22 +159,67 @@ async function prepare(
   if (!bundleResponse.ok || !bundleResponse.body) {
     return null;
   }
-  const bundlePath = `${mountDir}.bundle`;
-  await fs.promises.mkdir(options.cacheDir, { recursive: true });
-  await pipeline(
-    Readable.fromWeb(bundleResponse.body as WebReadableStream),
-    fs.createWriteStream(bundlePath),
-  );
+  await fs.promises.mkdir(orgDir, { recursive: true });
+  const bundlePath = path.join(orgDir, `.bundle-${headSha}`);
+  const stagingDir = path.join(orgDir, `.staging-${headSha}`);
   try {
-    await fs.promises.rm(mountDir, { recursive: true, force: true });
-    await runGit(["clone", "--quiet", bundlePath, mountDir]);
-    await runGit(["-C", mountDir, "checkout", "--quiet", "main"]);
-    await fs.promises.writeFile(headMarker, headSha);
+    await pipeline(
+      Readable.fromWeb(bundleResponse.body as WebReadableStream),
+      boundedBytes(MAX_BUNDLE_BYTES),
+      fs.createWriteStream(bundlePath),
+    );
+    await runGit(["clone", "--quiet", bundlePath, stagingDir]);
+    await runGit(["-C", stagingDir, "checkout", "--quiet", "main"]);
+    try {
+      await fs.promises.rename(stagingDir, mountDir);
+    } catch {
+      // A concurrent preparation on another key won the rename; theirs is
+      // complete, so use it.
+      if (!fs.existsSync(mountDir)) {
+        throw new Error("could not move the wiki checkout into place");
+      }
+    }
   } finally {
     await fs.promises.rm(bundlePath, { force: true });
+    await fs.promises.rm(stagingDir, { recursive: true, force: true });
   }
+  await pruneStaleCheckouts(orgDir, headSha);
   options.log.info("Mounted the context wiki", { headSha });
   return { path: mountDir, commitsPath };
+}
+
+function boundedBytes(limit: number): Transform {
+  let seen = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      seen += chunk.length;
+      if (seen > limit) {
+        callback(new Error(`wiki bundle exceeds ${limit} bytes`));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+}
+
+async function pruneStaleCheckouts(
+  orgDir: string,
+  currentHeadSha: string,
+): Promise<void> {
+  try {
+    for (const entry of await fs.promises.readdir(orgDir)) {
+      if (entry === currentHeadSha) {
+        continue;
+      }
+      const entryPath = path.join(orgDir, entry);
+      const age = Date.now() - (await fs.promises.stat(entryPath)).mtimeMs;
+      if (age > STALE_CHECKOUT_MS) {
+        await fs.promises.rm(entryPath, { recursive: true, force: true });
+      }
+    }
+  } catch {
+    // Best-effort: a prune failure never fails a mount.
+  }
 }
 
 async function runGit(args: string[]): Promise<void> {

@@ -10,12 +10,12 @@ import type {
   McpToolPermissionDecision,
   McpToolPermissionRequest,
 } from "@posthog/shared";
+import { createPiContextWikiExtension } from "./context-wiki-extension";
 import { createPiEnrichmentExtension } from "./enrichment-extension";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
-import { createPiContextWikiExtension } from "./context-wiki-extension";
 import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import type { PiRpcBootstrap, PiRuntimeExtension } from "./rpc-client";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
