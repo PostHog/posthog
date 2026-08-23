@@ -146,6 +146,36 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("default_page_size", "", 50),
+            ("explicit_limit_clamped_to_max", "?limit=10000", 500),
+        ]
+    )
+    def test_get_run_snapshots_bounds_page_size(self, _name, query, expected_len):
+        total = 505
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier=f"Story{i}", content_hash=f"h{i}") for i in range(total)],
+            ),
+            team_id=self.team.id,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/{query}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == expected_len
+        # Full retrieval stays available: total count is reported and more pages remain.
+        assert data["count"] == total
+        assert data["next"] is not None
+
+    @parameterized.expand(
+        [
             ("excluded_by_default", "", {"Card"}),
             ("included_when_requested", "?include_quarantined=true", {"Button", "Card"}),
         ]

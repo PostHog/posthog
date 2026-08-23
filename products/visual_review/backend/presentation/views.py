@@ -82,6 +82,14 @@ class SnapshotsPagination(LimitOffsetPagination):
     show "N quarantined hidden" without a second request. The action sets
     `quarantined_count` on the paginator instance before rendering the response."""
 
+    # Each snapshot carries three presigned artifact URLs plus diff and cluster
+    # metadata, so the row payload is large. A broken run can produce thousands of
+    # snapshots. Bound the page so a default call stays small and an explicit
+    # `limit` cannot return a context-breaking payload to an MCP agent. Full
+    # retrieval stays available through `offset`.
+    default_limit = 50
+    max_limit = 500
+
     quarantined_count = 0
 
     def get_paginated_response(self, data: object) -> Response:
