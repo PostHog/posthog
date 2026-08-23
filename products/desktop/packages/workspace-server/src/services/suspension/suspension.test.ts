@@ -46,9 +46,12 @@ vi.mock("node:fs/promises", () => {
       ),
     chmod: vi.fn(),
     readdir: vi.fn().mockResolvedValue([]),
+    rmdir: vi.fn().mockResolvedValue(undefined),
   };
   return { default: fns, ...fns };
 });
+
+import fsp from "node:fs/promises";
 
 import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
 import { createMockArchiveRepository } from "@posthog/workspace-server/db/repositories/archive-repository.mock";
@@ -332,6 +335,41 @@ describe("SuspensionService", () => {
         "Injected failure on suspension create",
       );
       expect(mocks.suspensionRepo.findAll()).toHaveLength(0);
+    });
+  });
+
+  describe("worktree deletion on disk", () => {
+    it("removes the app-owned wrapper of a managed worktree", async () => {
+      seedWorktreeWorkspace(mocks);
+
+      await service.suspendTask("task-1", "manual");
+
+      expect(mockWorktreeManagerProto.deleteWorktree).toHaveBeenCalledWith(
+        "/tmp/worktrees/wt-task-1/repo",
+      );
+      expect(vi.mocked(fsp.rmdir)).toHaveBeenCalledWith(
+        "/tmp/worktrees/wt-task-1",
+      );
+    });
+
+    it("never removes the parent of an adopted external worktree", async () => {
+      const ws = mocks.workspaceRepo.create({
+        taskId: "task-adopted",
+        repositoryId: "repo-1",
+        mode: "worktree",
+      });
+      mocks.worktreeRepo.create({
+        workspaceId: ws.id,
+        name: "feature",
+        path: "/Users/dev/code/parent/repo.feature",
+      });
+
+      await service.suspendTask("task-adopted", "manual");
+
+      expect(mockWorktreeManagerProto.deleteWorktree).toHaveBeenCalledWith(
+        "/Users/dev/code/parent/repo.feature",
+      );
+      expect(vi.mocked(fsp.rmdir)).not.toHaveBeenCalled();
     });
   });
 });

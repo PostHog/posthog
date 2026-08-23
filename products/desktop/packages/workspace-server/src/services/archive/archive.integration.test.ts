@@ -45,8 +45,10 @@ import {
 } from "@posthog/workspace-server/db/repositories/worktree-repository.mock";
 import { ArchiveService } from "./archive";
 
-async function createTempGitRepo(): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "archive-test-"));
+async function createTempGitRepo(parentDir?: string): Promise<string> {
+  const dir = await fs.mkdtemp(
+    path.join(parentDir ?? os.tmpdir(), "archive-test-"),
+  );
   execSync("git init", { cwd: dir, stdio: "pipe" });
   execSync("git config user.email 'test@test.com'", {
     cwd: dir,
@@ -502,6 +504,60 @@ describe("ArchiveService integration", () => {
 
         expect(archived.checkpointId).toBeTruthy();
         expect(await pathExists(legacyPath)).toBe(false);
+      }));
+
+    it("archiving an adopted external worktree keeps its parent directory", () =>
+      withTestContext({}, async (ctx) => {
+        const scenarioRoot = await fs.mkdtemp(
+          path.join(os.tmpdir(), "archive-adopted-"),
+        );
+        try {
+          // Incident layout: adopted sibling worktree sharing a parent with the main repo.
+          const codeParent = path.join(scenarioRoot, "code-parent");
+          await fs.mkdir(codeParent, { recursive: true });
+          const externalRepoPath = await createTempGitRepo(codeParent);
+          const externalWorktreePath = `${externalRepoPath}.feature`;
+          execSync(`git worktree add "${externalWorktreePath}" -b feature`, {
+            cwd: externalRepoPath,
+            stdio: "pipe",
+          });
+          const sentinelPath = path.join(codeParent, "unrelated-sentinel.txt");
+          await fs.writeFile(sentinelPath, "survivor");
+
+          const repo = ctx.repositoryRepo.create({ path: externalRepoPath });
+          const workspace = ctx.workspaceRepo.create({
+            taskId: "task-adopted",
+            repositoryId: repo.id,
+            mode: "worktree",
+          });
+          ctx.worktreeRepo.create({
+            workspaceId: workspace.id,
+            name: "feature",
+            path: externalWorktreePath,
+          });
+
+          await ctx.service.archiveTask({ taskId: "task-adopted" });
+
+          expect(await pathExists(externalWorktreePath)).toBe(false);
+          expect(await pathExists(codeParent)).toBe(true);
+          expect(await pathExists(externalRepoPath)).toBe(true);
+          expect(await pathExists(path.join(externalRepoPath, ".git"))).toBe(
+            true,
+          );
+          expect(await pathExists(sentinelPath)).toBe(true);
+        } finally {
+          await fs.rm(scenarioRoot, { recursive: true, force: true });
+        }
+      }));
+
+    it("archiving a managed worktree removes its empty app-owned wrapper", () =>
+      withTestContext({}, async (ctx) => {
+        const { worktreePath } = await ctx.setupWorktree("detached");
+
+        await ctx.service.archiveTask(ctx.archiveInput());
+
+        expect(await pathExists(worktreePath)).toBe(false);
+        expect(await pathExists(path.dirname(worktreePath))).toBe(false);
       }));
 
     it("archive succeeds when worktree was deleted externally", () =>

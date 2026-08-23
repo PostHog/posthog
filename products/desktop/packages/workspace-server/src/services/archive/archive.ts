@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -7,7 +6,6 @@ import {
 import { createGitClient } from "@posthog/git/client";
 import { isGitRepository } from "@posthog/git/queries";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
 import { WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
@@ -50,7 +48,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
+import {
+  deriveWorktreePath as deriveWorktreePathFromBase,
+  removeManagedWorktreeWrapper,
+} from "../worktree-path/worktree-path";
 import { getCurrentBranchName } from "../worktree-query/worktree-query";
 import { recoverArchiveDetailsFromLogs } from "./archive-recovery";
 import { ARCHIVE_FILE_WATCHER, ARCHIVE_SESSION_CANCELLER } from "./identifiers";
@@ -329,8 +330,15 @@ export class ArchiveService {
                 logger: this.log,
               });
               await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
+              const wrapperRemoved = await removeManagedWorktreeWrapper(
+                worktreePath,
+                this.workspaceSettings.getWorktreeLocation(),
+              );
+              if (!wrapperRemoved) {
+                this.log.info(
+                  `Kept parent of deleted worktree at ${worktreePath}: not an app-managed worktree location`,
+                );
+              }
             } catch (error) {
               this.log.warn(
                 `Failed to remove worktree at ${worktreePath}; archiving anyway (on-disk worktree may need manual cleanup)`,
@@ -484,8 +492,15 @@ export class ArchiveService {
                 restoredWorktreeName,
               );
               await manager.deleteWorktree(worktreePath);
-              const parentDir = path.dirname(worktreePath);
-              await forceRemove(parentDir);
+              const wrapperRemoved = await removeManagedWorktreeWrapper(
+                worktreePath,
+                this.workspaceSettings.getWorktreeLocation(),
+              );
+              if (!wrapperRemoved) {
+                this.log.info(
+                  `Kept parent of deleted worktree at ${worktreePath}: not an app-managed worktree location`,
+                );
+              }
             }
           },
         );
