@@ -1260,6 +1260,14 @@ export interface ChannelStarWriteApi {
 }
 
 /**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
+}
+
+/**
  * The requester's default channels, plus whether this call is what created them.
  */
 export interface ProvisionedChannelsApi {
