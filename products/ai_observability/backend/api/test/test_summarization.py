@@ -23,6 +23,24 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummaryBullet,
 )
 
+# Small enough to keep the fixtures cheap while still forcing the sampler to run.
+TEST_TEXT_REPR_BUDGET = 4000
+
+
+def _chatty_payload(summarize_type: str) -> dict[str, Any]:
+    messages = [{"role": "user", "content": f"turn {i} " + "detail " * 40} for i in range(200)]
+    event = {
+        "id": "gen-oversized",
+        "event": "$ai_generation",
+        "properties": {"$ai_input": messages},
+    }
+    if summarize_type == "event":
+        return {"event": event}
+    return {
+        "trace": {"id": "trace-oversized", "properties": {"$ai_span_name": "oversized"}},
+        "hierarchy": [{"event": event, "children": []}],
+    }
+
 
 class TestSummarizationAPI(APIBaseTest):
     """Test summarization API endpoints."""
@@ -145,6 +163,36 @@ class TestSummarizationAPI(APIBaseTest):
         # Verify title is present
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
+
+    @parameterized.expand(["event", "trace"])
+    @patch("products.ai_observability.backend.api.summarization.MAX_TEXT_REPR_CHARS", TEST_TEXT_REPR_BUDGET)
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_oversized_entity_is_bounded_before_the_model_call(self, summarize_type, mock_summarize):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Bounded",
+            flow_diagram="Start",
+            summary_bullets=[SummaryBullet(text="Bounded", line_refs="L1")],
+            interesting_notes=[],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "summarize_type": summarize_type,
+                "mode": "minimal",
+                "force_refresh": True,
+                "data": _chatty_payload(summarize_type),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        text_repr = mock_summarize.call_args.kwargs["text_repr"]
+        self.assertLessEqual(len(text_repr), TEST_TEXT_REPR_BUDGET)
+        self.assertIn("SAMPLED VIEW", text_repr)
+        self.assertEqual(response.data["metadata"]["text_repr_length"], len(text_repr))
 
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""

@@ -50,6 +50,7 @@ from posthog.rate_limit import (
 )
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.summarization.constants import MAX_TEXT_REPR_CHARS
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
@@ -58,6 +59,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_event_text_repr,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
+    reduce_by_uniform_sampling,
 )
 
 logger = structlog.get_logger(__name__)
@@ -425,6 +427,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             "truncated": False,
             "include_markers": False,
             "collapsed": False,
+            "max_length": MAX_TEXT_REPR_CHARS,
         }
 
         if summarize_type == "trace":
@@ -434,8 +437,13 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
                 options=options,
             )
             return text
-        else:  # event
-            return format_event_text_repr(event=entity_data["event"], options=options)
+
+        text = format_event_text_repr(event=entity_data["event"], options=options)
+        # format_event_text_repr does not read max_length, so an event large enough to blow the
+        # context window on its own has to be bounded here, the way api/text_repr.py bounds it.
+        if len(text) > MAX_TEXT_REPR_CHARS:
+            text, _ = reduce_by_uniform_sampling(text, MAX_TEXT_REPR_CHARS)
+        return text
 
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.

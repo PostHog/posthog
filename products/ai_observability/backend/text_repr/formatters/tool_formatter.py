@@ -78,7 +78,11 @@ def _format_tools_list(tools_list: list[Any]) -> str:
 
             # Build function signature from schema
             signature = f"{name}("
-            if schema and isinstance(schema, dict) and "properties" in schema:
+            # A recorded schema is whatever the SDK wrote, so `properties` is not reliably the
+            # object JSON Schema calls for. A list or string value raises AttributeError on
+            # `.items()` and fails the whole representation, so an unusable shape renders the tool
+            # with an empty signature instead.
+            if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
                 properties = schema["properties"]
                 required = schema.get("required", [])
                 params: list[str] = []

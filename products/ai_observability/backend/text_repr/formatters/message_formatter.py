@@ -581,7 +581,9 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         if not isinstance(msg, dict):
             continue
 
-        role = msg.get("role") or msg.get("type") or "unknown"
+        # A recorded role is not always the string the SDK contract implies. Coerced because a dict
+        # or list value raises AttributeError on `.upper()` and fails the whole representation.
+        role = str(msg.get("role") or msg.get("type") or "unknown")
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
 
