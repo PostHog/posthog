@@ -324,12 +324,11 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
-    # Repo-less runs (e.g. Slack) must pass the branch through untouched, with no GitHub lookup.
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
-    assert _resolve_protected_base_branch(context) == "some-branch"
+    assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
 
 
