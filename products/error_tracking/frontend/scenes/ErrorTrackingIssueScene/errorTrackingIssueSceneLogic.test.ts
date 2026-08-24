@@ -31,7 +31,7 @@ describe('errorTrackingIssueSceneLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/error_tracking/issues/:id/': {},
+                '/api/environments/:team_id/error_tracking/issues/:id/': ISSUE,
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
                 // Fails by default, so every test in this file also proves the panel degrades quietly.
                 '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
@@ -124,6 +124,16 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['updateIssueSeverity'])
             .toMatchValues({ issue: expect.objectContaining({ severity: 'critical' }) })
+    })
+
+    it('restores the persisted severity when an update fails', async () => {
+        logic.actions.setIssue({ ...ISSUE, severity: 'critical' })
+
+        await expectLogic(logic, () => {
+            logic.actions.mutationFailure('updateIssueSeverity', new Error('Update failed'))
+        })
+            .toDispatchActions(['loadIssueSuccess'])
+            .toMatchValues({ issue: expect.objectContaining({ severity: 'low' }) })
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {
