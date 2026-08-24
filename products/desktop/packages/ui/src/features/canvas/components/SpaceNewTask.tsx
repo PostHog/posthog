@@ -1,6 +1,5 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
@@ -13,14 +12,12 @@ import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/u
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
-import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
-import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 
@@ -36,7 +33,6 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     select: (state) => state.location.state.tabId,
   });
   const taskInputSessionId = getTaskInputSessionId(tabId);
-  const queryClient = useQueryClient();
   const { fileTask } = useChannelTaskMutations();
   // The raw channel row also carries the space's repository defaults.
   const { channels } = useTaskChannels();
@@ -85,11 +81,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     }
   }, [channelId, contextPanelOpen]);
 
-  const onTaskCreated = useCallback(
-    (task: Task, originTabId: string | null) => {
-      // Seed the detail cache so the destination route resolves instantly
-      // (mirrors openTask), then file to the channel + navigate.
-      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
+  const onTaskCreatedEffect = useCallback(
+    (task: Task) => {
       void fileTask(channelId, task.id)
         .then(() => {
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -112,26 +105,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
             description: error instanceof Error ? error.message : String(error),
           });
         });
-      navigateBrowserTab(
-        originTabId,
-        {
-          href: `/spaces/${channelId}/tasks/${task.id}`,
-          title: task.title,
-          dashboardId: null,
-          taskId: task.id,
-          channelId,
-          channelSection: null,
-          appView: null,
-        },
-        () => {
-          void navigate({
-            to: "/spaces/$channelId/tasks/$taskId",
-            params: { channelId, taskId: task.id },
-          });
-        },
-      );
     },
-    [channelId, fileTask, navigate, queryClient],
+    [channelId, fileTask],
   );
 
   // Retargeting navigates to that space's own new-task route. The draft is
@@ -168,7 +143,7 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
               disabled={disabled}
             />
           )}
-          onTaskCreated={onTaskCreated}
+          onTaskCreatedEffect={onTaskCreatedEffect}
           channelContext={channelContext}
           channelContextPath={wiki.path}
           channelContextBlocked={wiki.blocked}

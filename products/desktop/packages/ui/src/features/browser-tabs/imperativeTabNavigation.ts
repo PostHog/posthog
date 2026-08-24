@@ -1,4 +1,4 @@
-import { resolveServiceOptional } from "@posthog/di/container";
+import { resolveService } from "@posthog/di/container";
 import {
   setTabTarget as setTabTargetLocal,
   type TabIdentity,
@@ -8,10 +8,9 @@ import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "./browserTabsClient";
-import { pushTabHistoryEntry } from "./tabHistory";
 import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
 
-export interface BrowserTabDestination extends TabIdentity {
+export interface BrowserTabDestination extends Partial<TabIdentity> {
   href: string;
   title?: string;
 }
@@ -31,16 +30,16 @@ export function getCurrentBrowserTabId(): string | null {
 export function navigateBrowserTab(
   tabId: string | null,
   destination: BrowserTabDestination,
-  navigateWithoutTabs: () => void,
+  navigateActiveTab: () => void,
 ): BrowserTabNavigationResult {
   if (!tabId) {
-    navigateWithoutTabs();
+    navigateActiveTab();
     return "active";
   }
 
   const router = getRouterOrNull();
   if (router?.history.location.state.tabId === tabId) {
-    pushTabHistoryEntry(router.history, destination.href, tabId);
+    navigateActiveTab();
     return "active";
   }
 
@@ -54,20 +53,18 @@ export function navigateBrowserTab(
       ...(tab.viewState ?? {}),
       ...(destination.title ? { title: destination.title } : {}),
     },
-    dashboardId: destination.dashboardId,
-    taskId: destination.taskId,
-    channelId: destination.channelId,
-    channelSection: destination.channelSection,
-    appView: destination.appView,
+    dashboardId: destination.dashboardId ?? null,
+    taskId: destination.taskId ?? null,
+    channelId: destination.channelId ?? null,
+    channelSection: destination.channelSection ?? null,
+    appView: destination.appView ?? null,
     activate: false,
   };
 
   applyLocalTransform((snapshot) =>
     setTabTargetLocal(snapshot, { ...target, now: Date.now }),
   );
-  const client = resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);
-  if (client) {
-    void persistWrite(() => client.setTabTarget(target));
-  }
+  const client = resolveService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
+  void persistWrite(() => client.setTabTarget(target));
   return "background";
 }

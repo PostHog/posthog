@@ -70,6 +70,10 @@ import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore"
 
 const log = logger.scope("task-creation");
 
+function restoreTaskInputTab(tabId: string | null): void {
+  navigateBrowserTab(tabId, { href: "/new", title: "New task" }, openTaskInput);
+}
+
 interface UseTaskCreationOptions {
   editorRef: React.RefObject<EditorHandle | null>;
   /** Draft-store session id for the editor; cleared on successful creation. */
@@ -111,7 +115,7 @@ interface UseTaskCreationOptions {
    * whether it needs one and attaches it lazily.
    */
   allowNoRepo?: boolean;
-  onTaskCreated?: (task: Task, originTabId: string | null) => void;
+  onTaskCreated?: (task: Task) => void;
   /**
    * Side effect run with the created task in addition to (not instead of)
    * the default open/navigation behavior — unlike onTaskCreated, providing
@@ -370,11 +374,6 @@ export function useTaskCreation({
             {
               href: `/tasks/pending/${pendingTaskKey}`,
               title: "New task",
-              dashboardId: null,
-              taskId: null,
-              channelId: null,
-              channelSection: null,
-              appView: null,
             },
             () => navigateToTaskPending(pendingTaskKey),
           );
@@ -494,9 +493,12 @@ export function useTaskCreation({
               }
               onTaskCreatedEffect?.(output.task);
               if (onTaskCreated) {
-                onTaskCreated(output.task, originTabId);
+                onTaskCreated(output.task);
               } else {
-                void openTask(output.task, { tabId: originTabId });
+                void openTask(output.task, {
+                  channelId,
+                  tabId: originTabId,
+                });
               }
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
@@ -572,19 +574,7 @@ export function useTaskCreation({
               if (createdTaskId) {
                 pendingTaskPromptStoreApi.clear(createdTaskId);
               }
-              navigateBrowserTab(
-                originTabId,
-                {
-                  href: "/new",
-                  title: "New task",
-                  dashboardId: null,
-                  taskId: null,
-                  channelId: null,
-                  channelSection: null,
-                  appView: null,
-                },
-                () => openTaskInput(),
-              );
+              restoreTaskInputTab(originTabId);
             }
           }
           return result.success;
@@ -596,19 +586,7 @@ export function useTaskCreation({
             if (createdTaskId) {
               pendingTaskPromptStoreApi.clear(createdTaskId);
             }
-            navigateBrowserTab(
-              originTabId,
-              {
-                href: "/new",
-                title: "New task",
-                dashboardId: null,
-                taskId: null,
-                channelId: null,
-                channelSection: null,
-                appView: null,
-              },
-              () => openTaskInput(),
-            );
+            restoreTaskInputTab(originTabId);
           }
           return false;
         }

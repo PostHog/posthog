@@ -50,11 +50,8 @@ export async function openTask(
     {
       href,
       title: task.title,
-      dashboardId: null,
       taskId: task.id,
       channelId: opts?.channelId ?? null,
-      channelSection: null,
-      appView: null,
     },
     () => {
       if (opts?.channelId) {
@@ -79,11 +76,6 @@ export async function openTask(
       {
         href: `/folders/${staleFolderId}`,
         title: "Folder settings",
-        dashboardId: null,
-        taskId: null,
-        channelId: null,
-        channelSection: null,
-        appView: null,
       },
       () => nav.navigateToFolderSettings(staleFolderId),
     );

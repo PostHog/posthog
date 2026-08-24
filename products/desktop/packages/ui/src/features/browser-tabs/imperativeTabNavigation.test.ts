@@ -6,9 +6,8 @@ import {
 } from "./imperativeTabNavigation";
 
 const mocks = vi.hoisted(() => ({
-  resolveServiceOptional: vi.fn(),
+  resolveService: vi.fn(),
   getRouterOrNull: vi.fn(),
-  pushTabHistoryEntry: vi.fn(),
   applyLocalTransform: vi.fn(),
   persistWrite: vi.fn(),
   readMirror: vi.fn(),
@@ -16,13 +15,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/di/container", () => ({
-  resolveServiceOptional: mocks.resolveServiceOptional,
+  resolveService: mocks.resolveService,
 }));
 vi.mock("@posthog/ui/router/routerRef", () => ({
   getRouterOrNull: mocks.getRouterOrNull,
-}));
-vi.mock("./tabHistory", () => ({
-  pushTabHistoryEntry: mocks.pushTabHistoryEntry,
 }));
 vi.mock("./tabsSync", () => ({
   applyLocalTransform: mocks.applyLocalTransform,
@@ -98,7 +94,7 @@ describe("imperative browser-tab navigation", () => {
     history.location.state.tabId = "tab-b";
     mocks.getRouterOrNull.mockReturnValue({ history });
     mocks.readMirror.mockReturnValue(snapshot());
-    mocks.resolveServiceOptional.mockReturnValue(client);
+    mocks.resolveService.mockReturnValue(client);
     mocks.applyLocalTransform.mockImplementation((transform) =>
       transform(snapshot()),
     );
@@ -112,18 +108,13 @@ describe("imperative browser-tab navigation", () => {
     expect(getCurrentBrowserTabId()).toBe("tab-b");
   });
 
-  it("pushes history when the originating tab is still active", () => {
+  it("uses ordinary navigation when the originating tab is still active", () => {
     history.location.state.tabId = "tab-a";
     const fallback = vi.fn();
 
     expect(navigateBrowserTab("tab-a", destination, fallback)).toBe("active");
-    expect(mocks.pushTabHistoryEntry).toHaveBeenCalledWith(
-      history,
-      destination.href,
-      "tab-a",
-    );
+    expect(fallback).toHaveBeenCalledOnce();
     expect(mocks.applyLocalTransform).not.toHaveBeenCalled();
-    expect(fallback).not.toHaveBeenCalled();
   });
 
   it("retargets an inactive origin without activating it", () => {
@@ -144,7 +135,6 @@ describe("imperative browser-tab navigation", () => {
     expect(client.setTabTarget).toHaveBeenCalledWith(
       expect.objectContaining({ tabId: "tab-a", activate: false }),
     );
-    expect(mocks.pushTabHistoryEntry).not.toHaveBeenCalled();
     expect(fallback).not.toHaveBeenCalled();
   });
 
