@@ -577,9 +577,9 @@ snapshots:
     components-hogcharts-barchart--grouped--light:
         hash: v1.k794b7964.03cf5aea076941f1c72940a8ef54320900b81e98ca85e6674d3bcffb1248ecc9.9jxIF7qRonS1YfjjqPD0m8UQc-Ud-3ew5RUtQh5IOqk
     components-hogcharts-barchart--hatched-bars--dark:
-        hash: v1.k794b7964.013dbdd0502538368745b1c26e0cd2a5f3b0728a3b601fdf67a25365f6001581.oAdsc4dQiNuxFicZQb3YdWpSfkXRbrMNy7hth6a6TXw
+        hash: v1.k794b7964.6261887537d9c02c140db15599f6fb80d75c70c0fbaaec9a1a39eee759b1e795.a8vJ2DDVa8nWaQLoccAbmm3rFsJz5d_OgLt8n6ShW6w
     components-hogcharts-barchart--hatched-bars--light:
-        hash: v1.k794b7964.073920f88142793533a52faa925fc1b0eef7ef8236cbe23f330ab7b28e79a58e.0tcVwLSfb_hZIgxGSNzSeP0siFbwthVTeee1is2PrF0
+        hash: v1.k794b7964.91fabb6ff0857ad43d6ee660354803170ae0a53c83b14fb7c0a448f208a61113.U46g7PDOpWseIiELLLKCLLvyGI_sGf_RY8IG0jSZamQ
     components-hogcharts-barchart--hidden-series--dark:
         hash: v1.k794b7964.bffd963b8ac70f817ed0db90173f1e898f7aa19a1df03b90ce0e4c3aebbbb7d8.oP-Z_iQE8f7x8deR7JBK-Crc5if_9vMH4lixukVJO7U
     components-hogcharts-barchart--hidden-series--light:
@@ -601,9 +601,9 @@ snapshots:
     components-hogcharts-barchart--horizontal-wide-value-labels--light:
         hash: v1.k794b7964.cef7cd7e190817224115d35f5402dc94aadc3a033be1e416bd52c6783096c686.U1kVYnyzlZTciZAHczBsbu9LvQ3yVhqGGroHdcjtepI
     components-hogcharts-barchart--incomplete-period--dark:
-        hash: v1.k794b7964.7d81e34fb7027b4a14847300bef51faf9f255c427eb2ce506402630635a47061.D35g4pAVQjz0SaKEc1lvHHFqZgEO7RgyiXy5hQtKwJA
+        hash: v1.k794b7964.43f3ede0f6af5880a51c85048f3628566d614c8ae12f30cf68e072f2e4a73ae9.PA7sl-J66x4XLCrRMN6G2vPzsljewHVo1C1l5Nd0KPM
     components-hogcharts-barchart--incomplete-period--light:
-        hash: v1.k794b7964.2f99c6605b24b2b7cd3158262cba4f6073114d7bd1e22ffea1e9b4b98d056d2e.qW78fG0cYDYBUYOY8zQXiRsYK_N7-dQ0reIQAn0BwBA
+        hash: v1.k794b7964.d1184bbd3cb83434ae0743050e06856996678dbc07ea8478f6444e12e7c485d3.xCKaSr-LdXRrMHFpoGvNS5EIlJUZ5xi9kJMZpub_L4w
     components-hogcharts-barchart--large-dataset--dark:
         hash: v1.k794b7964.095574cf8c5bebb6a162cfb8a34e471063b44373874026b49fd15e51bb722486.FV48NiohLU1O73Z-XFDgEHkEEU6KvGCsu_sNx7axGo4
     components-hogcharts-barchart--large-dataset--light:
@@ -6976,6 +6976,18 @@ snapshots:
         hash: v1.k794b7964.195aa4a5a39e8f947e17fe67f5c23303b7dd0579c278907761be24a08780be92.t2Zgr2Pj-cL6F6Xx11DpcCyR1L0QQ8fD17WzQNmXbw8
     scenes-app-llm-observability-evaluationreportconfig--quill--light:
         hash: v1.k794b7964.e6179df07dd55d64e0140d40ac812feb4662e28e5bded7ce2cf9e2575f245626.4iGTruUDV858d17xZIUMJCG2xFeWLagkzakPS2Yw4Ps
+    scenes-app-logs-sparkline--volume-by-severity--dark:
+        hash: v1.k794b7964.ff9970e481267669b2b5c3e97de2daa5027224b3185da86e7841374a1c0ba80e.sStnKO155v5mRB-N445BcUDcc21g3jAW21Y5mDWfENw
+    scenes-app-logs-sparkline--volume-by-severity--light:
+        hash: v1.k794b7964.8de90a8725adae02f3eb5ddff7b67a8b82635f4ee91a6fc8af918f847f3112aa.b71G5RHdgthOOmza6oa2KGdiK2bsMtGDdql7kyjlEUE
+    scenes-app-logs-sparkline--with-incomplete-buckets--dark:
+        hash: v1.k794b7964.d18b5bd8acb1c3cc0a815e002bd50d8382c4ed2bcc0d52975188d10565c094e8.lDTMLtBVAMn0BR_tMDOTiJkqQgTSmRMrBHUVjhcmWng
+    scenes-app-logs-sparkline--with-incomplete-buckets--light:
+        hash: v1.k794b7964.ffcdf956d00fbd9c97d8843d86e1781202ba0da513e45594267dba56443ad824.IjOA2xr2ZUEtBos84aXnc_oogjc71FmgQf0lZGnyndw
+    scenes-app-logs-sparkline--with-visible-row-range--dark:
+        hash: v1.k794b7964.6e7205adb133ed51c4e5c4822801101628929a2670208a3380051bd366ef1014.CjJZblD1hifo0CPfzGvsF5nuJbYoq3jTSZ1ZT9uXJPk
+    scenes-app-logs-sparkline--with-visible-row-range--light:
+        hash: v1.k794b7964.b0f371959dd1ba3224600f73c6ce704356527d7e47eb2059391a4c6c340a098b.-AV9dQHySpjijS8TCrCM0nW459TOjWY356UVly4uCoo
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--dark:
         hash: v1.k794b7964.52cf1cc9ecc8ac0c8dc3ff23da8f0e0f2605629c3df6ecbb5ed9608f570c4784.NtNmI3-76PkNhp-wrgqn8-92duqzx8Svtopeh0m9xw8
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--light:
