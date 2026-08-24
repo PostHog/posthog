@@ -100,17 +100,18 @@ def get_or_create_shared_alert(
 
 
 def delete_shared_alert_destinations(*, shared_alert: AlertSharedIdentity) -> int:
-    """Delete a shared alert's destinations, their owned executors, and the
-    alert-destination rows themselves, with CDP worker cache reload.
+    """Soft-delete the HogFunction executors owned by every destination of
+    this alert, with CDP worker cache reload.
 
-    HogFunctions are soft-deleted (`deleted=True`) because history and revision
-    APIs still reference the rows. The DB-level `CASCADE` on `shared_alert` /
-    `alert_destination` provides the hard orphan backstop if physical deletion
-    is ever introduced.
+    Call this when the user deletes a destination group or an alert: the Hog
+    functions move to `deleted=True` so history and revision APIs keep the
+    rows, while the AlertDestination rows stay for audit and so the runtime
+    sees the removal through cache invalidation. The DB cascade from
+    `AlertSharedIdentity → AlertDestination → HogFunction` still hard-deletes
+    when the alert row itself is deleted.
     """
     executors_by_team: dict[int, list[UUID]] = {}
-    destinations = list(shared_alert.destinations.all())
-    destination_ids = [destination.id for destination in destinations]
+    destination_ids = list(shared_alert.destinations.values_list("id", flat=True))
     if not destination_ids:
         return 0
 
@@ -118,13 +119,13 @@ def delete_shared_alert_destinations(*, shared_alert: AlertSharedIdentity) -> in
         owned_rows = HogFunction.objects.select_for_update().filter(
             alert_destination_id__in=destination_ids, deleted=False
         )
+        deleted_count = 0
         for executor in owned_rows:
             executor.deleted = True
             executor.enabled = False
             executor.save(update_fields=["deleted", "enabled", "updated_at"])
             executors_by_team.setdefault(executor.team_id, []).append(executor.id)
-
-        deleted_count = AlertDestination.objects.filter(id__in=destination_ids).delete()[0]
+            deleted_count += 1
 
         for team_id, hog_function_ids in executors_by_team.items():
             _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)

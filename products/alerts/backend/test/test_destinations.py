@@ -23,6 +23,23 @@ from products.alerts.backend.destinations import (
 from products.alerts.backend.models.shared_alert import AlertDestination, AlertProduct, AlertSharedIdentity
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
+
+def _create_webhook_template() -> None:
+    from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+
+    if not HogFunctionTemplate.objects.filter(template_id="template-webhook").exists():
+        HogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            sha="1.0.0",
+            name="HTTP Webhook",
+            description="Sends a payload via HTTP webhook",
+            code="return event",
+            code_language="hog",
+            type="destination",
+            inputs_schema=[],
+        )
+
+
 ALLOWED_EVENT_IDS = ("$logs_alert_firing", "$logs_alert_resolved")
 
 
@@ -360,6 +377,7 @@ class TestSharedAlertDualWrite(APIBaseTest):
         )
 
     def test_creates_alert_destination_and_stamps_ownership(self) -> None:
+        _create_webhook_template()
         shared_alert = AlertSharedIdentity.objects.create(
             product=AlertProduct.LOGS,
             organization_id=self.team.organization_id,
@@ -381,13 +399,16 @@ class TestSharedAlertDualWrite(APIBaseTest):
         for hog_function, config in zip(hog_functions, configs):
             assert hog_function.alert_destination_id == destination.id
             assert hog_function.alert_event_kind == config.alert_event_kind
-            # Filter-based routing keeps working until runtime switches over.
-            assert hog_function.filters == {
-                "events": [{"id": "$logs_alert_firing", "type": "events"}],
-                "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
-            }
+            # The legacy filter keeps carrying alert identity and the spec's
+            # event id alongside the ownership stamps during dual-write.
+            filters = hog_function.filters or {}
+            assert filters.get("events") == [{"id": f"$logs_alert_{config.alert_event_kind}", "type": "events"}]
+            assert filters.get("properties") == [
+                {"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}
+            ]
 
     def test_creates_hog_functions_without_shared_alert_write_path(self) -> None:
+        _create_webhook_template()
         hog_functions = create_alert_destination_hog_functions(
             [self._build_config(event_kind="firing")],
             request=MagicMock(user=self.user),
@@ -399,6 +420,7 @@ class TestSharedAlertDualWrite(APIBaseTest):
         assert not AlertDestination.objects.exists()
 
     def test_rejects_duplicate_event_kinds_in_one_logical_destination(self) -> None:
+        _create_webhook_template()
         shared_alert = AlertSharedIdentity.objects.create(
             product=AlertProduct.LOGS,
             organization_id=self.team.organization_id,
@@ -432,7 +454,8 @@ class TestSharedAlertDualWrite(APIBaseTest):
         ret.refresh_from_db()
         assert ret.execution_team_id == self.team.id
 
-    def test_delete_shared_alert_destinations_soft_deletes_executors_and_clears_rows(self) -> None:
+    def test_delete_shared_alert_destinations_soft_deletes_executors_and_keeps_rows(self) -> None:
+        _create_webhook_template()
         shared_alert = AlertSharedIdentity.objects.create(
             product=AlertProduct.LOGS,
             organization_id=self.team.organization_id,
@@ -447,10 +470,14 @@ class TestSharedAlertDualWrite(APIBaseTest):
         )
 
         with self.captureOnCommitCallbacks(execute=True):
-            delete_shared_alert_destinations(shared_alert=shared_alert)
+            deleted_count = delete_shared_alert_destinations(shared_alert=shared_alert)
 
+        assert deleted_count == 2
         for hog_function in hog_functions:
             hog_function.refresh_from_db()
             assert hog_function.deleted is True
             assert hog_function.enabled is False
-        assert not AlertDestination.objects.filter(id=shared_alert.id).exists()
+        # Destination rows stay for audit and are removed via the DB cascade
+        # when the shared alert row is deleted; user-facing deletion only
+        # ends delivery, it does not erase the audit trail.
+        assert AlertDestination.objects.filter(shared_alert_id=shared_alert.id).exists()
