@@ -9,6 +9,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import safe_order_by
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
@@ -145,7 +146,7 @@ class WebAnalyticsFilterPresetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         order = self.request.GET.get("order", None)
         if order:
-            queryset = queryset.order_by(order)
+            queryset = safe_order_by(queryset, order)
         else:
             queryset = queryset.order_by("-last_modified_at")
 

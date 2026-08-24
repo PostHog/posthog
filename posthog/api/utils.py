@@ -10,7 +10,7 @@ from typing import Any, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.core.exceptions import RequestDataTooBig
+from django.core.exceptions import FieldError, RequestDataTooBig
 from django.db.models import QuerySet
 from django.http import HttpRequest
 
@@ -429,6 +429,19 @@ def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
     return False
+
+
+def safe_order_by(queryset: QuerySet, order: str) -> QuerySet:
+    """Apply a client-supplied `order` to a queryset, turning a bad field into a 400.
+
+    Django raises `FieldError` when `order` is not a valid model field. Without this,
+    that error escapes as a 500. Here it becomes a `ValidationError` so the client
+    learns the value was wrong.
+    """
+    try:
+        return queryset.order_by(order)
+    except FieldError:
+        raise ValidationError({"order": f"Invalid ordering field: '{order}'"})
 
 
 def raise_if_user_provided_url_unsafe(url: str):
