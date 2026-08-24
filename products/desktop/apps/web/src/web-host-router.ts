@@ -452,7 +452,13 @@ const browserTabsRouter = router({
     .output(tabsSnapshotSchema)
     .mutation(({ input }) => webBrowserTabsStore.openTab(input)),
   setTabTarget: publicProcedure
-    .input(z.object({ tabId: z.string(), ...tabLocationFields }))
+    .input(
+      z.object({
+        tabId: z.string(),
+        ...tabLocationFields,
+        activate: z.boolean().optional(),
+      }),
+    )
     .output(tabsSnapshotSchema)
     .mutation(({ input }) => webBrowserTabsStore.setTabTarget(input)),
   close: publicProcedure

@@ -30,10 +30,12 @@ import {
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useAppView } from "@posthog/ui/router/useAppView";
@@ -747,6 +749,9 @@ export function BrowserTabStrip() {
   // /website index therefore always renders against the post-close snapshot
   // and can't redirect (re-opening a tab) mid-flight.
   const handleClose = (tabId: string) => {
+    useDraftStore
+      .getState()
+      .actions.setDraft(getTaskInputSessionId(tabId), null);
     const next = applyLocalTransform((s) => closeTabLocal(s, tabId).snapshot);
     applyCloseResult(next);
     void persistWrite(() => client.close(tabId));
@@ -769,6 +774,10 @@ export function BrowserTabStrip() {
   // always survives) takes focus if the active tab was among those closed.
   const handleCloseMany = (tabIds: string[], anchorTabId: string) => {
     if (tabIds.length === 0) return;
+    const draftActions = useDraftStore.getState().actions;
+    for (const tabId of tabIds) {
+      draftActions.setDraft(getTaskInputSessionId(tabId), null);
+    }
     const next = applyLocalTransform((s) =>
       closeTabsLocal(s, tabIds, anchorTabId),
     );

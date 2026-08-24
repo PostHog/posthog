@@ -38,6 +38,7 @@ export const openTabInput = z.object({
 export const setTabTargetInput = z.object({
   tabId: z.string(),
   ...tabLocationFields,
+  activate: z.boolean().optional(),
 });
 
 export const closeTabInput = z.object({ tabId: z.string() });

@@ -150,6 +150,26 @@ describe("setTabTarget", () => {
     expect(s.windows[0].activeTabId).toBe(a.tabId);
   });
 
+  it("can retarget a background tab without focusing it", () => {
+    const a = open(snapshot(), "w1", "dash-a");
+    const b = open(a.snapshot, "w1", "dash-b");
+    const s = setTabTarget(b.snapshot, {
+      tabId: a.tabId,
+      href: "/tasks/t9",
+      viewState: { title: "Background task" },
+      ...NO_IDENTITY,
+      taskId: "t9",
+      activate: false,
+      now,
+    });
+
+    expect(s.tabs.find((t) => t.id === a.tabId)).toMatchObject({
+      href: "/tasks/t9",
+      taskId: "t9",
+    });
+    expect(s.windows[0].activeTabId).toBe(b.tabId);
+  });
+
   it("ignores an unknown tab", () => {
     const a = open(snapshot(), "w1", "dash-a");
     const s = setTabTarget(a.snapshot, {

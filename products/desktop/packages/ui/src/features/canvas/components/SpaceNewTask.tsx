@@ -1,5 +1,6 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { CHANNEL_TASK_SUGGESTIONS } from "@posthog/ui/features/canvas/channelTaskSuggestions";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelContextPanel } from "@posthog/ui/features/canvas/components/ChannelContextPanel";
@@ -11,6 +12,7 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
+import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -19,7 +21,7 @@ import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 
 // A space's "New task" view. Reuses the shared TaskInput, but routes the
@@ -30,6 +32,10 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const view = useAppView();
+  const tabId = useRouterState({
+    select: (state) => state.location.state.tabId,
+  });
+  const taskInputSessionId = getTaskInputSessionId(tabId);
   const queryClient = useQueryClient();
   const { fileTask } = useChannelTaskMutations();
   // The raw channel row also carries the space's repository defaults.
@@ -80,7 +86,7 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   }, [channelId, contextPanelOpen]);
 
   const onTaskCreated = useCallback(
-    (task: Task) => {
+    (task: Task, originTabId: string | null) => {
       // Seed the detail cache so the destination route resolves instantly
       // (mirrors openTask), then file to the channel + navigate.
       queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
@@ -106,17 +112,31 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
             description: error instanceof Error ? error.message : String(error),
           });
         });
-      void navigate({
-        to: "/spaces/$channelId/tasks/$taskId",
-        params: { channelId, taskId: task.id },
-      });
+      navigateBrowserTab(
+        originTabId,
+        {
+          href: `/spaces/${channelId}/tasks/${task.id}`,
+          title: task.title,
+          dashboardId: null,
+          taskId: task.id,
+          channelId,
+          channelSection: null,
+          appView: null,
+        },
+        () => {
+          void navigate({
+            to: "/spaces/$channelId/tasks/$taskId",
+            params: { channelId, taskId: task.id },
+          });
+        },
+      );
     },
     [channelId, fileTask, navigate, queryClient],
   );
 
-  // Retargeting navigates to that space's own new-task route; the composer's
-  // draft lives in the shared "task-input" draft store, so text typed before
-  // switching survives the navigation.
+  // Retargeting navigates to that space's own new-task route. The draft is
+  // scoped to the browser tab, so it survives this route change without
+  // leaking into another new-task tab.
   const handleSpaceChange = useCallback(
     (nextChannelId: string) => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -136,6 +156,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     <Flex className="h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
+          key={taskInputSessionId}
+          sessionId={taskInputSessionId}
           // Beside the Cloud/Local chip: which space the task files into.
           // Arriving from a space's own "+" this is pre-filled; the global
           // new-task entry points land on #me.

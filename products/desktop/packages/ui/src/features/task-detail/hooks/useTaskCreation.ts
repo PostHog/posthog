@@ -20,6 +20,10 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import {
+  getCurrentBrowserTabId,
+  navigateBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -107,7 +111,7 @@ interface UseTaskCreationOptions {
    * whether it needs one and attaches it lazily.
    */
   allowNoRepo?: boolean;
-  onTaskCreated?: (task: Task) => void;
+  onTaskCreated?: (task: Task, originTabId: string | null) => void;
   /**
    * Side effect run with the created task in addition to (not instead of)
    * the default open/navigation behavior — unlike onTaskCreated, providing
@@ -267,6 +271,15 @@ export function useTaskCreation({
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
       if (!allowSubmit) return false;
 
+      // Capture everything owned by the mounted composer before the first
+      // await. Switching tabs unmounts it, but task creation must continue with
+      // the exact prompt and tab that the user submitted.
+      const originTabId = getCurrentBrowserTabId();
+      const content = contentOverride ?? editor.getContent();
+      const plainPromptText = contentToPlainText(content).trim();
+      const serializedContent = contentToXml(content).trim();
+      const filePaths = extractFilePaths(content);
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
       setIsCreatingTask(true);
@@ -335,11 +348,6 @@ export function useTaskCreation({
           }
         }
 
-        const content = contentOverride ?? editor.getContent();
-        const plainPromptText = contentToPlainText(content).trim();
-        const serializedContent = contentToXml(content).trim();
-        const filePaths = extractFilePaths(content);
-
         const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
         const pendingTaskKey = shouldShowPendingView
           ? generatePendingTaskKey()
@@ -357,19 +365,27 @@ export function useTaskCreation({
           // hand over instead of cutting.
           setIsExitingComposer(true);
           await waitForComposerExit();
-          navigateToTaskPending(pendingTaskKey);
-          if (!contentOverride) {
-            editor.clear();
-          }
+          navigateBrowserTab(
+            originTabId,
+            {
+              href: `/tasks/pending/${pendingTaskKey}`,
+              title: "New task",
+              dashboardId: null,
+              taskId: null,
+              channelId: null,
+              channelSection: null,
+              appView: null,
+            },
+            () => navigateToTaskPending(pendingTaskKey),
+          );
         }
 
         let createdTaskId: string | undefined;
 
         try {
           if (!contentOverride) {
-            const plainText = editor.getText()?.trim() ?? plainPromptText;
-            if (plainText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainText);
+            if (plainPromptText) {
+              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
             }
           }
 
@@ -455,11 +471,16 @@ export function useTaskCreation({
               if (pendingTaskKey) {
                 pendingTaskPromptStoreApi.move(pendingTaskKey, output.task.id);
               }
-              // Clear the draft BEFORE navigating away. When onTaskCreated
-              // navigates (e.g. channels), it can synchronously unmount/destroy
-              // the editor; clearing afterwards would throw in clearContent()
-              // before the persisted draft is wiped, leaving stale text behind.
-              if (!pendingTaskKey && !contentOverride) {
+              // Clear only the editor that submitted. The same component can
+              // render another browser tab before this callback runs; clearing
+              // it would erase that tab's draft. The origin's persisted draft
+              // is cleared by session id after task creation succeeds.
+              if (
+                !pendingTaskKey &&
+                !contentOverride &&
+                editorRef.current === editor &&
+                getCurrentBrowserTabId() === originTabId
+              ) {
                 editor.clear();
               }
               if (defaultedChannelId) {
@@ -473,9 +494,9 @@ export function useTaskCreation({
               }
               onTaskCreatedEffect?.(output.task);
               if (onTaskCreated) {
-                onTaskCreated(output.task);
+                onTaskCreated(output.task, originTabId);
               } else {
-                void openTask(output.task);
+                void openTask(output.task, { tabId: originTabId });
               }
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
@@ -551,7 +572,19 @@ export function useTaskCreation({
               if (createdTaskId) {
                 pendingTaskPromptStoreApi.clear(createdTaskId);
               }
-              openTaskInput({ initialPrompt: plainPromptText });
+              navigateBrowserTab(
+                originTabId,
+                {
+                  href: "/new",
+                  title: "New task",
+                  dashboardId: null,
+                  taskId: null,
+                  channelId: null,
+                  channelSection: null,
+                  appView: null,
+                },
+                () => openTaskInput(),
+              );
             }
           }
           return result.success;
@@ -563,7 +596,19 @@ export function useTaskCreation({
             if (createdTaskId) {
               pendingTaskPromptStoreApi.clear(createdTaskId);
             }
-            openTaskInput({ initialPrompt: plainPromptText });
+            navigateBrowserTab(
+              originTabId,
+              {
+                href: "/new",
+                title: "New task",
+                dashboardId: null,
+                taskId: null,
+                channelId: null,
+                channelSection: null,
+                appView: null,
+              },
+              () => openTaskInput(),
+            );
           }
           return false;
         }

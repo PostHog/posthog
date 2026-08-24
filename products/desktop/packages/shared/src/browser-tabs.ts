@@ -170,7 +170,8 @@ export function openTab(
 /**
  * Point an existing tab at a location: the in-tab navigation primitive. Used
  * when the user navigates while a tab is active, so the location replaces the
- * tab's contents instead of opening a new tab. Also focuses it.
+ * tab's contents instead of opening a new tab. Focuses it unless the caller is
+ * completing work in a background tab.
  */
 export function setTabTarget(
   snapshot: TabsSnapshot,
@@ -180,6 +181,9 @@ export function setTabTarget(
       channelId: string | null;
       channelSection?: string | null;
       appView?: string | null;
+      /** Keep the current tab focused when an async operation finishes in the
+       * background. Normal in-tab navigation activates by default. */
+      activate?: boolean;
       now: Clock;
     },
 ): TabsSnapshot {
@@ -199,12 +203,14 @@ export function setTabTarget(
             channelId: input.channelId,
             channelSection: input.channelSection ?? null,
             appView: input.appView ?? null,
-            lastActiveAt: ts,
+            lastActiveAt: input.activate === false ? t.lastActiveAt : ts,
           }
         : t,
     ),
   };
-  return setActiveTab(withTarget, tab.windowId, input.tabId);
+  return input.activate === false
+    ? withTarget
+    : setActiveTab(withTarget, tab.windowId, input.tabId);
 }
 
 /**

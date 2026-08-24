@@ -25,7 +25,7 @@ export interface BrowserTabsClient {
     },
   ): Promise<TabsSnapshot>;
   setTabTarget(
-    input: TabLocationInput & { tabId: string },
+    input: TabLocationInput & { tabId: string; activate?: boolean },
   ): Promise<TabsSnapshot>;
   close(tabId: string): Promise<TabsSnapshot>;
   closeMany(input: {

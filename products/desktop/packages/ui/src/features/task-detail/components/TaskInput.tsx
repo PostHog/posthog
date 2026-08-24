@@ -122,7 +122,7 @@ import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 
 interface TaskInputProps {
   sessionId?: string;
-  onTaskCreated?: (task: Task) => void;
+  onTaskCreated?: (task: Task, originTabId: string | null) => void;
   initialPrompt?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;

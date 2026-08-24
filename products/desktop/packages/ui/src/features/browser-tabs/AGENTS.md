@@ -192,11 +192,23 @@ Each tab carries the nav state its href cannot express, in `viewState`:
   than to the destination's root. Per tab on purpose: a window-global memory
   would let one tab's rail click restore an href another tab established.
 
-`BrowserTabStrip`'s navigation effect is the **single writer**. It runs on every
-settled navigation, including the ones a rail click does not make (hotkeys, deep
-links, links in the content), which is why a note taken as you click away is not
-enough. `railHistoryStore` / `RailHistorySync` were the window-global
-predecessors and are gone.
+`BrowserTabStrip`'s navigation effect is the **single writer for settled router
+navigation**. It runs on every settled navigation, including the ones a rail
+click does not make (hotkeys, deep links, links in the content), which is why a
+note taken as you click away is not enough. Async completion can explicitly
+retarget its originating background tab as described below. `railHistoryStore`
+/ `RailHistorySync` were the window-global predecessors and are gone.
+
+### In-flight task creation
+- Submitting a new task snapshots the prompt and originating `tabId` before its
+  first asynchronous preflight. Switching tabs cannot unmount the editor out
+  from under task creation or change which prompt is sent.
+- Pending, success, and failure routes replace the originating tab. When that
+  tab is in the background, `setTabTarget({ activate: false })` updates its
+  durable target without changing the active tab.
+- New-task editor drafts are keyed by `tabId`. Two tabs on the same `/new` route
+  can hold different prompts; successful submission or closing a tab clears
+  only that tab's draft.
 
 ### Cross-window & persistence
 - Tabs, order, windows, and each tab's `href` + `viewState` persist to sqlite;
