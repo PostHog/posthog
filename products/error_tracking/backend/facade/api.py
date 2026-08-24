@@ -32,6 +32,7 @@ IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
+SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -159,7 +160,7 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
 def list_issues_detailed(
     team_id: int, *, limit: int | None = None, offset: int = 0
 ) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id)
+    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_issue(issue) for issue in rows], total
