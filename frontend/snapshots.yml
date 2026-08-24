@@ -7815,7 +7815,7 @@ snapshots:
     scenes-app-settings-user--settings-user-navigation--dark:
         hash: v1.k794b7964.7c5a5bdb7736062bcb70e36f20fc683eb9c014a0409dddb546a345fba91894b5.lMpgtqpaZZZsixseHxd_CxR4u_ZR5SnnrrOixJUvesM
     scenes-app-settings-user--settings-user-navigation--light:
-        hash: v1.k794b7964.3acb8296dccbd1585e16658aea21430558340a74ec07c6b0bfc27f5d6e424187.r_cJHvPzf4G4BmOgDkZwZJDuDTdBGFPlbdxO_xNYNHI
+        hash: v1.k794b7964.384ac6e1638edb3f361ff8d137589816bfcd3309e9861eba95a83ff6fbe57809.xxyxmKQQ4llOtJ1zB86Vos3B_NTYd4mNvlLeexQlz4U
     scenes-app-settings-user--settings-user-notifications--dark:
         hash: v1.k794b7964.a09a57f1c0bbcebf82942edebeba7772b2f684ba235bcef3a816aec2beb4cbce.AtQZhdZeeMVvpcmyBhPvprSMZawliTZaIFE5G8M_MVg
     scenes-app-settings-user--settings-user-notifications--light:
@@ -8117,9 +8117,9 @@ snapshots:
     scenes-app-web-analytics-pageperformancemetriccard--without-sparkline--light:
         hash: v1.k794b7964.27bbdd01e4451fe0fe7cfbf693975714907972cdef4cc9b74ab13f99c28f5c34.9VZtUj_jx6H9AXXqTTKz1uomaF3X9e8cENkeIs8iJ_I
     scenes-app-web-analytics-search-ai--web-analytics-page-performance--dark:
-        hash: v1.k794b7964.59a8f6024a2ea5bf33a41c4c3f1de33162797cac03eeb2a6e75196686126fdcd.IEU7UFRnMeS-XS_Eibt7SRW7QxH6_R4l4Ut1Kuepjm0
+        hash: v1.k794b7964.7ff35691e5147b72d655dbe43c20f912df534ee0dacdb26fd4c870374daf39eb.0eu1tiq9Jr_0mL-AgVpx96d6BbWFDapgCE0s3MNqeF0
     scenes-app-web-analytics-search-ai--web-analytics-page-performance--light:
-        hash: v1.k794b7964.a6ba7deb703189986a29cd9fb512528232cc1fb8a602716b072fdff8a378695d.dt9pqc4bKRhF4MB52Ph_323zhIke8DbgpLAasOFzFHc
+        hash: v1.k794b7964.7d45f62c5450a3be054342254d25693af7f8171de51795d3d29b3324a6d57f04.W8uxsuEcGoQSZDVujtqZMHEP7OloDzcwkjTI5tVGb2E
     scenes-inbox-scout-tags--editor-and-filter--dark:
         hash: v1.k794b7964.a6c6018c279d1c7b6dc6cfe7ade21997d71bc5a3f970a76ca68f4bd374b1def6.wiY4XKEvSpFFtmciViAMFvc_yZLC5SeA5L6TmAYaNqQ
     scenes-inbox-scout-tags--editor-and-filter--light:
