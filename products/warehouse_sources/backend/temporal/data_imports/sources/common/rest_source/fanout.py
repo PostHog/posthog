@@ -260,8 +260,15 @@ def build_dependent_resource(
     # run ended up on the warehouse parent: `warehouse_parent` is false when the table turned out
     # to be unresolvable, and a caller reading its own config would still see "warehouse" and cap a
     # live API response, dropping rows that path had no reason to hold back.
-    cursor_field = incremental_field or child_config.default_incremental_field
-    if warehouse_parent and parent_snapshot_at is not None and cursor_field:
+    if warehouse_parent and parent_snapshot_at is not None:
+        # `getattr` because a source that never merges can omit the field entirely, and the read
+        # has to stay off the path those sources take.
+        cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
+        if not cursor_field:
+            raise ValueError(
+                f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
+                "cap on; capping nothing would let its watermark run past the snapshot"
+            )
         child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
     return child
 
