@@ -168,6 +168,18 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             PAGINATION_LIMIT_ERROR: "Adobe Commerce kept returning pages without signalling the end of the collection. This usually means the store's REST API is misconfigured — check the store URL and store code.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A transient store-side blip is not a bug — Temporal's activity retry recovers once it
+        # clears, so keep it out of error tracking as noise. Two exits reach here. A status blip
+        # (429/5xx) exhausts the mint's in-process retry budget and `_mint` raises the first
+        # message. A dropped connection or read timeout — on the mint POST or a page GET — exhausts
+        # the budget as a transport failure, which urllib3 wraps as "Max retries exceeded with url";
+        # match that stable prefix, as sibling sources do, so those blips stay warnings too.
+        return {
+            "Adobe Commerce admin token request failed (retryable)",
+            "Max retries exceeded with url",
+        }
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
