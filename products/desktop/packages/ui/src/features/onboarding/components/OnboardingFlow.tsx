@@ -22,6 +22,7 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { ImportConfigStep } from "@posthog/ui/features/onboarding/components/ImportConfigStep";
@@ -41,7 +42,7 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { InviteCodeStep } from "./InviteCodeStep";
 import { ProjectSelectStep } from "./ProjectSelectStep";
@@ -57,7 +58,12 @@ const stepVariants = {
   exit: (dir: number) => ({ opacity: 0, x: dir * -20 }),
 };
 
-export function OnboardingFlow() {
+interface OnboardingFlowProps {
+  onOpenSupport?: () => void;
+}
+
+export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
   const queryClient = useQueryClient();
   const {
     currentStep,
@@ -73,6 +79,8 @@ export function OnboardingFlow() {
     selectedCloudRepo,
     handleCloudRepoChange,
     hasGithubIntegration,
+    consentSatisfied,
+    consentRequirement,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -203,6 +211,12 @@ export function OnboardingFlow() {
   };
 
   const handleNext = (context?: StepCompletedContext) => {
+    if (
+      currentStep === "consent" &&
+      (consentSatisfied !== true || consentSubmitting)
+    ) {
+      return;
+    }
     // `onClick={onNext}` would pass the click event here; a DOM event spread
     // into capture properties poisons the whole analytics batch.
     const safeContext =
@@ -213,6 +227,7 @@ export function OnboardingFlow() {
   };
 
   const handleBack = () => {
+    if (currentStep === "consent" && consentSubmitting) return;
     trackStepViewed(currentIndex - 1);
     back();
   };
@@ -312,7 +327,7 @@ export function OnboardingFlow() {
   );
 
   return (
-    <FullScreenLayout footerRight={footerRight}>
+    <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
       <LayoutGroup>
         <AnimatePresence mode="wait" custom={direction}>
           {currentStep === "welcome" && (
@@ -357,6 +372,26 @@ export function OnboardingFlow() {
               className="min-h-0 w-full flex-1"
             >
               <InviteCodeStep onNext={handleNext} onBack={handleBack} />
+            </motion.div>
+          )}
+
+          {currentStep === "consent" && (
+            <motion.div
+              key="consent"
+              custom={direction}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              variants={stepVariants}
+              transition={{ duration: 0.3 }}
+              className="min-h-0 w-full flex-1"
+            >
+              <ConsentStep
+                onNext={handleNext}
+                onBack={handleBack}
+                requirements={consentRequirement}
+                onSubmittingChange={setConsentSubmitting}
+              />
             </motion.div>
           )}
 
