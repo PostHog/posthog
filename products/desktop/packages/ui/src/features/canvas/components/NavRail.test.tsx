@@ -90,6 +90,12 @@ import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/curre
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
+it("stays above floating sidebar layers", () => {
+  render(<NavRail />);
+
+  expect(screen.getByTestId("nav-rail")).toHaveClass("z-[60]");
+});
+
 /**
  * Seed where each destination was, as the ACTIVE TAB remembers it. Rail memory
  * lives on the tab rather than the window, so a pick in one tab can never
