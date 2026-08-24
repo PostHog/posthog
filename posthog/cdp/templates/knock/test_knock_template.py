@@ -6,7 +6,7 @@ def create_inputs(**kwargs):
     inputs = {
         "webhookUrl": "https://api.knock.app/integrations/receive/tkN_P18rTjBq30waf1RLp",
         "include_all_properties": False,
-        "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
+        "userId": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
         "attributes": {"phone": "0123456789"},
     }
     inputs.update(kwargs)
@@ -47,7 +47,7 @@ class TestTemplateKnock(BaseHogFunctionTemplateTest):
                 "body": {
                     "type": "track",
                     "event": "$pageview",
-                    "userId": "edad9282-25d0-4cf1-af0e-415535ee1161",
+                    "userId": "8b9c729c-c59b-4c39-b5a6-af9fa1233054",
                     "properties": {"phone": "0123456789"},
                     "messageId": "9d67cc3f-edf7-490d-b311-f03c21c64caf",
                     "timestamp": "2024-09-16T16:11:48.577Z",
