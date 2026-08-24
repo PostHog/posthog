@@ -3,9 +3,12 @@ import json
 import logging
 from typing import Any, Optional
 
+import pydantic
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import PropertyGroupFilterValue
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -845,6 +848,15 @@ class HogFunctionGlobalPropertiesField(serializers.Field):
                 raise ValidationError('Property group "type" must be "AND" or "OR"')
             if not isinstance(data.get("values", []), list):
                 raise ValidationError('Property group "values" must be a list')
+            # The compiler rebuilds this exact model, so a leaf it would choke on has to fail here
+            # as a field error — the transpiled path calls the compiler outside any guard, and a
+            # pydantic error escaping the serializer becomes a 500.
+            try:
+                PropertyGroupFilterValue(**data)
+            except pydantic.ValidationError as e:
+                first = e.errors()[0]
+                location = ".".join(str(part) for part in first["loc"])
+                raise ValidationError(f"Invalid property group at {location or 'root'}: {first['msg']}")
             return data
         raise ValidationError("properties must be a list of filters or a property group")
 

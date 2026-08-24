@@ -12,6 +12,7 @@ from posthog.hogql import ast
 
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
+    HogFunctionGlobalPropertiesField,
     InputsSchemaItemSerializer,
     MappingsSerializer,
     RecordAliasRewriter,
@@ -1159,6 +1160,43 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         # The original value round-trips so the UI can still render the templated source string.
         assert validated["tags"]["value"] == value
+
+
+EVENT_LEAF = {"key": "clickid", "value": "is_set", "operator": "is_set", "type": "event"}
+
+
+class TestHogFunctionGlobalPropertiesField(SimpleTestCase):
+    # Property groups compile through the strict PropertyGroupFilterValue pydantic model, and the
+    # transpiled (site destination/app) path runs that compile with no guard - so anything the
+    # model would reject must already have failed here as a field error, not escaped as a 500.
+    @parameterized.expand(
+        [
+            ("flat_list", [EVENT_LEAF], True),
+            ("or_group", {"type": "OR", "values": [EVENT_LEAF]}, True),
+            ("and_group", {"type": "AND", "values": [EVENT_LEAF]}, True),
+            ("nested_group", {"type": "OR", "values": [{"type": "AND", "values": [EVENT_LEAF]}]}, True),
+            ("empty_group", {"type": "OR", "values": []}, True),
+            ("malformed_leaf", {"type": "OR", "values": [{"foo": "bar"}]}, False),
+            ("leaf_with_stray_key", {"type": "OR", "values": [{**EVENT_LEAF, "stray": 1}]}, False),
+            ("stray_key_on_group", {"type": "OR", "values": [EVENT_LEAF], "stray": 1}, False),
+            ("lowercase_operator", {"type": "or", "values": [EVENT_LEAF]}, False),
+            ("non_list_values", {"type": "OR", "values": "nope"}, False),
+            ("non_dict_list_item", ["nope"], False),
+            ("scalar", "nope", False),
+        ]
+    )
+    def test_property_shapes(self, _name, data, expect_valid):
+        field = HogFunctionGlobalPropertiesField()
+        if expect_valid:
+            assert field.run_validation(data) == data
+        else:
+            with pytest.raises(ValidationError):
+                field.run_validation(data)
+
+    def test_malformed_group_is_a_field_error_not_an_exception(self):
+        serializer = HogFunctionFiltersSerializer(data={"properties": {"type": "OR", "values": [{"foo": "bar"}]}})
+        assert not serializer.is_valid()
+        assert "properties" in serializer.errors
 
 
 class TestTaskInputTypeValidation(SimpleTestCase):

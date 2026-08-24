@@ -166,6 +166,36 @@ describe('surveyNotificationModalLogic', () => {
         ])
     })
 
+    it('keeps the OR operator of grouped global filters in the last-response lookup', () => {
+        // A dropped or AND-ed group makes the lookup select a response the compiled destination
+        // filter then rejects, so the test invocation is silently skipped.
+        const chromeFilter: EventPropertyFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+        }
+        const firefoxFilter: EventPropertyFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: 'Firefox',
+            operator: PropertyOperator.Exact,
+        }
+
+        const query = buildLastSurveyResponseQuery('survey-abc', {
+            events: [{ id: SurveyEventName.SENT, type: 'events', properties: [] }],
+            properties: { type: FilterLogicalOperator.Or, values: [chromeFilter, firefoxFilter] },
+        })
+
+        expect(query?.fixedProperties?.[1]).toMatchObject({
+            type: FilterLogicalOperator.And,
+            values: [
+                expect.objectContaining({ type: FilterLogicalOperator.Or }),
+                { type: FilterLogicalOperator.Or, values: [chromeFilter, firefoxFilter] },
+            ],
+        })
+    })
+
     it.each([
         [
             'copies an exact value the sample is missing',

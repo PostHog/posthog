@@ -9,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { normalizeHogFunctionProperties } from 'scenes/hog-functions/hog-function-utils'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -295,14 +296,17 @@ function buildNotificationMatchGroup(filters: CyclotronJobFiltersType | null): P
             ],
         })),
     }
-    const globalProperties = (filters?.properties ?? []) as AnyPropertyFilter[]
+    // Global properties are stored either as a flat list (AND) or as a single group whose operator
+    // must survive into the query — dropping an OR group here would select a response the compiled
+    // filter then rejects, which is the exact skip this helper exists to prevent.
+    const { type: globalOperator, values: globalValues } = normalizeHogFunctionProperties(filters?.properties)
 
     return {
         type: FilterLogicalOperator.And,
         values: [
             eventGroups,
-            ...(globalProperties.length > 0
-                ? [{ type: FilterLogicalOperator.And, values: globalProperties } as PropertyGroupFilterValue]
+            ...(globalValues.length > 0
+                ? [{ type: globalOperator, values: globalValues as AnyPropertyFilter[] } as PropertyGroupFilterValue]
                 : []),
         ],
     }

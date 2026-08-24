@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from django.conf import settings
@@ -198,6 +199,26 @@ def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
             return []
         return [property_to_expr(PropertyGroupFilterValue(**properties), team)]
     return [property_to_expr(prop, team) for prop in properties]
+
+
+def iter_global_property_leaves(properties: Any) -> Iterator[dict]:
+    """Yield the leaf filter dicts of `filters.properties`, whichever shape they are stored in.
+
+    For consumers that inspect individual conditions rather than compiling the whole thing —
+    list-only handling would silently skip every condition inside a group.
+    """
+    if isinstance(properties, dict):
+        stack: list[Any] = list(properties.get("values") or [])
+        while stack:
+            item = stack.pop()
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") in ("AND", "OR"):
+                stack.extend(item.get("values") or [])
+            else:
+                yield item
+    elif isinstance(properties, list):
+        yield from (item for item in properties if isinstance(item, dict))
 
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:
