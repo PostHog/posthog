@@ -7,7 +7,7 @@ import {
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
 import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -247,7 +247,7 @@ export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filte
     return filter?.type === PropertyFilterType.Behavioral
 }
 
-const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
+export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
     [PropertyOperator.GreaterThanOrEqual]: 'at least',
     [PropertyOperator.LessThanOrEqual]: 'at most',
     [PropertyOperator.GreaterThan]: 'more than',
@@ -262,13 +262,14 @@ function formatBehavioralPropertyLabel(item: BehavioralPropertyFilter): string {
             : getCoreFilterDefinition(item.key, TaxonomicFilterGroupType.Events)?.label || item.key
     const countClause =
         item.value === BehavioralEventType.PerformMultipleEvents
-            ? ` ${BEHAVIORAL_COUNT_OPERATOR_LABELS[item.operator ?? PropertyOperator.Exact] || 'exactly'} ${
-                  item.operator_value
-              } times`
+            ? ` ${BEHAVIORAL_COUNT_OPERATOR_LABELS[item.operator ?? PropertyOperator.Exact] || 'exactly'} ${pluralize(
+                  item.operator_value ?? 0,
+                  'time'
+              )}`
             : ''
     const windowClause = item.explicit_datetime
         ? ` since ${item.explicit_datetime}`
-        : ` in the last ${item.time_value} ${item.time_interval}${item.time_value === 1 ? '' : 's'}`
+        : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval)}`
     return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${windowClause}`
 }
 

@@ -1,5 +1,6 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { BEHAVIORAL_COUNT_OPERATOR_LABELS } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
@@ -14,11 +15,9 @@ export interface BehavioralPropertyFilterRowProps {
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-const COUNT_OPERATOR_OPTIONS = [
-    { value: PropertyOperator.GreaterThanOrEqual, label: 'at least' },
-    { value: PropertyOperator.LessThanOrEqual, label: 'at most' },
-    { value: PropertyOperator.Exact, label: 'exactly' },
-]
+const COUNT_OPERATOR_OPTIONS = [PropertyOperator.GreaterThanOrEqual, PropertyOperator.LessThanOrEqual, PropertyOperator.Exact].map(
+    (value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' })
+)
 
 const TIME_INTERVAL_OPTIONS = [
     { value: TimeUnitType.Day, label: 'days' },
@@ -116,7 +115,9 @@ export function BehavioralPropertyFilterRow({
                             min={1}
                             className="w-14"
                             value={countValue}
-                            onChange={(operatorValue) => setCount(countOperator, operatorValue ?? 1)}
+                            onChange={(operatorValue) =>
+                                setCount(countOperator, Number.isFinite(operatorValue) && operatorValue >= 1 ? operatorValue : 1)
+                            }
                             data-attr="behavioral-filter-count-value"
                         />
                         <span className="whitespace-nowrap">{countValue === 1 ? 'time' : 'times'}</span>
@@ -130,7 +131,9 @@ export function BehavioralPropertyFilterRow({
                         min={1}
                         className="w-14"
                         value={filter.time_value ?? 30}
-                        onChange={(timeValue) => onChange({ ...filter, time_value: timeValue ?? 30 })}
+                        onChange={(timeValue) =>
+                            onChange({ ...filter, time_value: Number.isFinite(timeValue) && timeValue >= 1 ? timeValue : 30 })
+                        }
                         data-attr="behavioral-filter-time-value"
                     />
                     <LemonSelect

@@ -76,7 +76,9 @@ export interface PropertyFiltersProps {
     propertyKeyEditable?: boolean
     singleLine?: boolean
     showRemoveButton?: boolean
-    addFilterSuffix?: JSX.Element | null
+    /** Rendered after the last row. Receives a callback that appends to this filter's own bound
+     * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
+    addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
 }
 
@@ -132,7 +134,7 @@ export function PropertyFilters({
 
     const showNewFilterRow = allowNew && editable
     const displayedFilters = showNewFilterRow ? filtersWithNew : filters
-    const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
+    const displayedFilterIds = showNewFilterRow ? filterIdsWithNew : filterIds
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
@@ -222,8 +224,8 @@ export function PropertyFilters({
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}
                                     suffix={
-                                        showNewFilterRow && index === displayedFilters.length - 1
-                                            ? addFilterSuffix
+                                        showNewFilterRow && index === displayedFilters.length - 1 && addFilterSuffix
+                                            ? addFilterSuffix((property) => setFilter(filters.length, property))
                                             : null
                                     }
                                 />

@@ -107,29 +107,8 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             convertPropertiesToPropertyGroup(props.query.properties),
             {
                 setFilters: (_, { filters }) => filters,
-                addFilterGroup: (state) => {
-                    if (!state.values) {
-                        return {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [],
-                                },
-                            ],
-                        }
-                    }
-                    const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [] }]
-
-                    return { ...state, values: filterGroups }
-                },
-                addFilterGroupWithFilters: (state, { properties }) => {
-                    const group = { type: FilterLogicalOperator.And, values: properties }
-                    if (!state.values) {
-                        return { type: FilterLogicalOperator.And, values: [group] }
-                    }
-                    return { ...state, values: [...state.values, group] }
-                },
+                addFilterGroup: (state) => appendGroup(state, []),
+                addFilterGroupWithFilters: (state, { properties }) => appendGroup(state, properties),
                 removeFilterGroup: (state, { filterGroup }) => {
                     const filteredGroups = [...state.values]
                     filteredGroups.splice(filterGroup, 1)
@@ -196,6 +175,15 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         propertyGroupFilter: [(s) => [s.filters], (propertyGroupFilter: PropertyGroupFilter) => propertyGroupFilter],
     }),
 ])
+
+/** Appends a new inner filter group (seeded with `values`) to the outer property group. */
+function appendGroup(state: PropertyGroupFilter, values: AnyPropertyFilter[]): PropertyGroupFilter {
+    const group = { type: FilterLogicalOperator.And, values }
+    if (!state.values) {
+        return { type: FilterLogicalOperator.And, values: [group] }
+    }
+    return { ...state, values: [...state.values, group] }
+}
 
 function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
     return filter.values.some((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))

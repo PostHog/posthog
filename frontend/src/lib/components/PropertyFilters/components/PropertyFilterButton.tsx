@@ -12,9 +12,14 @@ import { midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
-import { formatPropertyLabel, isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from '../utils'
+import {
+    formatPropertyLabel,
+    isBehavioralPropertyFilter,
+    isGroupCardFilterKey,
+    propertyFilterTypeToPropertyDefinitionType,
+} from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
 
 export interface PropertyFilterButtonProps {
@@ -37,7 +42,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
 
         // A behavioral label is a whole sentence, which mid-ellipsis would turn into nonsense
-        const wraps = item.type === PropertyFilterType.Behavioral
+        const wraps = isBehavioralPropertyFilter(item)
 
         const label =
             children ||

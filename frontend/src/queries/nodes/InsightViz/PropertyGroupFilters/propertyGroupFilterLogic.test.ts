@@ -108,19 +108,24 @@ describe('propertyGroupFilterLogic', () => {
             time_interval: TimeUnitType.Day,
         }
 
-        it('persists the new group to the query, unlike an empty addFilterGroup', async () => {
+        it('persists the new group to the query', async () => {
             const logic = buildLogic(undefined)
-
-            logic.actions.addFilterGroup()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(setQuerySpy).not.toHaveBeenCalled()
 
             logic.actions.addFilterGroupWithFilters([behavioralFilter])
             await expectLogic(logic).toFinishAllListeners()
 
             const lastCall = setQuerySpy.mock.calls[setQuerySpy.mock.calls.length - 1][0]
-            expect(lastCall.properties.values).toHaveLength(2)
-            expect(lastCall.properties.values[1].values).toEqual([behavioralFilter])
+            expect(lastCall.properties.values).toHaveLength(1)
+            expect(lastCall.properties.values[0].values).toEqual([behavioralFilter])
+        })
+
+        it('unlike addFilterGroupWithFilters, an empty addFilterGroup does not persist', async () => {
+            const logic = buildLogic(undefined)
+
+            logic.actions.addFilterGroup()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(setQuerySpy).not.toHaveBeenCalled()
         })
 
         it('appends to existing groups rather than replacing them', async () => {
