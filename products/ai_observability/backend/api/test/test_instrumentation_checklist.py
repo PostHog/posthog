@@ -2,16 +2,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.query_tagging import Feature, get_query_tags
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.ai_observability.backend.instrumentation_checklist import VOLUME_FLOOR, WINDOW_DAYS
+from products.ai_observability.backend.instrumentation_checklist import VOLUME_FLOOR, WINDOW_DAYS, ChecklistStats
 from products.ai_observability.backend.models.instrumentation_checklist import AIObservabilityChecklistItemState
 
 CHECK_FIELDS = {"key", "status", "title", "detail", "docs_url", "stats"}
@@ -59,6 +61,38 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
                 ),
             ]
         )
+
+    @parameterized.expand([("list", ""), ("dismiss", "dismiss/"), ("restore", "restore/")])
+    def test_the_clickhouse_read_carries_a_feature_tag(self, _name: str, suffix: str) -> None:
+        # sync_execute rejects a query missing the feature tag, but only when DEBUG and not TEST,
+        # so asserting on the response status would pass here while a browser gets a 500. Read the
+        # tag at the point the query would run instead.
+        seen: list[Feature | None] = []
+
+        def record(team: Team) -> ChecklistStats:
+            seen.append(get_query_tags().feature)
+            return ChecklistStats(
+                generations=0,
+                events_with_session=0,
+                generations_with_tool_calls=0,
+                generations_with_tools_declared=0,
+                sdk_generations=0,
+                sdk_generations_identified=0,
+                spans=0,
+                events_with_parent=0,
+                total_events=0,
+            )
+
+        with patch(
+            "products.ai_observability.backend.api.instrumentation_checklist.fetch_checklist_stats",
+            side_effect=record,
+        ):
+            if suffix:
+                self.client.post(endpoint(self.team.pk, suffix), {"check": "sessions"}, format="json")
+            else:
+                self.client.get(endpoint(self.team.pk))
+
+        assert seen == [Feature.INSTRUMENTATION_CHECKLIST]
 
     def test_get_returns_every_check_graded_over_the_teams_events(self) -> None:
         response = self.client.get(endpoint(self.team.pk))

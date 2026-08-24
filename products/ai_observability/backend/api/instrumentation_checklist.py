@@ -10,6 +10,7 @@ from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.models.user import User
 
@@ -94,6 +95,9 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
         )
 
     def _graded_checklist(self) -> Response:
+        # query_ai_events tags the product but not the feature, and sync_execute rejects a query
+        # missing either. Tagging here covers the read and both write actions, which recompute.
+        tag_queries(feature=Feature.INSTRUMENTATION_CHECKLIST)
         dismissed = self._states().filter(status=AIObservabilityChecklistItemState.Status.DISMISSED)
         checks = grade_checklist(fetch_checklist_stats(self.team), dismissed.values_list("check_key", flat=True))
         serializer = InstrumentationChecklistSerializer({"window_days": WINDOW_DAYS, "checks": checks})
