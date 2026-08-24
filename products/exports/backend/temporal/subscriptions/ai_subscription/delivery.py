@@ -36,7 +36,6 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     deliver_slack_message_data,
 )
 from ee.tasks.subscriptions.teams_subscriptions import (
-    TEAMS_TEXT_BLOCK_LIMIT,
     TEAMS_UTM_TAGS,
     teams_card_message,
     teams_open_url_action,
@@ -83,8 +82,10 @@ _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
 
-# How many TEAMS_TEXT_BLOCK_LIMIT-sized blocks of the report a Teams card carries. Teams rejects a
-# payload over roughly 28KB, and the card also holds a title, a feedback line and the actions.
+# How large each of the report's Adaptive Card TextBlocks is, and how many of them a card carries.
+# Together they bound the report text, which is what keeps the card inside the roughly 28KB Teams
+# accepts for a webhook payload once the title, the feedback line and the actions are added.
+TEAMS_TEXT_BLOCK_LIMIT = 3000
 TEAMS_REPORT_BLOCK_COUNT = 6
 # Chunking is quadratic in the number of chunks and nothing upstream bounds a report's length, so
 # the markdown is cut to what could fill the blocks above before it is chunked at all.

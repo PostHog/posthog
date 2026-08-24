@@ -13,6 +13,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
+    TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
@@ -27,7 +28,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_TEXT_BLOCK_LIMIT
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 

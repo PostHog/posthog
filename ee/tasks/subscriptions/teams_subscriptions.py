@@ -24,11 +24,6 @@ TEAMS_WEBHOOK_URL_ERROR = (
     "channel you want reports in, then paste the URL it gives you."
 )
 
-# Teams rejects an incoming webhook payload over roughly 28KB. Images are linked rather than
-# embedded and MAX_INSIGHTS bounds how many there are, so only the AI report text can approach
-# that limit. The report is kept well inside it and links out for the rest.
-TEAMS_TEXT_BLOCK_LIMIT = 3000
-
 
 def teams_text_block(text: str, *, is_subtle: bool = False) -> dict[str, Any]:
     block: dict[str, Any] = {"type": "TextBlock", "text": text, "wrap": True}
