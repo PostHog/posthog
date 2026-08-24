@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.partition_pruning import find_unpruned_events_scans
 
 
 @dataclass(frozen=True)
@@ -53,8 +54,28 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
         return warnings
 
 
+class UnprunedEventsScanHeuristic(MetadataHeuristic):
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+        warnings: list[HogQLNotice] = []
+        for scan in find_unpruned_events_scans(query):
+            if scan.start is None:
+                continue
+            warnings.append(
+                HogQLNotice(
+                    start=scan.start,
+                    end=scan.end,
+                    message=(
+                        "No filter on events.timestamp, so this reads your full event history. "
+                        "Add a bound like timestamp > now() - INTERVAL 30 DAY to scan less data "
+                        "and avoid hitting query limits."
+                    ),
+                )
+            )
+        return warnings
+
+
 def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
-    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
+    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic(), UnprunedEventsScanHeuristic()]
     warnings: list[HogQLNotice] = []
 
     for heuristic in heuristics:

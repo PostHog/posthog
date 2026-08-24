@@ -1,0 +1,255 @@
+"""Static detection of `events` scans that ClickHouse cannot narrow to a subset of partitions.
+
+`sharded_events` is `PARTITION BY toYYYYMM(timestamp)` (see posthog/models/event/sql.py), so a scan that
+places no bound on `timestamp` has to open every monthly partition the team has. Partition selection runs
+before any skip index or sort-key prefix narrows the read, which makes it the coarsest cost lever in a
+query, and the online workload aborts a query that reads past its byte ceiling (see
+posthog/clickhouse/client/execute.py) rather than merely running it slowly.
+
+This analysis runs on the parsed AST before type resolution, so it matches fields by name. It reports a
+scan only when no bound it recognizes can reach that scan. An enclosing bound and an enclosing row limit
+both carry down into subqueries, because a wrong warning in the editor costs more than a missed one.
+Recognizing a bound works off an allowlist of order-preserving wrappers, so a monotonic function missing
+from that list warns about a query that does in fact prune.
+"""
+
+from posthog.hogql import ast
+from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
+from posthog.hogql.visitor import TraversingVisitor
+
+from posthog.dataclasses import frozen
+
+EVENTS_TABLE_NAME = "events"
+
+# Wrappers that keep the ordering of `timestamp`, so a bound on the wrapped expression still bounds
+# `toYYYYMM(timestamp)` and prunes partitions. Mirrors the allowlist that helpers/timestamp_visitor.py
+# uses for the same reasoning. A non-monotonic wrapper such as toDayOfWeek must stay out: a bound on it
+# matches rows in every partition.
+_ORDER_PRESERVING_TIMESTAMP_FUNCTIONS = frozenset(
+    {
+        "assumeNotNull",
+        "parseDateTime64BestEffortOrNull",
+        "toDate",
+        "toDateOrNull",
+        "toDateTime",
+        "toDateTime64",
+        "toDateTimeOrNull",
+        "toLastDayOfMonth",
+        "toMonday",
+        "toStartOfDay",
+        "toStartOfFifteenMinutes",
+        "toStartOfFiveMinutes",
+        "toStartOfHour",
+        "toStartOfInterval",
+        "toStartOfMinute",
+        "toStartOfMonth",
+        "toStartOfQuarter",
+        "toStartOfWeek",
+        "toStartOfYear",
+        "toTimeZone",
+        "toUnixTimestamp",
+        "toYYYYMM",
+        "toYYYYMMDD",
+        "toYYYYMMDDhhmmss",
+    }
+)
+
+_BOUNDING_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
+
+
+@frozen
+class UnprunedEventsScan:
+    """An `events` scan that no timestamp bound in scope can narrow to a subset of partitions."""
+
+    start: int | None
+    end: int | None
+
+
+def find_unpruned_events_scans(query: ast.SelectQuery | ast.SelectSetQuery) -> list[UnprunedEventsScan]:
+    scans: list[UnprunedEventsScan] = []
+    # The root starts capped because HogQLQueryExecutor._apply_limit gives every top-level select a
+    # default LIMIT when the query does not write one.
+    _collect_scans(query, bounded=False, capped=True, shadowed=frozenset(), scans=scans)
+    return scans
+
+
+def _collect_scans(
+    node: ast.Expr,
+    *,
+    bounded: bool,
+    capped: bool,
+    shadowed: frozenset[str],
+    scans: list[UnprunedEventsScan],
+) -> None:
+    """Report every unbounded `events` scan under `node`.
+
+    `bounded` says an enclosing query confines `timestamp`, and `capped` says an enclosing query limits
+    the rows it consumes. Either one keeps a scan under `node` off the report.
+    """
+    if isinstance(node, ast.SelectSetQuery):
+        for branch in node.select_queries():
+            _collect_scans(branch, bounded=bounded, capped=capped, shadowed=shadowed, scans=scans)
+        return
+    if not isinstance(node, ast.SelectQuery):
+        return
+
+    # A CTE named `events` hides the real table from every scan in this query and below it.
+    if node.ctes:
+        shadowed = shadowed | set(node.ctes)
+
+    bounded_here = bounded or _query_bounds_timestamp(node)
+    # A row limit only caps the read when the query streams rows. The enclosing limit carries into a
+    # streaming query because ClickHouse stops reading the source once the outer limit is satisfied.
+    capped_here = _streams_rows(node) and (capped or node.limit is not None)
+
+    for cte in (node.ctes or {}).values():
+        _collect_scans(cte.expr, bounded=bounded_here, capped=capped_here, shadowed=shadowed, scans=scans)
+
+    join = node.select_from
+    while join is not None:
+        table = join.table
+        if isinstance(table, ast.Field):
+            if not bounded_here and not capped_here and _is_events_table(table, shadowed):
+                scans.append(UnprunedEventsScan(start=table.start, end=table.end))
+        elif isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
+            _collect_scans(table, bounded=bounded_here, capped=capped_here, shadowed=shadowed, scans=scans)
+        join = join.next_join
+
+    # A subquery outside FROM builds its whole result before the enclosing query reads a row, so no outer
+    # limit caps it. The enclosing bound still carries down, because predicate pushdown can reach a
+    # correlated subquery and a wrong warning costs more than a missed one.
+    for subquery in _nested_select_queries(node):
+        _collect_scans(subquery, bounded=bounded_here, capped=False, shadowed=shadowed, scans=scans)
+
+
+def _is_events_table(table: ast.Field, shadowed: frozenset[str]) -> bool:
+    return list(table.chain) == [EVENTS_TABLE_NAME] and EVENTS_TABLE_NAME not in shadowed
+
+
+def _query_bounds_timestamp(query: ast.SelectQuery) -> bool:
+    if _bounds_timestamp(query.where) or _bounds_timestamp(query.prewhere):
+        return True
+    # A join later in the chain still bounds a scan earlier in it, so every constraint counts.
+    join = query.select_from
+    while join is not None:
+        if join.constraint is not None and _bounds_timestamp(join.constraint.expr):
+            return True
+        join = join.next_join
+    return False
+
+
+def _bounds_timestamp(expr: ast.Expr | None) -> bool:
+    """True when `expr` confines `timestamp` to a range on every path that can match a row."""
+    if expr is None:
+        return False
+    if isinstance(expr, ast.And):
+        return any(_bounds_timestamp(child) for child in expr.exprs)
+    if isinstance(expr, ast.Or):
+        # A branch with no bound matches rows in any partition, so every branch has to bound.
+        return bool(expr.exprs) and all(_bounds_timestamp(child) for child in expr.exprs)
+    if isinstance(expr, ast.CompareOperation):
+        if expr.op not in _BOUNDING_COMPARE_OPS:
+            return False
+        return (_is_timestamp_expression(expr.left) and _is_time_constant(expr.right)) or (
+            _is_timestamp_expression(expr.right) and _is_time_constant(expr.left)
+        )
+    if isinstance(expr, ast.BetweenExpr):
+        return (
+            not expr.negated
+            and _is_timestamp_expression(expr.expr)
+            and _is_time_constant(expr.low)
+            and _is_time_constant(expr.high)
+        )
+    return False
+
+
+def _is_timestamp_expression(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Alias | ast.TypeCast | ast.TryCast):
+        return _is_timestamp_expression(expr.expr)
+    if isinstance(expr, ast.ArithmeticOperation):
+        return (_is_timestamp_expression(expr.left) and _is_time_constant(expr.right)) or (
+            _is_timestamp_expression(expr.right) and _is_time_constant(expr.left)
+        )
+    if isinstance(expr, ast.Call):
+        if expr.name in _ORDER_PRESERVING_TIMESTAMP_FUNCTIONS and expr.args:
+            return _is_timestamp_expression(expr.args[0])
+        return False
+    if isinstance(expr, ast.Field):
+        return bool(expr.chain) and expr.chain[-1] == "timestamp"
+    return False
+
+
+def _is_time_constant(expr: ast.Expr) -> bool:
+    try:
+        return is_time_or_interval_constant(expr)
+    except Exception:
+        # The visitor raises on an unreplaced placeholder and on nodes it has no case for. Metadata runs
+        # on every keystroke, so treat the expression as non-constant instead of failing the request.
+        return False
+
+
+def _streams_rows(query: ast.SelectQuery) -> bool:
+    """True when the query emits matching rows as it finds them, so a row limit caps how much it reads."""
+    if query.distinct or query.group_by or query.having or query.array_join_list:
+        return False
+    # A window function or a LIMIT ... BY has to see the whole partition before it emits its first row.
+    if query.qualify or query.window_exprs or query.limit_by:
+        return False
+    if any(_contains_aggregation(expr) for expr in query.select):
+        return False
+    # Ordering by the timestamp follows the table's sort key, so ClickHouse reads parts in key order and
+    # stops at the limit. Any other ordering has to see every row before it can emit the first one.
+    return all(_is_timestamp_expression(order.expr) for order in query.order_by or [])
+
+
+class _AggregationFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if find_hogql_aggregation(node.name):
+            self.found = True
+        super().visit_call(node)
+
+    # An aggregate inside a subquery aggregates that subquery, so it says nothing about whether this
+    # select list streams rows.
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        pass
+
+
+def _contains_aggregation(expr: ast.Expr) -> bool:
+    finder = _AggregationFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _NestedSelectFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.queries.append(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.queries.append(node)
+
+
+def _nested_select_queries(query: ast.SelectQuery) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    """Select queries reachable from clauses other than FROM, which _collect_scans walks itself."""
+    finder = _NestedSelectFinder()
+    for expr in [*query.select, query.where, query.prewhere, query.having, query.qualify]:
+        if expr is not None:
+            finder.visit(expr)
+    return finder.queries
