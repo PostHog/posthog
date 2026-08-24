@@ -8,6 +8,7 @@ fast-returns. A dropped condition is silent until a customer notices stale state
 import uuid
 import datetime as dt
 
+from freezegun import freeze_time
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -88,8 +89,9 @@ class TestFastReturnEligibility:
     def test_schema_state_that_blocks_eligibility(self, _name: str, config_overrides: dict):
         assert _run(_schema(**config_overrides)) is False
 
+    @freeze_time("2026-08-24T12:00:00Z")
     def test_naive_full_run_stamp_is_not_eligible(self):
-        assert _run(_schema(last_full_run_at=dt.datetime.now().isoformat())) is False
+        assert _run(_schema(last_full_run_at="2026-08-24T11:00:00")) is False
 
     def test_incomplete_initial_sync_is_not_eligible(self):
         schema = _schema()
