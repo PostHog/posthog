@@ -15,7 +15,9 @@ LLMS_TXT_MAX_REDIRECTS = 3
 LLMS_TXT_CONNECT_TIMEOUT_SECONDS = 3.05
 LLMS_TXT_READ_TIMEOUT_SECONDS = 10.0
 LLMS_TXT_TOTAL_BUDGET_SECONDS = 20.0
+LLMS_TXT_READ_CHUNK_BYTES = 64 * 1024
 LLMS_TXT_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+LLMS_TXT_ACCEPTED_CONTENT_ENCODINGS = {"", "identity"}
 
 
 class LlmsTxtFetchError(Exception):
@@ -28,19 +30,27 @@ class FetchedLlmsTxt:
     url: str
 
 
+def _read_once(response: requests.Response, amt: int) -> bytes:
+    raw = response.raw
+    read1 = getattr(raw, "read1", None) or getattr(getattr(raw, "_fp", None), "read1", None)
+    if read1 is None:
+        raise LlmsTxtFetchError("Could not read the file.")
+    return bytes(read1(amt))
+
+
 def _read_response_body(response: requests.Response, deadline: float) -> bytes:
     chunks: list[bytes] = []
     total_bytes = 0
-    for chunk in response.iter_content(chunk_size=64 * 1024):
+    while True:
+        if time.monotonic() > deadline:
+            raise LlmsTxtFetchError("The file took too long to load.")
+        chunk = _read_once(response, LLMS_TXT_READ_CHUNK_BYTES)
         if not chunk:
-            continue
+            return b"".join(chunks)
         total_bytes += len(chunk)
         if total_bytes > LLMS_TXT_MAX_BYTES:
             raise LlmsTxtFetchError("The file is larger than 1 MB.")
-        if time.monotonic() > deadline:
-            raise LlmsTxtFetchError("The file took too long to load.")
         chunks.append(chunk)
-    return b"".join(chunks)
 
 
 def fetch_llms_txt(url: str) -> FetchedLlmsTxt:
@@ -82,6 +92,10 @@ def fetch_llms_txt(url: str) -> FetchedLlmsTxt:
                     media_type = content_type.split(";", 1)[0].strip().lower()
                     if media_type in {"text/html", "application/xhtml+xml"}:
                         raise LlmsTxtFetchError("The URL returned an HTML page instead of an llms.txt file.")
+
+                    content_encoding = response.headers.get("Content-Encoding", "").strip().lower()
+                    if content_encoding not in LLMS_TXT_ACCEPTED_CONTENT_ENCODINGS:
+                        raise LlmsTxtFetchError("The URL returned a compressed file. Serve llms.txt as plain text.")
 
                     body = _read_response_body(response, deadline)
                     content = body.decode("utf-8-sig", errors="replace")
