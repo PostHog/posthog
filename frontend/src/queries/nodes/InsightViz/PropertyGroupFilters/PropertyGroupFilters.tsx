@@ -200,7 +200,6 @@ export function PropertyGroupFilters({
                                                                       <LemonButton
                                                                           data-attr={`${pageKey}-add-behavioral-filter`}
                                                                           type="secondary"
-                                                                          size="small"
                                                                           icon={<IconPlusSmall />}
                                                                           sideIcon={null}
                                                                           onClick={() =>
