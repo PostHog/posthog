@@ -26,6 +26,7 @@ from products.tasks.backend.facade.onboarding_brief import (
     build_opening_brief,
     prose_list,
 )
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas, ensure_teaching_canvas
 from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
     load_onboarding_prompt,
@@ -131,6 +132,15 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
 
 
+def _teaching_canvas(team_id: int, channel_id: UUID, user: User) -> TeachingCanvas | None:
+    """Best-effort: a session without the tour beats no session."""
+    try:
+        return ensure_teaching_canvas(team_id, channel_id, user)
+    except Exception:
+        logger.warning("onboarding_teaching_canvas_failed", team_id=team_id, exc_info=True)
+        return None
+
+
 def start_onboarding_session(team: Team, user: User) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
     if not _session_enabled(team, user):
@@ -149,6 +159,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
 
     origin_key = _origin_key(user.id)
 
+    teaching = _teaching_canvas(team.id, channel_id, user)
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
@@ -176,7 +187,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
     description = render_onboarding_prompt(
         prompt_template,
         brief=build_opening_brief(facts),
-        followup=build_followup(facts),
+        followup=build_followup(facts, teaching=teaching),
         homepage=homepage,
         channel_id=str(channel_id),
     )
