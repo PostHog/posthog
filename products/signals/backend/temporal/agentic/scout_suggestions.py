@@ -263,7 +263,9 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int) ->
 
     Single-flight at the Temporal server: `ALLOW_DUPLICATE` lets the stable id be reused once the
     prior run closed, `FAIL` rejects a second trigger while one is still running (raises
-    `WorkflowAlreadyStartedError` for the caller to map to a 409).
+    `WorkflowAlreadyStartedError` for the caller to map to a 409). A started run also stamps the
+    planner state, so the coordinator treats it as this window's refresh instead of dispatching a
+    second scan for the same team on its next tick.
     """
     workflow_id = manual_suggestions_workflow_id(team_id)
     settings = read_suggestion_settings()
@@ -275,6 +277,7 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int) ->
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
     )
+    await database_sync_to_async(stamp_requested, thread_sensitive=False)([team_id])
     return workflow_id
 
 

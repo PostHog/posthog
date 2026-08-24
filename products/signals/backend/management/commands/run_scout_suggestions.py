@@ -15,8 +15,10 @@ from asgiref.sync import async_to_sync
 
 from products.signals.backend.models import SignalScoutSuggestionSet
 from products.signals.backend.scout_harness.suggestions import (
+    enabled_skill_names,
     plan_suggestion_runs,
     read_suggestion_settings,
+    stamp_requested,
     visible_items,
 )
 from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions
@@ -45,6 +47,9 @@ class Command(BaseCommand):
             raise CommandError("--team-id is required unless --plan is given")
 
         if not options["show"]:
+            # Planner state, as a dispatched child would leave it: the coordinator does not redo
+            # this team on its next tick.
+            stamp_requested([team_id])
             result = async_to_sync(arun_scout_suggestions)(team_id, settings=settings, triggered_by="manual")
             self.stdout.write(
                 self.style.SUCCESS(
@@ -53,12 +58,12 @@ class Command(BaseCommand):
                 )
             )
 
-        row = SignalScoutSuggestionSet.all_teams.filter(team_id=team_id).first()
+        row = SignalScoutSuggestionSet.objects.for_team(team_id).first()
         if row is None:
             self.stdout.write("no stored batch")
             return
         self.stdout.write(f"status={row.status} generated_at={row.generated_at} fleet={row.fleet_snapshot}")
-        for record in visible_items(row):
+        for record in visible_items(row, enabled_skill_names=enabled_skill_names(team_id)):
             self.stdout.write(
                 f"- [{record['kind']}/{record['confidence']}] {record['skill_name']}: {record['title']}"
                 f"{' (gap)' if record.get('gap') else ''}"

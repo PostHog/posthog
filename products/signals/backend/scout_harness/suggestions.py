@@ -21,10 +21,12 @@ rather than a deploy or a per-team write.
 from __future__ import annotations
 
 import json
+from collections.abc import Collection, Iterable
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F, Max, Q
 from django.utils import timezone
 
@@ -32,6 +34,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
@@ -43,7 +46,9 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import CanonicalSkillParseError, discover_canonical_skills
 from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUIDANCE
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
+from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
@@ -256,8 +261,13 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     engagement = _engagement_by_team(cutoff)
 
     approved_root_teams = Team.objects.filter(_root_team_q(), organization__is_ai_data_processing_approved=True)
-    set_up = Q(id__in=SignalSourceConfig.objects.filter(enabled=True).values("team_id")) | Q(
-        id__in=SignalScoutConfig.all_teams.filter(enabled=True).values("team_id")
+    # Source configs are environment-scoped, so a project whose Signals setup lives in a child
+    # environment counts through that child's parent; scout configs already canonicalize.
+    source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
+    set_up = (
+        Q(id__in=source_teams)
+        | Q(id__in=Team.objects.filter(id__in=source_teams).values("parent_team_id"))
+        | Q(id__in=SignalScoutConfig.all_teams.filter(enabled=True).values("team_id"))
     )
 
     tiers: dict[int, int] = {}
@@ -279,6 +289,23 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     return tiers, engagement
 
 
+def canonical_team_ids(team_ids: Iterable[int]) -> set[int]:
+    """Resolve operator-supplied ids to canonical project ids, so a child environment listed in
+    the flag payload lands on the same row the planner and the API read. Unknown ids drop out."""
+    ids = set(team_ids)
+    if not ids:
+        return set()
+    return {
+        parent_id or team_id
+        for team_id, parent_id in Team.objects.filter(id__in=ids).values_list("id", "parent_team_id")
+    }
+
+
+def suggestions_allowed_for_team(settings: SuggestionSettings, team_id: int) -> bool:
+    """The kill switch and blocklist the planner honors, for the manual refresh path."""
+    return settings.enabled and team_id not in canonical_team_ids(settings.team_blocklist)
+
+
 def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = None) -> list[PlannedSuggestionRun]:
     """The teams to refresh this tick, best first, capped at `max_children_per_tick`.
 
@@ -291,9 +318,9 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
     if not settings.enabled or settings.max_children_per_tick == 0:
         return []
     tiers, engagement = _candidate_teams_by_tier(settings, now)
-    for team_id in settings.team_allowlist:
+    for team_id in canonical_team_ids(settings.team_allowlist):
         tiers.setdefault(team_id, 0)
-    for team_id in settings.team_blocklist:
+    for team_id in canonical_team_ids(settings.team_blocklist):
         tiers.pop(team_id, None)
     if not tiers:
         return []
@@ -364,19 +391,35 @@ def stamp_requested(team_ids: list[int], now: datetime | None = None) -> None:
 class FleetContext:
     enabled_skill_names: tuple[str, ...]
     available_canonical: tuple[tuple[str, str], ...]  # (name, description) not yet enabled
+    # Names a custom draft may not take: every scout config on the project (enabled or not) and
+    # every `signals-scout-*` skill already stored, since create returns 409 when a name's stored
+    # definition differs from the draft.
+    reserved_names: frozenset[str] = frozenset()
+
+
+def enabled_skill_names(team_id: int) -> list[str]:
+    """The project's enabled scout skill names, sorted, as `fleet_snapshot` stores them."""
+    return sorted(SignalScoutConfig.objects.for_team(team_id).filter(enabled=True).values_list("skill_name", flat=True))
 
 
 def fleet_context(team_id: int) -> FleetContext:
-    enabled = tuple(
-        sorted(SignalScoutConfig.all_teams.filter(team_id=team_id, enabled=True).values_list("skill_name", flat=True))
-    )
+    enabled = tuple(enabled_skill_names(team_id))
     try:
         canonical = discover_canonical_skills()
     except CanonicalSkillParseError:
         canonical = ()
     enabled_set = set(enabled)
     available = tuple((skill.name, skill.description) for skill in canonical if skill.name not in enabled_set)
-    return FleetContext(enabled_skill_names=enabled, available_canonical=available)
+    reserved = set(SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
+    reserved.update(
+        LLMSkill.objects.filter(
+            team_id=resolve_effective_team_id(team_id),
+            is_latest=True,
+            deleted=False,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+        ).values_list("name", flat=True)
+    )
+    return FleetContext(enabled_skill_names=enabled, available_canonical=available, reserved_names=frozenset(reserved))
 
 
 def build_suggestions_prompt(fleet: FleetContext) -> str:
@@ -425,6 +468,16 @@ def _item_record(item: ScoutSuggestionItem, *, prior: dict[str, Any] | None) -> 
     return record
 
 
+def _lock_row(team_id: int, *, create: bool) -> SignalScoutSuggestionSet | None:
+    """The team's row, locked for the enclosing transaction. Every write to `items` is a
+    read-modify-write of one JSON column, so a dismissal racing a refresh (or two dismissals)
+    serializes here instead of the later save dropping the earlier change."""
+    team_id = resolve_effective_team_id(team_id)
+    if create:
+        SignalScoutSuggestionSet.all_teams.get_or_create(team_id=team_id)
+    return SignalScoutSuggestionSet.objects.for_team(team_id, canonical=True).select_for_update().first()
+
+
 def persist_suggestion_batch(
     team_id: int,
     items: list[ScoutSuggestionItem],
@@ -435,70 +488,95 @@ def persist_suggestion_batch(
     now: datetime | None = None,
 ) -> SignalScoutSuggestionSet:
     """Replace the team's batch with `items`, carrying forward per-item dismissal and created
-    state for any suggestion that survives by `skill_name`."""
+    state for any suggestion that survives by `skill_name`. Dismissed suggestions the new batch
+    does not repeat stay as hidden tombstones, so a skill dismissed two refreshes ago does not
+    resurface the next time the model proposes it."""
     now = now or timezone.now()
-    row, _ = SignalScoutSuggestionSet.all_teams.get_or_create(team_id=team_id)
-    prior_by_name = {record.get("skill_name"): record for record in (row.items or []) if isinstance(record, dict)}
-    row.items = [_item_record(item, prior=prior_by_name.get(item.skill_name)) for item in items]
-    row.status = SignalScoutSuggestionSet.Status.FRESH if items else SignalScoutSuggestionSet.Status.EMPTY
-    row.generated_at = now
-    row.last_completed_at = now
-    row.task_run_id = UUID(task_run_id) if task_run_id else None
-    row.model = model or ""
-    row.fleet_snapshot = sorted(fleet_snapshot)
-    row.consecutive_failures = 0
-    row.save(
-        update_fields=[
-            "items",
-            "status",
-            "generated_at",
-            "last_completed_at",
-            "task_run_id",
-            "model",
-            "fleet_snapshot",
-            "consecutive_failures",
-            "updated_at",
-        ]
-    )
+    with transaction.atomic():
+        row = _lock_row(team_id, create=True)
+        assert row is not None
+        prior_by_name = {record.get("skill_name"): record for record in (row.items or []) if isinstance(record, dict)}
+        records = [_item_record(item, prior=prior_by_name.get(item.skill_name)) for item in items]
+        suggested = {item.skill_name for item in items}
+        records.extend(
+            record for name, record in prior_by_name.items() if record.get("dismissed_at") and name not in suggested
+        )
+        row.items = records
+        row.fleet_snapshot = sorted(fleet_snapshot)
+        # The fleet can move while the scan runs; a batch generated against the old fleet is
+        # stored, but reported as stale, the same as the config receiver would flag it later.
+        if not items:
+            row.status = SignalScoutSuggestionSet.Status.EMPTY
+        elif enabled_skill_names(row.team_id) != row.fleet_snapshot:
+            row.status = SignalScoutSuggestionSet.Status.STALE
+        else:
+            row.status = SignalScoutSuggestionSet.Status.FRESH
+        row.generated_at = now
+        row.last_completed_at = now
+        row.task_run_id = UUID(task_run_id) if task_run_id else None
+        row.model = model or ""
+        row.consecutive_failures = 0
+        row.save(
+            update_fields=[
+                "items",
+                "status",
+                "generated_at",
+                "last_completed_at",
+                "task_run_id",
+                "model",
+                "fleet_snapshot",
+                "consecutive_failures",
+                "updated_at",
+            ]
+        )
     return row
 
 
 def mark_generation_failed(team_id: int, *, task_run_id: str | None) -> SignalScoutSuggestionSet:
     """A failed generation keeps the prior items readable and counts toward the breaker."""
-    row, _ = SignalScoutSuggestionSet.all_teams.get_or_create(team_id=team_id)
-    row.status = SignalScoutSuggestionSet.Status.FAILED
-    row.consecutive_failures += 1
-    row.last_completed_at = timezone.now()
-    if task_run_id:
-        row.task_run_id = UUID(task_run_id)
-    row.save(update_fields=["status", "consecutive_failures", "last_completed_at", "task_run_id", "updated_at"])
+    with transaction.atomic():
+        row = _lock_row(team_id, create=True)
+        assert row is not None
+        row.status = SignalScoutSuggestionSet.Status.FAILED
+        row.consecutive_failures += 1
+        row.last_completed_at = timezone.now()
+        if task_run_id:
+            row.task_run_id = UUID(task_run_id)
+        row.save(update_fields=["status", "consecutive_failures", "last_completed_at", "task_run_id", "updated_at"])
     return row
 
 
-def visible_items(row: SignalScoutSuggestionSet) -> list[dict[str, Any]]:
-    """The batch minus dismissed and already-created items, in stored (best-first) order."""
+def visible_items(row: SignalScoutSuggestionSet, *, enabled_skill_names: Collection[str] = ()) -> list[dict[str, Any]]:
+    """The batch minus dismissed, already-created, and already-enabled items, in stored
+    (best-first) order. Pass the project's enabled names so a scout someone turned on through the
+    normal config API disappears without waiting for `mark_suggestion_created`."""
+    enabled = set(enabled_skill_names)
     return [
         record
         for record in (row.items or [])
-        if isinstance(record, dict) and not record.get("dismissed_at") and not record.get("created_config_id")
+        if isinstance(record, dict)
+        and not record.get("dismissed_at")
+        and not record.get("created_config_id")
+        and record.get("skill_name") not in enabled
     ]
 
 
 def _update_item(team_id: int, suggestion_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
-    row = SignalScoutSuggestionSet.all_teams.filter(team_id=team_id).first()
-    if row is None:
-        return None
-    updated: dict[str, Any] | None = None
-    items = []
-    for record in row.items or []:
-        if isinstance(record, dict) and record.get("id") == suggestion_id:
-            record = {**record, **changes}
-            updated = record
-        items.append(record)
-    if updated is None:
-        return None
-    row.items = items
-    row.save(update_fields=["items", "updated_at"])
+    with transaction.atomic():
+        row = _lock_row(team_id, create=False)
+        if row is None:
+            return None
+        updated: dict[str, Any] | None = None
+        items = []
+        for record in row.items or []:
+            if isinstance(record, dict) and record.get("id") == suggestion_id:
+                record = {**record, **changes}
+                updated = record
+            items.append(record)
+        if updated is None:
+            return None
+        row.items = items
+        row.save(update_fields=["items", "updated_at"])
     return updated
 
 
@@ -517,13 +595,10 @@ def mark_suggestion_created(team_id: int, suggestion_id: str, *, config_id: str)
 def mark_stale_if_fleet_changed(team_id: int) -> None:
     """Called when a scout is created or deleted: a batch generated against a different fleet is
     marked stale so the UI can say so; regeneration waits for the normal refresh."""
-    row = SignalScoutSuggestionSet.all_teams.filter(team_id=team_id).first()
+    row = SignalScoutSuggestionSet.objects.for_team(team_id).first()
     if row is None or row.status != SignalScoutSuggestionSet.Status.FRESH:
         return
-    enabled = sorted(
-        SignalScoutConfig.all_teams.filter(team_id=team_id, enabled=True).values_list("skill_name", flat=True)
-    )
-    if enabled != list(row.fleet_snapshot or []):
+    if enabled_skill_names(team_id) != list(row.fleet_snapshot or []):
         row.status = SignalScoutSuggestionSet.Status.STALE
         row.save(update_fields=["status", "updated_at"])
 
@@ -539,7 +614,9 @@ __all__ = [
     "ScoutSuggestionItem",
     "SuggestionSettings",
     "build_suggestions_prompt",
+    "canonical_team_ids",
     "dismiss_suggestion",
+    "enabled_skill_names",
     "fleet_context",
     "mark_generation_failed",
     "mark_stale_if_fleet_changed",
@@ -549,5 +626,6 @@ __all__ = [
     "plan_suggestion_runs",
     "read_suggestion_settings",
     "stamp_requested",
+    "suggestions_allowed_for_team",
     "visible_items",
 ]

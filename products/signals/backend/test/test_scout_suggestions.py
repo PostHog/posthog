@@ -17,7 +17,7 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet
+from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
     ScoutSuggestionBatch,
     ScoutSuggestionItem,
@@ -91,11 +91,15 @@ class TestValidateSuggestionItems(SimpleTestCase):
             ("bad_cron", _item(proposed_config={"run_cron_schedule": "every tuesday"})),
             ("interval_below_floor", _item(proposed_config={"run_interval_minutes": 5})),
             ("blank_title", _item(title="  ")),
+            ("custom_reuses_a_stored_skill_name", _custom(skill_name="signals-scout-disabled-custom")),
         ]
     )
     def test_drops_items_create_could_not_apply(self, _name, item):
         kept = validate_suggestion_items(
-            [item], enabled_skill_names={"signals-scout-general"}, canonical_names=CANONICAL
+            [item],
+            enabled_skill_names={"signals-scout-general"},
+            canonical_names=CANONICAL,
+            reserved_names={"signals-scout-disabled-custom"},
         )
         self.assertEqual(kept, [])
 
@@ -128,6 +132,29 @@ class TestSuggestionPersistence(BaseTest):
         self.assertEqual(by_name["signals-scout-checkout-drop"]["created_config_id"], "cfg-1")
         self.assertEqual(row.status, SignalScoutSuggestionSet.Status.FRESH)
         self.assertEqual(row.consecutive_failures, 0)
+
+    def test_dismissal_tombstone_survives_a_batch_that_omits_it(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        dismiss_suggestion(self.team.id, row.items[0]["id"], user_id=self.user.id)
+        persist_suggestion_batch(self.team.id, [_custom()], task_run_id=None, model=None, fleet_snapshot=[])
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        self.assertEqual([record["skill_name"] for record in visible_items(row)], ["signals-scout-checkout-drop"])
+
+    def test_batch_generated_against_a_moved_fleet_is_stored_stale(self):
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-general", enabled=True)
+        row = persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
+        self.assertEqual(row.status, SignalScoutSuggestionSet.Status.STALE)
+
+    def test_visible_items_hides_scouts_enabled_since_generation(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(), _custom()], task_run_id=None, model=None, fleet_snapshot=[]
+        )
+        visible = visible_items(row, enabled_skill_names={"signals-scout-error-tracking"})
+        self.assertEqual([record["skill_name"] for record in visible], ["signals-scout-checkout-drop"])
 
     def test_failed_generation_keeps_prior_items_and_counts_toward_breaker(self):
         persist_suggestion_batch(self.team.id, [_item()], task_run_id=None, model=None, fleet_snapshot=[])
@@ -196,23 +223,55 @@ class TestPlanSuggestionRuns(BaseTest):
         self._enable_scout(self.team, engaged=True)
         second = self._team("second")
         self._enable_scout(second, engaged=True)
+        second_env = Team.objects.create(organization=second.organization, name="second-env", parent_team=second)
         broken = self._team("broken")
         self._enable_scout(broken, engaged=True)
         SignalScoutSuggestionSet.all_teams.create(
             team=broken, last_requested_at=self.now - timedelta(days=30), consecutive_failures=3
         )
         outsider = self._team("outsider")
+        outsider_env = Team.objects.create(
+            organization=outsider.organization, name="outsider-env", parent_team=outsider
+        )
 
+        # Flag lists name child environments; the plan lands on their canonical projects.
         planned = plan_suggestion_runs(
             SuggestionSettings(
                 enabled=True,
                 max_children_per_tick=2,
-                team_allowlist=frozenset({outsider.id}),
-                team_blocklist=frozenset({second.id}),
+                team_allowlist=frozenset({outsider_env.id}),
+                team_blocklist=frozenset({second_env.id}),
             ),
             self.now,
         )
         self.assertEqual([run.team_id for run in planned], [outsider.id, self.team.id])
+
+    def test_source_config_in_a_child_environment_makes_the_project_eligible(self):
+        project = self._team("project")
+        env = Team.objects.create(organization=project.organization, name="env", parent_team=project)
+        SignalSourceConfig.objects.create(team=env, source_product="error_tracking", source_type="issue_created")
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=2), self.now)
+        self.assertEqual([(run.team_id, run.tier) for run in planned], [(project.id, 2)])
+
+
+class TestManualSuggestionsDispatch(BaseTest):
+    def test_manual_dispatch_stamps_planner_state(self):
+        from products.signals.backend.temporal.agentic.scout_suggestions import start_manual_scout_suggestions_run
+
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        with patch(
+            "products.signals.backend.temporal.agentic.scout_suggestions.read_suggestion_settings",
+            return_value=SuggestionSettings(enabled=True),
+        ):
+            start_manual_scout_suggestions_run(client, team_id=self.team.id)
+
+        client.start_workflow.assert_awaited_once()
+        row = SignalScoutSuggestionSet.all_teams.get(team=self.team)
+        self.assertIsNotNone(row.last_requested_at)
+        settings = SuggestionSettings(enabled=True, team_allowlist=frozenset({self.team.id}))
+        self.assertEqual(plan_suggestion_runs(settings, timezone.now()), [])
 
 
 @pytest_asyncio.fixture
@@ -263,10 +322,13 @@ async def test_runner_persists_validated_batch(asuggestion_team):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_runner_unparseable_close_out_is_a_failed_generation(asuggestion_team):
+@pytest.mark.parametrize("failing_stage", ["unparseable_close_out", "sandbox_setup"])
+async def test_runner_records_a_failure_anywhere_after_the_gates(asuggestion_team, failing_stage):
+    session_error = ValueError("no json") if failing_stage == "unparseable_close_out" else None
+    sandbox_error = RuntimeError("no sandbox") if failing_stage == "sandbox_setup" else None
     with (
-        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, side_effect=ValueError("no json")),
-        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, side_effect=session_error),
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env", side_effect=sandbox_error),
         patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
     ):
@@ -301,7 +363,7 @@ class TestScoutSuggestionsAPI(APIBaseTest):
 
     def test_list_and_dismiss_round_trip(self):
         row = persist_suggestion_batch(
-            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=["signals-scout-general"]
+            self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[]
         )
         suggestion_id = row.items[0]["id"]
 
@@ -328,15 +390,45 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_start.assert_not_called()
 
+    def test_list_hides_a_suggestion_whose_scout_is_now_enabled(self):
+        persist_suggestion_batch(self.team.id, [_item(), _custom()], task_run_id=None, model="m", fleet_snapshot=[])
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking", enabled=True)
+
+        body = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/").json()
+        self.assertEqual(body["status"], "stale")
+        self.assertEqual([item["skill_name"] for item in body["items"]], ["signals-scout-checkout-drop"])
+
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch(
         "products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run",
         return_value="wf-1",
     )
-    def test_refresh_dispatches_once_approved(self, mock_start, _connect):
+    @patch(
+        "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+        return_value=SuggestionSettings(enabled=True),
+    )
+    def test_refresh_dispatches_once_approved(self, _settings, mock_start, _connect):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json(), {"workflow_id": "wf-1"})
         mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("flag_off", lambda team_id: SuggestionSettings(enabled=False)),
+            ("blocklisted", lambda team_id: SuggestionSettings(enabled=True, team_blocklist=frozenset({team_id}))),
+        ]
+    )
+    @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
+    def test_refresh_honors_the_kill_switch_and_blocklist(self, _name, settings_for, mock_start):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch(
+            "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+            return_value=settings_for(self.team.id),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_start.assert_not_called()

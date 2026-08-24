@@ -1426,8 +1426,8 @@ export const getSignalsScoutSuggestionsListUrl = (projectId: string) => {
 export const signalsScoutSuggestionsList = async (
     projectId: string,
     options?: RequestInit
-): Promise<ScoutSuggestionSetApi[]> => {
-    return apiMutator<ScoutSuggestionSetApi[]>(getSignalsScoutSuggestionsListUrl(projectId), {
+): Promise<ScoutSuggestionSetApi> => {
+    return apiMutator<ScoutSuggestionSetApi>(getSignalsScoutSuggestionsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

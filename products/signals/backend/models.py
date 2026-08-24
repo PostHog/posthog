@@ -2191,9 +2191,10 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
     """
 
     class Status(models.TextChoices):
-        # A batch exists and is younger than the refresh window.
+        # A batch exists and describes the fleet as it is now. Age is `generated_at`; the
+        # scheduled refresh, not the status, is what bounds it.
         FRESH = "fresh", "Fresh"
-        # A batch exists but the fleet changed since it was generated, or the refresh window passed.
+        # A batch exists but the fleet changed since it was generated.
         STALE = "stale", "Stale"
         # The last generation attempt did not produce a batch; the prior items (if any) remain.
         FAILED = "failed", "Failed"

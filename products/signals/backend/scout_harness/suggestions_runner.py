@@ -8,6 +8,7 @@ for the HTTP surface and the config receivers.
 from __future__ import annotations
 
 import time
+from collections.abc import Collection
 from typing import Literal
 
 import structlog
@@ -71,10 +72,13 @@ def validate_suggestion_items(
     *,
     enabled_skill_names: set[str],
     canonical_names: set[str],
+    reserved_names: Collection[str] = (),
 ) -> list[ScoutSuggestionItem]:
     """Drop any item the Create action could not apply as-is: unknown canonical names, custom
-    drafts with a bad slug or empty body, invalid schedules, duplicates, already-enabled scouts.
-    The one-click Create must never fail on a stored suggestion, so invalid ones are not shown."""
+    drafts with a bad slug, empty body, or a name the project already holds (a disabled config or
+    a stored skill, which create answers with 409), invalid schedules, duplicates, already-enabled
+    scouts. The one-click Create must never fail on a stored suggestion, so invalid ones are not
+    shown."""
     seen: set[str] = set()
     kept: list[ScoutSuggestionItem] = []
     for item in items:
@@ -85,7 +89,7 @@ def validate_suggestion_items(
             if name not in canonical_names:
                 continue
         else:
-            if name in canonical_names or not _valid_custom_name(name):
+            if name in canonical_names or name in reserved_names or not _valid_custom_name(name):
                 continue
             if (
                 not item.draft_body.strip()
@@ -160,9 +164,11 @@ async def arun_scout_suggestions(
 ) -> SuggestionRunResult:
     """Generate one team's suggestion batch: gate, mint the headless task, validate, persist.
 
-    Never raises for a failed generation: the row is marked failed (feeding the breaker) and the
-    result says so, mirroring the scout runner's fail-safe posture so one bad project cannot take
-    a coordinator tick down with it.
+    Never raises for a failed generation: anything after the gates (fleet discovery, sandbox and
+    runtime resolution, the run, validation, persistence) marks the row failed, feeding the
+    breaker, and the result says so. This mirrors the scout runner's fail-safe posture so one
+    bad project cannot take a coordinator tick down with it, and so a failure before the run
+    still counts: the coordinator has already stamped the team for a full refresh window.
     """
     started = time.monotonic()
     settings = settings or SuggestionSettings()
@@ -196,28 +202,28 @@ async def arun_scout_suggestions(
     if user_id is None:
         return _finish("skipped", skip_reason="no_active_user")
 
-    fleet = await database_sync_to_async(fleet_context, thread_sensitive=False)(team.id)
-    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
-    )
-    runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
-        team.id, STEP_SCOUT_SUGGESTIONS
-    )
-    model = runtime.model
-    context = CustomPromptSandboxContext(
-        team_id=team.id,
-        user_id=user_id,
-        repository=None,
-        sandbox_environment_id=sandbox_env_id,
-        # Reads only: the scan never writes, and `read_only` still carries `llm_skill:read` for
-        # the authoring-scouts skill and `signal_scout:read` for the fleet and recent runs.
-        posthog_mcp_scopes="read_only",
-        model=runtime.model,
-        runtime_adapter=runtime.runtime_adapter,
-        reasoning_effort=runtime.reasoning_effort,
-    )
     task_run_id: str | None = None
     try:
+        fleet = await database_sync_to_async(fleet_context, thread_sensitive=False)(team.id)
+        sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+            team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+        runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+            team.id, STEP_SCOUT_SUGGESTIONS
+        )
+        model = runtime.model
+        context = CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user_id,
+            repository=None,
+            sandbox_environment_id=sandbox_env_id,
+            # Reads only: the scan never writes, and `read_only` still carries `llm_skill:read` for
+            # the authoring-scouts skill and `signal_scout:read` for the fleet and recent runs.
+            posthog_mcp_scopes="read_only",
+            model=runtime.model,
+            runtime_adapter=runtime.runtime_adapter,
+            reasoning_effort=runtime.reasoning_effort,
+        )
         session, batch = await MultiTurnSession.start(
             prompt=build_suggestions_prompt(fleet),
             context=context,
@@ -238,24 +244,25 @@ async def arun_scout_suggestions(
         )
         task_run_id = str(session.task_run.id)
         await session.end()
+
+        canonical_names = {name for name, _ in fleet.available_canonical} | set(fleet.enabled_skill_names)
+        items = validate_suggestion_items(
+            batch.suggestions,
+            enabled_skill_names=set(fleet.enabled_skill_names),
+            canonical_names=canonical_names,
+            reserved_names=fleet.reserved_names,
+        )
+        await database_sync_to_async(persist_suggestion_batch, thread_sensitive=False)(
+            team.id,
+            items,
+            task_run_id=task_run_id,
+            model=runtime.model,
+            fleet_snapshot=list(fleet.enabled_skill_names),
+        )
     except Exception as error:
         logger.warning("scout_suggestions: generation failed", team_id=team.id, error=str(error), exc_info=True)
         await database_sync_to_async(mark_generation_failed, thread_sensitive=False)(team.id, task_run_id=task_run_id)
         return _finish("failed", task_run_id=task_run_id)
-
-    canonical_names = {name for name, _ in fleet.available_canonical} | set(fleet.enabled_skill_names)
-    items = validate_suggestion_items(
-        batch.suggestions,
-        enabled_skill_names=set(fleet.enabled_skill_names),
-        canonical_names=canonical_names,
-    )
-    await database_sync_to_async(persist_suggestion_batch, thread_sensitive=False)(
-        team.id,
-        items,
-        task_run_id=task_run_id,
-        model=runtime.model,
-        fleet_snapshot=list(fleet.enabled_skill_names),
-    )
     return _finish("completed", task_run_id=task_run_id, suggestion_count=len(items))
 
 

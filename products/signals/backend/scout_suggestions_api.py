@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -27,7 +27,13 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend.models import SignalScoutSuggestionSet
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_chat import consume_daily_attempt
-from products.signals.backend.scout_harness.suggestions import dismiss_suggestion, visible_items
+from products.signals.backend.scout_harness.suggestions import (
+    dismiss_suggestion,
+    enabled_skill_names,
+    read_suggestion_settings,
+    suggestions_allowed_for_team,
+    visible_items,
+)
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission, _canonical_team_id
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +82,9 @@ class ScoutSuggestionItemSerializer(serializers.Serializer):
     confidence = serializers.ChoiceField(choices=["low", "medium", "high"], help_text="The producer's confidence.")
 
 
+# The read is the viewset's `list` action but returns one object; without this drf-spectacular
+# infers a list response and the generated client types it as an array.
+@extend_schema_serializer(many=False)
 class ScoutSuggestionSetSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=SignalScoutSuggestionSet.Status.choices,
@@ -101,7 +110,7 @@ class ScoutSuggestionRefreshSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="The dispatched refresh workflow id.")
 
 
-def _set_payload(row: SignalScoutSuggestionSet | None) -> dict[str, Any]:
+def _set_payload(row: SignalScoutSuggestionSet | None, *, team_id: int) -> dict[str, Any]:
     if row is None:
         return {
             "status": SignalScoutSuggestionSet.Status.EMPTY,
@@ -115,7 +124,7 @@ def _set_payload(row: SignalScoutSuggestionSet | None) -> dict[str, Any]:
         "generated_at": row.generated_at,
         "model": row.model,
         "fleet_snapshot": list(row.fleet_snapshot or []),
-        "items": visible_items(row),
+        "items": visible_items(row, enabled_skill_names=enabled_skill_names(team_id)),
     }
 
 
@@ -148,8 +157,9 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         operation_id="signals_scout_suggestions_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        row = SignalScoutSuggestionSet.all_teams.filter(team_id=_canonical_team_id(self)).first()
-        return Response(ScoutSuggestionSetSerializer(_set_payload(row)).data)
+        team_id = _canonical_team_id(self)
+        row = SignalScoutSuggestionSet.objects.for_team(team_id, canonical=True).first()
+        return Response(ScoutSuggestionSetSerializer(_set_payload(row, team_id=team_id)).data)
 
     @extend_schema(
         request=None,
@@ -175,7 +185,9 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         request=None,
         responses={
             202: OpenApiResponse(response=ScoutSuggestionRefreshSerializer, description="Refresh dispatched."),
-            403: OpenApiResponse(description="Organization has not approved AI data processing."),
+            403: OpenApiResponse(
+                description="Organization has not approved AI data processing, or suggestions are off for this project."
+            ),
             409: OpenApiResponse(description="A refresh is already running for this project."),
             429: OpenApiResponse(description="Daily refresh cap reached, or the project is over its Signals quota."),
         },
@@ -196,6 +208,10 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             )
         if is_team_signals_quota_limited(team.api_token):
             raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
+        # The same kill switch and blocklist the scheduled planner honors, so a caller with
+        # `signal_scout:write` cannot pull a paid scan on a project an operator has turned off.
+        if not suggestions_allowed_for_team(read_suggestion_settings(), team.id):
+            raise exceptions.PermissionDenied("Scout suggestions are not enabled for this project.")
 
         if not consume_daily_attempt("signals_scout_suggestions_refresh", team.id, SUGGESTIONS_REFRESH_DAILY_CAP):
             raise exceptions.Throttled(
