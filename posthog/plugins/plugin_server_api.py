@@ -161,6 +161,12 @@ def reschedule_hog_flow_parked_jobs(
     )
 
 
+class WorkflowsScopedAuthNotConfigured(RuntimeError):
+    """Raised when a cancel call cannot mint its scoped JWT because the signing secret is unset.
+    A RuntimeError subclass so existing broad handlers still catch it, and a distinct type so the
+    cancel views can turn it into a clear 503 instead of a bare 500."""
+
+
 # Same signing key as reschedule_parked: every workflows route on the CDP API verifies against
 # WORKFLOWS_RESCHEDULE_JWT_SECRET, so the key already spans that one caller/callee surface. The
 # distinct audience still keeps a cancel token useless for reschedule (and vice versa).
@@ -176,7 +182,9 @@ def _mint_cancel_invocations_jwt(team_id: int, hog_flow_id: str) -> str:
     of this one team + workflow. Raises when unprovisioned so the call fails closed. Verified in
     the plugin server's CdpApi.postHogFlowCancelInvocations."""
     if not WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.enabled():
-        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot cancel invocations")
+        raise WorkflowsScopedAuthNotConfigured(
+            "WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot cancel invocations"
+        )
     return WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
@@ -193,7 +201,9 @@ def _mint_cancel_batch_jwt(team_id: int, hog_flow_id: str, batch_job_id: str) ->
     this one batch run of this one team + workflow. Raises when unprovisioned so the call fails
     closed. Verified in the plugin server's CdpApi.postHogFlowCancelBatchJob."""
     if not WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.enabled():
-        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot stop the batch run")
+        raise WorkflowsScopedAuthNotConfigured(
+            "WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot stop the batch run"
+        )
     return WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.mint(
         {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
     )
