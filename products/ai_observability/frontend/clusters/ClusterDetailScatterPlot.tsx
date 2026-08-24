@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
+import { ScatterChart } from '@posthog/quill-charts'
 import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
@@ -10,6 +10,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { clusterItemFooter, clusterItemLabel, navigateToClusterItem } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
+import { ClusterScatterTooltip } from './ClusterScatterTooltip'
 
 function fallbackItemLabel(meta: ClusterScatterMeta, clusteringLevel: string): string | undefined {
     if (!meta.traceId) {
@@ -65,28 +66,23 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                     const meta = point.meta ?? {}
                     if (meta.isCentroid) {
                         return (
-                            <TooltipSurface>
-                                <div className="flex items-center gap-2 min-w-0 font-semibold">
-                                    <TooltipSwatch color={point.color} />
-                                    <span className="truncate">Cluster centroid</span>
-                                </div>
-                                <div className="opacity-60">Center of this cluster</div>
-                            </TooltipSurface>
+                            <ClusterScatterTooltip
+                                color={point.color}
+                                title="Cluster centroid"
+                                subtitle="Center of this cluster"
+                            />
                         )
                     }
-                    const body =
-                        clusterItemLabel(meta, clusteringLevel, traceSummaries) ??
-                        fallbackItemLabel(meta, clusteringLevel)
-                    const footer = clusterItemFooter(meta, clusteringLevel)
                     return (
-                        <TooltipSurface>
-                            <div className="flex items-center gap-2 min-w-0 font-semibold">
-                                <TooltipSwatch color={point.color} />
-                                <span className="truncate">{cluster?.title ?? point.seriesLabel}</span>
-                            </div>
-                            {body ? <div className="opacity-60">{body}</div> : null}
-                            {footer ? <TooltipFooter>{footer}</TooltipFooter> : null}
-                        </TooltipSurface>
+                        <ClusterScatterTooltip
+                            color={point.color}
+                            title={cluster?.title ?? point.seriesLabel}
+                            subtitle={
+                                clusterItemLabel(meta, clusteringLevel, traceSummaries) ??
+                                fallbackItemLabel(meta, clusteringLevel)
+                            }
+                            footer={clusterItemFooter(meta, clusteringLevel)}
+                        />
                     )
                 }}
             />
