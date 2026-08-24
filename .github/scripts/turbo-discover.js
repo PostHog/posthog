@@ -67,14 +67,22 @@ const PRODUCT_PER_TEST_OVERHEAD_SECONDS = 0.08
 // longer has a counterpart: sizing at a fixed efficiency needs no headroom,
 // because there is no wall target left to overshoot.
 const PRODUCT_SAFETY_FACTOR = 1.3
-// Tests under these paths need special infrastructure (Temporal server, etc.)
-// and are handled by Django CI's dedicated segments — exclude from duration estimates
+// Temporal tests of products NOT listed below run in Django CI's Temporal segment,
+// so they must not also count toward that product's own size.
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
-// Products that run their OWN temporal suite inside the product test job (backend:test covers
-// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
-// the temporal durations must count toward product sizing so the product is sharded for that load —
-// otherwise a huge suite lands in one unsharded bucket and times out.
-const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
+// Products that run their OWN temporal suite inside the product test job, so their
+// temporal durations count toward product sizing — otherwise a big suite lands in
+// one unsharded bucket and times out.
+//
+// Every shard in backend CI already starts COMPOSE_PROFILES=temporal, in the django
+// job and in turbo-tests alike, so running a temporal suite here costs no extra
+// infrastructure. The product's backend:test must name its temporal path.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
+    'batch-exports',
+    'managed-warehouse',
+    'tasks',
+    'warehouse-sources',
+])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -673,13 +681,12 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
+    // batch-exports and tasks used to run their temporal suites here. They now run
+    // them in their own product jobs, which cost no extra infrastructure because
+    // every shard already starts the temporal profile. signals/emission is listed
+    // because select-tests routes it here; leaving it out under-counted the segment.
     Temporal: {
-        include: [
-            'posthog/temporal/',
-            'products/batch_exports/backend/tests/temporal/',
-            'products/tasks/backend/temporal/',
-            'products/signals/backend/emission/',
-        ],
+        include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
     },
 }

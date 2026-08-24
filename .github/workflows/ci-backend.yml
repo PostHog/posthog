@@ -773,8 +773,11 @@ jobs:
                   #                   products/signals/backend/emission
                   #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
-                  # their own temporal suites there.
+                  # matrix. turbo-tests handles them, including the temporal suites of
+                  # batch_exports, managed_warehouse, tasks and warehouse_sources — every
+                  # shard starts the temporal profile, so running them there costs nothing
+                  # extra. Keep this list in sync with PRODUCTS_RUNNING_TEMPORAL_IN_JOB and
+                  # DJANGO_SEGMENTS in turbo-discover.js.
                   core=()
                   poe=()
                   temporal=()
@@ -792,7 +795,7 @@ jobs:
                           fi
                       done
                       case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
+                          posthog/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
                           posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/dashboards/test_dashboard.py)
@@ -1119,6 +1122,12 @@ jobs:
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  # products/tasks/backend/temporal moved here from the Django Temporal
+                  # segment, and its conftest and workflows talk to Modal. Injected only
+                  # when that directory changed, matching the gate the Django job used.
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
@@ -3402,7 +3411,7 @@ jobs:
                       # anyway, so the shard dies either way) and was the reason the
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
