@@ -2,6 +2,7 @@ import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
 import {
   projectedMonthUsd,
   type SpendLimits,
+  type SpendLimitsPatch,
   suggestedSpendLimits,
   utcDayIso,
 } from "@posthog/core/billing/spendLimits";
@@ -10,6 +11,7 @@ import {
   useSpendTotals,
 } from "@posthog/ui/features/billing/useSpendTotals";
 import {
+  USER_SPEND_LIMIT_QUERY_KEY,
   useSetUserSpendLimit,
   useUserSpendLimit,
 } from "@posthog/ui/features/billing/useUserSpendLimit";
@@ -17,6 +19,7 @@ import { SettingsSubsection } from "@posthog/ui/features/settings/components/Set
 import { SpendLimitCard } from "@posthog/ui/features/settings/sections/SpendLimitCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 /**
@@ -32,6 +35,7 @@ export function SpendLimitsSettings() {
   const totals = useSpendTotals();
   const enforced = useUserSpendLimit();
   const pushLimit = useSetUserSpendLimit();
+  const queryClient = useQueryClient();
   const serverLimitUsd = enforced.data?.enforced
     ? (enforced.data.limitUsd ?? null)
     : undefined;
@@ -42,23 +46,37 @@ export function SpendLimitsSettings() {
   // here would fight the person typing.
   useEffect(() => {
     if (serverLimitUsd === undefined) return;
-    setSpendLimits({ monthlyStopUsd: serverLimitUsd });
+    setSpendLimits({ month: { stopUsd: serverLimitUsd } });
   }, [serverLimitUsd, setSpendLimits]);
 
-  const commit = (limits: Partial<SpendLimits>) => {
+  const commit = (limits: SpendLimitsPatch) => {
     setSpendLimits(limits);
-    if (!("monthlyStopUsd" in limits) || !enforced.data?.enforced) return;
+    if (
+      !limits.month ||
+      !("stopUsd" in limits.month) ||
+      !enforced.data?.enforced
+    ) {
+      return;
+    }
     pushLimit.mutate(
       {
-        limitUsd: limits.monthlyStopUsd ?? null,
+        limitUsd: limits.month.stopUsd ?? null,
         windowSeconds: MONTH_WINDOW_SECONDS,
       },
       {
-        onError: (error) =>
+        onError: (error) => {
+          // The gateway still holds its old line, so put the store back on it
+          // and refetch; otherwise the card would show a stop the gateway
+          // never accepted, and the reconcile effect above would not re-fire.
+          setSpendLimits({ month: { stopUsd: serverLimitUsd ?? null } });
+          queryClient.invalidateQueries({
+            queryKey: USER_SPEND_LIMIT_QUERY_KEY,
+          });
           toast.error("Couldn't save your stop line", {
             description:
               error instanceof Error ? error.message : "Try again in a moment.",
-          }),
+          });
+        },
       },
     );
   };
@@ -79,7 +97,7 @@ interface SpendLimitsSettingsViewProps {
   totals: SpendSnapshot | null;
   /** The gateway can hold spend, so the monthly stop line is more than a notice. */
   enforced: boolean;
-  onCommit: (limits: Partial<SpendLimits>) => void;
+  onCommit: (limits: SpendLimitsPatch) => void;
 }
 
 export function SpendLimitsSettingsView({
@@ -120,14 +138,7 @@ export function SpendLimitsSettingsView({
         }
         limits={spendLimits}
         onCommit={onCommit}
-        suggested={
-          suggestion?.dailyWarnUsd != null && suggestion.dailyStopUsd != null
-            ? {
-                warnUsd: suggestion.dailyWarnUsd,
-                stopUsd: suggestion.dailyStopUsd,
-              }
-            : null
-        }
+        suggested={suggestion?.day ?? null}
       />
       <SpendLimitCard
         scope="month"
@@ -151,15 +162,7 @@ export function SpendLimitsSettingsView({
         }
         limits={spendLimits}
         onCommit={onCommit}
-        suggested={
-          suggestion?.monthlyWarnUsd != null &&
-          suggestion.monthlyStopUsd != null
-            ? {
-                warnUsd: suggestion.monthlyWarnUsd,
-                stopUsd: suggestion.monthlyStopUsd,
-              }
-            : null
-        }
+        suggested={suggestion?.month ?? null}
       />
     </SettingsSubsection>
   );

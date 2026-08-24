@@ -2,7 +2,10 @@ import type { UserSpendLimit } from "@posthog/api-client/spend-limit";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-const USER_SPEND_LIMIT_QUERY_KEY = ["billing", "user-spend-limit"] as const;
+export const USER_SPEND_LIMIT_QUERY_KEY = [
+  "billing",
+  "user-spend-limit",
+] as const;
 
 /** The stop line the gateway holds, which is what actually refuses spend. */
 export function useUserSpendLimit() {

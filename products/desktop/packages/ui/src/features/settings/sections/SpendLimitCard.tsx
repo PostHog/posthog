@@ -1,7 +1,8 @@
+import { formatUsdCompact } from "@posthog/core/billing/spendAnalysisFormat";
 import {
-  type SpendLimitLevel,
   type SpendLimitPeriod,
   type SpendLimits,
+  type SpendLimitsPatch,
   STARTER_SPEND_LINES,
 } from "@posthog/core/billing/spendLimits";
 import { Switch, Text } from "@posthog/quill";
@@ -10,14 +11,6 @@ import {
   SpendLimitSlider,
 } from "@posthog/ui/features/settings/sections/SpendLimitSlider";
 import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
-
-const SPEND_LIMIT_KEYS: Record<
-  SpendLimitPeriod,
-  Record<SpendLimitLevel, keyof SpendLimits>
-> = {
-  day: { warn: "dailyWarnUsd", stop: "dailyStopUsd" },
-  month: { warn: "monthlyWarnUsd", stop: "monthlyStopUsd" },
-};
 
 interface SpendLimitCardProps {
   scope: SpendLimitPeriod;
@@ -33,7 +26,7 @@ interface SpendLimitCardProps {
   markerLabel?: string;
   tickReferenceUsd?: number | null;
   limits: SpendLimits;
-  onCommit: (limits: Partial<SpendLimits>) => void;
+  onCommit: (limits: SpendLimitsPatch) => void;
   /** Lines to apply when the scope is switched on, if any can be derived. */
   suggested?: { warnUsd: number; stopUsd: number } | null;
 }
@@ -57,26 +50,23 @@ export function SpendLimitCard({
   onCommit,
   suggested = null,
 }: SpendLimitCardProps) {
-  const warnKey = SPEND_LIMIT_KEYS[scope].warn;
-  const stopKey = SPEND_LIMIT_KEYS[scope].stop;
-  const warnUsd = limits[warnKey];
-  const stopUsd = limits[stopKey];
+  const { warnUsd, stopUsd } = limits[scope];
   const enabled = warnUsd !== null || stopUsd !== null;
   const summary =
     spentUsd !== null
-      ? `${formatSpent(spentUsd)}${soFarLabel ? ` ${soFarLabel}` : ""}`
+      ? `${formatUsdCompact(spentUsd, { exactCents: true })}${soFarLabel ? ` ${soFarLabel}` : ""}`
       : null;
 
   const toggle = (next: boolean) => {
     if (!next) {
-      onCommit({ [warnKey]: null, [stopKey]: null });
+      onCommit({ [scope]: { warnUsd: null, stopUsd: null } });
       return;
     }
     // Start from the person's own history where there is any; without any,
     // round starter lines keep the scope editable rather than committing
     // nulls, which would read as the switch refusing to turn on.
     const seed = suggested ?? STARTER_SPEND_LINES[scope];
-    onCommit({ [warnKey]: seed.warnUsd, [stopKey]: seed.stopUsd });
+    onCommit({ [scope]: { warnUsd: seed.warnUsd, stopUsd: seed.stopUsd } });
   };
 
   return (
@@ -125,11 +115,15 @@ export function SpendLimitCard({
             periodLabel={title}
             onCommit={(level, value) =>
               onCommit({
-                [SPEND_LIMIT_KEYS[scope][level]]: clampSpendLine(
-                  level,
-                  value,
-                  level === "warn" ? stopUsd : warnUsd,
-                ),
+                [scope]: {
+                  // The real ordering invariant: drags arrive pre-clamped, but
+                  // typed input reaches here unclamped.
+                  [level]: clampSpendLine(
+                    level,
+                    value,
+                    level === "warn" ? stopUsd : warnUsd,
+                  ),
+                },
               })
             }
           />
@@ -137,10 +131,4 @@ export function SpendLimitCard({
       )}
     </div>
   );
-}
-
-/** Whole dollars for the large running totals, cents for small ones. */
-function formatSpent(value: number): string {
-  if (value >= 1000) return `$${Math.round(value).toLocaleString("en-US")}`;
-  return `$${value.toFixed(2)}`;
 }

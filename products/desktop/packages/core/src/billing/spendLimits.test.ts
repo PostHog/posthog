@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeSpendStop,
   EMPTY_SPEND_LIMITS,
   evaluateSpendLimits,
-  hasAnySpendLimit,
-  niceRound,
   parseSpendAmount,
   projectedMonthUsd,
   pruneSpendNoticesSeen,
   type SpendLimits,
+  type SpendLimitsPatch,
   spendLimitNoticeKey,
   spendTickIncrement,
   spendTotalsFromDays,
@@ -17,8 +15,11 @@ import {
 
 const TODAY = "2026-08-22";
 
-function limits(partial: Partial<SpendLimits>): SpendLimits {
-  return { ...EMPTY_SPEND_LIMITS, ...partial };
+function limits(patch: SpendLimitsPatch): SpendLimits {
+  return {
+    day: { ...EMPTY_SPEND_LIMITS.day, ...patch.day },
+    month: { ...EMPTY_SPEND_LIMITS.month, ...patch.month },
+  };
 }
 
 describe("spendLimits", () => {
@@ -36,7 +37,7 @@ describe("spendLimits", () => {
 
   it.each<{
     name: string;
-    limits: Partial<SpendLimits>;
+    limits: SpendLimitsPatch;
     totals: { todayUsd: number; monthUsd: number };
     expected: { period: string; level: string; limitUsd: number }[];
   }>([
@@ -48,25 +49,25 @@ describe("spendLimits", () => {
     },
     {
       name: "spend below the line does not cross",
-      limits: { dailyWarnUsd: 20 },
+      limits: { day: { warnUsd: 20 } },
       totals: { todayUsd: 19.99, monthUsd: 19.99 },
       expected: [],
     },
     {
       name: "spend exactly on the line crosses",
-      limits: { dailyWarnUsd: 20 },
+      limits: { day: { warnUsd: 20 } },
       totals: { todayUsd: 20, monthUsd: 20 },
       expected: [{ period: "day", level: "warn", limitUsd: 20 }],
     },
     {
       name: "stop supersedes warn for the same period",
-      limits: { dailyWarnUsd: 20, dailyStopUsd: 50 },
+      limits: { day: { warnUsd: 20, stopUsd: 50 } },
       totals: { todayUsd: 60, monthUsd: 60 },
       expected: [{ period: "day", level: "stop", limitUsd: 50 }],
     },
     {
-      name: "daily and monthly cross independently",
-      limits: { dailyWarnUsd: 20, monthlyStopUsd: 200 },
+      name: "daily and monthly cross independently, daily first",
+      limits: { day: { warnUsd: 20 }, month: { stopUsd: 200 } },
       totals: { todayUsd: 25, monthUsd: 250 },
       expected: [
         { period: "day", level: "warn", limitUsd: 20 },
@@ -75,12 +76,12 @@ describe("spendLimits", () => {
     },
     {
       name: "a zero line is treated as off",
-      limits: { dailyWarnUsd: 0 },
+      limits: { day: { warnUsd: 0 } },
       totals: { todayUsd: 5, monthUsd: 5 },
       expected: [],
     },
-  ])("$name", ({ limits: partial, totals, expected }) => {
-    const crossings = evaluateSpendLimits(limits(partial), totals, TODAY);
+  ])("$name", ({ limits: patch, totals, expected }) => {
+    const crossings = evaluateSpendLimits(limits(patch), totals, TODAY);
     expect(
       crossings.map(({ period, level, limitUsd }) => ({
         period,
@@ -103,12 +104,12 @@ describe("spendLimits", () => {
 
   it("re-arms a raised line within the same day via a distinct key", () => {
     const at20 = evaluateSpendLimits(
-      limits({ dailyWarnUsd: 20 }),
+      limits({ day: { warnUsd: 20 } }),
       { todayUsd: 30, monthUsd: 30 },
       TODAY,
     )[0];
     const at25 = evaluateSpendLimits(
-      limits({ dailyWarnUsd: 25 }),
+      limits({ day: { warnUsd: 25 } }),
       { todayUsd: 30, monthUsd: 30 },
       TODAY,
     )[0];
@@ -131,45 +132,15 @@ describe("spendLimits", () => {
     ]);
   });
 
-  it("reports whether any line is set", () => {
-    expect(hasAnySpendLimit(EMPTY_SPEND_LIMITS)).toBe(false);
-    expect(hasAnySpendLimit(limits({ monthlyWarnUsd: 100 }))).toBe(true);
-  });
-
-  it("holds work on the daily stop line before the monthly one", () => {
-    const both = limits({ dailyStopUsd: 50, monthlyStopUsd: 400 });
-    expect(
-      activeSpendStop(both, { todayUsd: 60, monthUsd: 500 }),
-    ).toMatchObject({ period: "day", limitUsd: 50 });
-    expect(
-      activeSpendStop(both, { todayUsd: 10, monthUsd: 500 }),
-    ).toMatchObject({ period: "month", limitUsd: 400 });
-    expect(activeSpendStop(both, { todayUsd: 10, monthUsd: 100 })).toBeNull();
-    expect(
-      activeSpendStop(EMPTY_SPEND_LIMITS, { todayUsd: 999, monthUsd: 999 }),
-    ).toBeNull();
-  });
-
   it("projects the month from the daily average and the month's length", () => {
     expect(projectedMonthUsd(10, "2026-08-22")).toBe(310);
     expect(projectedMonthUsd(10, "2026-02-10")).toBe(280);
   });
 
-  it.each([
-    [18.6, 20],
-    [37.2, 50],
-    [2.6, 2],
-    [387.5, 500],
-  ] as const)("niceRound(%s) -> %s", (value, expected) => {
-    expect(niceRound(value)).toBe(expected);
-  });
-
   it("suggests round lines from the user's history", () => {
     expect(suggestedSpendLimits(12.4, "2026-08-22")).toEqual({
-      dailyWarnUsd: 20,
-      dailyStopUsd: 50,
-      monthlyWarnUsd: 500,
-      monthlyStopUsd: 1000,
+      day: { warnUsd: 20, stopUsd: 50 },
+      month: { warnUsd: 500, stopUsd: 1000 },
     });
     expect(suggestedSpendLimits(0, "2026-08-22")).toBeNull();
   });

@@ -341,14 +341,9 @@ export const IMAGE_PRESET_TOOLS: readonly ImagePresetTool[] = [
     sizeMb: 6,
     reason: "Calls a JSON API and prints the body without the header block",
   },
-];
-
-/**
- * Tools for looking at what the agent built. A browser install belongs in the
- * setup step instead: it has to match the repository's own Playwright version
- * and warm its browser cache, which only a checkout can do.
- */
-const MEDIA_TOOLS: readonly ImagePresetTool[] = [
+  // Tools for looking at what the agent built. A browser install belongs in
+  // the setup step instead: it has to match the repository's own Playwright
+  // version and warm its browser cache, which only a checkout can do.
   {
     id: "playwright",
     category: "media",
@@ -381,10 +376,17 @@ const MEDIA_TOOLS: readonly ImagePresetTool[] = [
     reason: "Crops and compares screenshots without writing a script",
     aptPackages: ["imagemagick"],
   },
-];
-
-/** Repository tools that do not depend on which host the repo lives on. */
-export const PLATFORM_TOOLS: readonly ImagePresetTool[] = [
+  // Repository tools that do not depend on which host the repo lives on.
+  {
+    id: "gh",
+    category: "platform",
+    version: "2.97.0",
+    command: "gh",
+    name: "GitHub CLI",
+    url: "https://cli.github.com",
+    sizeMb: 40,
+    reason: "Reads issues, pull requests and CI logs without scraping",
+  },
   {
     id: "git-lfs",
     category: "platform",
@@ -419,21 +421,6 @@ export const PLATFORM_TOOLS: readonly ImagePresetTool[] = [
     ],
   },
 ];
-
-const GITHUB_CLI: ImagePresetTool = {
-  id: "gh",
-  category: "platform",
-  version: "2.97.0",
-  command: "gh",
-  name: "GitHub CLI",
-  url: "https://cli.github.com",
-  sizeMb: 40,
-  reason: "Reads issues, pull requests and CI logs without scraping",
-};
-
-export function imagePresetTools(): ImagePresetTool[] {
-  return [...IMAGE_PRESET_TOOLS, ...MEDIA_TOOLS, GITHUB_CLI, ...PLATFORM_TOOLS];
-}
 
 /** A short, human name for the image, derived from the repo it serves. */
 export function imagePresetName(repository: string): string {

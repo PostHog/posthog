@@ -62,10 +62,10 @@ export const FirstEnvironment: StoryObj<typeof EnvironmentSetupFormStory> = {};
 
 export const BuildingAnImage: StoryObj<typeof EnvironmentSetupFormStory> = {
   args: {
-    initialPlan: emptyEnvironmentSetupPlan({
-      repository: "posthog/posthog",
-      buildImage: true,
-    }),
+    initialPlan: {
+      ...emptyEnvironmentSetupPlan({ repository: "posthog/posthog" }),
+      baseImage: "new",
+    },
     environments: [
       { id: "env-1", name: "Internal APIs" },
       { id: "env-2", name: "Read-only" },

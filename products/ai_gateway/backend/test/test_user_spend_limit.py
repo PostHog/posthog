@@ -46,7 +46,7 @@ class TestUserSpendLimit(APIBaseTest):
         # configured and the limit silently does nothing.
         set_user_budget.assert_called_once_with(self.team.id, gateway_user_node(self.user), "500.000000", 2592000)
 
-    @patch(f"{CLIENT}.clear_user_budget", return_value=True)
+    @patch(f"{CLIENT}.clear_user_budget", return_value=None)
     def test_clears_the_limit(self, clear_user_budget):
         response = self.client.delete(self._url("clear/"))
         self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": True})

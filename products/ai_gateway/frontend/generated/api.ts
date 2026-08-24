@@ -20,8 +20,8 @@ export const getAiGatewayUserSpendLimitRetrieveUrl = (projectId: string) => {
 export const aiGatewayUserSpendLimitRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<UserSpendLimitApi[]> => {
-    return apiMutator<UserSpendLimitApi[]>(getAiGatewayUserSpendLimitRetrieveUrl(projectId), {
+): Promise<UserSpendLimitApi> => {
+    return apiMutator<UserSpendLimitApi>(getAiGatewayUserSpendLimitRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

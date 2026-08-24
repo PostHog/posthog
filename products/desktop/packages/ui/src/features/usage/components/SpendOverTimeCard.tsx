@@ -151,20 +151,20 @@ function SpendTooltip({
 
 /** The user's daily spend lines as chart goal lines on the daily axis. */
 export function spendLimitGoalLines(
-  limits: Pick<SpendLimits, "dailyWarnUsd" | "dailyStopUsd">,
+  limits: SpendLimits["day"],
 ): GoalLineConfig[] {
   const lines: GoalLineConfig[] = [];
-  if (limits.dailyWarnUsd !== null) {
+  if (limits.warnUsd !== null) {
     lines.push({
-      value: limits.dailyWarnUsd,
-      label: `Warning ${formatUsd(limits.dailyWarnUsd)}`,
+      value: limits.warnUsd,
+      label: `Warning ${formatUsd(limits.warnUsd)}`,
       color: "var(--amber-9)",
     });
   }
-  if (limits.dailyStopUsd !== null) {
+  if (limits.stopUsd !== null) {
     lines.push({
-      value: limits.dailyStopUsd,
-      label: `Stop ${formatUsd(limits.dailyStopUsd)}`,
+      value: limits.stopUsd,
+      label: `Stop ${formatUsd(limits.stopUsd)}`,
       color: "var(--red-9)",
     });
   }
@@ -190,7 +190,7 @@ export function SpendOverTimeCard({ filledDays }: SpendOverTimeCardProps) {
   const series = spendSeriesForDays(filledDays);
   const modelColors = modelColorsForDays(filledDays);
   const spendLimits = useSettingsStore((state) => state.spendLimits);
-  const goalLines = spendLimitGoalLines(spendLimits);
+  const goalLines = spendLimitGoalLines(spendLimits.day);
 
   return (
     <UsageCard

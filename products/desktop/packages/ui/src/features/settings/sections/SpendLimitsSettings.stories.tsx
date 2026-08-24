@@ -6,11 +6,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SpendLimitsSettingsView } from "./SpendLimitsSettings";
 
 const LINES: SpendLimits = {
-  ...EMPTY_SPEND_LIMITS,
-  dailyWarnUsd: 20,
-  dailyStopUsd: 50,
-  monthlyWarnUsd: 500,
-  monthlyStopUsd: 1000,
+  day: { warnUsd: 20, stopUsd: 50 },
+  month: { warnUsd: 500, stopUsd: 1000 },
 };
 
 const meta: Meta<typeof SpendLimitsSettingsView> = {

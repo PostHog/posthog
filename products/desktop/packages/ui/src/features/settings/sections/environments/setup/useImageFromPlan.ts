@@ -1,12 +1,9 @@
 import {
   buildsImage,
   type EnvironmentSetupPlan,
-  planSetupCommands,
+  planImageInput,
   planSpecInput,
-  planTools,
-  primaryRepository,
 } from "@posthog/core/settings/environmentSetup";
-import { imagePresetBrief } from "@posthog/core/settings/imagePreset";
 import {
   buildImageSpec,
   imageSpecToYaml,
@@ -22,28 +19,14 @@ export interface ImageFromPlan {
   pending: boolean;
 }
 
-/**
- * Turning a plan into an image, shared by setting an environment up and
- * editing one: both can build an image, and both must do it the same way.
- */
+/** Turning a plan into an image, for the setup flow. */
 export function useImageFromPlan(): ImageFromPlan {
   const { createMutation, buildMutation } = useSandboxCustomImages();
 
   return {
     create: async (plan) => {
       if (!buildsImage(plan)) return null;
-      const repository = primaryRepository(plan);
-      const image = await createMutation.mutateAsync({
-        name: plan.imageName.trim(),
-        description: imagePresetBrief(
-          repository,
-          planTools(plan),
-          planSetupCommands(plan),
-        ),
-        ...(repository ? { repository } : {}),
-        ...(plan.private ? { private: true } : {}),
-      });
-      return image;
+      return await createMutation.mutateAsync(planImageInput(plan));
     },
     build: async (plan, imageId) => {
       await buildMutation.mutateAsync({

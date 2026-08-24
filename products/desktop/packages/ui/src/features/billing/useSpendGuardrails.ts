@@ -3,6 +3,7 @@ import {
   evaluateSpendLimits,
   type SpendLimitCrossing,
   spendLimitNoticeKey,
+  spendPeriodLabel,
   utcDayIso,
 } from "@posthog/core/billing/spendLimits";
 import { useSpendTotals } from "@posthog/ui/features/billing/useSpendTotals";
@@ -37,7 +38,7 @@ export function useSpendGuardrails(): void {
 }
 
 function showSpendNotice(crossing: SpendLimitCrossing): void {
-  const periodLabel = crossing.period === "day" ? "Daily" : "Monthly";
+  const periodLabel = spendPeriodLabel(crossing.period);
   const windowLabel = crossing.period === "day" ? "today" : "this month";
   const description = `${formatUsd(crossing.spentUsd)} spent in this app ${windowLabel}. Nothing is paused.`;
   const action = {

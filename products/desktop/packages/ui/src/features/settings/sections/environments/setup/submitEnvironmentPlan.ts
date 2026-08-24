@@ -10,10 +10,10 @@ export interface SubmitEnvironmentPlanDeps {
 }
 
 /**
- * The one order a plan is saved in, shared by the setup flow and the edit
- * page: image record first, then the environment that points at it, then the
- * build. A failed step surfaces as a toast and returns null so the caller
- * stays on the form instead of closing over a half-saved result.
+ * The one order the setup flow saves a plan in: image record first, then the
+ * environment that points at it, then the build. A failed step surfaces as a
+ * toast and returns null so the caller stays on the form instead of closing
+ * over a half-saved result.
  */
 export async function submitEnvironmentPlan(
   plan: EnvironmentSetupPlan,

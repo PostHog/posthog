@@ -1,4 +1,5 @@
 import { Plus } from "@phosphor-icons/react";
+import type { SetupScope } from "@posthog/core/settings/environmentSetup";
 import { Button, Text } from "@posthog/quill";
 import type {
   SandboxCustomImage,
@@ -28,15 +29,12 @@ export function CloudEnvironmentsSettings() {
   const setFormMode = useSettingsPageStore((s) => s.setFormMode);
   const [editingEnv, setEditingEnv] = useState<SandboxEnvironment | null>(null);
   const [openImage, setOpenImage] = useState<SandboxCustomImage | null>(null);
-  const [setupFlow, setSetupFlow] = useState<{
-    kind: "environment" | "image";
-    repository: string | null;
-  } | null>(null);
+  const [setupFlow, setSetupFlow] = useState<SetupScope | null>(null);
 
   useEffect(() => {
     const action = consumeInitialAction();
     if (action === "create") {
-      setSetupFlow({ kind: "environment", repository: null });
+      setSetupFlow("environment");
     }
   }, [consumeInitialAction]);
 
@@ -54,12 +52,10 @@ export function CloudEnvironmentsSettings() {
     );
 
   if (setupFlow) {
-    const isImage = setupFlow.kind === "image";
     return (
       <EnvironmentSetupFlow
-        scope={isImage ? "image" : "environment"}
-        buildImage={isImage}
-        defaultRepository={setupFlow.repository}
+        scope={setupFlow}
+        defaultRepository={null}
         onDone={() => setSetupFlow(null)}
       />
     );
@@ -72,7 +68,7 @@ export function CloudEnvironmentsSettings() {
         onDone={() => setEditingEnv(null)}
         onBuildNewImage={() => {
           setEditingEnv(null);
-          setSetupFlow({ kind: "image", repository: null });
+          setSetupFlow("image");
         }}
       />
     );
@@ -100,9 +96,7 @@ export function CloudEnvironmentsSettings() {
             variant="outline"
             size="sm"
             data-attr="environment-new"
-            onClick={() =>
-              setSetupFlow({ kind: "environment", repository: null })
-            }
+            onClick={() => setSetupFlow("environment")}
           >
             <Plus size={12} />
             New environment
@@ -136,7 +130,7 @@ export function CloudEnvironmentsSettings() {
               variant="outline"
               size="sm"
               data-attr="custom-image-new"
-              onClick={() => setSetupFlow({ kind: "image", repository: null })}
+              onClick={() => setSetupFlow("image")}
             >
               <Plus size={12} />
               New image

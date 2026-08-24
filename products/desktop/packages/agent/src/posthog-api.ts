@@ -229,7 +229,9 @@ export class PostHogAPIClient {
    * uuid: it has to match what a per-person spend limit is keyed on and what a
    * cloud run pins into its token, so the `user_{id}` fallback mirrors
    * posthog/models/user_gateway_node.py exactly — diverging from it writes a
-   * budget nothing debits. Cached, since it never changes for a credential.
+   * budget nothing debits. Successful lookups are cached, since the node never
+   * changes for a credential; a failed lookup is not, so a startup network blip
+   * doesn't permanently disable the spend-limit header.
    */
   async getUserNode(): Promise<string | null> {
     if (this.userNode !== undefined) return this.userNode;
@@ -241,7 +243,7 @@ export class PostHogAPIClient {
       this.userNode =
         user.distinct_id || (user.id != null ? `user_${user.id}` : null);
     } catch {
-      this.userNode = null;
+      return null;
     }
     return this.userNode;
   }

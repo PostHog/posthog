@@ -15,8 +15,6 @@
  */
 
 export interface LeanSkill {
-  /** Stable id for the checked record, independent of the repo layout. */
-  id: string;
   name: string;
   /** GitHub `owner/repo` the installer fetches. */
   source: string;
@@ -56,7 +54,6 @@ export interface LeanSkill {
 
 export const LEAN_SKILLS: readonly LeanSkill[] = [
   {
-    id: "ponytail",
     name: "Ponytail",
     source: "DietrichGebert/ponytail",
     ref: "2ed6c52c9d7e5e56942508591085fd45dea277d3",
@@ -82,7 +79,6 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     license: "MIT",
   },
   {
-    id: "context-budget",
     name: "Context budget",
     source: "affaan-m/ecc",
     ref: "d8409a4b0813771235555e32e3d8046a73988bfa",
@@ -94,7 +90,6 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     license: "MIT",
   },
   {
-    id: "caveman",
     name: "Caveman",
     source: "juliusbrussee/caveman",
     ref: "7bb71309e8749a4f112aacd3a54b3941d8689905",

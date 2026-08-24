@@ -6,10 +6,10 @@ import {
   withRepositories,
 } from "@posthog/core/settings/environmentSetup";
 import { Checkbox, Input, Label, Text } from "@posthog/quill";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
 import { RadioCards } from "@posthog/ui/primitives/RadioCards";
-import { RepositoriesField } from "@posthog/ui/primitives/RepositoriesField";
 import { useId } from "react";
 
 export interface SetupEnvironmentOption {
@@ -48,7 +48,9 @@ export function EnvironmentStep({
       title={editing ? "Name and repositories" : "What are you setting up?"}
       description="Name it, and pick the repositories its sessions work on."
     >
-      {!editing && environments.length > 0 && (
+      {/* Targeting an existing environment only attaches an image to it, so
+          without custom images there is nothing this choice could do. */}
+      {!editing && plan.customImages && environments.length > 0 && (
         <RadioCards<SetupTarget>
           ariaLabel="What to set up"
           dataAttrPrefix="environment-setup-target"

@@ -5,9 +5,10 @@ import type {
 } from "@posthog/shared/domain-types";
 import {
   DEFAULT_TOOL_IDS,
+  IMAGE_PRESET_TOOLS,
   type ImagePresetTool,
+  imagePresetBrief,
   imagePresetName,
-  imagePresetTools,
 } from "./imagePreset";
 import {
   type ImageSpecInput,
@@ -102,8 +103,6 @@ export interface EnvironmentSetupPlan {
 export interface EmptyPlanOptions {
   repository?: string | null;
   scope?: SetupScope;
-  /** True when the flow was entered to build an image, e.g. from the image list. */
-  buildImage?: boolean;
   /** False when custom images are unavailable to this account. */
   customImages?: boolean;
 }
@@ -115,7 +114,6 @@ export interface EmptyPlanOptions {
  */
 export function emptyEnvironmentSetupPlan({
   repository = null,
-  buildImage = false,
   scope = "environment",
   customImages = true,
 }: EmptyPlanOptions = {}): EnvironmentSetupPlan {
@@ -132,14 +130,13 @@ export function emptyEnvironmentSetupPlan({
     includeDefaultDomains: true,
     envVars: [],
     customImages,
-    baseImage:
-      customImages && (buildImage || scope === "image") ? "new" : "default",
+    baseImage: customImages && scope === "image" ? "new" : "default",
     existingImageId: null,
     imageName: repository === null ? "" : imagePresetName(repository),
     imageNameEdited: false,
-    excludedToolIds: imagePresetTools()
-      .filter((tool) => !DEFAULT_TOOL_IDS.includes(tool.id))
-      .map((tool) => tool.id),
+    excludedToolIds: IMAGE_PRESET_TOOLS.filter(
+      (tool) => !DEFAULT_TOOL_IDS.includes(tool.id),
+    ).map((tool) => tool.id),
     setupLines: [],
   };
 }
@@ -236,7 +233,7 @@ export function withToolToggled(
 }
 
 export function planTools(plan: EnvironmentSetupPlan): ImagePresetTool[] {
-  return imagePresetTools().filter(
+  return IMAGE_PRESET_TOOLS.filter(
     (tool) => !plan.excludedToolIds.includes(tool.id),
   );
 }
@@ -456,4 +453,71 @@ export function planEnvironmentInput(
         }
       : {}),
   };
+}
+
+export interface ImageCreateInput {
+  name: string;
+  description: string;
+  repository?: string;
+  private?: boolean;
+}
+
+/** The creation payload for the image this plan builds. */
+export function planImageInput(plan: EnvironmentSetupPlan): ImageCreateInput {
+  const repository = primaryRepository(plan);
+  return {
+    name: plan.imageName.trim(),
+    description: imagePresetBrief(
+      repository,
+      planTools(plan),
+      planSetupCommands(plan),
+    ),
+    ...(repository ? { repository } : {}),
+    ...(plan.private ? { private: true } : {}),
+  };
+}
+
+function sameArray<T>(
+  a: readonly T[],
+  b: readonly T[],
+  same: (x: T, y: T) => boolean = (x, y) => x === y,
+): boolean {
+  return (
+    a.length === b.length && a.every((item, index) => same(item, b[index]))
+  );
+}
+
+/** Whether the plan differs from the saved one, compared field by field. */
+export function isPlanDirty(
+  plan: EnvironmentSetupPlan,
+  saved: EnvironmentSetupPlan,
+): boolean {
+  return !(
+    plan.scope === saved.scope &&
+    plan.target === saved.target &&
+    plan.environmentId === saved.environmentId &&
+    plan.environmentName === saved.environmentName &&
+    plan.environmentNameEdited === saved.environmentNameEdited &&
+    sameArray(plan.repositories, saved.repositories) &&
+    plan.private === saved.private &&
+    plan.networkAccessLevel === saved.networkAccessLevel &&
+    plan.allowedDomainsText === saved.allowedDomainsText &&
+    plan.includeDefaultDomains === saved.includeDefaultDomains &&
+    sameArray(
+      plan.envVars,
+      saved.envVars,
+      (x, y) => x.id === y.id && x.key === y.key && x.value === y.value,
+    ) &&
+    plan.customImages === saved.customImages &&
+    plan.baseImage === saved.baseImage &&
+    plan.existingImageId === saved.existingImageId &&
+    plan.imageName === saved.imageName &&
+    plan.imageNameEdited === saved.imageNameEdited &&
+    sameArray(plan.excludedToolIds, saved.excludedToolIds) &&
+    sameArray(
+      plan.setupLines,
+      saved.setupLines,
+      (x, y) => x.id === y.id && x.value === y.value,
+    )
+  );
 }

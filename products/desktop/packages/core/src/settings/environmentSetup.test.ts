@@ -3,9 +3,11 @@ import {
   type EnvironmentSetupPlan,
   emptyEnvironmentSetupPlan,
   envVarError,
+  isPlanDirty,
   isValidDomain,
   parseEnvVarText,
   planEnvironmentInput,
+  planImageInput,
   setupSteps,
   setupStepsComplete,
   stepError,
@@ -125,6 +127,37 @@ describe("environmentSetup", () => {
       null,
     );
     expect(input.environment_variables).toEqual({ OPENAI_API_KEY: "sk-test" });
+  });
+
+  it("carries the repository and privacy onto the image payload", () => {
+    const input = planImageInput(plan({ imageName: " CI toolchain " }));
+    expect(input.name).toBe("CI toolchain");
+    expect(input.repository).toBe("posthog/posthog");
+    expect(input.private).toBe(true);
+    expect(input.description).toContain("posthog/posthog");
+
+    const bare = planImageInput(
+      plan({ repositories: [], private: false, imageName: "Bare" }),
+    );
+    expect(bare).not.toHaveProperty("repository");
+    expect(bare).not.toHaveProperty("private");
+  });
+
+  it("marks a plan dirty only when a field actually changed", () => {
+    const saved = plan({
+      envVars: [{ id: "a", key: "TOKEN", value: "abc" }],
+      setupLines: [{ id: "s", value: "pnpm install" }],
+    });
+    expect(isPlanDirty({ ...saved }, saved)).toBe(false);
+    expect(
+      isPlanDirty({ ...saved, repositories: ["posthog/hogql"] }, saved),
+    ).toBe(true);
+    expect(
+      isPlanDirty(
+        { ...saved, envVars: [{ id: "a", key: "TOKEN", value: "xyz" }] },
+        saved,
+      ),
+    ).toBe(true);
   });
 
   it("reads pasted variables in the formats people carry them in", () => {

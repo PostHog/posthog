@@ -15,14 +15,12 @@ import { submitEnvironmentPlan } from "@posthog/ui/features/settings/sections/en
 import { useImageFromPlan } from "@posthog/ui/features/settings/sections/environments/setup/useImageFromPlan";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface EnvironmentSetupFlowProps {
   /** "image" creates only an image; "environment" creates or updates one. */
-  scope?: SetupScope;
+  scope: SetupScope;
   defaultRepository: string | null;
-  /** True when the flow should start with a new image selected. */
-  buildImage?: boolean;
   /** Called with the image whose build just started, so a caller can follow it. */
   onDone: (building: SandboxCustomImage | null) => void;
   /** True when a surrounding dialog already supplies the title and the way back. */
@@ -39,9 +37,8 @@ interface EnvironmentSetupFlowProps {
  * which the plan is seeded with, so the loaded form owns the plan state.
  */
 export function EnvironmentSetupFlow({
-  scope = "environment",
+  scope,
   defaultRepository,
-  buildImage = false,
   onDone,
   embedded = false,
 }: EnvironmentSetupFlowProps) {
@@ -66,7 +63,6 @@ export function EnvironmentSetupFlow({
     <LoadedSetupFlow
       scope={scope}
       defaultRepository={defaultRepository}
-      buildImage={buildImage}
       customImages={customImagesEnabled && !customImagesDisabled}
       images={images}
       environments={environments}
@@ -79,7 +75,6 @@ export function EnvironmentSetupFlow({
 interface LoadedSetupFlowProps {
   scope: SetupScope;
   defaultRepository: string | null;
-  buildImage: boolean;
   customImages: boolean;
   images: readonly SandboxCustomImage[];
   environments: readonly { id: string; name: string }[];
@@ -90,7 +85,6 @@ interface LoadedSetupFlowProps {
 function LoadedSetupFlow({
   scope,
   defaultRepository,
-  buildImage,
   customImages,
   images,
   environments,
@@ -106,21 +100,28 @@ function LoadedSetupFlow({
   const [plan, setPlan] = useState<EnvironmentSetupPlan>(() =>
     emptyEnvironmentSetupPlan({
       repository: defaultRepository,
-      buildImage,
       scope,
       customImages,
     }),
   );
+  // Survives a failed submit: if the image was created but a later step
+  // failed, resubmitting must reuse it instead of creating an orphaned twin.
+  const createdImageRef = useRef<SandboxCustomImage | null>(null);
 
   const submit = async (mode: ImageBuildMode | null) => {
     const result = await submitEnvironmentPlan(plan, mode === "build", {
-      image,
+      image: {
+        ...image,
+        create: async (imagePlan) => {
+          if (createdImageRef.current !== null) return createdImageRef.current;
+          const created = await image.create(imagePlan);
+          createdImageRef.current = created;
+          return created;
+        },
+      },
       applyEnvironment: async (customImageId) => {
         if (plan.scope !== "environment") return;
         if (plan.target === "existing" && plan.environmentId !== null) {
-          // Attaching an image is all this branch changes, so with custom
-          // images unavailable there is nothing to write.
-          if (!plan.customImages) return;
           await updateEnvironment.mutateAsync({
             id: plan.environmentId,
             custom_image_id: customImageId,
@@ -148,10 +149,7 @@ function LoadedSetupFlow({
     <EnvironmentSetupForm
       plan={plan}
       onChange={setPlan}
-      environments={environments.map((environment) => ({
-        id: environment.id,
-        name: environment.name,
-      }))}
+      environments={environments}
       images={images}
       saving={
         image.pending ||

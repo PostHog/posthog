@@ -1,26 +1,27 @@
 import type { SpendAnalysisDayRow } from "@posthog/api-client/spend-analysis";
 
-/**
- * User-set spend lines for this app's personal LLM spend. `null` means the
- * line is off. A warning line notifies; a stop line pauses new agent
- * messages until the line is raised or cleared.
- */
-export interface SpendLimits {
-  dailyWarnUsd: number | null;
-  dailyStopUsd: number | null;
-  monthlyWarnUsd: number | null;
-  monthlyStopUsd: number | null;
-}
-
-export const EMPTY_SPEND_LIMITS: SpendLimits = {
-  dailyWarnUsd: null,
-  dailyStopUsd: null,
-  monthlyWarnUsd: null,
-  monthlyStopUsd: null,
-};
-
 export type SpendLimitLevel = "warn" | "stop";
 export type SpendLimitPeriod = "day" | "month";
+
+/**
+ * User-set spend lines for this app's personal LLM spend, per period. `null`
+ * means the line is off. A warning line notifies; a stop line pauses new
+ * agent messages until the line is raised or cleared.
+ */
+export type SpendLimits = Record<
+  SpendLimitPeriod,
+  { warnUsd: number | null; stopUsd: number | null }
+>;
+
+/** A per-period partial update to `SpendLimits`; omitted lines keep their value. */
+export type SpendLimitsPatch = {
+  [Period in SpendLimitPeriod]?: Partial<SpendLimits[Period]>;
+};
+
+export const EMPTY_SPEND_LIMITS: SpendLimits = {
+  day: { warnUsd: null, stopUsd: null },
+  month: { warnUsd: null, stopUsd: null },
+};
 
 export interface SpendLimitCrossing {
   period: SpendLimitPeriod;
@@ -31,13 +32,9 @@ export interface SpendLimitCrossing {
   anchor: string;
 }
 
-export function hasAnySpendLimit(limits: SpendLimits): boolean {
-  return (
-    limits.dailyWarnUsd !== null ||
-    limits.dailyStopUsd !== null ||
-    limits.monthlyWarnUsd !== null ||
-    limits.monthlyStopUsd !== null
-  );
+/** The adjective copy uses for a period's lines and notices. */
+export function spendPeriodLabel(period: SpendLimitPeriod): string {
+  return period === "day" ? "Daily" : "Monthly";
 }
 
 /**
@@ -122,7 +119,7 @@ function spendLadder(value: number): number[] {
  * Nearest rung, so suggested lines land on round numbers and the warn/stop
  * pair never rounds onto near-identical values.
  */
-export function niceRound(value: number): number {
+function niceRound(value: number): number {
   if (value <= 0) return 0;
   return spendLadder(value).reduce((best, candidate) =>
     Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
@@ -143,14 +140,18 @@ export function niceCeil(value: number): number {
 export function suggestedSpendLimits(
   avgDailyUsd: number,
   todayIso: string,
-): SpendLimits | null {
+): Record<SpendLimitPeriod, { warnUsd: number; stopUsd: number }> | null {
   if (avgDailyUsd <= 0) return null;
   const projected = projectedMonthUsd(avgDailyUsd, todayIso);
   return {
-    dailyWarnUsd: niceRound(avgDailyUsd * 1.5),
-    dailyStopUsd: niceRound(avgDailyUsd * 3),
-    monthlyWarnUsd: niceRound(projected * 1.25),
-    monthlyStopUsd: niceRound(projected * 2),
+    day: {
+      warnUsd: niceRound(avgDailyUsd * 1.5),
+      stopUsd: niceRound(avgDailyUsd * 3),
+    },
+    month: {
+      warnUsd: niceRound(projected * 1.25),
+      stopUsd: niceRound(projected * 2),
+    },
   };
 }
 
@@ -188,9 +189,9 @@ export function spendTotalsFromDays(
 }
 
 /**
- * Which lines the current totals sit past. At most one crossing per period:
- * the stop line supersedes the warn line so a single spike never stacks two
- * notices for the same period.
+ * Which lines the current totals sit past, daily first since it resets
+ * first. At most one crossing per period: the stop line supersedes the warn
+ * line so a single spike never stacks two notices for the same period.
  */
 export function evaluateSpendLimits(
   limits: SpendLimits,
@@ -198,73 +199,27 @@ export function evaluateSpendLimits(
   todayIso: string,
 ): SpendLimitCrossing[] {
   const crossings: SpendLimitCrossing[] = [];
-  const day = pickCrossing(
-    "day",
-    limits.dailyWarnUsd,
-    limits.dailyStopUsd,
-    totals.todayUsd,
-    todayIso,
-  );
-  if (day) crossings.push(day);
-  const month = pickCrossing(
-    "month",
-    limits.monthlyWarnUsd,
-    limits.monthlyStopUsd,
-    totals.monthUsd,
-    todayIso.slice(0, 7),
-  );
-  if (month) crossings.push(month);
+  for (const period of ["day", "month"] as const) {
+    const spentUsd = period === "day" ? totals.todayUsd : totals.monthUsd;
+    const anchor = period === "day" ? todayIso : todayIso.slice(0, 7);
+    const crossing = pickCrossing(period, limits[period], spentUsd, anchor);
+    if (crossing) crossings.push(crossing);
+  }
   return crossings;
 }
 
 function pickCrossing(
   period: SpendLimitPeriod,
-  warnUsd: number | null,
-  stopUsd: number | null,
+  lines: SpendLimits[SpendLimitPeriod],
   spentUsd: number,
   anchor: string,
 ): SpendLimitCrossing | null {
+  const { warnUsd, stopUsd } = lines;
   if (stopUsd !== null && stopUsd > 0 && spentUsd >= stopUsd) {
     return { period, level: "stop", limitUsd: stopUsd, spentUsd, anchor };
   }
   if (warnUsd !== null && warnUsd > 0 && spentUsd >= warnUsd) {
     return { period, level: "warn", limitUsd: warnUsd, spentUsd, anchor };
-  }
-  return null;
-}
-
-export interface ActiveSpendStop {
-  period: SpendLimitPeriod;
-  limitUsd: number;
-  spentUsd: number;
-}
-
-/**
- * The stop line currently holding new agent work, if any. The daily line
- * wins when both are crossed since it resets first.
- */
-export function activeSpendStop(
-  limits: SpendLimits,
-  totals: SpendTotals,
-): ActiveSpendStop | null {
-  const { dailyStopUsd, monthlyStopUsd } = limits;
-  if (
-    dailyStopUsd !== null &&
-    dailyStopUsd > 0 &&
-    totals.todayUsd >= dailyStopUsd
-  ) {
-    return { period: "day", limitUsd: dailyStopUsd, spentUsd: totals.todayUsd };
-  }
-  if (
-    monthlyStopUsd !== null &&
-    monthlyStopUsd > 0 &&
-    totals.monthUsd >= monthlyStopUsd
-  ) {
-    return {
-      period: "month",
-      limitUsd: monthlyStopUsd,
-      spentUsd: totals.monthUsd,
-    };
   }
   return null;
 }

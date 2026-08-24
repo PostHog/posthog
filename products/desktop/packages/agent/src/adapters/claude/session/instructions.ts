@@ -1,3 +1,4 @@
+import { IMAGE_TOOLS_ENV_KEY } from "@posthog/shared/constants";
 import { buildContextWikiInstructions } from "../../../context-wiki";
 
 const BRANCH_NAMING = `
@@ -116,7 +117,7 @@ export function buildAppendedInstructions(opts: {
 }): string {
   let instructions =
     BASE_INSTRUCTIONS +
-    imageToolsInstruction(opts.imageTools ?? process.env.POSTHOG_IMAGE_TOOLS);
+    imageToolsInstruction(opts.imageTools ?? process.env[IMAGE_TOOLS_ENV_KEY]);
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }

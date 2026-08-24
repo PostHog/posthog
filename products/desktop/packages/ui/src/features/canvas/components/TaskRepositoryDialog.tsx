@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@posthog/quill";
 import { FolderPicker } from "@posthog/ui/features/folder-picker/FolderPicker";
-import { RepositoriesField } from "@posthog/ui/primitives/RepositoriesField";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useState } from "react";
 
 interface TaskRepositoryDialogProps {

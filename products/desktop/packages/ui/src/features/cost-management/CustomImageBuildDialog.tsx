@@ -57,7 +57,6 @@ export function CustomImageBuildDialog({
             <DialogBody>
               <EnvironmentSetupFlow
                 scope="image"
-                buildImage
                 embedded
                 defaultRepository={defaultRepository}
                 onDone={(image) => {

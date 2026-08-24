@@ -32,7 +32,7 @@ export type CostChecklistItem =
  * a "move down a notch" recommendation. 2.5× is the Opus-class rate, the
  * lowest tier where the everyday-task premium is large enough to point out.
  */
-export const MODEL_NOTCH_TRIGGER_MULTIPLIER = 2.5;
+const MODEL_NOTCH_TRIGGER_MULTIPLIER = 2.5;
 
 export interface ModelNotchSuggestion {
   fromModelId: string;
@@ -115,12 +115,7 @@ export function buildCostChecklist({
   } else {
     const suggestion = modelNotchSuggestion(defaultModelId);
     if (suggestion) {
-      active.push({
-        kind: "model-notch",
-        done: false,
-        fromModelId: suggestion.fromModelId,
-        toModelId: suggestion.toModelId,
-      });
+      active.push({ kind: "model-notch", done: false, ...suggestion });
     }
   }
 

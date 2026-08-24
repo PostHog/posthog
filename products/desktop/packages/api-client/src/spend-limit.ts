@@ -19,9 +19,18 @@ interface UserSpendLimitPayload {
 
 export function parseUserSpendLimit(payload: unknown): UserSpendLimit {
   const body = (payload ?? {}) as UserSpendLimitPayload;
-  const limit = body.limit_usd == null ? null : Number(body.limit_usd);
+  let limitUsd: number | null = null;
+  if (body.limit_usd != null) {
+    limitUsd = Number(body.limit_usd);
+    if (!Number.isFinite(limitUsd)) {
+      // Coercing a malformed limit to null would show "no limit" while one exists.
+      throw new Error(
+        "Couldn't read the spend limit from the server response.",
+      );
+    }
+  }
   return {
-    limitUsd: limit !== null && Number.isFinite(limit) ? limit : null,
+    limitUsd,
     windowSeconds: body.window_seconds ?? null,
     enforced: body.enforced === true,
   };

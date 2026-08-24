@@ -1,3 +1,4 @@
+import { IMAGE_TOOLS_ENV_KEY } from "@posthog/shared/constants";
 import { type ImagePresetTool, toolInstallMethod } from "./imagePreset";
 
 /**
@@ -10,8 +11,8 @@ import { type ImagePresetTool, toolInstallMethod } from "./imagePreset";
  * every list is capped.
  */
 
-export const MAX_APT_PACKAGES = 128;
-export const MAX_RUN_COMMANDS = 64;
+const MAX_APT_PACKAGES = 128;
+const MAX_RUN_COMMANDS = 64;
 export const MAX_COMMAND_LENGTH = 4096;
 
 const APT_PACKAGE_PATTERN = /^[a-z0-9][a-z0-9+.-]*$/;
@@ -23,13 +24,6 @@ export interface ImageSpec {
   /** Baked into the image, so every session on it starts with these set. */
   env: Record<string, string>;
 }
-
-/**
- * Names the tools the image carries. The agent runs inside the image with no
- * way to know what was installed, so it reads this and prefers them over the
- * defaults they replace instead of reaching for grep and find.
- */
-export const IMAGE_TOOLS_ENV_KEY = "POSTHOG_IMAGE_TOOLS";
 
 export interface ImageSpecInput {
   tools: readonly ImagePresetTool[];

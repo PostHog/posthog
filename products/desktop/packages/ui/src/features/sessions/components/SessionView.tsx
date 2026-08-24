@@ -55,6 +55,7 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
+import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
@@ -62,7 +63,6 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
-  flattenSelectOptions,
   useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
@@ -181,8 +181,7 @@ export function SessionView({
   );
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
-  const { allowBypassPermissions, warnOnMidSessionModelSwitch } =
-    useSettingsStore();
+  const { allowBypassPermissions } = useSettingsStore();
   const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
@@ -238,48 +237,32 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
-  // A mid-session model switch first pauses on an inform-only cache-cost
-  // dialog; confirming applies the queued switch unchanged.
-  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
-    configId: string;
-    value: string;
-    label: string;
-    fromValue: string;
-    fromLabel: string;
-  } | null>(null);
+  const applyConfigOption = useCallback(
+    (configId: string, value: string) => {
+      if (!taskId) return;
+      sessionService.setSessionConfigOption(taskId, configId, value);
+    },
+    [taskId, sessionService],
+  );
+
+  const {
+    pendingModelSwitch,
+    interceptModelSwitch,
+    confirmModelSwitch,
+    cancelModelSwitch,
+  } = usePendingModelSwitch({
+    sessionModelOption,
+    hasSessionEvents: events.length > 0,
+    onApply: applyConfigOption,
+  });
 
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
-      const isMidSessionModelSwitch =
-        warnOnMidSessionModelSwitch &&
-        events.length > 0 &&
-        sessionModelOption?.type === "select" &&
-        sessionModelOption.id === configId &&
-        sessionModelOption.currentValue !== value;
-      if (isMidSessionModelSwitch) {
-        const modelOptions = flattenSelectOptions(sessionModelOption.options);
-        const nameOf = (modelValue: string) =>
-          modelOptions.find((option) => option.value === modelValue)?.name ??
-          modelValue;
-        setPendingModelSwitch({
-          configId,
-          value,
-          label: nameOf(value),
-          fromValue: sessionModelOption.currentValue,
-          fromLabel: nameOf(sessionModelOption.currentValue),
-        });
-        return;
-      }
-      sessionService.setSessionConfigOption(taskId, configId, value);
+      if (interceptModelSwitch(configId, value)) return;
+      applyConfigOption(configId, value);
     },
-    [
-      taskId,
-      sessionService,
-      sessionModelOption,
-      warnOnMidSessionModelSwitch,
-      events.length,
-    ],
+    [taskId, interceptModelSwitch, applyConfigOption],
   );
 
   const sessionId = taskId ?? "default";
@@ -891,17 +874,8 @@ export function SessionView({
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
-        onConfirm={() => {
-          if (taskId && pendingModelSwitch) {
-            sessionService.setSessionConfigOption(
-              taskId,
-              pendingModelSwitch.configId,
-              pendingModelSwitch.value,
-            );
-          }
-          setPendingModelSwitch(null);
-        }}
-        onCancel={() => setPendingModelSwitch(null)}
+        onConfirm={confirmModelSwitch}
+        onCancel={cancelModelSwitch}
       />
       <ContextMenu.Content size="1">
         <ContextMenu.Item

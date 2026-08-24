@@ -47,18 +47,33 @@ export function ImageDetailPage({
   const building = isImageBuildInProgress(current.status);
 
   const save = async () => {
+    const writes: Promise<unknown>[] = [];
     if (nameChanged) {
-      await updateMutation.mutateAsync({ id: current.id, name: name.trim() });
+      writes.push(
+        updateMutation.mutateAsync({ id: current.id, name: name.trim() }),
+      );
     }
     if (specChanged) {
-      await buildMutation.mutateAsync({ id: current.id, specYaml });
-      setSpec(null);
+      writes.push(
+        buildMutation
+          .mutateAsync({ id: current.id, specYaml })
+          .then(() => setSpec(null)),
+      );
+    }
+    try {
+      await Promise.all(writes);
+    } catch {
+      // The mutations' onError toasts already explain the failure.
     }
   };
 
   const openBuilder = async () => {
-    const updated = await builderTaskMutation.mutateAsync(current.id);
-    if (updated.builder_task_id) void handleOpenTask(updated.builder_task_id);
+    try {
+      const updated = await builderTaskMutation.mutateAsync(current.id);
+      if (updated.builder_task_id) void handleOpenTask(updated.builder_task_id);
+    } catch {
+      // The mutation's onError toast already explains the failure.
+    }
   };
 
   const archive = async () => {
@@ -69,8 +84,12 @@ export function ImageDetailPage({
       );
       return;
     }
-    await deleteMutation.mutateAsync(current.id);
-    onDone();
+    try {
+      await deleteMutation.mutateAsync(current.id);
+      onDone();
+    } catch {
+      // The mutation's onError toast already explains the failure.
+    }
   };
 
   return (

@@ -90,13 +90,11 @@ describe("spendSeriesForDays", () => {
 
 describe("spendLimitGoalLines", () => {
   it("draws a line only for the daily limits that are set", () => {
-    expect(
-      spendLimitGoalLines({ dailyWarnUsd: null, dailyStopUsd: null }),
-    ).toEqual([]);
+    expect(spendLimitGoalLines({ warnUsd: null, stopUsd: null })).toEqual([]);
 
     const lines = spendLimitGoalLines({
-      dailyWarnUsd: 20,
-      dailyStopUsd: 50,
+      warnUsd: 20,
+      stopUsd: 50,
     });
     expect(lines.map((line) => [line.value, line.label])).toEqual([
       [20, "Warning $20.00"],

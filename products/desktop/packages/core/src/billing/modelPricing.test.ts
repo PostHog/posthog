@@ -48,8 +48,9 @@ describe("modelPricing", () => {
 // The gateway pins the contract rates these three families bill at, and this
 // table claims to mirror them. In the monorepo the gateway file is six
 // directories up; a standalone desktop checkout skips the comparison.
-const GATEWAY_OVERRIDES_RELATIVE =
-  "../../../../../../services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py";
+const MONOREPO_ROOT_RELATIVE = "../../../../../..";
+const MONOREPO_SENTINEL_RELATIVE = `${MONOREPO_ROOT_RELATIVE}/pyproject.toml`;
+const GATEWAY_OVERRIDES_RELATIVE = `${MONOREPO_ROOT_RELATIVE}/services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`;
 
 function gatewayRate(
   source: string,
@@ -74,16 +75,19 @@ describe("contract rates match the gateway's pinned table", () => {
   ] as const)("%s", async (family, block) => {
     // A dynamic import keeps the pure-layer lint honest: only this test
     // touches the filesystem, and only to read the gateway's table.
-    const { readFile } = await import("node:fs/promises");
-    let gateway: string;
+    const { access, readFile } = await import("node:fs/promises");
     try {
-      gateway = await readFile(
-        new URL(GATEWAY_OVERRIDES_RELATIVE, import.meta.url),
-        "utf-8",
-      );
+      await access(new URL(MONOREPO_SENTINEL_RELATIVE, import.meta.url));
     } catch {
+      // Not the monorepo, so there is no gateway table to compare against.
       return;
     }
+    // In the monorepo the gateway file must exist: a read failure here means
+    // it moved, and the mirror claim above needs its path updated.
+    const gateway = await readFile(
+      new URL(GATEWAY_OVERRIDES_RELATIVE, import.meta.url),
+      "utf-8",
+    );
     const price = modelListPrice(family);
     const input = gatewayRate(gateway, block, "input_cost_per_token");
     const output = gatewayRate(gateway, block, "output_cost_per_token");

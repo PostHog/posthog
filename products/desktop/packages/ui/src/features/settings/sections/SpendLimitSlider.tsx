@@ -1,4 +1,7 @@
-import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
+import {
+  formatUsd,
+  formatUsdCompact,
+} from "@posthog/core/billing/spendAnalysisFormat";
 import {
   niceCeil,
   type SpendLimitLevel,
@@ -46,12 +49,6 @@ export function clampSpendLine(
   if (!isPositive(otherUsd)) return value;
   if (level === "warn") return Math.min(value, otherUsd);
   return Math.max(value, otherUsd);
-}
-
-/** "$20" for whole dollars, "$12.40" otherwise. */
-export function formatUsdCompact(value: number): string {
-  if (Number.isInteger(value)) return `$${value.toLocaleString()}`;
-  return formatUsd(value);
 }
 
 interface SpendLimitSliderProps {

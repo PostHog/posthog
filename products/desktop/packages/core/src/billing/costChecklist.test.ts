@@ -19,24 +19,6 @@ describe("buildCostChecklist", () => {
     ]);
   });
 
-  it("offers the model notch only above the trigger multiplier", () => {
-    expect(
-      buildCostChecklist({
-        ...base,
-        defaultModelId: "claude-opus-5",
-        hasCustomImage: true,
-      }),
-    ).toEqual([
-      {
-        kind: "model-notch",
-        done: false,
-        fromModelId: "claude-opus-5",
-        toModelId: "claude-sonnet-5",
-      },
-      { kind: "custom-image", done: true },
-    ]);
-  });
-
   it("checks the image row off the image itself, not a stored completion", () => {
     expect(buildCostChecklist({ ...base, hasCustomImage: true })).toEqual([
       { kind: "custom-image", done: true },

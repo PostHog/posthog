@@ -89,7 +89,7 @@ export function LeanSkillDialog({
             size="sm"
             loading={busy}
             disabled={busy}
-            data-attr={`cost-management-${installed ? "uninstall" : "install"}-${skill.id}`}
+            data-attr={`cost-management-${installed ? "uninstall" : "install"}-${skill.skillId}`}
             onClick={installed ? onUninstall : onInstall}
           >
             {installed ? "Uninstall" : "Install"}

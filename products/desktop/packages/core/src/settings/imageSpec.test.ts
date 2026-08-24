@@ -1,13 +1,12 @@
+import { IMAGE_TOOLS_ENV_KEY } from "@posthog/shared/constants";
 import { describe, expect, it } from "vitest";
 import {
   IMAGE_PRESET_TOOLS,
   type ImagePresetTool,
-  imagePresetTools,
   toolInstallMethod,
 } from "./imagePreset";
 import {
   buildImageSpec,
-  IMAGE_TOOLS_ENV_KEY,
   imageSpecError,
   imageSpecToYaml,
   setupCommandError,
@@ -146,15 +145,15 @@ describe("buildImageSpec", () => {
 
 describe("tool pinning", () => {
   it("pins a version for every tool apt does not carry", () => {
-    const unpinned = imagePresetTools()
-      .filter((tool) => toolInstallMethod(tool) === "mise")
-      .filter((tool) => !tool.version);
+    const unpinned = IMAGE_PRESET_TOOLS.filter(
+      (tool) => toolInstallMethod(tool) === "mise",
+    ).filter((tool) => !tool.version);
     expect(unpinned.map((tool) => tool.id)).toEqual([]);
   });
 
   it("never emits an unpinned mise install", () => {
     const spec = buildImageSpec({
-      tools: imagePresetTools(),
+      tools: IMAGE_PRESET_TOOLS,
       setupCommands: [],
       repository: null,
     });

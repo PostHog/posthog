@@ -5,9 +5,9 @@ import {
   withToolToggled,
 } from "@posthog/core/settings/environmentSetup";
 import {
+  IMAGE_PRESET_TOOLS,
   IMAGE_TOOL_CATEGORIES,
   type ImagePresetTool,
-  imagePresetTools,
   isDirectlyInstallable,
   toolInstallMethod,
   toolsSizeMb,
@@ -38,7 +38,7 @@ interface ToolsStepProps {
 export function ToolsStep({ plan, onChange }: ToolsStepProps) {
   const [query, setQuery] = useState("");
   const searchId = useId();
-  const all = imagePresetTools();
+  const all = IMAGE_PRESET_TOOLS;
   const error = stepError(plan, "tools");
   const needle = query.trim().toLowerCase();
   const matches = (tool: ImagePresetTool) =>

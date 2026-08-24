@@ -3,7 +3,7 @@ import { Text } from "@posthog/quill";
 import type { NetworkAccessLevel } from "@posthog/shared/domain-types";
 import { useState } from "react";
 
-export const NETWORK_ACCESS_OPTIONS: {
+const NETWORK_ACCESS_OPTIONS: {
   value: NetworkAccessLevel;
   label: string;
   description: string;

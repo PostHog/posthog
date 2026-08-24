@@ -55,7 +55,7 @@ export function modelListPrice(modelId: string): ModelListPrice | null {
 }
 
 /** "$4" for whole dollars, "$0.20" otherwise. */
-export function formatPerMtok(amount: number): string {
+function formatPerMtok(amount: number): string {
   if (Number.isInteger(amount)) return `$${amount}`;
   return `$${amount.toFixed(2)}`;
 }
@@ -81,26 +81,33 @@ function formatMultiplier(value: number, approximate: boolean): string {
   return `${approximate ? "≈" : ""}${rounded}×`;
 }
 
+/**
+ * Mean of the input and output rate ratios between two prices, flagged
+ * approximate when the two ratios diverge by more than 10%.
+ */
+function blendedRatio(
+  numerator: ModelListPrice,
+  denominator: ModelListPrice,
+): { blended: number; approximate: boolean } {
+  const inputRatio = numerator.inputPerMtok / denominator.inputPerMtok;
+  const outputRatio = numerator.outputPerMtok / denominator.outputPerMtok;
+  const approximate =
+    Math.abs(inputRatio - outputRatio) / Math.max(inputRatio, outputRatio) >
+    0.1;
+  return { blended: (inputRatio + outputRatio) / 2, approximate };
+}
+
 /** Blended per-token multiplier vs the baseline, e.g. 2.5. Null when unpriced. */
 export function modelCostMultiplier(modelId: string): number | null {
   const price = modelListPrice(modelId);
   if (!price) return null;
-  return (
-    (price.inputPerMtok / BASELINE.inputPerMtok +
-      price.outputPerMtok / BASELINE.outputPerMtok) /
-    2
-  );
+  return blendedRatio(price, BASELINE).blended;
 }
 
 export function modelCostInfo(modelId: string): ModelCostInfo | null {
   const price = modelListPrice(modelId);
   if (!price) return null;
-  const inputRatio = price.inputPerMtok / BASELINE.inputPerMtok;
-  const outputRatio = price.outputPerMtok / BASELINE.outputPerMtok;
-  const approximate =
-    Math.abs(inputRatio - outputRatio) / Math.max(inputRatio, outputRatio) >
-    0.1;
-  const blended = (inputRatio + outputRatio) / 2;
+  const { blended, approximate } = blendedRatio(price, BASELINE);
   return {
     price,
     multiplierLabel: formatMultiplier(blended, approximate),
@@ -120,12 +127,7 @@ export function relativeCostLabel(
   const from = modelListPrice(fromModelId);
   const to = modelListPrice(toModelId);
   if (!from || !to) return null;
-  const inputRatio = to.inputPerMtok / from.inputPerMtok;
-  const outputRatio = to.outputPerMtok / from.outputPerMtok;
-  const approximate =
-    Math.abs(inputRatio - outputRatio) / Math.max(inputRatio, outputRatio) >
-    0.1;
-  const blended = (inputRatio + outputRatio) / 2;
+  const { blended, approximate } = blendedRatio(to, from);
   // Same list price reads as no line at all, not "1×".
   if (!approximate && Math.abs(blended - 1) < 0.001) return null;
   return formatMultiplier(blended, false);

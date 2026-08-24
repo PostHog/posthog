@@ -39,6 +39,7 @@ import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/component
 import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
@@ -49,7 +50,6 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
-import { RepositoriesField } from "@posthog/ui/primitives/RepositoriesField";
 import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {

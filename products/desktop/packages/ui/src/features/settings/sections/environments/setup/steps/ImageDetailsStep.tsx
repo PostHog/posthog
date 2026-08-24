@@ -5,8 +5,8 @@ import {
   withRepositories,
 } from "@posthog/core/settings/environmentSetup";
 import { Checkbox, Input, Label, Text } from "@posthog/quill";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
-import { RepositoriesField } from "@posthog/ui/primitives/RepositoriesField";
 import { useId } from "react";
 
 interface ImageDetailsStepProps {

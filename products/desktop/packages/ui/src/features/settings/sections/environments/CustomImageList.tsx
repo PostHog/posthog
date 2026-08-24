@@ -3,11 +3,12 @@ import {
   isImageBuildFailed,
   isImageBuildInProgress,
   type SandboxCustomImage,
+  type SandboxCustomImageStatus,
 } from "@posthog/shared/domain-types";
 import { imageFailureDetail } from "@posthog/ui/features/settings/sections/environments/imageBuildWatcher";
 
 /** The API's status values as words, so no underscore reaches the screen. */
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS: Record<SandboxCustomImageStatus, string> = {
   draft: "Draft",
   scanning: "Scanning",
   scan_failed: "Scan failed",
@@ -100,7 +101,7 @@ function StatusBadge({ image }: { image: SandboxCustomImage }) {
         {building && (
           <span className="mr-1 inline-block size-1.5 animate-pulse rounded-full bg-current" />
         )}
-        {STATUS_LABELS[image.status] ?? image.status}
+        {STATUS_LABELS[image.status]}
       </Badge>
       {image.version > 0 && (
         <Text

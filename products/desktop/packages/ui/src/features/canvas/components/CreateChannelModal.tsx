@@ -32,8 +32,8 @@ import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChanne
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
-import { RepositoriesField } from "@posthog/ui/primitives/RepositoriesField";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";

@@ -7,6 +7,7 @@ import { isImageBuildFailed } from "@posthog/shared/domain-types";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSkills } from "@posthog/ui/features/skills/useSkills";
+import { useMemo } from "react";
 
 /**
  * The checklist for the signed-in user: their default model, the images their
@@ -43,11 +44,13 @@ export function useCostChecklist(): CostChecklistItem[] {
  */
 export function useInstalledLeanSkills(): Map<string, string> {
   const skills = useSkills();
-  const byId = new Map<string, string>();
-  for (const skill of skills.data ?? []) {
-    if (LEAN_SKILLS.some((lean) => lean.skillId === skill.name)) {
-      byId.set(skill.name, skill.path);
+  return useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const skill of skills.data ?? []) {
+      if (LEAN_SKILLS.some((lean) => lean.skillId === skill.name)) {
+        byId.set(skill.name, skill.path);
+      }
     }
-  }
-  return byId;
+    return byId;
+  }, [skills.data]);
 }

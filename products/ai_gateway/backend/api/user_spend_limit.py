@@ -19,6 +19,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import cast
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -44,6 +45,13 @@ MIN_WINDOW_SECONDS = 3600
 MAX_WINDOW_SECONDS = 366 * 24 * 60 * 60
 MIN_LIMIT_USD = Decimal("0.01")
 MAX_LIMIT_USD = Decimal("1000000000")
+
+
+class SingletonSchema(AutoSchema):
+    """Stops drf-spectacular treating `list` as returning an array; this resource is one object per person."""
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
 
 
 class UserSpendLimitSerializer(serializers.Serializer):
@@ -99,6 +107,7 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["create", "clear"]
     serializer_class = UserSpendLimitSerializer
     permission_classes = [IsAuthenticated]
+    schema = SingletonSchema()
 
     @extend_schema(
         operation_id="ai_gateway_user_spend_limit_retrieve",

@@ -3,6 +3,7 @@ import {
   EMPTY_SPEND_LIMITS,
   pruneSpendNoticesSeen,
   type SpendLimits,
+  type SpendLimitsPatch,
 } from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
 import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
@@ -260,7 +261,7 @@ interface SettingsStore {
    * leave compaction to the model. Off by default.
    */
   autoCompactPercent: number | null;
-  setSpendLimits: (limits: Partial<SpendLimits>) => void;
+  setSpendLimits: (limits: SpendLimitsPatch) => void;
   markSpendNoticeSeen: (key: string, anchor: string, todayIso: string) => void;
   setWarnOnMidSessionModelSwitch: (enabled: boolean) => void;
   markCostChecklistDone: (kind: CostChecklistItemKind) => void;
@@ -504,7 +505,12 @@ export const useSettingsStore = create<SettingsStore>()(
       spendNoticesSeen: {},
       warnOnMidSessionModelSwitch: true,
       setSpendLimits: (limits) =>
-        set((state) => ({ spendLimits: { ...state.spendLimits, ...limits } })),
+        set((state) => ({
+          spendLimits: {
+            day: { ...state.spendLimits.day, ...limits.day },
+            month: { ...state.spendLimits.month, ...limits.month },
+          },
+        })),
       markSpendNoticeSeen: (key, anchor, todayIso) =>
         set((state) => ({
           spendNoticesSeen: {
@@ -741,9 +747,9 @@ export const useSettingsStore = create<SettingsStore>()(
         ) {
           (merged as Record<string, unknown>).completionSound = "none";
         }
-        // Persisted blobs from before the stop-line rename carry alert keys;
-        // every line must come back as a positive number or null, never
-        // undefined.
+        // Persisted blobs from before the per-period shape carry flat keys
+        // (and older ones alert keys); every line must come back as a
+        // positive number or null, never undefined.
         {
           const raw = (merged.spendLimits ?? {}) as unknown as Record<
             string,
@@ -761,21 +767,32 @@ export const useSettingsStore = create<SettingsStore>()(
             }
             return null;
           };
-          const dailyStopUsd = line(raw.dailyStopUsd, raw.dailyAlertUsd);
-          const monthlyStopUsd = line(raw.monthlyStopUsd, raw.monthlyAlertUsd);
-          const cappedWarn = (
-            warn: number | null,
-            stop: number | null,
-          ): number | null =>
-            warn !== null && stop !== null ? Math.min(warn, stop) : warn;
+          const migratedLines = (
+            period: "day" | "month",
+            flatPrefix: "daily" | "monthly",
+          ): SpendLimits["day"] => {
+            const nested = raw[period];
+            const lines =
+              typeof nested === "object" && nested !== null
+                ? (nested as Record<string, unknown>)
+                : {};
+            const stopUsd = line(
+              lines.stopUsd,
+              raw[`${flatPrefix}StopUsd`],
+              raw[`${flatPrefix}AlertUsd`],
+            );
+            const warnUsd = line(lines.warnUsd, raw[`${flatPrefix}WarnUsd`]);
+            return {
+              warnUsd:
+                warnUsd !== null && stopUsd !== null
+                  ? Math.min(warnUsd, stopUsd)
+                  : warnUsd,
+              stopUsd,
+            };
+          };
           merged.spendLimits = {
-            dailyWarnUsd: cappedWarn(line(raw.dailyWarnUsd), dailyStopUsd),
-            dailyStopUsd,
-            monthlyWarnUsd: cappedWarn(
-              line(raw.monthlyWarnUsd),
-              monthlyStopUsd,
-            ),
-            monthlyStopUsd,
+            day: migratedLines("day", "daily"),
+            month: migratedLines("month", "monthly"),
           };
         }
         return merged;
