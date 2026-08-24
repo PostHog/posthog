@@ -165,6 +165,7 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
   const setStarterDraft = useReportChatPanelStore((s) => s.setStarterDraft);
   const clearStarterDraft = useReportChatPanelStore((s) => s.clearStarterDraft);
 
+  // Taken atomically so a double-fired effect can't paste the quote twice.
   useEffect(() => {
     if (!pendingQuote) return;
     const current =
@@ -212,6 +213,18 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     void discussReport(trimmed);
   }, [starterDraft, isDiscussing, discussReport, fireAction]);
 
+  // Canned starter prompts go through the same privacy-safe path as submit:
+  // the analytics event records that a question was asked, never its text.
+  const ask = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isDiscussing) return;
+      fireAction("discuss", { has_question: true });
+      void discussReport(trimmed);
+    },
+    [isDiscussing, discussReport, fireAction],
+  );
+
   return (
     <div className="flex h-full flex-col justify-between gap-3 p-3">
       <div className="flex flex-col gap-1 pt-1">
@@ -222,6 +235,27 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
         </span>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {[
+            "What caused this?",
+            "Who is affected?",
+            "Walk me through the fix",
+          ].map((prompt) => (
+            <Button
+              key={prompt}
+              type="button"
+              variant="outline"
+              size="sm"
+              // Once the composer holds a typed draft or a quoted passage, the
+              // one-click chips step aside — firing a chip must not silently
+              // discard what the user wrote or highlighted.
+              disabled={isDiscussing || starterDraft.trim().length > 0}
+              onClick={() => ask(prompt)}
+            >
+              {prompt}
+            </Button>
+          ))}
+        </div>
       </div>
       <form
         className="flex flex-col gap-2"

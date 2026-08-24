@@ -66,7 +66,7 @@ export function deriveReportVerdict(
     return {
       tone: "decision",
       title: "Review the open PR",
-      body: "Implementation is already in flight. Review the pull request, or continue the work on its branch.",
+      body: "Implementation is already in flight. Review the pull request, or continue the task that opened it — new work lands on the same branch.",
     };
   }
   if (report.already_addressed) {
