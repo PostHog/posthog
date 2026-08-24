@@ -43,8 +43,9 @@ function usageQuery(range: UsageRange, granularity: UsageGranularity, timeSeries
     const interval = RANGE_INTERVALS[range]
     const bucket = `dateTrunc('${granularity}', recorded_at)`
     // Grouped by the table's sorting key so un-merged duplicates of one record collapse instead
-    // of summing. argMax on inserted_at picks the same row a merge would keep.
-    const canonicalRecords = `SELECT producer_id, usage_key, unit, record_id, argMax(quantity, inserted_at) AS quantity, max(event_timestamp) AS recorded_at FROM posthog.billing_usage_records WHERE event_timestamp >= now() - INTERVAL ${interval} GROUP BY producer_id, usage_key, unit, record_id`
+    // of summing. HogQL rejects FINAL, and timestamp is monotonic per resend, so argMax on it
+    // picks the same row a merge would keep.
+    const canonicalRecords = `SELECT producer_id, usage_key, unit, record_id, argMax(quantity, timestamp) AS quantity, max(timestamp) AS recorded_at FROM posthog.billing_usage_records WHERE timestamp >= now() - INTERVAL ${interval} GROUP BY toDate(timestamp), producer_id, usage_key, unit, record_id`
 
     return timeSeries
         ? `SELECT ${bucket} AS bucket, concat(producer_id, ': ', usage_key, ' (', unit, ')') AS series, sum(quantity) AS quantity FROM (${canonicalRecords}) GROUP BY bucket, series ORDER BY bucket, series`

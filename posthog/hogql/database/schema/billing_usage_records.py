@@ -14,6 +14,11 @@ class BillingUsageRecordsTable(Table):
 
     HogQL applies its standard ``team_id`` guard to this table, so records are
     visible only in the project that produced them.
+
+    Rows deduplicate on ``(team_id, toDate(timestamp), producer_id, usage_key, record_id)``, and
+    the collapse only happens on merge. Read with ``argMax(quantity, timestamp)`` grouped by that
+    key; a plain ``sum(quantity)`` counts duplicates that have not merged yet, and HogQL rejects
+    ``FINAL``.
     """
 
     description: str = "Durable product-usage records emitted by event ingestion, CDP, and feature flags."
@@ -26,7 +31,7 @@ class BillingUsageRecordsTable(Table):
         "record_id": StringDatabaseField(
             name="record_id",
             nullable=False,
-            description="Idempotency key, unique per (team_id, producer_id, usage_key).",
+            description="Idempotency key, unique per (team_id, toDate(timestamp), producer_id, usage_key).",
         ),
         "producer_id": StringDatabaseField(
             name="producer_id", nullable=False, description="Service that emitted the usage record."
@@ -39,14 +44,19 @@ class BillingUsageRecordsTable(Table):
         ),
         "unit": StringDatabaseField(name="unit", nullable=False, description="Unit used by quantity."),
         "quantity": IntegerDatabaseField(name="quantity", nullable=False, description="Measured usage amount."),
-        "event_timestamp": DateTimeDatabaseField(
-            name="event_timestamp",
+        "timestamp": DateTimeDatabaseField(
+            name="timestamp",
             nullable=False,
-            description="When the measured usage occurred. Producers stamp it at flush time, so a retry moves it.",
+            description=(
+                "When the producer reported the usage. toDate of it is part of the table's sorting "
+                "key, so filtering on it is what makes a query cheap."
+            ),
         ),
-        "inserted_at": DateTimeDatabaseField(
-            name="inserted_at", nullable=False, description="When the usage record was persisted."
-        ),
+        # `inserted_at` is left out on purpose. It is the engine's version column, so exposing it
+        # would offer a second time column that looks interchangeable with `timestamp` but is
+        # absent from the sorting key, and filtering on it would read the whole partition.
+        # `timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` already picks the
+        # row a merge would keep, which is the only thing a reader needed the version column for.
         "dimensions": MapStringDatabaseField(
             name="dimensions", nullable=False, description="Additional producer-defined dimensions."
         ),
