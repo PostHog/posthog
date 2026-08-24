@@ -1,9 +1,7 @@
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  primeStartupProvision,
-  resolveStartupLocation,
-} from "./startupLocation";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beginFirstRun, firstRun } from "./firstRun";
+import { resolveStartupLocation } from "./startupLocation";
 
 const personal = {
   id: "me-id",
@@ -22,7 +20,16 @@ const general = {
   system_role: "general" as const,
 };
 
+// Each case gets its own identity so the module-level first run from a previous one is never
+// the thing under test.
+let identityCounter = 0;
+let identity = "project";
+
 describe("startup location", () => {
+  beforeEach(() => {
+    identityCounter += 1;
+    identity = `project-${identityCounter}`;
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it("reopens a location saved before the routes were flattened", async () => {
@@ -39,7 +46,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({ href: "/spaces/eng/loops", firstRun: null });
   });
 
@@ -57,7 +64,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/code",
       firstRun: null,
@@ -77,7 +84,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/general-id/tasks/session-id",
       firstRun: { generalChannelId: "general-id" },
@@ -95,7 +102,7 @@ describe("startup location", () => {
       startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
     };
 
-    await resolveStartupLocation("project", client, true);
+    await resolveStartupLocation(identity, client, true);
 
     expect(client.startOnboardingSession).not.toHaveBeenCalled();
   });
@@ -112,7 +119,7 @@ describe("startup location", () => {
     };
 
     vi.useFakeTimers();
-    const resolving = resolveStartupLocation("project", client, true);
+    const resolving = resolveStartupLocation(identity, client, true);
     await vi.runAllTimersAsync();
     vi.useRealTimers();
 
@@ -136,7 +143,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/general-id",
       firstRun: null,
@@ -162,13 +169,13 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/old-space",
       firstRun: null,
     });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
-    expect(removeItem).toHaveBeenCalledWith("startup-location:project");
+    expect(removeItem).toHaveBeenCalledWith(`startup-location:${identity}`);
   });
 
   it("opens anyway when provisioning is unavailable", async () => {
@@ -185,7 +192,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/old-space",
       firstRun: null,
@@ -193,8 +200,8 @@ describe("startup location", () => {
     expect(removeItem).not.toHaveBeenCalled();
   });
 
-  it("ignores a hand-off primed by a different account", async () => {
-    // A logout or account switch between priming and consuming would otherwise hand the
+  it("ignores a first run started by a different account", async () => {
+    // A logout or account switch between starting and reading would otherwise hand the
     // next account the previous project's channels.
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
@@ -205,17 +212,17 @@ describe("startup location", () => {
       }),
       startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
     };
-    primeStartupProvision(
-      "someone-else",
-      Promise.resolve({
+    beginFirstRun("someone-else", {
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
         channels: [personal, general],
         personal_created: true,
         general_created: true,
       }),
-    );
+      startOnboardingSession: vi.fn().mockResolvedValue("other-session"),
+    });
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({ href: "/spaces/general-id", firstRun: null });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
   });
@@ -232,7 +239,7 @@ describe("startup location", () => {
     };
 
     await expect(
-      resolveStartupLocation("project", client, false),
+      resolveStartupLocation(identity, client, false),
     ).resolves.toEqual({ href: "/code", firstRun: null });
   });
 
@@ -241,58 +248,70 @@ describe("startup location", () => {
       key.includes(":v2:") ? "/settings" : null,
     );
     const client = {
-      provisionDefaultTaskChannels: vi.fn(),
-      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
-    };
-    primeStartupProvision(
-      "project",
-      Promise.resolve({
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
         channels: [personal, general],
         personal_created: true,
         general_created: false,
       }),
-    );
+      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
+    };
+    beginFirstRun(identity, client);
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/general-id/tasks/session-id",
       firstRun: { generalChannelId: "general-id" },
     });
   });
 
-  it("consumes a primed provisioning result exactly once", async () => {
+  it("shares one provisioning result between onboarding and startup", async () => {
+    // personal_created and general_created are true only for whoever provisions first, so a
+    // second call here would report that this is not a first run.
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
-      provisionDefaultTaskChannels: vi.fn(),
-      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
-    };
-    primeStartupProvision(
-      "project",
-      Promise.resolve({
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
         channels: [personal, general],
         personal_created: true,
         general_created: false,
       }),
-    );
+      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
+    };
+
+    beginFirstRun(identity, client);
+    beginFirstRun(identity, client);
 
     await expect(
-      resolveStartupLocation("project", client, true),
+      resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
       href: "/spaces/general-id/tasks/session-id",
       firstRun: { generalChannelId: "general-id" },
     });
-    expect(client.provisionDefaultTaskChannels).not.toHaveBeenCalled();
+    expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
+    expect(client.startOnboardingSession).toHaveBeenCalledOnce();
+  });
 
-    const again = {
+  it("provisions again when an earlier attempt failed", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    const failed = firstRun(identity, {
+      provisionDefaultTaskChannels: vi.fn().mockRejectedValue(new Error("503")),
+      startOnboardingSession: vi.fn(),
+    });
+    await expect(failed.provisioned).resolves.toBeNull();
+    const client = {
       provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
         channels: [personal, general],
-        personal_created: false,
+        personal_created: true,
         general_created: false,
       }),
       startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
     };
-    await resolveStartupLocation("project", again, true);
-    expect(again.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
+
+    await expect(
+      resolveStartupLocation(identity, client, true),
+    ).resolves.toEqual({
+      href: "/spaces/general-id/tasks/session-id",
+      firstRun: { generalChannelId: "general-id" },
+    });
   });
 });
