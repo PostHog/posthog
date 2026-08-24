@@ -26461,11 +26461,6 @@ export namespace Schemas {
       index?: number;
     }
 
-    export interface DesktopBetaTermsAcceptanceDTO {
-      /** Whether the organization has accepted the PostHog Desktop beta terms. */
-      readonly is_desktop_beta_terms_accepted: boolean;
-    }
-
     /**
      * * `startup_plan` - startup_plan
      * * `prepaid_credits` - prepaid_credits
@@ -26486,6 +26481,11 @@ export namespace Schemas {
        * * `startup_plan` - startup_plan
        * * `prepaid_credits` - prepaid_credits */
       reason: DesktopAccessReasonEnum | null;
+    }
+
+    export interface DesktopBetaTermsAcceptanceDTO {
+      /** Whether the organization has accepted the PostHog Desktop beta terms. */
+      readonly is_desktop_beta_terms_accepted: boolean;
     }
 
     /**

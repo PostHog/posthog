@@ -19,8 +19,8 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
-    DesktopBetaTermsAcceptanceDTOApi,
     DesktopAccessResponseApi,
+    DesktopBetaTermsAcceptanceDTOApi,
     LegacyDesktopAccessResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
@@ -200,24 +200,6 @@ export const codeSandboxPricingList = async (options?: RequestInit): Promise<San
     })
 }
 
-export const getDesktopAccessRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/desktop/access/`
-}
-
-/**
- * Evaluate Desktop access for the selected project and organization.
- * @summary Check PostHog Desktop access
- */
-export const desktopAccessRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<DesktopAccessResponseApi> => {
-    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getDesktopBetaTermsListUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/desktop_beta_terms/`
 }
@@ -243,6 +225,24 @@ export const desktopBetaTermsCreate = async (
     return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDesktopAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop/access/`
+}
+
+/**
+ * Evaluate Desktop access for the selected project and organization.
+ * @summary Check PostHog Desktop access
+ */
+export const desktopAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopAccessResponseApi> => {
+    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
