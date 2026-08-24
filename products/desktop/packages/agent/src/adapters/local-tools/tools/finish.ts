@@ -47,13 +47,20 @@ export const FINISH_TOOL_DESCRIPTION =
 // Adapters that run local tools in a separate process (codex) cannot pass the
 // in-process `requestFinish` callback through the serialized tool context, so
 // the tool falls back to the same PostHog API PATCH that callback performs.
-function buildSandboxRequestFinish(
+function resolveRequestFinish(
   ctx: LocalToolCtx,
 ): LocalToolCtx["requestFinish"] {
+  if (ctx.requestFinish) {
+    return ctx.requestFinish;
+  }
   const { taskId, taskRunId } = ctx;
-  if (!taskId || !taskRunId) return undefined;
+  if (!taskId || !taskRunId) {
+    return undefined;
+  }
   const client = createSandboxPosthogClient();
-  if (!client) return undefined;
+  if (!client) {
+    return undefined;
+  }
   return async (status, message) => {
     await client.updateTaskRun(taskId, taskRunId, {
       status,
@@ -70,9 +77,9 @@ export const finishTool = defineLocalTool({
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
-    (ctx.requestFinish !== undefined || (!!ctx.taskId && !!ctx.taskRunId)),
+    resolveRequestFinish(ctx) !== undefined,
   handler: async (ctx, args): Promise<LocalToolResult> => {
-    const requestFinish = ctx.requestFinish ?? buildSandboxRequestFinish(ctx);
+    const requestFinish = resolveRequestFinish(ctx);
     if (!requestFinish) {
       return {
         content: [
