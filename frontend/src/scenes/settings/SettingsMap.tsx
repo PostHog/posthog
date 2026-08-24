@@ -594,6 +594,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Severity rules',
                 description: 'Set the initial severity of new issues based on rules you define.',
                 component: <SeverityRules />,
+                flag: 'ERROR_TRACKING_SEVERITY_RULES',
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
