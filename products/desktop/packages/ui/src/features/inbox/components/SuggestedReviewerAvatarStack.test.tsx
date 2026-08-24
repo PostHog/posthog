@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   currentUserUuid: "user-me",
   mutate: vi.fn(),
   trackAction: vi.fn(),
+  lastSurface: undefined as string | undefined,
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -30,7 +31,10 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
-  useReportActionTracker: () => mocks.trackAction,
+  useReportActionTracker: (_report: unknown, surface?: string) => {
+    mocks.lastSurface = surface;
+    return mocks.trackAction;
+  },
 }));
 
 import { SuggestedReviewerAvatarStack } from "./SuggestedReviewerAvatarStack";
@@ -80,6 +84,21 @@ describe("SuggestedReviewerAvatarStack", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.currentUserUuid = "user-me";
+    mocks.lastSurface = undefined;
+  });
+
+  it.each([
+    ["defaults to the list-row surface", undefined, "list_row"],
+    ["uses the surface it is given", "detail_pane", "detail_pane"],
+  ] as const)("%s", (_case, surface, expected) => {
+    render(
+      <SuggestedReviewerAvatarStack
+        report={report}
+        artefacts={artefacts}
+        surface={surface}
+      />,
+    );
+    expect(mocks.lastSurface).toBe(expected);
   });
 
   it.each([

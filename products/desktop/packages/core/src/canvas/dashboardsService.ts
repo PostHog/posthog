@@ -331,6 +331,14 @@ export class DashboardsService {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
   }
 
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
+  }
+
   // File a rendering error in the canvas's authoring-task thread (the server
   // dedupes per build and error type). Best-effort: a report must never affect
   // the render, and backends without the endpoint just refuse it, so every

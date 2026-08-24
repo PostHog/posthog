@@ -218,13 +218,9 @@ fn resolve_release_id(
 /// lands on the same row `sourcemap inject --release-mode=event` would have injected.
 pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
     let cwd = std::env::current_dir()?;
-    let release_args_were_provided = release.name.is_some()
-        || release.version.is_some()
-        || release.build.is_some()
-        || release.info_plist.is_some();
     let release = release.resolve_info_plist()?;
     let mut builder: ReleaseBuilder = release.into();
-    add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
+    add_git_info_to_release_builder(&cwd, &mut builder)?;
     if !builder.can_create() {
         return Ok(None);
     }
@@ -238,10 +234,6 @@ pub fn get_release_for_maps<'a>(
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
-    let release_args_were_provided = release.name.is_some()
-        || release.version.is_some()
-        || release.build.is_some()
-        || release.info_plist.is_some();
     let release = release.resolve_info_plist()?;
     let needs_release = release.name.is_some()
         || release.version.is_some()
@@ -252,7 +244,7 @@ pub fn get_release_for_maps<'a>(
     if needs_release {
         let mut builder: ReleaseBuilder = release.into();
 
-        add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
+        add_git_info_to_release_builder(directory, &mut builder)?;
 
         if builder.can_create() {
             created_release = Some(builder.fetch_or_create()?);
@@ -262,18 +254,15 @@ pub fn get_release_for_maps<'a>(
     Ok(created_release)
 }
 
-fn add_git_info_to_release_builder(
-    directory: &Path,
-    builder: &mut ReleaseBuilder,
-    release_args_were_provided: bool,
-) -> Result<()> {
+fn add_git_info_to_release_builder(directory: &Path, builder: &mut ReleaseBuilder) -> Result<()> {
     let needs_git_for_release_fields = !builder.can_create();
+    let release_fields_were_provided = builder.has_name() || builder.has_version();
 
     match get_git_info(Some(directory.to_path_buf())) {
         Ok(Some(info)) => {
             builder.with_git(info);
         }
-        Ok(None) if needs_git_for_release_fields && release_args_were_provided => {
+        Ok(None) if needs_git_for_release_fields && release_fields_were_provided => {
             anyhow::bail!(
                 "Release fields are incomplete and git info is unavailable. Provide both --release-name and --release-version, or run from a git repository or supported CI environment."
             );
@@ -301,6 +290,12 @@ mod tests {
     use crate::sourcemaps::plain::inject::is_javascript_file;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    const XCODE_RELEASE_ENV_VARS: &[&str] = &[
+        "PRODUCT_BUNDLE_IDENTIFIER",
+        "MARKETING_VERSION",
+        "CURRENT_PROJECT_VERSION",
+    ];
 
     const GIT_INFO_ENV_VARS: &[&str] = &[
         "GITHUB_ACTIONS",
@@ -433,7 +428,7 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), Some("1.0.0")).into();
 
-        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, true);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
 
         assert!(result.is_ok());
         assert!(builder.can_create());
@@ -446,7 +441,7 @@ mod tests {
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
             .expect_err("git failure should remain fatal when release fields are incomplete");
 
         assert!(format!("{error:#}").contains("Failed to determine git info for release"));
@@ -459,7 +454,42 @@ mod tests {
         let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
         let mut builder: ReleaseBuilder = release_args(None, None).into();
 
-        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder, false);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
+
+        assert!(result.is_ok());
+        assert!(!builder.can_create());
+    }
+
+    #[test]
+    fn unresolved_info_plist_is_not_fatal_without_git_or_xcode_environment() {
+        let _env_lock = lock_env();
+        let _git_env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+        let _xcode_env_guard = EnvVarGuard::clear(XCODE_RELEASE_ENV_VARS);
+        let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
+        let info_plist = temp_root.path().join("Info.plist");
+        fs::write(
+            &info_plist,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+</dict>
+</plist>"#,
+        )
+        .expect("failed to write Info.plist");
+        let mut args = release_args(None, None);
+        args.info_plist = Some(info_plist);
+        let resolved = args
+            .resolve_info_plist()
+            .expect("Info.plist should be readable");
+        let mut builder: ReleaseBuilder = resolved.into();
+
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
 
         assert!(result.is_ok());
         assert!(!builder.can_create());
@@ -472,7 +502,7 @@ mod tests {
         let temp_root = tempfile::tempdir().expect("failed to create temporary directory");
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder, true)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
             .expect_err("missing git should be fatal when release args are incomplete");
 
         assert!(format!("{error:#}").contains("Release fields are incomplete"));
