@@ -1029,17 +1029,27 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     session: InMemorySession,
   ): Promise<void> {
     this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
     this.persistProjectPreference(session);
     if (session.refreshToken) {
-      await this.persistSession({
-        refreshToken: session.refreshToken,
-        cloudRegion: session.cloudRegion,
-        selectedProjectId: session.currentProjectId,
-      });
+      const persisted = await this.persistSession(
+        {
+          refreshToken: session.refreshToken,
+          cloudRegion: session.cloudRegion,
+          selectedProjectId: session.currentProjectId,
+        },
+        () => this.sessionGeneration === sessionGeneration,
+      );
+      if (!persisted) {
+        return;
+      }
     } else {
       this.authSession.clearCurrent();
     }
 
+    if (this.sessionGeneration !== sessionGeneration) {
+      return;
+    }
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({

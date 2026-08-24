@@ -83,8 +83,7 @@ function App({ devToolbar }: AppProps) {
   const isBlockedByAccessPolicy =
     isAuthenticated &&
     desktopAccessIsCurrent &&
-    ["blocked", "error"].includes(desktopAccess.status) &&
-    hasCompletedOnboarding;
+    ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
   const consent = useOrgConsent(isAuthenticated && hasDesktopAccess);
   const needsConsent =
@@ -194,7 +193,7 @@ function App({ devToolbar }: AppProps) {
   }
 
   const renderContent = () => {
-    if (!hasCompletedOnboarding) {
+    if (!hasCompletedOnboarding && !isBlockedByAccessPolicy) {
       return (
         <motion.div
           key="onboarding"

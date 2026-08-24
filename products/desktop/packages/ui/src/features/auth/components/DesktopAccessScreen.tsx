@@ -45,6 +45,21 @@ interface ProjectOption {
   name: string;
 }
 
+const BLOCKED_CONTENT = {
+  startup_plan: {
+    icon: <RocketLaunch />,
+    title: "Desktop isn't available for this organization",
+    description:
+      "Organizations in the Startup or YC program can't use PostHog Desktop. Select another organization to continue.",
+  },
+  prepaid_credits: {
+    icon: <Coins />,
+    title: "Desktop isn't available with prepaid credits",
+    description:
+      "Organizations with pending or active prepaid credits can't use PostHog Desktop. Select another organization to continue. To discuss access, contact your PostHog account executive. If you don't have one, email sales@posthog.com.",
+  },
+} as const;
+
 interface DesktopAccessScreenProps {
   access: DesktopAccess;
   orgProjectsMap: OrgProjectsMap;
@@ -97,9 +112,10 @@ export function DesktopAccessScreen({
   );
   const projects = useMemo<ProjectOption[]>(
     () =>
-      [
-        ...(currentOrgId ? (orgProjectsMap[currentOrgId]?.projects ?? []) : []),
-      ].sort((first, second) => first.name.localeCompare(second.name)),
+      (currentOrgId
+        ? (orgProjectsMap[currentOrgId]?.projects ?? [])
+        : []
+      ).toSorted((first, second) => first.name.localeCompare(second.name)),
     [currentOrgId, orgProjectsMap],
   );
   const selectedOrganization =
@@ -112,22 +128,8 @@ export function DesktopAccessScreen({
   const isLegacyAccessRequired =
     access.status === "blocked" && access.reason === null;
 
-  const content = {
-    startup_plan: {
-      icon: <RocketLaunch />,
-      title: "Desktop isn't available for this organization",
-      description:
-        "Organizations in the Startup or YC program can't use PostHog Desktop. Select another organization to continue.",
-    },
-    prepaid_credits: {
-      icon: <Coins />,
-      title: "Desktop isn't available with prepaid credits",
-      description:
-        "Organizations with pending or active prepaid credits can't use PostHog Desktop. Select another organization to continue. To discuss access, contact your PostHog account executive. If you don't have one, email sales@posthog.com.",
-    },
-  } as const;
   const blockedContent = access.reason
-    ? content[access.reason]
+    ? BLOCKED_CONTENT[access.reason]
     : {
         icon: <Key />,
         title: "Enter your invite code",

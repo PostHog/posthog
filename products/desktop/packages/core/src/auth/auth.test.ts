@@ -214,13 +214,15 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(): AuthService {
+  function createService(
+    cipher: IAuthTokenCipher = identityCipher,
+  ): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
       oauthFlow as unknown as IAuthOAuthFlowService,
       connectivity,
-      identityCipher,
+      cipher,
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
@@ -861,6 +863,37 @@ describe("AuthService", () => {
     expect(service.getState().currentProjectId).toBe(99);
     expect(sessionPort.getCurrent()?.selectedProjectId).toBe(99);
     expect(preferencePort.get("user-1", "us")?.lastSelectedProjectId).toBe(99);
+  });
+
+  it("does not restore a session when logout races with login persistence", async () => {
+    oauthFlow.startFlow.mockResolvedValue(
+      mockTokenResponse({
+        accessToken: "initial-access-token",
+        refreshToken: "initial-refresh-token",
+      }),
+    );
+    stubAuthFetch();
+
+    let releaseEncryption = (): void => {};
+    const gatedCipher: IAuthTokenCipher = {
+      encrypt: (plaintext) =>
+        new Promise<string>((resolve) => {
+          releaseEncryption = () => resolve(plaintext);
+        }),
+      decrypt: (encrypted) => Promise.resolve(encrypted),
+    };
+    service = createService(gatedCipher);
+    service.init();
+    await service.initialize();
+
+    const login = service.login("us");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseEncryption();
+    await login;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
   });
 
   it("does not restore a session when logout races with a project selection", async () => {
