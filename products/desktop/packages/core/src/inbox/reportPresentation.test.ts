@@ -10,6 +10,7 @@ import {
   humanizeReportTitle,
   isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
+  splitReportSummary,
 } from "./reportPresentation";
 
 describe("isStatusRedundantWithActionability", () => {
@@ -230,5 +231,37 @@ describe("humanizeReportTitle", () => {
     [null, "Untitled"],
   ])("humanizes %j to %j", (title, expected) => {
     expect(humanizeReportTitle(title, "Untitled")).toBe(expected);
+  });
+});
+
+describe("splitReportSummary", () => {
+  it("splits the lede and each ## section in order, keeping every word", () => {
+    const split = splitReportSummary(
+      "Users hit a dead end.\n\n## Problem\n\nThe cache never expires.\nStill broken.\n\n## Impact\n\n40 users a day.\n\n## Solution\n\nBound the freshness.",
+    );
+    expect(split.lede).toBe("Users hit a dead end.");
+    expect(split.sections.map((s) => s.title)).toEqual([
+      "Problem",
+      "Impact",
+      "Solution",
+    ]);
+    expect(split.sections[0].body).toBe(
+      "The cache never expires.\nStill broken.",
+    );
+    expect(split.sections[1].body).toBe("40 users a day.");
+  });
+
+  it("returns no sections for heading-less summaries so callers render them whole", () => {
+    const split = splitReportSummary(
+      "**What's happening:** one paragraph, bold labels, no headings.",
+    );
+    expect(split.sections).toEqual([]);
+    expect(split.lede).toContain("no headings");
+  });
+
+  it("handles a summary that opens directly with a heading", () => {
+    const split = splitReportSummary("## Problem\n\nIt broke.");
+    expect(split.lede).toBe("");
+    expect(split.sections).toEqual([{ title: "Problem", body: "It broke." }]);
   });
 });
