@@ -400,6 +400,35 @@ else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
 fi
 
+# ── Step 2b: Greptile CLI ──────────────────────────────────────────
+# Pinned npm install into the flox cache: greptile is not in the flox
+# catalog (proprietary npm package), and `hogli review` needs it. A failed
+# install must not break activation; the CLI is only needed at PR-open
+# time and `hogli review` prints install guidance when it is absent.
+_GREPTILE_VERSION="3.4.1"
+_GREPTILE_PREFIX="$FLOX_ENV_CACHE/greptile"
+_GREPTILE_BIN="$_GREPTILE_PREFIX/node_modules/.bin/greptile"
+_GREPTILE_STAMP="$_GREPTILE_PREFIX/.version"
+
+_install_greptile() {
+  if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
+    "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix '$_GREPTILE_PREFIX' --no-fund --no-audit greptile@$_GREPTILE_VERSION"
+  else
+    npm install --prefix "$_GREPTILE_PREFIX" --no-fund --no-audit "greptile@$_GREPTILE_VERSION"
+  fi
+  printf '%s' "$_GREPTILE_VERSION" > "$_GREPTILE_STAMP"
+}
+
+if [[ -x "$_GREPTILE_BIN" && "$(cat "$_GREPTILE_STAMP" 2>/dev/null || true)" == "$_GREPTILE_VERSION" ]]; then
+  done_step "Greptile CLI (cached)"
+else
+  run_step "Greptile CLI" _install_greptile \
+    || warn_step "Greptile CLI install failed  ${C_DIM}(hogli review prints manual install steps)${C_RESET}"
+fi
+if [[ -x "$_GREPTILE_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  ln -sf "$_GREPTILE_BIN" "$UV_PROJECT_ENVIRONMENT/bin/greptile"
+fi
+
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
 POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
 if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
