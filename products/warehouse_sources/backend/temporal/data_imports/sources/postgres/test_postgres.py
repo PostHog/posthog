@@ -760,6 +760,21 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Supavisor's Erlang resolver can't find a DNS record for its upstream backend — the
+            # stable signal that the underlying project is paused or deleted. Distinct from the
+            # sibling ":etimedout"/":econnrefused" tuples, which are transient and stay retryable.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  Failed to connect to database: {:error, :nxdomain}',
+            'connection failed: connection to server at "203.0.113.20", port 6543 failed: FATAL:  Failed to connect to database: {:error, :nxdomain}',
+        ],
+    )
+    def test_supavisor_nxdomain_pooler_dns_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Supavisor nxdomain pooler DNS failure should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
             # username omits the project ref. The host/IP and port are volatile; the message is stable.
             'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',

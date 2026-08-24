@@ -154,6 +154,7 @@ class ErrorTrackingQueryBuilder:
                 {
                     "id": str(result_dict["id"]),
                     "status": result_dict.get("status"),
+                    "severity": result_dict.get("severity"),
                     "name": result_dict.get("name"),
                     "description": result_dict.get("description"),
                     "first_seen": result_dict.get("first_seen"),
@@ -426,6 +427,9 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["fp_state", "issue_id"])),
             ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_status"])])),
+            ast.Alias(
+                alias="severity", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_severity"])])
+            ),
             ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_name"])])),
             ast.Alias(
                 alias="description",
@@ -529,6 +533,7 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id"])),
             ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_status"])])),
+            ast.Alias(alias="severity", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_severity"])])),
             ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_name"])])),
             ast.Alias(
                 alias="description", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_description"])])
@@ -812,6 +817,7 @@ class ErrorTrackingQueryBuilder:
             "name": ["e", "issue_name"],
             "description": ["e", "issue_description"],
             "status": ["e", "issue_status"],
+            "severity": ["e", "issue_severity"],
             "first_seen": ["e", "issue_first_seen"],
         }
 
