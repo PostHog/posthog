@@ -57,8 +57,8 @@ export function usageLimitContent(args: {
     return {
       title: "Organization usage limit reached",
       description:
-        "Your organization has reached its PostHog Desktop credit limit. Change the limit in Plan & usage to keep going.",
-      actionLabel: "Open Plan & usage",
+        "Your organization has reached its PostHog Desktop credit limit. Update the limit in PostHog Cloud to keep going.",
+      actionLabel: "Update billing limit",
       dismissLabel: "Got it",
     };
   }

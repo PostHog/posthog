@@ -29,9 +29,9 @@ describe("usageLimitContent", () => {
     // Confirmed-free org: allocation used up, the fix is adding a card.
     [false, "Free usage used up", "Add payment method"],
     // Subscribed org: the fix is raising the spend limit.
-    [true, "Organization usage limit reached", "Open Plan & usage"],
+    [true, "Organization usage limit reached", "Update billing limit"],
     // Unknown subscription state must not read as free.
-    [undefined, "Organization usage limit reached", "Open Plan & usage"],
+    [undefined, "Organization usage limit reached", "Update billing limit"],
   ] as const)(
     "org_limit with subscribed=%s -> %s / %s",
     (subscribed, title, actionLabel) => {
