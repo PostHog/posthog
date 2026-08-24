@@ -9,7 +9,6 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
-    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -17,6 +16,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -70,15 +70,20 @@ export function PublishedTablesTab(): JSX.Element {
             key: 'name',
             render: (_, publication) =>
                 publication.status === 'completed' ? (
-                    <Link
+                    <LemonTableLink
                         to={urls.sqlEditor({
                             query: `SELECT * FROM ${publication.name} LIMIT 100`,
                         })}
-                    >
-                        <strong>{publication.name}</strong>
-                    </Link>
+                        title={publication.name}
+                        description={publication.saved_query_id ? 'Materialized view' : 'Published table'}
+                    />
                 ) : (
-                    <strong>{publication.name}</strong>
+                    <div>
+                        <strong>{publication.name}</strong>
+                        <div className="text-xs text-muted">
+                            {publication.saved_query_id ? 'Materialized view' : 'Published table'}
+                        </div>
+                    </div>
                 ),
         },
         {
@@ -152,7 +157,7 @@ export function PublishedTablesTab(): JSX.Element {
                                             LemonDialog.open({
                                                 title: `Unpublish ${publication.name}?`,
                                                 description:
-                                                    'This removes the table and its published snapshot from PostHog. The source table is not changed.',
+                                                    'This removes the materialized view and its published snapshot from PostHog. The source table is not changed.',
                                                 primaryButton: {
                                                     status: 'danger',
                                                     children: 'Unpublish table',
@@ -178,7 +183,7 @@ export function PublishedTablesTab(): JSX.Element {
             <PublishTableModal />
             <SceneSection
                 title="Published tables"
-                description="Publish snapshots of warehouse tables so you can query them with other warehouse data in PostHog."
+                description="Publish warehouse tables as materialized views so you can query them alongside other warehouse data in PostHog."
                 actions={
                     <>
                         <LemonButton

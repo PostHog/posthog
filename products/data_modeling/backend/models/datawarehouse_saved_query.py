@@ -89,6 +89,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         DATA_WAREHOUSE = DataWarehouseSavedQueryOrigin.DATA_WAREHOUSE
         ENDPOINT = DataWarehouseSavedQueryOrigin.ENDPOINT
+        MANAGED_WAREHOUSE = DataWarehouseSavedQueryOrigin.MANAGED_WAREHOUSE
         MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
@@ -464,6 +465,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return self.get_s3_tables()
 
     def get_s3_tables(self, database=None):
+        if self.origin == self.Origin.MANAGED_WAREHOUSE:
+            return []
+
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database
         from posthog.hogql.parser import parse_select
@@ -522,6 +526,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectClickHouseTable,
         DirectMotherDuckTable,
     ]:
+        if self.origin == self.Origin.MANAGED_WAREHOUSE:
+            if self.table is None:
+                raise Exception("Published table is not available yet")
+            return self.table.hogql_definition(modifiers)
+
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 

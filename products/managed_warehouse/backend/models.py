@@ -159,7 +159,7 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
 
 
 class ManagedWarehousePublishedTable(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """A modeled Duckgres table published into the ClickHouse-queryable warehouse."""
+    """Source and snapshot state for a saved query materialized from Duckgres."""
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -168,6 +168,7 @@ class ManagedWarehousePublishedTable(TeamScopedRootMixin, CreatedMetaFields, Upd
         FAILED = "failed", "Failed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    saved_query_id = models.UUIDField(null=True, blank=True)
     source_schema_name = models.CharField(max_length=63)
     source_table_name = models.CharField(max_length=63)
     name = models.CharField(max_length=128)
@@ -176,6 +177,7 @@ class ManagedWarehousePublishedTable(TeamScopedRootMixin, CreatedMetaFields, Upd
     last_error = models.CharField(max_length=512, null=True, blank=True)
     row_count = models.BigIntegerField(null=True, blank=True)
     folder_version = models.CharField(max_length=32, null=True, blank=True)
+    active_job_id = models.UUIDField(null=True, blank=True)
     table_id = models.UUIDField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     # User ownership is metadata here, so this does not enforce a database-level foreign key.

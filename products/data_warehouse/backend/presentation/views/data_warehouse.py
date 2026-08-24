@@ -33,6 +33,7 @@ from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
+from products.data_modeling.backend.facade import api as data_modeling
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
 from products.data_quality.backend.presentation.views import data_quality_gate_response
@@ -82,7 +83,11 @@ class PublishModeledTableRequestSerializer(serializers.Serializer):
 
 
 class PublishedTableSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="Publication ID.")
+    id = serializers.UUIDField(help_text="Publication ID used for publish actions.")
+    saved_query_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Canonical saved query ID, or null for a publication created before saved-query integration.",
+    )
     name = serializers.CharField(help_text="Warehouse table name in PostHog.")
     source_schema_name = serializers.CharField(help_text="Duckgres schema of the source table.")
     source_table_name = serializers.CharField(help_text="Duckgres table this publication copies.")
@@ -123,7 +128,7 @@ class PublishedTablesResponseSerializer(serializers.Serializer):
 
 
 class PublishedTableIdSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="Publication ID.")
+    id = serializers.UUIDField(help_text="Publication ID for the published table.")
 
 
 class PublishedTableConflictSerializer(serializers.Serializer):
@@ -1429,6 +1434,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 source_schema_name=request.validated_data["source_schema_name"],
                 source_table_name=request.validated_data["source_table_name"],
                 name=request.validated_data.get("name") or None,
+                created_by_id=request.user.id,
             )
         except managed_warehouse_publish.PublishValidationError as error:
             raise serializers.ValidationError(str(error)) from error
@@ -1472,6 +1478,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=PublishedTableIdSerializer,
         responses={
             204: OpenApiResponse(description="Publication removed."),
+            400: OpenApiResponse(
+                response=PublishedTableConflictSerializer,
+                description="Another saved query depends on this published table.",
+            ),
             404: OpenApiResponse(description="The publication was not found."),
         },
         summary="Delete a published managed warehouse table",
@@ -1487,5 +1497,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         publication = managed_warehouse_publish.get_publication(self.team_id, request.validated_query_data["id"])
         if publication is None:
             raise NotFound()
-        managed_warehouse_publish.delete_publication(publication)
+        try:
+            managed_warehouse_publish.delete_publication(publication)
+        except data_modeling.HasDependentsError as error:
+            raise serializers.ValidationError(
+                "Cannot delete this published table because another saved query depends on it."
+            ) from error
         return Response(status=status.HTTP_204_NO_CONTENT)

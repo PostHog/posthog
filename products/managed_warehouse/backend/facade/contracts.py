@@ -229,6 +229,7 @@ class ManagedWarehousePublishedTableStatus(StrEnum):
 @frozen
 class ManagedWarehousePublishedTableRecord:
     id: UUID
+    saved_query_id: UUID | None
     team_id: int
     source_schema_name: str
     source_table_name: str

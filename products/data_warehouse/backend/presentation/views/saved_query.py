@@ -398,6 +398,15 @@ class SyncFrequencyField(serializers.ChoiceField):
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+        from products.data_warehouse.backend.logic import managed_warehouse_publish
+
+        publication = managed_warehouse_publish.get_publication(saved_query.team_id, saved_query.id)
+        if publication is None:
+            raise serializers.ValidationError("This published table is no longer available.")
+        managed_warehouse_publish.delete_publication(publication)
+        return
+
     if saved_query.managed_viewset is not None:
         raise serializers.ValidationError(
             "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
@@ -654,12 +663,25 @@ class DataWarehouseSavedQuerySerializer(
 ):
     @extend_schema_field(
         {
-            "type": "object",
-            "properties": {
-                "kind": {"type": "string", "enum": ["HogQLQuery"], "default": "HogQLQuery"},
-                "query": {"type": "string"},
-            },
-            "required": ["query"],
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["HogQLQuery"], "default": "HogQLQuery"},
+                        "query": {"type": "string"},
+                    },
+                    "required": ["query"],
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["ManagedWarehouseSource"]},
+                        "source_schema_name": {"type": "string"},
+                        "source_table_name": {"type": "string"},
+                    },
+                    "required": ["kind", "source_schema_name", "source_table_name"],
+                },
+            ]
         }
     )
     class QueryDefinitionField(serializers.JSONField):
@@ -668,7 +690,7 @@ class DataWarehouseSavedQuerySerializer(
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     query = QueryDefinitionField(
-        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}',
+        help_text='Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition.',
     )
     sync_frequency = SyncFrequencyField(
         help_text=(
@@ -935,16 +957,19 @@ class DataWarehouseSavedQuerySerializer(
         dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
+        sync_frequency = validated_data.pop("sync_frequency", None)
 
         if instance.managed_viewset is not None:
             raise serializers.ValidationError("Cannot update a query from a managed viewset")
+        if instance.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+            unsupported_fields = set(validated_data) - {"folder"}
+            if dag_id is not None or sync_frequency is not None or unsupported_fields:
+                raise serializers.ValidationError("Edit the published table definition from the published tables tab.")
 
         try:
             before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
         except DataWarehouseSavedQuery.DoesNotExist:
             before_update = None
-
-        sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
@@ -1656,6 +1681,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         saved_query = self.get_object()
 
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+            from products.data_warehouse.backend.logic import managed_warehouse_publish
+
+            publication = managed_warehouse_publish.get_publication(saved_query.team_id, saved_query.id)
+            if publication is None:
+                raise serializers.ValidationError("This published table is no longer available.")
+            managed_warehouse_publish.start_publish_workflow(publication)
+            return response.Response(status=status.HTTP_200_OK)
+
         if body.validated_data["full_refresh"]:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
             # build on and rebuilds. Done before dispatch so the run it triggers is the rebuild.
@@ -1752,6 +1786,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+            raise serializers.ValidationError("Published tables cannot be converted to regular views.")
+
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
 
@@ -1792,6 +1829,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Enable materialization for this saved query, at the requested sync frequency or daily.
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
+
+        if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+            raise serializers.ValidationError("This published table is already materialized.")
 
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")

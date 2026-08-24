@@ -18,6 +18,14 @@ Reconciliation treats dynamic, project-reader, and static sources as independent
 
 The native adapter sends one PostgreSQL-compatible statement unchanged, supports asynchronous cancellation, applies the existing connection deadline and statement timeout, and rejects results above 50,000 rows. Non-raw project-reader and static-source queries continue through their existing PostgreSQL/HogQL path; the PostgreSQL adapter is unchanged.
 
+## Published tables
+
+Publishing creates a materialized `DataWarehouseSavedQuery` with a managed warehouse source definition. The saved query owns the table name, materialization status, run history, columns, errors, and `DataWarehouseTable` relationship. This keeps published tables in the same namespace and data modeling graph as other saved queries.
+
+`ManagedWarehousePublishedTable` is the source-specific sidecar. It records the Duckgres schema and table, the active materialization job, and the published snapshot version. The Duckgres workflow writes versioned Parquet, registers the resulting `DataWarehouseTable`, and attaches that table to the saved query. Running the saved query dispatches the Duckgres workflow instead of the HogQL materializer.
+
+The sidecar's older name, status, table, and error columns remain populated during the compatibility period so an older worker can process in-flight workflows. New readers resolve those values from the saved query.
+
 Deprovision captures the active generation before the control-plane request and deactivates only that generation. A direct 404 is authoritative absence. If the request times out or returns 409, PostHog reads warehouse status. It converges local cleanup only when the warehouse is `deleting`, `deleted`, or absent. A ready warehouse remains active.
 
 ## Published warehouse tables

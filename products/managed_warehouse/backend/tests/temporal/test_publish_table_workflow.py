@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.data_modeling.backend.facade import api as data_modeling
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable
 from products.managed_warehouse.backend.publish import PUBLISHED_PREFIX, publish_folder
 from products.managed_warehouse.backend.temporal.publish_table_workflow import (
@@ -29,8 +31,15 @@ _BUCKET_REGION = "us-east-1"
 
 class TestPublishTableActivities(BaseTest):
     def _publication(self) -> ManagedWarehousePublishedTable:
+        saved_query = data_modeling.create_managed_warehouse_saved_query(
+            team_id=self.team.pk,
+            name="customer_arr",
+            source_schema_name=f"posthog_data_modeling_team_{self.team.pk}",
+            source_table_name="customer_arr",
+        )
         return ManagedWarehousePublishedTable.objects.for_team(self.team.pk).create(
             team=self.team,
+            saved_query_id=saved_query.id,
             source_schema_name=f"posthog_data_modeling_team_{self.team.pk}",
             source_table_name="customer_arr",
             name="customer_arr",
@@ -57,12 +66,16 @@ class TestPublishTableActivities(BaseTest):
 
         assert superseded is None
         publication.refresh_from_db()
+        saved_query = DataWarehouseSavedQuery.objects.get(id=publication.saved_query_id)
         assert publication.status == ManagedWarehousePublishedTable.Status.COMPLETED
         assert publication.folder_version == "20260720120000"
         assert publication.last_published_at is not None
         assert publication.table_id is not None
+        assert saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
+        assert saved_query.table_id == publication.table_id
         table = DataWarehouseTable.objects.get(team_id=self.team.pk, id=publication.table_id)
         assert table.format == DataWarehouseTable.TableFormat.Parquet
+        assert table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
         assert table.name == "customer_arr"
         assert f"/{_BUCKET}/__posthog_published/" in table.url_pattern
         assert f"team_{self.team.pk}_publish_{publication.id.hex}" in table.url_pattern
@@ -122,8 +135,15 @@ class TestPublishTableActivities(BaseTest):
 
     def test_copy_accepts_child_environment_schema_from_same_project(self) -> None:
         child_team = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
+        saved_query = data_modeling.create_managed_warehouse_saved_query(
+            team_id=self.team.pk,
+            name="child_customer_arr",
+            source_schema_name=f"posthog_data_modeling_team_{child_team.pk}",
+            source_table_name="customer_arr",
+        )
         publication = ManagedWarehousePublishedTable.objects.for_team(child_team.pk).create(
             team=child_team,
+            saved_query_id=saved_query.id,
             source_schema_name=f"posthog_data_modeling_team_{child_team.pk}",
             source_table_name="customer_arr",
             name="child_customer_arr",
@@ -246,6 +266,9 @@ class TestPublishTableActivities(BaseTest):
         publication.refresh_from_db()
         assert publication.status == ManagedWarehousePublishedTable.Status.FAILED
         assert publication.last_error == "COPY failed: out of memory"
+        saved_query = DataWarehouseSavedQuery.objects.get(id=publication.saved_query_id)
+        assert saved_query.status == DataWarehouseSavedQuery.Status.FAILED
+        assert saved_query.latest_error == "COPY failed: out of memory"
 
     # Prune is the only thing standing between a deleted publication and a permanent
     # snapshot leak — and between a live table and a deleted-underneath folder.

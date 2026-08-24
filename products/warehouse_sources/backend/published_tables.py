@@ -22,10 +22,12 @@ def prepare_table_registration(
             name=name,
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern=url_pattern,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
         )
     else:
         table.format = DataWarehouseTable.TableFormat.Parquet
         table.url_pattern = url_pattern
+        table.created_via = DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
 
     table.set_columns(table.get_columns())
     return table
@@ -50,10 +52,12 @@ def save_table_registration(
             name=name,
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern=url_pattern,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
         )
     else:
         table.format = DataWarehouseTable.TableFormat.Parquet
         table.url_pattern = url_pattern
+        table.created_via = DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
 
     table.save(internally_computed_url_pattern=True)
     table.set_columns(dict(columns))

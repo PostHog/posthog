@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
 from products.managed_warehouse.backend.facade import api as managed_warehouse
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeQueryResult,
@@ -145,6 +146,16 @@ class TestManagedWarehousePublish(APIBaseTest):
         publication = publications[0]
         assert publication.name == f"{self._model_schema()}_customer_arr"
         assert publication.status == ManagedWarehousePublishedTableStatus.PENDING
+        assert publication.saved_query_id is not None
+        saved_query = DataWarehouseSavedQuery.objects.get(team_id=self.team.pk, id=publication.saved_query_id)
+        assert saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE
+        assert saved_query.is_materialized is True
+        assert saved_query.query == {
+            "kind": "ManagedWarehouseSource",
+            "source_schema_name": self._model_schema(),
+            "source_table_name": "customer_arr",
+        }
+        assert Node.objects.get(team_id=self.team.pk, saved_query=saved_query).type == NodeType.MAT_VIEW
         mock_start.assert_called_once_with(publication)
 
     @patch(f"{_LOGIC}.start_publish_workflow")
@@ -241,6 +252,10 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert refreshed_publication is not None
         assert refreshed_publication.deleted is True
         assert table.deleted is True
+        assert publication.saved_query_id is not None
+        saved_query = DataWarehouseSavedQuery.objects.get(team_id=self.team.pk, id=publication.saved_query_id)
+        assert saved_query.deleted is True
+        assert not Node.objects.filter(team_id=self.team.pk, saved_query_id=saved_query.id).exists()
         mock_prune.assert_called_once_with(publication)
 
     @patch(f"{_LOGIC}.start_snapshot_prune_workflow", side_effect=RuntimeError("temporal unavailable"))

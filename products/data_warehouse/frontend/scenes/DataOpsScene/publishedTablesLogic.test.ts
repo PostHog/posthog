@@ -9,6 +9,7 @@ import { publishedTablesLogic } from './publishedTablesLogic'
 
 const makePublication = (status: PublishedTableApi['status']): PublishedTableApi => ({
     id: '5c98d849-1119-4207-bba2-5161b31a4067',
+    saved_query_id: '79da0bb6-0906-4187-b2ad-34fb70f45c17',
     name: 'modeled_customers',
     source_schema_name: 'posthog_data_modeling_team_2',
     source_table_name: 'customers',

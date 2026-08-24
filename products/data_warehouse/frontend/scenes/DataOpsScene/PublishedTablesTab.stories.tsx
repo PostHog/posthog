@@ -9,6 +9,7 @@ import { PublishedTablesTab } from './PublishedTablesTab'
 const publications: PublishedTableApi[] = [
     {
         id: 'b60542fd-1786-4564-987a-07b851e29731',
+        saved_query_id: '79da0bb6-0906-4187-b2ad-34fb70f45c17',
         name: 'modeled_customers',
         source_schema_name: 'analytics',
         source_table_name: 'customers',
@@ -19,6 +20,7 @@ const publications: PublishedTableApi[] = [
     },
     {
         id: 'fd52befe-0049-42bb-8bc3-1e75ac39df25',
+        saved_query_id: '5afdd21c-b8a9-4a19-b661-eb4b3b413281',
         name: 'monthly_revenue',
         source_schema_name: 'finance',
         source_table_name: 'monthly_revenue',
@@ -29,6 +31,7 @@ const publications: PublishedTableApi[] = [
     },
     {
         id: '465a10d0-22df-4ee7-ae1f-78b2c4911c95',
+        saved_query_id: '7a71f8b1-ae69-4434-bfb6-9ab7b82660fc',
         name: 'account_health',
         source_schema_name: 'analytics',
         source_table_name: 'account_health',

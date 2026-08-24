@@ -32,14 +32,19 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
 def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str | None:
     """The S3 Delta table a materialized view's rows live in, for a consumer that reads them directly.
 
-    None when the view no longer resolves or was never materialized — either way there is no Delta
-    table to read. The path is built from the same two model properties the materialization activity
-    writes to (``_build_model_table_uri``), so a reader lands on the table that run produced.
+    None when the view no longer resolves, was never materialized, or uses an external materializer
+    with a non-Delta snapshot. The path is built from the same two model properties the standard
+    materialization activity writes to (``_build_model_table_uri``), so a reader lands on the table
+    that run produced.
     """
     saved_query = (
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
     )
-    if saved_query is None or not saved_query.is_materialized:
+    if (
+        saved_query is None
+        or not saved_query.is_materialized
+        or saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE
+    ):
         return None
     return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
 

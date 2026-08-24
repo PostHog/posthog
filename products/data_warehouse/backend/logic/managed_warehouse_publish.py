@@ -16,6 +16,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 
+from products.data_modeling.backend.facade import api as data_modeling
 from products.managed_warehouse.backend.facade import api as managed_warehouse
 from products.managed_warehouse.backend.facade.client import execute_ducklake_query
 from products.managed_warehouse.backend.facade.contracts import (
@@ -87,8 +88,13 @@ def create_publication(
     source_schema_name: str,
     source_table_name: str,
     name: str | None,
+    created_by_id: int | None = None,
 ) -> ManagedWarehousePublishedTableRecord:
-    if not managed_warehouse.has_provisioned_warehouse(team.organization_id) and not managed_warehouse.is_dev_mode():
+    canonical_team = team.parent_team or team
+    if (
+        not managed_warehouse.has_provisioned_warehouse(canonical_team.organization_id)
+        and not managed_warehouse.is_dev_mode()
+    ):
         raise PublishValidationError("No managed warehouse is provisioned for this organization.")
 
     try:
@@ -114,19 +120,30 @@ def create_publication(
             "underscores, and be at most 128 characters."
         )
 
-    name_taken = warehouse_sources.active_table_name_exists(
-        team_id=team.pk, name=resolved_name
-    ) or managed_warehouse.managed_warehouse_published_table_name_exists(team.pk, resolved_name)
+    name_taken = (
+        warehouse_sources.active_table_name_exists(team_id=canonical_team.pk, name=resolved_name)
+        or data_modeling.active_saved_query_name_exists(team_id=canonical_team.pk, name=resolved_name)
+        or managed_warehouse.managed_warehouse_published_table_name_exists(canonical_team.pk, resolved_name)
+    )
     if name_taken:
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.")
 
     try:
         with transaction.atomic():
+            saved_query = data_modeling.create_managed_warehouse_saved_query(
+                team_id=canonical_team.pk,
+                name=resolved_name,
+                source_schema_name=source_schema_name,
+                source_table_name=source_table_name,
+                created_by_id=created_by_id,
+            )
             return managed_warehouse.create_managed_warehouse_published_table(
-                team_id=team.pk,
+                team_id=canonical_team.pk,
                 source_schema_name=source_schema_name,
                 source_table_name=source_table_name,
                 name=resolved_name,
+                saved_query_id=saved_query.id,
+                created_by_id=created_by_id,
             )
     except IntegrityError as error:
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.") from error
@@ -172,6 +189,8 @@ def delete_publication(publication: ManagedWarehousePublishedTableRecord) -> Non
             warehouse_sources.soft_delete_table_if_exists(team_id=publication.team_id, table_id=publication.table_id)
 
         managed_warehouse.mark_managed_warehouse_published_table_deleted(publication.team_id, publication.id)
+        if publication.saved_query_id is not None:
+            data_modeling.delete_managed_warehouse_saved_query(publication.team_id, publication.saved_query_id)
 
         # The parquet snapshot in the org bucket must go too, but only the temporal
         # workers hold the cross-account DeleteObject grant — schedule the prune and

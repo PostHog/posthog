@@ -19112,7 +19112,7 @@
             "type": "object"
         },
         "DataWarehouseSavedQueryOrigin": {
-            "enum": ["data_warehouse", "endpoint", "managed_viewset"],
+            "enum": ["data_warehouse", "endpoint", "managed_warehouse", "managed_viewset"],
             "type": "string"
         },
         "DataWarehouseSourceCategory": {
