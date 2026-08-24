@@ -32,8 +32,11 @@ def track_activity(name: str | None = None, side_effect: str | None = None) -> C
                 record_side_effect_failure(side_effect)
 
         if inspect.iscoroutinefunction(fn):
-            # thread_sensitive keeps this on the same executor thread as the activity's ORM
-            # calls, so it closes the connection they will reuse rather than one on the event loop.
+            # Django's native async ORM (afirst/acreate) runs its query through
+            # sync_to_async(thread_sensitive=True), so the connection to close lives on asgiref's
+            # shared thread-sensitive executor. Match that thread here. database_sync_to_async_pool
+            # would run on a different pool thread and close the wrong connection, because Django
+            # connections are thread-local, leaving the stale one the ORM reuses in place.
             close_stale_db_connections_async = sync_to_async(close_stale_db_connections, thread_sensitive=True)
 
             @wraps(fn)
