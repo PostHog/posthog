@@ -258,10 +258,11 @@ class LogsSeriesBandsErrorSerializer(serializers.Serializer):
 
 
 class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """On-demand anomaly scan over one service's log volume.
+    """Anomaly surfaces over one service's log volume.
 
-    Experimental, behind the logs-anomalies feature flag. Computes everything
-    per request from raw logs; nothing is persisted.
+    Experimental, behind the logs-anomalies feature flag. `scan` computes
+    everything per request from raw logs; `series_bands` reads the volume
+    rollup. Neither persists anything.
     """
 
     scope_object = "logs"

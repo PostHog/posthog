@@ -22,6 +22,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import ensure_utc
 
 WINDOW_DAYS = 7
 BASELINE_WEEKS = 5
@@ -33,8 +34,8 @@ MAX_SERIES = int(os.environ.get("LOGS_SERIES_BANDS_MAX_SERIES", "100"))
 # Widening keeps the envelope from reading as a hairline on quiet series: the
 # fraction scales both edges, the floor lifts the upper edge by a per-hour
 # count so a band exists even where every baseline week saw the same value.
-BAND_WIDEN_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_WIDEN_FRACTION", "0.1"))
-BAND_FLOOR_PER_HOUR = float(os.environ.get("LOGS_SERIES_BANDS_FLOOR_PER_HOUR", "2"))
+BAND_WIDEN_FRACTION = 0.1
+BAND_FLOOR_PER_HOUR = 2.0
 
 MAX_EXECUTION_SECONDS = int(os.environ.get("LOGS_SERIES_BANDS_MAX_EXECUTION_SECONDS", "30"))
 
@@ -181,33 +182,29 @@ def fetch_series_slot_rows(
     rows: dict[_SeriesKey, list[_SlotRow]] = {}
     for row in response.results:
         key = _SeriesKey(namespace=row[0], environment=row[1], severity=row[2])
-        target_time, earliest_slot = row[3], row[8]
-        if target_time.tzinfo is None:
-            target_time = target_time.replace(tzinfo=dt.UTC)
-        if earliest_slot.tzinfo is None:
-            earliest_slot = earliest_slot.replace(tzinfo=dt.UTC)
         rows.setdefault(key, []).append(
             _SlotRow(
-                target_time=target_time,
+                target_time=ensure_utc(row[3]),
                 observed=int(row[4]),
                 baseline_samples=int(row[5]),
                 baseline_min=int(row[6]),
                 baseline_max=int(row[7]),
-                earliest_slot=earliest_slot,
+                earliest_slot=ensure_utc(row[8]),
             )
         )
     return rows
 
 
-def _expected_baseline_samples(target_time: dt.datetime, earliest_slot: dt.datetime) -> int:
-    """How many of the BASELINE_WEEKS weekly samples for this slot fall inside
-    the series' lifetime. A week whose sample slot predates the series carries
-    no information; a week inside the lifetime with no row was a real zero."""
-    expected = 0
-    for week in range(1, BASELINE_WEEKS + 1):
-        if target_time - dt.timedelta(weeks=week) >= earliest_slot:
-            expected += 1
-    return expected
+def _baseline_weeks_available(later: dt.datetime, earliest_slot: dt.datetime) -> int:
+    """Whole weeks of series lifetime before `later`, capped at the baseline depth.
+
+    Against the window start this is the series' maturity; against one display
+    slot it is how many of that slot's weekly samples carry information. A week
+    whose sample slot predates the series says nothing; a week inside the
+    lifetime with no row was a real zero.
+    """
+    weeks = int((later - earliest_slot).total_seconds()) // SECONDS_PER_WEEK
+    return min(BASELINE_WEEKS, max(0, weeks))
 
 
 def _build_series(
@@ -219,8 +216,7 @@ def _build_series(
 ) -> BandSeries:
     by_time = {row.target_time: row for row in slot_rows}
     earliest_slot = min(row.earliest_slot for row in slot_rows)
-    lifetime = window_start - earliest_slot
-    baseline_weeks = min(BASELINE_WEEKS, max(0, int(lifetime.total_seconds() // SECONDS_PER_WEEK)))
+    baseline_weeks = _baseline_weeks_available(window_start, earliest_slot)
     banded = baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND
     floor = BAND_FLOOR_PER_HOUR * interval_minutes / 60
 
@@ -235,15 +231,16 @@ def _build_series(
         lower: float | None = None
         upper: float | None = None
         if banded:
-            expected = _expected_baseline_samples(slot, earliest_slot)
-            if expected > 0:
-                samples = row.baseline_samples if row else 0
-                # A lifetime week with no row at this slot was a real zero, so
-                # any missing sample drags the envelope floor to zero.
-                low = 0 if samples < expected else (row.baseline_min if row else 0)
-                high = row.baseline_max if row else 0
-                lower = low * (1 - BAND_WIDEN_FRACTION)
-                upper = high * (1 + BAND_WIDEN_FRACTION) + floor
+            # Every slot sits at or after window_start, so a banded series has at
+            # least MIN_BASELINE_WEEKS_FOR_BAND samples to expect at every slot.
+            expected = _baseline_weeks_available(slot, earliest_slot)
+            samples = row.baseline_samples if row else 0
+            # A lifetime week with no row at this slot was a real zero, so any
+            # missing sample drags the envelope floor to zero.
+            low = row.baseline_min if row and samples >= expected else 0
+            high = row.baseline_max if row else 0
+            lower = low * (1 - BAND_WIDEN_FRACTION)
+            upper = high * (1 + BAND_WIDEN_FRACTION) + floor
         buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
         slot += step
 
