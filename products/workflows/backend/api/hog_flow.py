@@ -2850,6 +2850,30 @@ class ConcurrentWorkflowUpdateError(exceptions.APIException):
     default_code = "concurrent_update"
 
 
+# Postgres SQLSTATE for "lock not available" — what SELECT ... FOR UPDATE NOWAIT raises when the
+# row is already locked by another transaction.
+_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
+
+
+def _is_lock_not_available(exc: BaseException | None) -> bool:
+    # A NOWAIT row lock conflict surfaces as Postgres SQLSTATE 55P03, which the driver raises as
+    # LockNotAvailable and Django re-raises as django.db.OperationalError with the driver error
+    # chained. Walk __cause__ and __context__ and match on the SQLSTATE (psycopg2 exposes it as
+    # .pgcode, psycopg3 as .sqlstate) so a real lock conflict is told apart from an unrelated
+    # OperationalError — a dropped connection, a statement timeout, or a server shutdown.
+    stack: list[BaseException] = [exc] if exc is not None else []
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if (getattr(current, "sqlstate", None) or getattr(current, "pgcode", None)) == _LOCK_NOT_AVAILABLE_SQLSTATE:
+            return True
+        stack.extend(linked for linked in (current.__cause__, current.__context__) if linked is not None)
+    return False
+
+
 class DraftExistsError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -3248,8 +3272,14 @@ class HogFlowViewSet(
         try:
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             return HogFlow.objects.select_for_update(nowait=True).get(pk=pk)
-        except OperationalError:
-            raise ConcurrentWorkflowUpdateError()
+        except OperationalError as e:
+            # Only a NOWAIT lock conflict is a concurrent save. A dropped connection, a statement
+            # timeout, or a server shutdown surface through the same OperationalError class; mapping
+            # those to a 409 would tell the client to retry or reconcile a write that never happened
+            # and would hide the real failure from error tracking. Let them propagate as a 500.
+            if _is_lock_not_available(e):
+                raise ConcurrentWorkflowUpdateError()
+            raise
 
     def perform_update(self, serializer):
         # Guardrails for MCP/LLM callers (gated on x-posthog-client: mcp; the frontend and raw API are
