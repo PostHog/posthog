@@ -10,7 +10,7 @@ import structlog
 import posthoganalytics
 from celery import Task, chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -43,35 +43,9 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
-COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
-    "cohort_recalculations_backlog",
-    "Number of cohorts that are waiting to be calculated",
-    multiprocess_mode="max",
-)
-
 COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "cohort_staleness_hours",
     "Cohort's count of hours since last calculation",
-    multiprocess_mode="max",
-)
-
-COHORTS_STALE_COUNT_GAUGE = Gauge(
-    "cohorts_stale",
-    "Number of cohorts that haven't been calculated in more than X hours",
-    ["hours"],
-    multiprocess_mode="max",
-)
-
-COHORTS_TOTAL_GAUGE = Gauge(
-    "cohorts_total",
-    "Total number of eligible cohorts for recalculation (non-static, non-deleted)",
-    multiprocess_mode="max",
-)
-
-COHORT_STUCK_COUNT_GAUGE = Gauge(
-    # TODO: rename to cohorts_stuck because this is a gauge not a counter
-    "cohort_stuck_count",
-    "Number of cohorts that are stuck calculating for more than 1 hour",
     multiprocess_mode="max",
 )
 
@@ -81,12 +55,6 @@ COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
 )
 
 COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
-
-COHORT_MAXED_ERRORS_GAUGE = Gauge(
-    "cohort_maxed_errors",
-    "Number of cohorts that have reached the maximum number of errors",
-    multiprocess_mode="max",
-)
 
 COHORT_CALCULATION_STARTED_COUNTER = Counter(
     "cohort_calculation_started_total",
@@ -254,8 +222,37 @@ def reset_stuck_cohorts() -> None:
         )
 
 
-def update_cohort_metrics() -> None:
+def update_cohort_metrics(registry: CollectorRegistry) -> None:
     now = timezone.now()
+
+    cohorts_total_gauge = Gauge(
+        "cohorts_total",
+        "Total number of eligible cohorts for recalculation (non-static, non-deleted)",
+        registry=registry,
+    )
+    cohorts_stale_gauge = Gauge(
+        "cohorts_stale",
+        "Number of cohorts that haven't been calculated in more than X hours",
+        ["hours"],
+        registry=registry,
+    )
+    cohort_stuck_gauge = Gauge(
+        # TODO: rename to cohorts_stuck because this is a gauge not a counter
+        "cohort_stuck_count",
+        "Number of cohorts that are stuck calculating for more than 1 hour",
+        registry=registry,
+    )
+    cohort_maxed_errors_gauge = Gauge(
+        "cohort_maxed_errors",
+        "Number of cohorts that have reached the maximum number of errors",
+        registry=registry,
+    )
+    cohort_backlog_gauge = Gauge(
+        "cohort_recalculations_backlog",
+        "Number of cohorts that are waiting to be calculated",
+        registry=registry,
+    )
+
     base_queryset = Cohort.objects.filter(
         Q(last_calculation__isnull=False),
         deleted=False,
@@ -263,11 +260,11 @@ def update_cohort_metrics() -> None:
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
 
-    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
+    cohorts_total_gauge.set(base_queryset.count())
 
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
-        COHORTS_STALE_COUNT_GAUGE.labels(hours=str(hours)).set(stale_count)
+        cohorts_stale_gauge.labels(hours=str(hours)).set(stale_count)
 
     stuck_count = (
         Cohort.objects.filter(
@@ -279,15 +276,16 @@ def update_cohort_metrics() -> None:
         .exclude(is_static=True)
         .count()
     )
-
-    COHORT_STUCK_COUNT_GAUGE.set(stuck_count)
+    cohort_stuck_gauge.set(stuck_count)
 
     maxed_error_count = (
         Cohort.objects.filter(deleted=False, errors_calculating__gt=MAX_ERRORS_CALCULATING)
         .exclude(is_static=True)
         .count()
     )
-    COHORT_MAXED_ERRORS_GAUGE.set(maxed_error_count)
+    cohort_maxed_errors_gauge.set(maxed_error_count)
+
+    cohort_backlog_gauge.set(get_cohort_calculation_candidates_queryset().count())
 
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
@@ -336,19 +334,11 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             # Skip this cohort and continue with others
             continue
 
-    backlog = get_cohort_calculation_candidates_queryset().count()
-    COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
-
     logger.warning(
         "enqueued_cohort_calculation",
         cohort_ids=cohort_ids,
-        COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog,
+        count=len(cohort_ids),
     )
-
-    try:
-        update_cohort_metrics()
-    except Exception as e:
-        logger.exception("failed_to_update_cohort_metrics", error=str(e))
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> bool:

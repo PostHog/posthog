@@ -55,6 +55,7 @@ from posthog.tasks.tasks import (
     pg_plugin_server_query_timing,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
+    record_cohort_metrics,
     redis_celery_queue_depth,
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
@@ -689,6 +690,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recalculate cohorts night",
         expires=60 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        record_cohort_metrics.s(),
+        name="cohort SLO metrics",
     )
 
     add_periodic_task_with_expiry(

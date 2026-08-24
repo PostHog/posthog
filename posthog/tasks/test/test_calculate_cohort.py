@@ -4,20 +4,19 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
 from celery.exceptions import Retry
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY, CollectorRegistry
 
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
-    COHORT_STUCK_COUNT_GAUGE,
-    COHORTS_STALE_COUNT_GAUGE,
-    COHORTS_TOTAL_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
@@ -29,6 +28,7 @@ from posthog.tasks.calculate_cohort import (
     trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
+from posthog.tasks.tasks import CALCULATE_COHORT_LOCK_KEY, calculate_cohort, record_cohort_metrics
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
@@ -177,162 +177,6 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             )
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
-
-        @patch.object(COHORTS_TOTAL_GAUGE, "set")
-        @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
-        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock, mock_total_set: MagicMock) -> None:
-            mock_gauge = MagicMock()
-            mock_labels.return_value = mock_gauge
-
-            now = timezone.now()
-
-            # Create cohorts with different staleness levels
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="fresh_cohort",
-                last_calculation=now - relativedelta(hours=12),  # Not stale
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stale_24h",
-                last_calculation=now - relativedelta(hours=30),  # Stale for 24h
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stale_36h",
-                last_calculation=now - relativedelta(hours=40),  # Stale for 36h
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stale_48h",
-                last_calculation=now - relativedelta(hours=50),  # Stale for 48h
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            # Create cohorts that should be excluded
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="null_last_calc",  # Should be excluded
-                last_calculation=None,
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="deleted_cohort",
-                last_calculation=now - relativedelta(hours=50),
-                deleted=True,  # Should be excluded
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="static_cohort",
-                last_calculation=now - relativedelta(hours=50),
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=0,
-                is_static=True,  # Should be excluded
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="high_errors",
-                last_calculation=now - relativedelta(hours=50),
-                deleted=False,
-                is_calculating=False,
-                errors_calculating=MAX_ERRORS_CALCULATING + 1,  # Should be excluded (>20 errors)
-                is_static=False,
-            )
-
-            update_cohort_metrics()
-
-            mock_labels.assert_any_call(hours="24")
-            mock_labels.assert_any_call(hours="36")
-            mock_labels.assert_any_call(hours="48")
-
-            set_calls = mock_gauge.set.call_args_list
-            self.assertEqual(len(set_calls), 3)
-
-            self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
-            self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
-            self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
-
-            # 4 eligible cohorts: fresh_cohort, stale_24h, stale_36h, stale_48h
-            # Excluded: null_last_calc (no last_calculation), deleted_cohort, static_cohort, high_errors
-            mock_total_set.assert_called_once_with(4)
-
-        @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
-        def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:
-            now = timezone.now()
-
-            # Create stuck cohort - is_calculating=True and last_calculation > 12 hours ago
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_cohort",
-                last_calculation=now - relativedelta(hours=2),
-                deleted=False,
-                is_calculating=True,  # Stuck calculating
-                errors_calculating=5,
-                is_static=False,
-            )
-
-            # Create another stuck cohort
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_cohort_2",
-                last_calculation=now - relativedelta(hours=3),
-                deleted=False,
-                is_calculating=True,  # Stuck calculating
-                errors_calculating=2,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="not_calculating",
-                last_calculation=now - relativedelta(hours=24),  # Old but not calculating
-                deleted=False,
-                is_calculating=False,  # Not calculating
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            Cohort.objects.create(
-                team_id=self.team.pk,
-                name="recent_calculation",
-                last_calculation=now - relativedelta(minutes=59),  # Recent calculation
-                deleted=False,
-                is_calculating=True,
-                errors_calculating=0,
-                is_static=False,
-            )
-
-            update_cohort_metrics()
-            mock_set.assert_called_with(2)
 
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_reset_stuck_cohorts(self, mock_logger: MagicMock) -> None:
@@ -1436,6 +1280,207 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort_b.refresh_from_db()
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
+
+    def test_update_stale_cohort_metrics(self) -> None:
+        now = timezone.now()
+
+        # Baseline before the fixtures so assertions are deltas — the gauges count across all
+        # teams, so this stays correct regardless of cohorts already in the DB.
+        baseline = CollectorRegistry()
+        update_cohort_metrics(baseline)
+
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="fresh_cohort",
+            last_calculation=now - relativedelta(hours=12),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stale_24h",
+            last_calculation=now - relativedelta(hours=30),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stale_36h",
+            last_calculation=now - relativedelta(hours=40),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stale_48h",
+            last_calculation=now - relativedelta(hours=50),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        # Null last_calculation: out of cohorts_total, still a backlog candidate.
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="never_calculated",
+            last_calculation=None,
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="deleted_cohort",
+            last_calculation=now - relativedelta(hours=50),
+            deleted=True,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="static_cohort",
+            last_calculation=now - relativedelta(hours=50),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=True,
+        )
+        # Over the error cap: excluded from totals/backlog, counted only in cohort_maxed_errors.
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="maxed_errors",
+            last_calculation=now - relativedelta(hours=50),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=MAX_ERRORS_CALCULATING + 1,
+            is_static=False,
+        )
+
+        registry = CollectorRegistry()
+        update_cohort_metrics(registry)
+
+        def added(name: str, labels: dict[str, str] | None = None) -> float:
+            after = registry.get_sample_value(name, labels) or 0.0
+            before = baseline.get_sample_value(name, labels) or 0.0
+            return after - before
+
+        self.assertEqual(added("cohorts_total"), 4)
+        self.assertEqual(added("cohorts_stale", {"hours": "24"}), 3)
+        self.assertEqual(added("cohorts_stale", {"hours": "36"}), 2)
+        self.assertEqual(added("cohorts_stale", {"hours": "48"}), 1)
+        self.assertEqual(added("cohort_recalculations_backlog"), 5)
+        self.assertEqual(added("cohort_maxed_errors"), 1)
+
+    def test_stuck_cohort_metrics(self) -> None:
+        now = timezone.now()
+
+        baseline = CollectorRegistry()
+        update_cohort_metrics(baseline)
+
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_cohort",
+            last_calculation=now - relativedelta(hours=2),
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=5,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_cohort_2",
+            last_calculation=now - relativedelta(hours=3),
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=2,
+            is_static=False,
+        )
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="not_calculating",
+            last_calculation=now - relativedelta(hours=24),
+            deleted=False,
+            is_calculating=False,
+            errors_calculating=0,
+            is_static=False,
+        )
+        # Calculating but only for 59 minutes: under the 1-hour stuck threshold.
+        Cohort.objects.create(
+            team_id=self.team.pk,
+            name="recent_calculation",
+            last_calculation=now - relativedelta(minutes=59),
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=0,
+            is_static=False,
+        )
+
+        registry = CollectorRegistry()
+        update_cohort_metrics(registry)
+
+        before = baseline.get_sample_value("cohort_stuck_count") or 0.0
+        after = registry.get_sample_value("cohort_stuck_count") or 0.0
+        self.assertEqual(after - before, 2)
+
+    def test_calculate_cohort_skips_when_lock_held(self) -> None:
+        cache.add(CALCULATE_COHORT_LOCK_KEY, "locked", timeout=60)
+        self.addCleanup(cache.delete, CALCULATE_COHORT_LOCK_KEY)
+
+        metric = "posthog_calculate_cohort_lock_contentions_total"
+        before = REGISTRY.get_sample_value(metric) or 0.0
+
+        with (
+            patch("posthog.tasks.calculate_cohort.enqueue_cohorts_to_calculate") as mock_enqueue,
+            patch("posthog.tasks.calculate_cohort.reset_stuck_cohorts") as mock_reset,
+        ):
+            calculate_cohort(1)
+
+        mock_enqueue.assert_not_called()
+        mock_reset.assert_not_called()
+        self.assertEqual((REGISTRY.get_sample_value(metric) or 0.0) - before, 1.0)
+
+    @parameterized.expand(
+        [
+            ("success", None),
+            ("failure", RuntimeError("enqueue blew up")),
+        ]
+    )
+    def test_calculate_cohort_releases_lock(self, _name: str, enqueue_side_effect: Exception | None) -> None:
+        self.addCleanup(cache.delete, CALCULATE_COHORT_LOCK_KEY)
+
+        with (
+            patch("posthog.tasks.calculate_cohort.enqueue_cohorts_to_calculate", side_effect=enqueue_side_effect),
+            patch("posthog.tasks.calculate_cohort.reset_stuck_cohorts"),
+        ):
+            if enqueue_side_effect is not None:
+                with self.assertRaises(RuntimeError):
+                    calculate_cohort(1)
+            else:
+                calculate_cohort(1)
+
+        # Lock is free again, so the next scheduled run can acquire it.
+        self.assertTrue(cache.add(CALCULATE_COHORT_LOCK_KEY, "locked", timeout=60))
+
+    @patch("posthog.metrics.push_to_gateway")
+    @patch("django.conf.settings.PROM_PUSHGATEWAY_ADDRESS", value="127.0.0.1")
+    def test_record_cohort_metrics_emits_through_pushed_registry(
+        self, _address: MagicMock, mock_push_to_gateway: MagicMock
+    ) -> None:
+        record_cohort_metrics()
+
+        self.assertEqual(mock_push_to_gateway.call_count, 1)
+        registry = mock_push_to_gateway.call_args[1]["registry"]
+        # The sample lands in the pushed registry, not the default one — proves the task emits
+        # through self.metrics_registry.
+        self.assertIsNotNone(registry.get_sample_value("cohorts_total"))
 
 
 class TestCalculateCohortFromListRetries(APIBaseTest):

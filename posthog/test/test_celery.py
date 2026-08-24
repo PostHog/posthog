@@ -1,4 +1,3 @@
-import os
 import threading
 
 from unittest import TestCase
@@ -73,9 +72,6 @@ class TestAnalyticsMetricsConfig(TestCase):
 
 
 class TestWorkerMetricsInitialization(TestCase):
-    # "celery" excludes long_running, so this also proves the seed does not depend on
-    # the queue set (and keeps the DB-touching cohort branch off).
-    @patch.dict(os.environ, {"CELERY_WORKER_QUEUES": "celery"})
     def test_seeds_hypercache_verification_task_series(self) -> None:
         _initialize_worker_metrics()
 
