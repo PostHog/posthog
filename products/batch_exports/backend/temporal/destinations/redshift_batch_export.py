@@ -523,6 +523,13 @@ class RedshiftClient(PostgreSQLClient):
                 secret_access_key=sql.Literal(authorization.aws_secret_access_key),
             )
 
+            if authorization.aws_session_token is not None:
+                credentials += sql.SQL(
+                    """
+                    SESSION_TOKEN {session_token}
+                    """
+                ).format(session_token=sql.Literal(authorization.aws_session_token))
+
         else:
             if authorization == "default":
                 credentials = sql.SQL("IAM_ROLE default")
