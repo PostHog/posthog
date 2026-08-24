@@ -15,9 +15,15 @@ export interface BehavioralPropertyFilterRowProps {
     size?: 'xsmall' | 'small' | 'medium'
 }
 
-const COUNT_OPERATOR_OPTIONS = [PropertyOperator.GreaterThanOrEqual, PropertyOperator.LessThanOrEqual, PropertyOperator.Exact].map(
-    (value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' })
-)
+const COUNT_OPERATOR_OPTIONS = [
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.Exact,
+].map((value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' }))
+
+// A cleared number LemonInput reports NaN, which `??` doesn't catch
+const positiveOr = (value: number | undefined, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 1 ? value : fallback
 
 const TIME_INTERVAL_OPTIONS = [
     { value: TimeUnitType.Day, label: 'days' },
@@ -25,6 +31,30 @@ const TIME_INTERVAL_OPTIONS = [
     { value: TimeUnitType.Month, label: 'months' },
     { value: TimeUnitType.Year, label: 'years' },
 ]
+
+export function withBehavioralCount(
+    filter: BehavioralPropertyFilter,
+    operator: PropertyOperator,
+    operatorValue: number
+): BehavioralPropertyFilter {
+    // "at least once" is the plain performed_event criterion; anything else needs a count
+    return operator === PropertyOperator.GreaterThanOrEqual && operatorValue === 1
+        ? { ...filter, value: BehavioralEventType.PerformEvent, operator: undefined, operator_value: undefined }
+        : { ...filter, value: BehavioralEventType.PerformMultipleEvents, operator, operator_value: operatorValue }
+}
+
+export function withBehavioralNegation(filter: BehavioralPropertyFilter, negation: boolean): BehavioralPropertyFilter {
+    // "Did not perform" means not at all, so a count no longer applies
+    return negation
+        ? {
+              ...filter,
+              negation: true,
+              value: BehavioralEventType.PerformEvent,
+              operator: undefined,
+              operator_value: undefined,
+          }
+        : { ...filter, negation: undefined }
+}
 
 export function BehavioralPropertyFilterRow({
     filter,
@@ -41,22 +71,7 @@ export function BehavioralPropertyFilterRow({
     const countValue = filter.operator_value ?? 1
 
     const setCount = (operator: PropertyOperator, operatorValue: number): void => {
-        // "at least once" is the plain performed_event criterion; anything else needs a count
-        if (operator === PropertyOperator.GreaterThanOrEqual && operatorValue === 1) {
-            onChange({
-                ...filter,
-                value: BehavioralEventType.PerformEvent,
-                operator: undefined,
-                operator_value: undefined,
-            })
-        } else {
-            onChange({
-                ...filter,
-                value: BehavioralEventType.PerformMultipleEvents,
-                operator,
-                operator_value: operatorValue,
-            })
-        }
+        onChange(withBehavioralCount(filter, operator, operatorValue))
     }
 
     return (
@@ -66,20 +81,7 @@ export function BehavioralPropertyFilterRow({
                     <LemonSelect
                         size={size}
                         value={!!filter.negation}
-                        onChange={(negation) =>
-                            // "Did not perform" means not at all, so a count no longer applies
-                            onChange(
-                                negation
-                                    ? {
-                                          ...filter,
-                                          negation: true,
-                                          value: BehavioralEventType.PerformEvent,
-                                          operator: undefined,
-                                          operator_value: undefined,
-                                      }
-                                    : { ...filter, negation: undefined }
-                            )
-                        }
+                        onChange={(negation) => onChange(withBehavioralNegation(filter, negation))}
                         options={[
                             { value: false, label: 'Performed' },
                             { value: true, label: 'Did not perform' },
@@ -115,9 +117,7 @@ export function BehavioralPropertyFilterRow({
                             min={1}
                             className="w-14"
                             value={countValue}
-                            onChange={(operatorValue) =>
-                                setCount(countOperator, Number.isFinite(operatorValue) && operatorValue >= 1 ? operatorValue : 1)
-                            }
+                            onChange={(operatorValue) => setCount(countOperator, positiveOr(operatorValue, 1))}
                             data-attr="behavioral-filter-count-value"
                         />
                         <span className="whitespace-nowrap">{countValue === 1 ? 'time' : 'times'}</span>
@@ -131,9 +131,7 @@ export function BehavioralPropertyFilterRow({
                         min={1}
                         className="w-14"
                         value={filter.time_value ?? 30}
-                        onChange={(timeValue) =>
-                            onChange({ ...filter, time_value: Number.isFinite(timeValue) && timeValue >= 1 ? timeValue : 30 })
-                        }
+                        onChange={(timeValue) => onChange({ ...filter, time_value: positiveOr(timeValue, 30) })}
                         data-attr="behavioral-filter-time-value"
                     />
                     <LemonSelect

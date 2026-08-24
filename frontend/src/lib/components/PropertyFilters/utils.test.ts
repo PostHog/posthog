@@ -80,9 +80,10 @@ describe('formatPropertyLabel() for behavioral filters', () => {
         time_interval: TimeUnitType.Day,
     }
 
+    // pluralize() glues the count to its unit with a non-breaking space
     test.each<[string, Partial<BehavioralPropertyFilter>, string]>([
-        ['performed', {}, 'Performed signed_up in the last 30 days'],
-        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30 days'],
+        ['performed', {}, 'Performed signed_up in the last 30\u00a0days'],
+        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30\u00a0days'],
         [
             'count',
             {
@@ -90,9 +91,13 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                 operator: PropertyOperator.GreaterThanOrEqual,
                 operator_value: 3,
             },
-            'Performed signed_up at least 3 times in the last 30 days',
+            'Performed signed_up at least 3\u00a0times in the last 30\u00a0days',
         ],
-        ['single unit', { time_value: 1, time_interval: TimeUnitType.Week }, 'Performed signed_up in the last 1 week'],
+        [
+            'single unit',
+            { time_value: 1, time_interval: TimeUnitType.Week },
+            'Performed signed_up in the last 1\u00a0week',
+        ],
         ['explicit date', { explicit_datetime: '-14d', time_value: undefined }, 'Performed signed_up since -14d'],
     ])('%s', (_name, overrides, expected) => {
         expect(formatPropertyLabel({ ...base, ...overrides }, {})).toEqual(expected)

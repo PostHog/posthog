@@ -50,6 +50,7 @@ import {
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    TimeUnitType,
     WorkflowVariablePropertyFilter,
 } from '~/types'
 
@@ -269,7 +270,7 @@ function formatBehavioralPropertyLabel(item: BehavioralPropertyFilter): string {
             : ''
     const windowClause = item.explicit_datetime
         ? ` since ${item.explicit_datetime}`
-        : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval)}`
+        : ` in the last ${pluralize(item.time_value ?? 30, item.time_interval ?? TimeUnitType.Day)}`
     return `${item.negation ? 'Did not perform' : 'Performed'} ${eventLabel}${countClause}${windowClause}`
 }
 

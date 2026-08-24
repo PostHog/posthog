@@ -84,7 +84,11 @@ export function PropertyGroupFilters({
                     <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
                         <div className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline-wrapper">
                             <div className="PropertyGroupFilters__add-filter-group-inline">
-                                <div className={behavioralFiltersEnabled ? 'flex flex-wrap items-center gap-2' : undefined}>
+                                <div
+                                    className={
+                                        behavioralFiltersEnabled ? 'flex flex-wrap items-center gap-2' : undefined
+                                    }
+                                >
                                     <LemonButton
                                         data-attr={`${pageKey}-add-filter-group-inline`}
                                         type="secondary"
@@ -185,7 +189,9 @@ export function PropertyGroupFilters({
                                                 </div>
                                                 <div
                                                     className={
-                                                        behavioralFiltersEnabled ? 'bg-primary px-2.5 py-2.5' : undefined
+                                                        behavioralFiltersEnabled
+                                                            ? 'bg-primary px-2.5 py-2.5'
+                                                            : undefined
                                                     }
                                                 >
                                                     <PropertyFilters
@@ -217,7 +223,9 @@ export function PropertyGroupFilters({
                                                                           size="small"
                                                                           icon={<IconPlusSmall />}
                                                                           sideIcon={null}
-                                                                          onClick={() => addFilter(newBehavioralFilter())}
+                                                                          onClick={() =>
+                                                                              addFilter(newBehavioralFilter())
+                                                                          }
                                                                       >
                                                                           Performed event
                                                                       </LemonButton>
