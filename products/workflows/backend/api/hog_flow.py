@@ -568,6 +568,21 @@ def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
         return None
 
 
+def _with_non_failure_status_default(inputs: dict, input_schema: list[dict] | None) -> dict:
+    """Materialize a template's `non_failure_status_codes` default onto the step's own inputs.
+
+    The engine reads that setting from `action.config.inputs` only, never from the template, so a
+    step created without it (API/MCP callers, or the chooser before the toolbar pinned it) fails on
+    exactly the statuses the template meant as a graceful skip. A value the author set is kept."""
+    for schema in input_schema or []:
+        if schema.get("type") != "non_failure_status_codes" or schema.get("default") is None:
+            continue
+        key = schema["key"]
+        if key not in inputs:
+            return {**inputs, key: {"value": schema["default"]}}
+    return inputs
+
+
 def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
     """template_id on fixed-template steps is fully determined by the step type, so infer it when
     omitted instead of rejecting for leaving out a constant, and move a UUID-shaped value (a saved
@@ -1318,7 +1333,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
-                inputs = data.get("config", {}).get("inputs", {})
+                inputs = _with_non_failure_status_default(data.get("config", {}).get("inputs", {}), input_schema)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -2231,10 +2246,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # masking and a trigger that scout output can't satisfy. Skipped for drafts like the check
         # above: a half-wired draft is legitimate, and this fires on the save that activates it.
         if not is_draft:
+            get_team = self.context.get("get_team")
             validate_run_scout_flow(
                 actions=actions,
                 trigger_config=data["trigger"],
                 trigger_masking=data.get("trigger_masking", instance.trigger_masking if instance else None),
+                team_id=get_team().id if get_team is not None else None,
             )
 
         # Compute and store unique billable action types for efficient quota checking

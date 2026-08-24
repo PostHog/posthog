@@ -194,6 +194,29 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"skill_name": SKILL, "workflow_id": "wf-1", "started": True}
 
+    def test_replays_the_202_to_a_retried_step(self) -> None:
+        # The engine re-sends the identical request when the first 202 is lost (a client-side
+        # timeout on a slow dispatch). The retry must read as the same success, not collide with
+        # the run the first request started.
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            first = self._post(body={"idempotency_key": "inv-1:run_scout"})
+            second = self._post(body={"idempotency_key": "inv-1:run_scout"})
+            third = self._post(body={"idempotency_key": "inv-2:run_scout"})
+
+        assert (first.status_code, second.status_code, third.status_code) == (202, 202, 202)
+        assert second.json() == first.json()
+        assert dispatch.call_count == 2
+
+    def test_does_not_replay_another_workflows_key(self) -> None:
+        other_flow = HogFlow.objects.create(
+            team=self.team, name="Another", created_by=self.user, trigger={"type": "manual"}
+        )
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            self._post(body={"idempotency_key": "inv-1:run_scout"})
+            self._post(body={"idempotency_key": "inv-1:run_scout"}, token=_token(self.team.id, str(other_flow.id)))
+
+        assert dispatch.call_count == 2
+
     def test_rejects_a_token_minted_for_another_audience(self) -> None:
         response = self._post(
             token=_token(self.team.id, str(self.hog_flow.id), audience=PosthogJwtAudience.TASKS_CREATE)

@@ -14,6 +14,13 @@ import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 // The claims scope it to a single team and workflow, which keeps the longer window cheap.
 const TOKEN_TTL_SECONDS = 30 * 60
 
+// The endpoint runs the dispatch gates and opens a Temporal connection before it answers, which
+// takes a couple of seconds on a quiet stack and can exceed the default 3s external-request
+// budget. A client-side abort there is the worst outcome: the run starts anyway, and the retry
+// is answered by the replay of the first 202 only if the first request got far enough to
+// dispatch. Give the request enough room that the common case finishes on attempt one.
+const REQUEST_TIMEOUT_MS = 15_000
+
 // Constructed on first use rather than at import so the module has no side effects beyond
 // registration and tests can override env-derived config before anything reads it.
 let scoutRunJwt: ScopedServiceJwt | undefined
@@ -55,6 +62,7 @@ registerAsyncFunction('postHogRunScout', {
             type: 'fetch',
             url: `${context.siteUrl}/api/projects/${context.invocation.teamId}/workflow_scout_runs/`,
             method: 'POST',
+            timeoutMs: REQUEST_TIMEOUT_MS,
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,

@@ -145,9 +145,8 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     """
     live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
     in_flight = (
-        SignalScoutRun.objects.unscoped()
+        SignalScoutRun.objects.for_team(team_id)
         .filter(
-            team_id=team_id,
             skill_name=skill_name,
             task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
             task_run__created_at__gte=live_cutoff,
@@ -178,15 +177,16 @@ def check_workflow_cooldown(team_id: int, skill_name: str) -> ScoutRunRejection 
     `metadata` predicate only ever sees the handful of rows inside it.
 
     There is a gap between a dispatch returning and its run row appearing (the row is written once
-    the sandbox is up), during which neither this nor the in-flight check sees anything. That gap
-    is covered by the third layer: the Temporal id-conflict policy on the workflow path's own
-    workflow-id namespace rejects the second start outright.
+    the sandbox is up), during which neither this nor the in-flight check sees anything. Within the
+    workflow path the Temporal id-conflict policy on its own workflow-id namespace closes that gap
+    by rejecting a second start outright. Across paths it stays open: a scheduled or manual start
+    in the same window uses a different id, and only the runner's best-effort single-flight stands
+    between them — the same pre-existing race the other two paths have with each other.
     """
     cutoff = timezone.now() - timedelta(seconds=WORKFLOW_RUN_COOLDOWN_S)
     recent = (
-        SignalScoutRun.objects.unscoped()
+        SignalScoutRun.objects.for_team(team_id)
         .filter(
-            team_id=team_id,
             skill_name=skill_name,
             created_at__gte=cutoff,
             **{f"metadata__{TRIGGERED_BY_METADATA_KEY}": TRIGGERED_BY_WORKFLOW},

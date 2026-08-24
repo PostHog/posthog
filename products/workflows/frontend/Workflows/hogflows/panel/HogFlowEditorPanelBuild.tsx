@@ -76,6 +76,18 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'task', result_path: null, label: 'Task' },
 }
 
+const RUN_SCOUT_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Run scout',
+    description: 'Start a Signals scout run. The scout explores as it does on its schedule.',
+    config: {
+        template_id: 'template-posthog-run-scout',
+        // Same reason as the AI-task node above: 409 (run in flight / scout paused) and 429
+        // (cooldown, daily budget, quota) are backpressure the step should skip on, not fail.
+        inputs: { non_failure_status_codes: { value: [409, 429] } },
+    },
+}
+
 const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
@@ -332,6 +344,14 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE}>
                     <span className="inline-flex items-center gap-1.5">
                         {AI_TASK_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
+            )}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] && (
+                <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
+                    <span className="inline-flex items-center gap-1.5">
+                        {RUN_SCOUT_ACTION_NODE.name}
                         <LemonTag type="completion">Beta</LemonTag>
                     </span>
                 </HogFlowEditorToolbarNode>

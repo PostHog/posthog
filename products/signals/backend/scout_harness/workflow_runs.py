@@ -83,7 +83,7 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
         team = Team.objects.get(pk=team.parent_team_id)
     canonical_team_id = team.id
 
-    config = SignalScoutConfig.objects.unscoped().filter(team_id=canonical_team_id, skill_name=skill_name).first()
+    config = SignalScoutConfig.objects.for_team(canonical_team_id).filter(skill_name=skill_name).first()
     if config is None:
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,

@@ -1,6 +1,8 @@
 import uuid
 from typing import Any, cast
 
+from django.core.cache import cache
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -20,6 +22,12 @@ from products.workflows.backend.models import HogFlow
 from products.workflows.backend.service_jwt import SIGNALS_SCOUT_RUN_PURPOSE
 
 logger = structlog.get_logger(__name__)
+
+# How long a dispatched fire stays answerable by its idempotency key. The workflow engine re-sends
+# the identical request when a 202 is lost (a client-side timeout on a slow dispatch, most
+# likely), and every retry has to read as the same success rather than a 409 from its own run.
+# Sized to the step token's lifetime, which already bounds the whole fetch retry chain.
+_REPLAY_TTL_S = 30 * 60
 
 # How a Signals rejection is surfaced. 409 and 429 are declared non-failure statuses on the
 # template, so the workflow step reads them as a graceful skip; everything else fails the step,
@@ -55,8 +63,8 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
         max_length=128,
         required=False,
         help_text=(
-            "Stable key for this workflow step. Logged for tracing only — the run is single-flighted "
-            "per (project, scout), so a retry cannot produce a second run."
+            "Stable key for this workflow step. A retry carrying the key of a fire that already "
+            "dispatched a run gets that fire's 202 back instead of a conflict."
         ),
     )
 
@@ -121,15 +129,30 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         serializer = WorkflowScoutRunCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"].strip()
-        # Correlates the log lines below with one workflow step across the fetch retry chain, which
-        # re-sends the identical request. Deliberately not a dedupe key: the run is single-flighted
-        # per (project, scout), so a retry cannot start a second one.
+        # One key per workflow step across the fetch retry chain, which re-sends the identical
+        # request. Scoped under the verified team + workflow so a key is only ever replayed to the
+        # caller that minted it.
         step_key = serializer.validated_data.get("idempotency_key")
+        replay_key = f"workflow_scout_run:{team_id}:{hog_flow_id}:{step_key}" if step_key else None
 
         # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
         # chain), so a deleted workflow must not still be able to spend runs.
         if not HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).exists():
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The original 202 was lost in transit but the run is already going; re-answer it rather
+        # than let the retry collide with its own run (a 409 the step would record as a skip).
+        replayed = cache.get(replay_key) if replay_key else None
+        if replayed is not None:
+            logger.info(
+                "workflow_scout_run_replayed",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                skill_name=skill_name,
+                workflow_id=replayed["workflow_id"],
+                step_key=step_key,
+            )
+            return _started(replayed["skill_name"], replayed["workflow_id"])
 
         try:
             started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
@@ -145,6 +168,12 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             )
             return _rejected(rejection.detail, _REJECTION_STATUS[rejection.kind])
 
+        if replay_key:
+            cache.set(
+                replay_key,
+                {"skill_name": started.skill_name, "workflow_id": started.workflow_id},
+                timeout=_REPLAY_TTL_S,
+            )
         logger.info(
             "workflow_scout_run_started",
             team_id=team_id,
@@ -153,12 +182,16 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             workflow_id=started.workflow_id,
             step_key=step_key,
         )
-        return Response(
-            WorkflowScoutRunResponseSerializer(
-                {"skill_name": started.skill_name, "workflow_id": started.workflow_id, "started": True}
-            ).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return _started(started.skill_name, started.workflow_id)
+
+
+def _started(skill_name: str, workflow_id: str) -> Response:
+    return Response(
+        WorkflowScoutRunResponseSerializer(
+            {"skill_name": skill_name, "workflow_id": workflow_id, "started": True}
+        ).data,
+        status=status.HTTP_202_ACCEPTED,
+    )
 
 
 def _rejected(detail: str, http_status: int) -> Response:
