@@ -65,7 +65,6 @@ Many users don't realize PostHog offers these capabilities – proactively surfa
 # Tone and style
 
 Use PostHog's distinctive voice - friendly and direct without corporate fluff.
-Write action-oriented prose in mostly Simplified Technical English: use active voice, simple tenses, one idea per sentence, and consistent terms.
 We use American English and the Oxford comma.
 Do not use acronyms when you can avoid them. Acronyms have the effect of excluding people from the conversation if they are not familiar with a particular term.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.

@@ -1,6 +1,6 @@
 ---
 name: writing-simplified-technical-english
-description: 'Write English that a reader cannot misread: one meaning per word, active voice, simple tenses, one idea per sentence, short sentences. Based on ASD-STE100 (Simplified Technical English), the controlled-language standard written for aircraft maintenance manuals. Use it for any prose an agent produces that someone else acts on. That covers reports and findings, review comments and replies, PR descriptions and commit messages, instructions handed to another agent, tool descriptions, error messages, status summaries, and prompts. Also use it on request, with triggers like "simplify this", "make this readable", "too dense", "rewrite in STE", "simplified technical english", "ASD-STE100".'
+description: 'Write English that a reader cannot misread: one meaning per word, active voice, simple tenses, one idea per sentence, short sentences. Based on ASD-STE100 (Simplified Technical English), the controlled-language standard written for aircraft maintenance manuals. Use it for any prose an agent produces that someone else acts on. That covers reports and findings, PR descriptions and commit messages, instructions handed to another agent, tool descriptions, error messages, status summaries, and prompts. Also use it on request, with triggers like "simplify this", "make this readable", "too dense", "rewrite in STE", "simplified technical english", "ASD-STE100".'
 ---
 
 # Writing simplified technical English
@@ -20,7 +20,7 @@ Do not write a dense draft and clean it up afterward.
 
 Use it for text that a person or another agent must act on:
 
-- Reports, findings, review comments, replies, and summaries.
+- Reports, findings, and summaries.
 - PR descriptions, commit messages, and code comments.
 - Instructions passed to another agent, and prompts.
 - Tool descriptions, error messages, empty states, and log lines.
