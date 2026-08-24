@@ -31,14 +31,25 @@ export function ProjectedRecordings({
         return null
     }
 
-    const rate = typeof sampleRatePercent === 'number' ? sampleRatePercent : 100
-    const projected = projectedWeeklyRecordings(weeklySessions, rate)
+    // A number input reports NaN when cleared, and its DOM min/max do not clamp typed values. Skip any
+    // rate that is missing, non-finite, or out of range so the estimate never reads "NaN" or shows a
+    // count that disagrees with the printed rate.
+    if (
+        sampleRatePercent == null ||
+        !Number.isFinite(sampleRatePercent) ||
+        sampleRatePercent < 0 ||
+        sampleRatePercent > 100
+    ) {
+        return null
+    }
+
+    const projected = projectedWeeklyRecordings(weeklySessions, sampleRatePercent)
 
     return (
         <p className="text-xs text-muted mb-0">
-            About <strong>{humanFriendlyNumber(projected)}</strong> recordings per week at {rate}%, based on{' '}
-            {humanFriendlyNumber(weeklySessions)} sessions in the last 7 days. Triggers and the duration threshold can
-            lower this.
+            About <strong>{humanFriendlyNumber(projected)}</strong> recordings per week at {sampleRatePercent}%, based
+            on {humanFriendlyNumber(weeklySessions)} sessions in the last 7 days. Triggers and the duration threshold
+            can lower this.
         </p>
     )
 }
