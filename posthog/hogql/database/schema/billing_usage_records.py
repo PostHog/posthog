@@ -2,7 +2,6 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
-    MapStringDatabaseField,
     StringDatabaseField,
     Table,
     UUIDDatabaseField,
@@ -39,9 +38,6 @@ class BillingUsageRecordsTable(Table):
         "usage_key": StringDatabaseField(
             name="usage_key", nullable=False, description="Kind of product usage being measured."
         ),
-        "mode": StringDatabaseField(
-            name="mode", nullable=False, description="Whether this record is a delta or snapshot."
-        ),
         "unit": StringDatabaseField(name="unit", nullable=False, description="Unit used by quantity."),
         "quantity": IntegerDatabaseField(name="quantity", nullable=False, description="Measured usage amount."),
         "timestamp": DateTimeDatabaseField(
@@ -57,9 +53,6 @@ class BillingUsageRecordsTable(Table):
         # absent from the sorting key, and filtering on it would read the whole partition.
         # `timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` already picks the
         # row a merge would keep, which is the only thing a reader needed the version column for.
-        "dimensions": MapStringDatabaseField(
-            name="dimensions", nullable=False, description="Additional producer-defined dimensions."
-        ),
     }
 
     def to_printed_clickhouse(self, context):
