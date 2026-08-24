@@ -1,4 +1,7 @@
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { CompletedSubBatch, StreamIngestDriver } from '~/ingestion/api/grpc-server'
+import { deserializeKafkaMessage } from '~/ingestion/api/kafka-message-converter'
+import { SerializedKafkaMessage } from '~/ingestion/api/types'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import {
@@ -6,10 +9,6 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
-
-import { CompletedSubBatch, StreamIngestDriver } from './grpc-server'
-import { deserializeKafkaMessage } from './kafka-message-converter'
-import { SerializedKafkaMessage } from './types'
 
 /** Batch context fed with each gRPC sub-batch so its completion routes back to the right stream. */
 export type GrpcBatchContext = { grpcStreamId: number; grpcSeq: number }
