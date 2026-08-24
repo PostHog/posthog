@@ -68,6 +68,7 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
+            result.invocation.queuePriority = functionResult.invocation.queuePriority
             result.invocation.queueParameters = functionResult.invocation.queueParameters
             result.invocation.queueMetadata = functionResult.invocation.queueMetadata
             // Routing-only reschedule signature: the queue changed AND no explicit
