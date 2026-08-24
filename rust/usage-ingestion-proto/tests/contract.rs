@@ -14,11 +14,7 @@ fn usage_record_round_trips_optional_organization_and_dimensions() {
             mode: BillingUsageMode::Delta as i32,
             unit: "request".to_string(),
             quantity: 10,
-            version: 1,
             event_timestamp_ms: 1_700_000_000_000,
-            source_ref: Some("flush:018f7c8e".to_string()),
-            user_id: None,
-            variant: Some("decide".to_string()),
             dimensions: [("library".to_string(), "js".to_string())].into(),
         }],
     };
