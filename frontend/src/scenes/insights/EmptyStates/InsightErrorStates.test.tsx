@@ -59,6 +59,19 @@ describe('insight error states', () => {
         })
     })
 
+    it('redacts raw ClickHouse type-mismatch detail', () => {
+        render(
+            <InsightValidationError
+                detail="There is no supertype for types Int64(0), String because some of them are String/FixedString and some of them are not"
+                validationErrorCode="no_common_type"
+                query={{ kind: 'InsightVizNode', source: { kind: 'PathsQuery' } }}
+            />
+        )
+
+        expect(screen.getByText(/values that have different types/)).toBeTruthy()
+        expect(screen.queryByText(/supertype/)).toBeNull()
+    })
+
     it('replaces generic invalid-query detail with a next step', () => {
         render(
             <InsightValidationError

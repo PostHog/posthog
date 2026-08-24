@@ -689,9 +689,16 @@ export function InsightValidationError({
 const RAW_SERVER_ERROR_PATTERN =
     /Stack trace:|DB::Exception|Traceback \(most recent call last\)|object at 0x[0-9a-f]+|^[A-Za-z_.]+(Error|Exception)[:(]/
 
+// ClickHouse leaks raw type-mismatch text like "There is no supertype for types Int64(0), String".
+// It names internal types the user never wrote, so redact it to actionable copy.
+const CLICKHOUSE_TYPE_MISMATCH_PATTERN = /there is no supertype for types/i
+
 function getInsightValidationDetail(detail: string): string {
     if (isRawServerErrorTitle(detail)) {
         return 'The query could not run.'
+    }
+    if (CLICKHOUSE_TYPE_MISMATCH_PATTERN.test(detail)) {
+        return 'This query combines values that have different types. Check that the values you compare or combine share a type, then run it again.'
     }
     if (/^the query is invalid\.?$/i.test(detail.trim())) {
         return 'Check the query for errors, then run it again.'
