@@ -6,7 +6,7 @@ import * as logBodyParse from './log-body-parse'
 import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
-    bufferHandling,
+    bufferProcessingMode,
     decodeLogRecords,
     encodeLogRecords,
     enrichLogRecordWithJsonAttributes,
@@ -566,8 +566,8 @@ describe('log-record-avro', () => {
             ['a stage present', {}, 1, false, 'decode_and_reencode'],
             ['a decoded-records visitor present', {}, 0, true, 'decode_only'],
             ['a visitor and a stage', {}, 1, true, 'decode_and_reencode'],
-        ])('bufferHandling: %s', (_name, settings, stageCount, hasVisitor, expected) => {
-            expect(bufferHandling(settings, stageCount, hasVisitor)).toEqual(expected)
+        ])('bufferProcessingMode: %s', (_name, settings, stageCount, hasVisitor, expected) => {
+            expect(bufferProcessingMode(settings, stageCount, hasVisitor)).toEqual(expected)
         })
 
         it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {

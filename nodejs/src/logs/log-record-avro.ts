@@ -321,14 +321,14 @@ export type ProcessLogMessageBufferResult = {
  * it untouched, `decode_only` decodes for a visitor then forwards the original, `decode_and_reencode`
  * decodes, transforms and encodes again.
  */
-export type BufferHandling = 'passthrough' | 'decode_only' | 'decode_and_reencode'
+export type BufferProcessingMode = 'passthrough' | 'decode_only' | 'decode_and_reencode'
 
 /**
  * Give the buffer's current stage count, not the count it would have. A tier below
  * `decode_and_reencode` names the work one more stage adds: `decode_only` adds an encode,
  * `passthrough` adds a decode and an encode.
  */
-export function bufferHandling(settings: LogsSettings, stageCount: number, hasVisitor: boolean): BufferHandling {
+export function bufferProcessingMode(settings: LogsSettings, stageCount: number, hasVisitor: boolean): BufferProcessingMode {
     const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
@@ -358,9 +358,9 @@ export const processLogMessageBuffer = instrumented({
     options: ProcessLogMessageBufferOptions = {}
 ): Promise<ProcessLogMessageBufferResult> {
     const { onRecordsDecoded, stages = [] } = options
-    const handling = bufferHandling(settings, stages.length, Boolean(onRecordsDecoded))
+    const processingMode = bufferProcessingMode(settings, stages.length, Boolean(onRecordsDecoded))
 
-    if (handling === 'passthrough') {
+    if (processingMode === 'passthrough') {
         // Passthrough: nothing mutates or drops and no visitor needs the records — forward untouched.
         return { value: buffer, pii: EMPTY_PII, drops: EMPTY_DROP_STATS() }
     }
@@ -392,7 +392,7 @@ export const processLogMessageBuffer = instrumented({
             // already-empty batch so the caller can attribute it correctly.
             return { value: null, pii, drops: stats }
         }
-        if (handling === 'decode_only') {
+        if (processingMode === 'decode_only') {
             // Only a visitor ran and records survive — the buffer is unchanged, so forward it without
             // re-encoding.
             return { value: buffer, pii, drops: stats }
