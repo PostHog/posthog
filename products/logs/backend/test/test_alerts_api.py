@@ -803,6 +803,11 @@ class TestLogsAlertAPI(APIBaseTest):
     def _destinations_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/"
 
+    def _read_destinations(self, alert_id: str) -> list[dict]:
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["destinations"]
+
     def _destinations_delete_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/delete/"
 
@@ -928,7 +933,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
-    def test_list_destinations_groups_rows_and_redacts_webhook_credentials(self) -> None:
+    def test_reading_an_alert_groups_its_destinations_and_strips_webhook_credentials(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
         webhook_url = "https://user:password@example.com:8443/hooks/credential?token=secret"
@@ -939,17 +944,20 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
-        response = self.client.get(self._destinations_url(created["id"]))
+        response = self.client.get(f"{self.base_url}{created['id']}/")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 1
-        destination = response.json()["results"][0]
-        assert set(destination["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
-        assert destination["type"] == "webhook"
-        assert destination["webhook_url"] == "https://<redacted>"
-        assert webhook_url not in response.content.decode()
+        destinations = response.json()["destinations"]
+        assert len(destinations) == 1
+        assert set(destinations[0]["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
+        assert destinations[0]["type"] == "webhook"
+        # Host and port survive so two webhooks are tellable apart; the secret does not.
+        assert destinations[0]["webhook_url"] == "https://example.com:8443"
+        body = response.content.decode()
+        assert "password" not in body
+        assert "token=secret" not in body
 
-    def test_list_destinations_redacts_malformed_stored_webhook_url(self) -> None:
+    def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
         create_response = self.client.post(
@@ -964,10 +972,26 @@ class TestLogsAlertAPI(APIBaseTest):
         hog_function.inputs = inputs
         hog_function.save(update_fields=["inputs"])
 
-        response = self.client.get(self._destinations_url(created["id"]))
+        assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"][0]["webhook_url"] == "<redacted>"
+    def test_a_destination_reports_disabled_when_one_of_its_hog_functions_is_off(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function_ids = create_response.json()["hog_function_ids"]
+        assert self._read_destinations(created["id"])[0]["enabled"] is True
+
+        HogFunction.objects.filter(id=hog_function_ids[0]).update(enabled=False)
+
+        destinations = self._read_destinations(created["id"])
+        assert len(destinations) == 1
+        assert destinations[0]["enabled"] is False
+        assert set(destinations[0]["hog_function_ids"]) == set(hog_function_ids)
 
     @parameterized.expand(
         [

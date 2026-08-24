@@ -2,7 +2,6 @@ import os
 import datetime as dt
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -38,7 +37,6 @@ from products.alerts.backend.facade.api import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
-    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -98,12 +96,9 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 # simulate endpoint's default cadence so it matches production when callers
 # don't override it.
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
+_DESTINATIONS_CACHE_KEY: Final = "logs_alert_destinations"
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
-_DESTINATIONS_URL_REQUIRED_SCOPES: Final[dict[str, list[str]]] = {
-    "list_destinations": ["logs:read"],
-    "create_destination": ["logs:write"],
-}
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -164,6 +159,27 @@ class LogsAlertFiltersField(serializers.JSONField):
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
     pass
+
+
+class LogsAlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
+class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
+    enabled = serializers.BooleanField(
+        help_text=(
+            "True when every HogFunction in the group is enabled, so the destination notifies for all "
+            "alert event kinds. False when at least one is off, which happens when delivery failures "
+            "auto-disable it."
+        )
+    )
+    slack_workspace_id = serializers.IntegerField(required=False)
+    slack_channel_id = serializers.CharField(required=False)
+    webhook_url = serializers.CharField(
+        required=False,
+        help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
+    )
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -293,6 +309,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "after creating an alert."
         ),
     )
+    destinations = serializers.SerializerMethodField(
+        help_text=(
+            "This alert's notification destinations, one entry per destination. Each carries the "
+            "HogFunction IDs that delete it as a group, and its configuration with credential-bearing "
+            "URL components removed."
+        ),
+    )
 
     @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
@@ -383,21 +406,34 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
-        configured_template_ids = set(
-            owned_alert_destinations_qs(
+        return sorted({destination["type"] for destination in self._destinations(obj)})
+
+    @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
+    def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
+        return self._destinations(obj)
+
+    def _destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
+        # Both destination fields read one cached result, so serializing an alert stays at
+        # the single query it took before `destinations` existed. N+1 across a page is
+        # acceptable: max 20 alerts per team, each query a fast indexed lookup.
+        cache = self.context.setdefault(_DESTINATIONS_CACHE_KEY, {})
+        cached = cache.get(obj.id)
+        if cached is None:
+            groups = list_alert_destination_groups(
                 team_id=obj.team_id,
-                alert_ids=[str(obj.id)],
+                alert_id=str(obj.id),
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
-            .values_list("template_id", flat=True)
-            .distinct()
-        )
-        return sorted(
-            destination_type.value
-            for destination_type in LOGS_DESTINATION_TYPES
-            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
-        )
+            cached = [
+                {
+                    "hog_function_ids": list(group.hog_function_ids),
+                    "enabled": group.fully_enabled,
+                    **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
+                }
+                for group in groups
+            ]
+            cache[obj.id] = cached
+        return cached
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -443,6 +479,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "destinations",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -459,6 +496,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "destinations",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -760,37 +798,6 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     )
 
 
-class LogsAlertDestinationResponseSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
-
-
-def _redact_destination_url(value: str) -> str:
-    try:
-        parsed = urlsplit(value)
-        scheme = parsed.scheme
-        hostname = parsed.hostname
-        _port = parsed.port
-    except ValueError:
-        return "<redacted>"
-    if not scheme or not hostname:
-        return "<redacted>"
-    return f"{scheme}://<redacted>"
-
-
-class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
-    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
-    enabled = serializers.BooleanField(help_text="Whether every HogFunction in the destination group is enabled.")
-    slack_workspace_id = serializers.IntegerField(required=False)
-    slack_channel_id = serializers.CharField(required=False)
-    webhook_url = serializers.CharField(required=False, help_text="Webhook endpoint with all credentials redacted.")
-
-    def to_representation(self, instance: Any) -> dict[str, Any]:
-        data = cast(dict[str, Any], super().to_representation(instance))
-        if data.get("webhook_url"):
-            data["webhook_url"] = _redact_destination_url(data["webhook_url"])
-        return data
-
-
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -891,9 +898,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
 
-    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        return _DESTINATIONS_URL_REQUIRED_SCOPES.get(view.action)
-
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
@@ -980,7 +984,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations")
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1014,29 +1018,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
-
-    @extend_schema(
-        request=None,
-        responses={200: LogsAlertDestinationConfigSerializer(many=True)},
-        description="List this alert's notification destinations with credential-bearing URLs redacted.",
-    )
-    @create_destination.mapping.get
-    def list_destinations(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
-        groups = list_alert_destination_groups(
-            team_id=self.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-        )
-        destinations = [
-            {"hog_function_ids": list(group.hog_function_ids), "enabled": group.fully_enabled, **group.data}
-            for group in groups
-        ]
-        page = self.paginate_queryset(destinations)
-        serializer = LogsAlertDestinationConfigSerializer(page if page is not None else destinations, many=True)
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,

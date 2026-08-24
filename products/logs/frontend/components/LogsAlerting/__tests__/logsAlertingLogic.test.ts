@@ -65,6 +65,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     last_error_message: null,
     state_timeline: [],
     destination_types: [],
+    destinations: [],
     first_enabled_at: null,
     created_at: '2026-08-12T12:00:00.000Z',
     created_by: {

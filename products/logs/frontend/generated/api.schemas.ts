@@ -412,6 +412,22 @@ export const NotificationDestinationTypeEnumApi = {
     Teams: 'teams',
 } as const
 
+export interface LogsAlertDestinationConfigApi {
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    /** True when every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. False when at least one is off, which happens when delivery failures auto-disable it. */
+    enabled: boolean
+    slack_workspace_id?: number
+    slack_channel_id?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -554,6 +570,8 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
+    readonly destinations: readonly LogsAlertDestinationConfigApi[]
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -663,6 +681,8 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
+    /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
+    readonly destinations?: readonly LogsAlertDestinationConfigApi[]
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
      * @nullable
@@ -676,31 +696,6 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     readonly updated_at?: string | null
-}
-
-export interface LogsAlertDestinationConfigApi {
-    hog_function_ids: string[]
-    /** Notification destination type.
-     *
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams */
-    type: NotificationDestinationTypeEnumApi
-    /** Whether every HogFunction in the destination group is enabled. */
-    enabled: boolean
-    slack_workspace_id?: number
-    slack_channel_id?: string
-    /** Webhook endpoint with all credentials redacted. */
-    webhook_url?: string
-}
-
-export interface PaginatedLogsAlertDestinationConfigListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LogsAlertDestinationConfigApi[]
 }
 
 export interface LogsAlertCreateDestinationApi {
@@ -2315,17 +2310,6 @@ export type LogsAlertsListParams = {
      * Only return log alerts created by the user with this UUID.
      */
     created_by?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type LogsAlertsDestinationsListParams = {
     /**
      * Number of results to return per page.
      */

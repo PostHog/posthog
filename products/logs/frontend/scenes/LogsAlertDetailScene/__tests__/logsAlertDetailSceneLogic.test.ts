@@ -49,6 +49,7 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     consecutive_failures: 0,
     last_error_message: null,
     destination_types: ['slack'],
+    destinations: [],
     state_timeline: [],
     first_enabled_at: null,
     created_at: '2024-01-01T00:00:00Z',
