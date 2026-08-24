@@ -178,7 +178,11 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
     if issue is None:
         return None
     return contracts.ErrorTrackingIssueBasics(
-        id=issue.id, name=issue.name, description=issue.description, status=issue.status
+        id=issue.id,
+        name=issue.name,
+        description=issue.description,
+        status=issue.status,
+        severity=issue.severity,
     )
 
 
