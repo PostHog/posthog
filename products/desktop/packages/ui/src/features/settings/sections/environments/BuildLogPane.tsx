@@ -1,4 +1,4 @@
-import { Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { useSandboxCustomImageDetail } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useCallback, useEffect, useRef } from "react";
@@ -9,7 +9,8 @@ interface BuildLogPaneProps {
 
 /** The build's output, pinned to the bottom while it streams. */
 export function BuildLogPane({ image }: BuildLogPaneProps) {
-  const { data, isLoading } = useSandboxCustomImageDetail(image.id);
+  const { data, isLoading, error, isFetching, refetch } =
+    useSandboxCustomImageDetail(image.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const buildLog = data?.build_log ?? "";
@@ -37,6 +38,27 @@ export function BuildLogPane({ image }: BuildLogPaneProps) {
   }
 
   if (!buildLog) {
+    // Only when there is nothing cached to show: a later refetch failure keeps
+    // the prior log visible, so it must not replace it with this error state.
+    if (error) {
+      return (
+        <div className="flex flex-col items-start gap-2">
+          <Text className="text-(--gray-10) text-[11.5px]">
+            Couldn't load the build log.
+          </Text>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={isFetching}
+            disabled={isFetching}
+            data-attr="build-log-retry"
+            onClick={() => void refetch()}
+          >
+            Try again
+          </Button>
+        </div>
+      );
+    }
     return (
       <Text className="text-(--gray-10) text-[11.5px]">
         {status === "scanning"
