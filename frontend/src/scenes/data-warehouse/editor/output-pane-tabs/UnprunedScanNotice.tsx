@@ -12,7 +12,7 @@ export function UnprunedScanNotice({ scans }: UnprunedScanNoticeProps): JSX.Elem
     }
 
     return (
-        <div className="flex flex-col gap-2 px-2 pt-2">
+        <div className="flex flex-col gap-2 px-2 py-2">
             {scans.map((scan, index) => (
                 <div key={`${scan.table_name}-${scan.start ?? index}`} className="flex items-start gap-2 text-xs">
                     <LemonTag type="warning">No time range</LemonTag>
