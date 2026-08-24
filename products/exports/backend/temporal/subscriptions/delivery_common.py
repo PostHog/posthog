@@ -94,7 +94,7 @@ def recipient_label(subscription: Subscription) -> str:
     ``RecipientResult.recipient`` and the ``SubscriptionDelivery.target_value`` snapshot, both of
     which the API returns. A webhook URL is a bearer credential for the destination channel, so
     only its host is recorded."""
-    if subscription.target_type not in Subscription.SubscriptionTarget.webhook_targets():
+    if subscription.target_type != Subscription.SubscriptionTarget.TEAMS:
         return subscription.target_value
     try:
         host = (urlparse(subscription.target_value).hostname or "").lower()
