@@ -82,6 +82,8 @@ export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suff
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
+// Membership changes emitted by the cohort-stream-processor (Rust) on the realtime path.
+export const KAFKA_COHORT_MEMBERSHIP_CHANGED_SHADOW = `${prefix}cohort_membership_changed_shadow${suffix}`
 // Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
 export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`
 

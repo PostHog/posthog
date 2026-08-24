@@ -1,5 +1,6 @@
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -51,6 +52,14 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
+
+    /**
+     * Source of cohort membership changes persisted to the `cohort_membership` table.
+     * Set per deployment so the consumer can follow the producer between Kafka clusters
+     * and topics without a code change.
+     */
+    CDP_COHORT_MEMBERSHIP_CONSUMER_GROUP_ID: string
+    CDP_COHORT_MEMBERSHIP_CONSUMER_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
@@ -226,6 +235,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
+
+        CDP_COHORT_MEMBERSHIP_CONSUMER_GROUP_ID: 'cdp-cohort-membership-consumer',
+        CDP_COHORT_MEMBERSHIP_CONSUMER_TOPIC: KAFKA_COHORT_MEMBERSHIP_CHANGED,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,

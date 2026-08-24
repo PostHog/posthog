@@ -31,7 +31,6 @@ from posthog.kafka_client.topics import (
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
-    KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC,
     KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC,
     KAFKA_DOCUMENT_EMBEDDINGS_TOPIC,
@@ -100,8 +99,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # warpstream-cyclotron named collection, so a Django producer has to target
     # the same cluster the CDP workers produce to or the rows never arrive.
     KAFKA_HOG_INVOCATION_RESULTS: KafkaClusterProfile.CYCLOTRON,
-    # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: KafkaClusterProfile.REPLAY,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: KafkaClusterProfile.REPLAY,

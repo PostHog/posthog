@@ -1,14 +1,13 @@
 import { Message } from 'node-rdkafka'
 import { z } from 'zod'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { HealthCheckResult } from '../../types'
+import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Zod schema for validation
@@ -22,15 +21,18 @@ const CohortMembershipChangeSchema = z.object({
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
 
-export class CdpCohortMembershipConsumer extends CdpConsumerBase {
+export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
+    Pick<PluginsServerConfig, 'CDP_COHORT_MEMBERSHIP_CONSUMER_GROUP_ID' | 'CDP_COHORT_MEMBERSHIP_CONSUMER_TOPIC'>
+
+export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMembershipConsumerConfig> {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumerInterface
 
-    constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
+    constructor(config: CdpCohortMembershipConsumerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-cohort-membership-consumer',
-            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+            groupId: config.CDP_COHORT_MEMBERSHIP_CONSUMER_GROUP_ID,
+            topic: config.CDP_COHORT_MEMBERSHIP_CONSUMER_TOPIC,
         })
     }
 
