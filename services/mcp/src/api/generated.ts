@@ -634,6 +634,130 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * * `account_field` - account_field
+     * * `custom_property` - custom_property
+     */
+    export type AccountTrackRuleFieldKindEnum = typeof AccountTrackRuleFieldKindEnum[keyof typeof AccountTrackRuleFieldKindEnum];
+
+
+    export const AccountTrackRuleFieldKindEnum = {
+      AccountField: 'account_field',
+      CustomProperty: 'custom_property',
+    } as const;
+
+    /**
+     * * `name` - name
+     * * `external_id` - external_id
+     * * `created_at` - created_at
+     * * `updated_at` - updated_at
+     * * `churned_at` - churned_at
+     * * `ignored_at` - ignored_at
+     * * `stripe_customer_id` - stripe_customer_id
+     * * `hubspot_deal_id` - hubspot_deal_id
+     * * `billing_id` - billing_id
+     * * `sfdc_id` - sfdc_id
+     * * `zendesk_id` - zendesk_id
+     */
+    export type AccountTrackRuleFieldFieldEnum = typeof AccountTrackRuleFieldFieldEnum[keyof typeof AccountTrackRuleFieldFieldEnum];
+
+
+    export const AccountTrackRuleFieldFieldEnum = {
+      Name: 'name',
+      ExternalId: 'external_id',
+      CreatedAt: 'created_at',
+      UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
+      IgnoredAt: 'ignored_at',
+      StripeCustomerId: 'stripe_customer_id',
+      HubspotDealId: 'hubspot_deal_id',
+      BillingId: 'billing_id',
+      SfdcId: 'sfdc_id',
+      ZendeskId: 'zendesk_id',
+    } as const;
+
+    export interface AccountTrackRuleField {
+      kind: AccountTrackRuleFieldKindEnum;
+      field?: AccountTrackRuleFieldFieldEnum | null;
+      /** @nullable */
+      definition_id?: string | null;
+    }
+
+    export interface AccountTrackRuleCondition {
+      field: AccountTrackRuleField;
+      operator: string;
+      values?: unknown[];
+    }
+
+    export interface AccountTrackRuleGroup {
+      conditions: AccountTrackRuleCondition[];
+    }
+
+    export type AccountTrackRuleSampleRuleValues = { [key: string]: unknown };
+
+    export interface AccountTrackRuleSample {
+      readonly id: string;
+      readonly name: string;
+      /** @nullable */
+      readonly external_id: string | null;
+      readonly rule_values: AccountTrackRuleSampleRuleValues;
+    }
+
+    export interface AccountTrackRulePreview {
+      config_version: number;
+      eligible_active: number;
+      skipped_churned: number;
+      tracked: number;
+      ignored: number;
+      newly_ignored: number;
+      restored: number;
+      readonly tracked_samples: readonly AccountTrackRuleSample[];
+      readonly ignored_samples: readonly AccountTrackRuleSample[];
+      validation_errors?: string[];
+    }
+
+    export interface AccountTrackRuleRunRequest {
+      idempotency_key: string;
+      confirmed: boolean;
+    }
+
+    export interface AccountTrackRuleRunView {
+      readonly id: string;
+      /** @minimum 0 */
+      readonly config_version: number;
+      readonly trigger: string;
+      readonly status: string;
+      /** @minimum 0 */
+      readonly eligible_active: number;
+      /** @minimum 0 */
+      readonly skipped_churned: number;
+      /** @minimum 0 */
+      readonly tracked: number;
+      /** @minimum 0 */
+      readonly ignored: number;
+      /** @minimum 0 */
+      readonly newly_ignored: number;
+      /** @minimum 0 */
+      readonly restored: number;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      /** @nullable */
+      readonly error: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface AccountTrackRulesConfig {
+      schema_version: number;
+      /** @minimum 0 */
+      version: number;
+      enabled: boolean;
+      groups: AccountTrackRuleGroup[];
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -18230,6 +18354,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa
+     */
+    export type ConfigScopeEnum = typeof ConfigScopeEnum[keyof typeof ConfigScopeEnum];
+
+
+    export const ConfigScopeEnum = {
+      Saml: 'saml',
+      Scim: 'scim',
+      Xaa: 'xaa',
+    } as const;
+
+    /**
      * * `posthog_code` - posthog_code
      */
     export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
@@ -26467,6 +26605,28 @@ export namespace Schemas {
       index?: number;
     }
 
+    /**
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits
+     */
+    export type DesktopAccessReasonEnum = typeof DesktopAccessReasonEnum[keyof typeof DesktopAccessReasonEnum];
+
+
+    export const DesktopAccessReasonEnum = {
+      StartupPlan: 'startup_plan',
+      PrepaidCredits: 'prepaid_credits',
+    } as const;
+
+    export interface DesktopAccessResponse {
+      /** Whether the selected project can use PostHog Desktop. */
+      allowed: boolean;
+      /** Why Desktop access is blocked, or null when access is allowed.
+       *
+       * * `startup_plan` - startup_plan
+       * * `prepaid_credits` - prepaid_credits */
+      reason: DesktopAccessReasonEnum | null;
+    }
+
     export interface DesktopBetaTermsAcceptanceDTO {
       /** Whether the organization has accepted the PostHog Desktop beta terms. */
       readonly is_desktop_beta_terms_accepted: boolean;
@@ -28164,6 +28324,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `all` - All
+     * * `selected` - Selected
+     */
+    export type DomainScopeEnum = typeof DomainScopeEnum[keyof typeof DomainScopeEnum];
+
+
+    export const DomainScopeEnum = {
+      All: 'all',
+      Selected: 'selected',
+    } as const;
+
     export interface DraftCustomManifestRequest {
       /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
       source_name?: string;
@@ -28585,6 +28757,13 @@ export namespace Schemas {
          * @nullable
          */
       charts?: ReportChart[] | null;
+      /**
+         * The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report.
+         * @maxItems 3
+         * @nullable
+         * @items.maxLength 200
+         */
+      suggested_prompts?: string[] | null;
     }
 
     export interface EditReportResponse {
@@ -28601,6 +28780,11 @@ export namespace Schemas {
          * @nullable
          */
       charts_set: number | null;
+      /**
+         * How many questions the report now suggests, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's suggested prompts down.
+         * @nullable
+         */
+      suggested_prompts_set: number | null;
     }
 
     /**
@@ -28999,6 +29183,12 @@ export namespace Schemas {
          * @maxItems 20
          */
       charts?: ReportChart[];
+      /**
+         * Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them.
+         * @maxItems 3
+         * @items.maxLength 200
+         */
+      suggested_prompts?: string[];
     }
 
     export interface EmitReportResponse {
@@ -38242,10 +38432,10 @@ export namespace Schemas {
      * * `evidence` - Evidence
      * * `product_areas` - Product areas
      */
-    export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
+    export type FeatureRequestHistoryChangeFieldEnum = typeof FeatureRequestHistoryChangeFieldEnum[keyof typeof FeatureRequestHistoryChangeFieldEnum];
 
 
-    export const FieldEnum = {
+    export const FeatureRequestHistoryChangeFieldEnum = {
       Status: 'status',
       Priority: 'priority',
       Account: 'account',
@@ -38313,7 +38503,7 @@ export namespace Schemas {
        * * `accounts` - Accounts
        * * `evidence` - Evidence
        * * `product_areas` - Product areas */
-      readonly field: FieldEnum;
+      readonly field: FeatureRequestHistoryChangeFieldEnum;
       /** Value before the update, including relation snapshots. */
       readonly before: FeatureRequestHistoryChangeBefore;
       /** Value after the update, including relation snapshots. */
@@ -43897,6 +44087,19 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /** Domains this configuration applies to. An unset value behaves like selected domains.
+       *
+       * * `all` - All
+       * * `selected` - Selected */
+      domain_scope?: DomainScopeEnum | BlankEnum | null;
+      /** Feature configured by this identity provider configuration.
+       *
+       * * `saml` - Saml
+       * * `scim` - Scim
+       * * `xaa` - Xaa */
+      config_scope?: ConfigScopeEnum | BlankEnum | null;
+      /** Organization domain IDs that this identity provider configuration applies to. */
+      organization_domain_ids?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
@@ -45605,6 +45808,13 @@ export namespace Schemas {
        * * `oauth_access_token` - oauth_access_token
        * * `oauth_refresh_token` - oauth_refresh_token */
       type: LeakedKeyReportResponseTypeEnum | null;
+    }
+
+    export interface LegacyDesktopAccessResponse {
+      /** Whether the user has legacy PostHog Desktop access. */
+      has_access: boolean;
+      /** Whether the independent Loops feature is enabled. */
+      has_loops_access: boolean;
     }
 
     export interface LegalDocumentCreator {
@@ -50505,19 +50715,8 @@ export namespace Schemas {
       jit_provisioning_enabled?: boolean;
       /** @maxLength 28 */
       sso_enforcement?: string;
-      /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-      readonly has_saml: boolean;
-      /** Returns whether SCIM is configured and enabled for this domain. */
-      readonly has_scim: boolean;
       /** @nullable */
       readonly scim_base_url: string | null;
-      /** Returns whether ID-JAG (XAA) is configured for this domain. */
-      readonly has_id_jag: boolean;
-      /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-         * @nullable
-         */
-      identity_provider_config?: string | null;
     }
 
     export interface OrganizationFeatureFlagRow {
@@ -51026,6 +51225,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AccountSupportTicketMessage[];
+    }
+
+    export interface PaginatedAccountTrackRuleRunViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountTrackRuleRunView[];
     }
 
     export interface PaginatedActionList {
@@ -54081,6 +54289,8 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
+      /** Follow-up questions the report's author suggests asking about it, in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
+      readonly suggested_prompts: readonly string[];
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -57649,6 +57859,8 @@ export namespace Schemas {
       context?: string;
       /** Updated canvas description (for components, the store-search text). */
       description?: string;
+      /** Id of the space the canvas belongs to. */
+      channel_id?: string;
       /** Whether the canvas is pinned in its channel. */
       pinned?: boolean;
       /**
@@ -60376,6 +60588,19 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /** Domains this configuration applies to. An unset value behaves like selected domains.
+       *
+       * * `all` - All
+       * * `selected` - Selected */
+      domain_scope?: DomainScopeEnum | BlankEnum | null;
+      /** Feature configured by this identity provider configuration.
+       *
+       * * `saml` - Saml
+       * * `scim` - Scim
+       * * `xaa` - Xaa */
+      config_scope?: ConfigScopeEnum | BlankEnum | null;
+      /** Organization domain IDs that this identity provider configuration applies to. */
+      organization_domain_ids?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
@@ -61424,19 +61649,8 @@ export namespace Schemas {
       jit_provisioning_enabled?: boolean;
       /** @maxLength 28 */
       sso_enforcement?: string;
-      /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-      readonly has_saml?: boolean;
-      /** Returns whether SCIM is configured and enabled for this domain. */
-      readonly has_scim?: boolean;
       /** @nullable */
       readonly scim_base_url?: string | null;
-      /** Returns whether ID-JAG (XAA) is configured for this domain. */
-      readonly has_id_jag?: boolean;
-      /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-         * @nullable
-         */
-      identity_provider_config?: string | null;
     }
 
     /**
@@ -80126,6 +80340,11 @@ export namespace Schemas {
          * @minimum 1
          */
       tokens?: number;
+      /**
+         * Sum of tool-output sizes across the wasted span.
+         * @minimum 1
+         */
+      output_bytes?: number;
     }
 
     export interface TaskArtifact {
@@ -81060,6 +81279,11 @@ export namespace Schemas {
       type?: string;
       /** Machine-readable error code */
       code?: string;
+      /** Why PostHog Desktop access was denied, when applicable.
+       *
+       * * `startup_plan` - startup_plan
+       * * `prepaid_credits` - prepaid_credits */
+      reason?: DesktopAccessReasonEnum;
       /** Request field associated with the error */
       attr?: string;
       /** Artifact ids that could not be resolved for the run */
@@ -86250,6 +86474,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AccountTrackRulesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AccountsListParams = {
     /**
      * When true, returns only accounts where no user actively holds any relationship.
@@ -89201,10 +89436,9 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles / keys in the provider.
-     * @minLength 1
+     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
      */
-    search: string;
+    search?: string;
     };
 
     export type ErrorTrackingFingerprintsListParams = {
@@ -93030,11 +93264,21 @@ export namespace Schemas {
     category_key?: string;
     page?: number;
     page_size?: number;
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string;
     };
 
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number;
     page_size?: number;
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
+     */
+    search?: string;
     };
 
     export type MessagingTemplatesListParams = {

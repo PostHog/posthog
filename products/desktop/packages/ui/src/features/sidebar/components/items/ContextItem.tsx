@@ -1,9 +1,10 @@
 import { BookOpenTextIcon } from "@phosphor-icons/react";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 
 interface ContextItemProps {
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   depth?: number;
 }
 

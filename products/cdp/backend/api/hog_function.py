@@ -66,7 +66,6 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
-from products.cdp.backend.services.revisions import use_destinations_revisions
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -103,8 +102,6 @@ _DERIVED_CONTENT_FIELDS = frozenset({"bytecode", "transpiled"})
 # validated_data says nothing about what the caller actually asked to change.
 _INJECTED_UPDATE_FIELDS = frozenset({"team", "type", "template_id"})
 
-DRAFTS_DISABLED_MESSAGE = "Drafts aren't enabled for this project yet."
-REVISIONS_DISABLED_MESSAGE = "Revision history isn't enabled for this project yet."
 ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
     "This function has config staged for review. Publish or discard it before enabling, so you don't "
     "turn on config nobody looked at."
@@ -1115,8 +1112,6 @@ class HogFunctionViewSet(
         fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
         would ship. Secrets the draft doesn't stage stay as `{"secret": true}` markers, which
         validation recovers from the live encrypted inputs."""
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
         if hog_function is None or not hog_function.draft:
             raise exceptions.ValidationError({"use_draft": "This function has no staged draft to test."})
 
@@ -1243,7 +1238,6 @@ class HogFunctionViewSet(
             serializer.validated_data.get("enabled")
             and (serializer.validated_data.get("type") or HogFunctionType.DESTINATION) == HogFunctionType.DESTINATION
             and self._is_agent_request(self.request)
-            and use_destinations_revisions(self.team)
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
@@ -1265,14 +1259,14 @@ class HogFunctionViewSet(
         # with the live ones.
         return set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS)
 
-    def _should_route_to_draft(self, serializer: BaseSerializer, revisions_enabled: bool) -> bool:
+    def _should_route_to_draft(self, serializer: BaseSerializer) -> bool:
         # Guardrail for agent callers (MCP and the surfaces that wrap it; the web builder and raw API
         # keys are unaffected). An agent editing a destination that is running right now stages a
         # draft for a human to publish instead of changing what workers execute on the spot.
         # Destinations only for now: transformations add execution-order semantics, site_* types add
         # transpiled-JS concerns, and internal_destination rows are written by other products' code
         # rather than by agents.
-        if not revisions_enabled or not self._is_agent_request(self.request):
+        if not self._is_agent_request(self.request):
             return False
         instance = serializer.instance
         if not isinstance(instance, HogFunction) or not instance.enabled:
@@ -1349,18 +1343,15 @@ class HogFunctionViewSet(
 
     def perform_update(self, serializer):
         instance_id = serializer.instance.id
-        # Resolved before the write transaction: the flag check can hit the network and must not
-        # extend the row lock.
-        revisions_enabled = use_destinations_revisions(self.team)
-        route_to_draft = self._should_route_to_draft(serializer, revisions_enabled)
+        # Resolved before the write transaction so the routing decision doesn't extend the row lock.
+        route_to_draft = self._should_route_to_draft(serializer)
 
         # Enabling with a draft open would turn on the live config while the reviewed one sits
         # unpublished. Make the caller resolve the draft first rather than picking for them.
         # Checked on the validated value: BooleanField coerces "true"/"True", and the raw payload
         # wouldn't catch those.
         if (
-            revisions_enabled
-            and serializer.validated_data.get("enabled") is True
+            serializer.validated_data.get("enabled") is True
             and isinstance(serializer.instance, HogFunction)
             and serializer.instance.draft
             and not serializer.instance.enabled
@@ -1424,7 +1415,7 @@ class HogFunctionViewSet(
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
-                if locked is not None and before_content is not None and revisions_enabled:
+                if locked is not None and before_content is not None:
                     self._record_revision(serializer.instance, locked, before_content)
 
         log_activity_from_viewset(
@@ -1441,9 +1432,6 @@ class HogFunctionViewSet(
     def publish(self, request: Request, *args, **kwargs):
         # Promote the staged draft to the live config. Two-step by design: a call without confirm only
         # echoes what would change, so callers — especially agents — never publish blind.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
-
         param_serializer = HogFunctionPublishRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 
@@ -1550,9 +1538,6 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def discard_draft(self, request: Request, *args, **kwargs):
         # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
-
         instance = self.get_object()
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
@@ -1585,8 +1570,6 @@ class HogFunctionViewSet(
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-config change, newest first. Config is fetched
         # per-version via the detail endpoint — the list stays light.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         queryset = (
             HogFunctionRevision.objects.filter(hog_function=instance).order_by("-version").select_related("created_by")
@@ -1601,8 +1584,6 @@ class HogFunctionViewSet(
     )
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)", filter_backends=[])
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         try:
             revision = HogFunctionRevision.objects.get(hog_function=instance, version=int(version or 0))
@@ -1623,8 +1604,6 @@ class HogFunctionViewSet(
         # Rollback (or roll-forward) = copy the revision's config into the draft, then go through the
         # normal publish preview + confirm. Nothing here touches the live config, so a rollback is
         # reviewed like any other change.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         param_serializer = HogFunctionRevisionRestoreRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 

@@ -196,6 +196,9 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
+  const file = useMutation(
+    trpc.dashboards.file.mutationOptions({ onSuccess: invalidate }),
+  );
 
   return {
     // Refresh the canvas queries after a mutation that didn't go through this
@@ -232,6 +235,8 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
+    fileDashboard: (id: string, channelId: string) =>
+      file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
