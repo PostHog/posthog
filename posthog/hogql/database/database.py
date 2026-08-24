@@ -1519,6 +1519,7 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
+            all_saved_queries: list[DataWarehouseSavedQuery] = []
             # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
@@ -1530,9 +1531,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset", "created_by")
                         # credential attached in bulk below, not joined per row
                     )
-                    if not is_managed_viewset_enabled:
-                        queryset = queryset.filter(managed_viewset__isnull=True)
-                    saved_queries = list(queryset)
+                    all_saved_queries = list(queryset)
+                    saved_queries = (
+                        all_saved_queries
+                        if is_managed_viewset_enabled
+                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
+                    )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
@@ -1566,7 +1570,7 @@ class Database(BaseModel):
         # Exclude that private storage table so the view owns access control, even after a rename.
         backing_table_ids = {
             sq.table_id
-            for sq in (*saved_queries, *endpoint_saved_queries)
+            for sq in (*all_saved_queries, *endpoint_saved_queries)
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
