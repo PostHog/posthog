@@ -118,9 +118,8 @@ function parseListParam(raw: unknown, valid?: Set<string>): string[] {
 }
 
 function parsePositiveIntegerListParam(raw: unknown): number[] {
-    return parseListParam(raw)
-        .map(Number)
-        .filter((value) => Number.isInteger(value) && value > 0)
+    const values = typeof raw === 'number' ? [raw] : parseListParam(raw).map(Number)
+    return values.filter((value) => Number.isInteger(value) && value > 0)
 }
 
 export function parseFeatureRequestSearchParams(searchParams: Record<string, any>): FeatureRequestListState {
@@ -551,6 +550,9 @@ export interface featureRequestsLogicActions {
     setProductAreaDisplayOrder: (productAreaDisplayOrder: number) => {
         productAreaDisplayOrder: number
     }
+    setProductAreaFilter: (productAreaFilter: string[]) => {
+        productAreaFilter: string[]
+    }
     setProductAreaIds: (productAreaIds: string[]) => {
         productAreaIds: string[]
     }
@@ -611,9 +613,6 @@ export interface featureRequestsLogicActions {
     }
     togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => {
         requestPriority: FeatureRequestPriorityFilter
-    }
-    toggleProductAreaFilter: (productAreaId: string) => {
-        productAreaId: string
     }
     toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => {
         requestStatus: FeatureRequestStatusEnumApi
@@ -743,7 +742,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => ({ requestStatus }),
         togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => ({ requestPriority }),
-        toggleProductAreaFilter: (productAreaId: string) => ({ productAreaId }),
+        setProductAreaFilter: (productAreaFilter: string[]) => ({ productAreaFilter }),
         setAccountFilter: (accountFilter: string[]) => ({ accountFilter }),
         setCreatedByFilter: (createdByFilter: number[]) => ({ createdByFilter }),
         setArchiveState: (archiveState: FeatureRequestArchiveState) => ({ archiveState }),
@@ -879,7 +878,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setSearchQuery: () => 1,
                 toggleStatusFilter: () => 1,
                 togglePriorityFilter: () => 1,
-                toggleProductAreaFilter: () => 1,
+                setProductAreaFilter: () => 1,
                 setAccountFilter: () => 1,
                 setCreatedByFilter: () => 1,
                 setArchiveState: () => 1,
@@ -914,7 +913,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         productAreaFilter: [
             [] as string[],
             {
-                toggleProductAreaFilter: (state, { productAreaId }) => toggleValue(state, productAreaId),
+                setProductAreaFilter: (_, { productAreaFilter }) => productAreaFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.productAreaFilter,
                 clearFilters: () => [],
             },
@@ -1678,7 +1677,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         },
         toggleStatusFilter: () => actions.loadFeatureRequests(),
         togglePriorityFilter: () => actions.loadFeatureRequests(),
-        toggleProductAreaFilter: () => actions.loadFeatureRequests(),
+        setProductAreaFilter: () => actions.loadFeatureRequests(),
         setAccountFilter: () => actions.loadFeatureRequests(),
         setCreatedByFilter: () => actions.loadFeatureRequests(),
         setArchiveState: () => actions.loadFeatureRequests(),
@@ -2030,7 +2029,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             setSearchQuery: toUrl,
             toggleStatusFilter: toUrl,
             togglePriorityFilter: toUrl,
-            toggleProductAreaFilter: toUrl,
+            setProductAreaFilter: toUrl,
             setAccountFilter: toUrl,
             setCreatedByFilter: toUrl,
             setArchiveState: toUrl,

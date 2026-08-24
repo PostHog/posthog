@@ -243,6 +243,29 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.productAreaFormOpen).toBe(false)
     })
 
+    it('applies the created-by filter on the first change', async () => {
+        router.actions.push(urls.customerAnalyticsFeatureRequests())
+        await expectLogic(logic).toFinishAllListeners()
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        logic.actions.setCreatedByFilter([1])
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ created_by_ids: [1] })
+        )
+    })
+
     it('loads the requested page with 20 requests per page', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
