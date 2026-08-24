@@ -1,5 +1,6 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
@@ -19,6 +20,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  analysis: {
+    canAnalyze: false,
+    isPending: false,
+    run: vi.fn(),
+  },
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
@@ -37,6 +43,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+vi.mock(
+  "@posthog/ui/features/task-detail/components/TaskAnalysisButton",
+  () => ({
+    useTaskAnalysis: () => mocks.analysis,
+  }),
+);
 // The handoff dialog is tested on its own; here it only opens.
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
@@ -103,6 +115,7 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
@@ -387,6 +400,38 @@ describe("ChannelItemRow", () => {
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
     }
+  });
+
+  it("offers Run analysis for a task with a terminal run", () => {
+    const run = vi.fn();
+    mocks.analysis = { canAnalyze: true, isPending: false, run };
+    const task = {
+      id: "task-1",
+      task_number: 1,
+      slug: "task-1",
+      title: "Investigate signup drop-off",
+      description: "",
+      created_at: "2026-07-16T12:00:00.000Z",
+      updated_at: "2026-07-16T12:00:00.000Z",
+      origin_product: "user_created",
+      latest_run: { id: "run-1", status: "completed" },
+    } as Task;
+
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ task })}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+
+    const analysisItem = screen.getByRole("menuitem", {
+      name: "Run analysis",
+    });
+    expect(analysisItem).not.toBeNull();
+    fireEvent.click(analysisItem);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("offers Hand off… only to the task's owner", async () => {
