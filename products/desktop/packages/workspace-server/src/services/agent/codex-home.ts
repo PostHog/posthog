@@ -115,15 +115,55 @@ export function stripMcpServers(toml: string): string {
   const kept: string[] = [];
   let inMcpTable = false;
   let inTable = false;
+  let openQuotes: string | null = null;
+  let dropRestOfString = false;
+
   for (const line of toml.split("\n")) {
+    // Inside a multiline string every line is content, so a `[mcp_servers` there
+    // is prose. Reading it as a header would drop the closing delimiter and hand
+    // codex a config it cannot parse.
+    const inString = openQuotes !== null;
     const trimmed = line.trim();
-    if (trimmed.startsWith("[")) {
+    if (!inString && trimmed.startsWith("[")) {
       inTable = true;
       inMcpTable = MCP_SERVERS_HEADER.test(trimmed);
     }
-    if (inMcpTable) continue;
-    if (!inTable && MCP_SERVERS_KEY.test(trimmed)) continue;
-    kept.push(line);
+    const drop: boolean = inString
+      ? inMcpTable || dropRestOfString
+      : inMcpTable || (!inTable && MCP_SERVERS_KEY.test(trimmed));
+
+    openQuotes = advanceMultilineString(line, openQuotes);
+    // A dropped key whose value opens a multiline string takes the whole value.
+    dropRestOfString = drop && openQuotes !== null;
+    if (!drop) kept.push(line);
   }
   return kept.join("\n");
+}
+
+/**
+ * Returns the multiline-string delimiter still open at the end of `line`, or
+ * null when the line ends outside one. `open` carries that state in.
+ */
+function advanceMultilineString(
+  line: string,
+  open: string | null,
+): string | null {
+  let quotes = open;
+  for (let i = 0; i < line.length; i++) {
+    if (quotes !== null) {
+      if (line.startsWith(quotes, i)) {
+        quotes = null;
+        i += 2;
+      }
+      continue;
+    }
+    if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
+      quotes = line.slice(i, i + 3);
+      i += 2;
+      continue;
+    }
+    // A comment runs to the end of the line, so nothing after it opens a string.
+    if (line[i] === "#") break;
+  }
+  return quotes;
 }

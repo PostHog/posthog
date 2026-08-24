@@ -262,6 +262,45 @@ describe("stripMcpServers", () => {
       toml: ['model = "gpt-5"', "[tui]", "theme = 1"],
       expected: ['model = "gpt-5"', "[tui]", "theme = 1"],
     },
+    {
+      name: "keeps a multiline string whose content looks like a header",
+      toml: [
+        'notes = """',
+        "[mcp_servers.example]",
+        "how to add one",
+        '"""',
+        'model = "gpt-5"',
+      ],
+      expected: [
+        'notes = """',
+        "[mcp_servers.example]",
+        "how to add one",
+        '"""',
+        'model = "gpt-5"',
+      ],
+    },
+    {
+      name: "keeps dropping a server table across a multiline value",
+      toml: [
+        "[mcp_servers.docs]",
+        'instructions = """',
+        "[tui] is not a header here",
+        '"""',
+        "[tui]",
+        "theme = 1",
+      ],
+      expected: ["[tui]", "theme = 1"],
+    },
+    {
+      name: "drops a top-level key together with its multiline value",
+      toml: [
+        'mcp_servers.docs.instructions = """',
+        "read me",
+        '"""',
+        'model = "gpt-5"',
+      ],
+      expected: ['model = "gpt-5"'],
+    },
   ])("$name", ({ toml, expected }) => {
     expect(stripMcpServers(toml.join("\n"))).toBe(expected.join("\n"));
   });
