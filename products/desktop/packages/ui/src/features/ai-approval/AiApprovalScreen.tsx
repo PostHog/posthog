@@ -14,6 +14,7 @@ import { type ReactNode, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 interface AiApprovalScreenProps {
+  organizationId: string;
   orgName: string | null;
   isAdmin: boolean;
   banner?: ReactNode;
@@ -22,6 +23,7 @@ interface AiApprovalScreenProps {
 }
 
 export function AiApprovalScreen({
+  organizationId,
   orgName,
   isAdmin,
   banner,
@@ -34,7 +36,7 @@ export function AiApprovalScreen({
 
   const approveMutation = useMutation({
     mutationFn: async () => {
-      await client.approveAiDataProcessing();
+      await client.approveAiDataProcessing(organizationId);
     },
     onSuccess: async () => {
       track(ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP);

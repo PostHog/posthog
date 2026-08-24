@@ -103,6 +103,7 @@ from products.tasks.backend.models import (
     ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
+    DesktopBetaTermsAcceptance,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -1660,6 +1661,22 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
 
 
 # --- Desktop invites ---
+
+
+def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    return contracts.DesktopBetaTermsAcceptanceDTO(
+        is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
+            organization_id=organization_id
+        ).exists()
+    )
+
+
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:

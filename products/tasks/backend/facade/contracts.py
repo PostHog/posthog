@@ -660,6 +660,11 @@ class CodeInviteRedeemResult:
 
 
 @dataclass(frozen=True)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
+
+
+@dataclass(frozen=True)
 class TaskUserBasicInfo:
     """Lightweight user info for display, mirroring core ``UserBasicSerializer`` output.
 
