@@ -14,6 +14,14 @@ CONSTANCE_CONFIG = {
         "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
         int,
     ),
+    "TEAM_CACHE_SIZE_LIMIT_BYTES": (
+        get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 500_000_000, type_cast=int),
+        "Per-team query cache budget, in bytes actually stored in Redis (zstd-compressed entries, "
+        "or just the pointer once a large entry is offloaded to S3). A team over budget has its "
+        "oldest entries evicted on its next cache write. Applies to every pool that writes to the "
+        "query cache; Team.extra_settings.cache_size_limit_bytes overrides it for a single team.",
+        int,
+    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
@@ -339,6 +347,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "TEAM_CACHE_SIZE_LIMIT_BYTES",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",

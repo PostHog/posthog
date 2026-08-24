@@ -37,3 +37,16 @@ The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated to this c
 | `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES`  | `131072`                | Minimum zstd-compressed size for S3 routing                            |
 
 These are plain environment variables read at process start. Cloud runs the defaults; overriding one in production means plumbing it through the deployment charts first, the same as any other app setting.
+
+## Per-team budget
+
+Every cache write checks the team's tracked bytes against a budget and evicts that team's oldest entries once the next write would exceed it.
+The budget counts the bytes actually stored in Redis: the zstd-compressed entry, or just the small pointer once an entry is offloaded to S3, so offloaded entries cost almost nothing against it.
+Eviction is write-triggered only; a quiet team keeps its bytes until the TTL expires them.
+
+Resolution order in `get_team_cache_limit`:
+
+1. `Team.extra_settings["cache_size_limit_bytes"]`, the per-team override.
+2. The `TEAM_CACHE_SIZE_LIMIT_BYTES` instance setting (edit at `/admin/posthog/instancesetting/`).
+   This is the fleet-wide value; every pool that writes to the cache (web, celery, temporal workers, Dagster warming jobs) picks up a change within about a minute, with no restart.
+3. The `TEAM_CACHE_SIZE_LIMIT_BYTES` env var or its 500MB code default, which seeds the instance setting's default and is the fallback when Postgres is unreachable.

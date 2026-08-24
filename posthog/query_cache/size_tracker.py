@@ -135,8 +135,10 @@ return 0
 
 @cache_for(timedelta(seconds=60))
 def get_team_cache_limit(team_id: int) -> int:
-    """Get cache limit for team, checking for per-team override in extra_settings."""
+    """Get cache limit for team: per-team override in extra_settings, then the
+    TEAM_CACHE_SIZE_LIMIT_BYTES instance setting, then the env/code default."""
     from posthog.models import Team
+    from posthog.models.instance_setting import get_instance_setting
 
     try:
         team = Team.objects.only("extra_settings").get(pk=team_id)
@@ -148,6 +150,14 @@ def get_team_cache_limit(team_id: int) -> int:
         # This lookup only reads an optional override, so a struggling Postgres must not fail
         # the query whose result we're about to cache.
         logger.warning("query_cache_team_limit_lookup_failed", team_id=team_id, exc_info=True)
+    try:
+        # Fleet-wide value every writing pool (web, celery, temporal, dagster) must agree on:
+        # a pool enforcing a different limit refills what the others evict.
+        return int(get_instance_setting("TEAM_CACHE_SIZE_LIMIT_BYTES"))
+    except (DatabaseError, TypeError, ValueError):
+        # TypeError/ValueError: Django admin edits the raw value without type validation,
+        # and a malformed setting must not stop cache writes.
+        logger.warning("query_cache_limit_setting_lookup_failed", team_id=team_id, exc_info=True)
     return settings.TEAM_CACHE_SIZE_LIMIT_BYTES
 
 

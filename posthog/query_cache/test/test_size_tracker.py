@@ -7,6 +7,7 @@ from django.test import override_settings
 import fakeredis
 
 from posthog.models import Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker, get_team_cache_limit
 from posthog.query_cache.storage import entry_redis_key
 
@@ -144,7 +145,6 @@ class TestTeamCacheSizeTracker(BaseTest):
         # Tracking should be updated
         self.assertEqual(self.tracker.get_total_size(), len(data))
 
-    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_set_method_triggers_eviction_when_over_limit(self):
         # First write - under limit
         data1 = b"x" * 200
@@ -157,7 +157,8 @@ class TestTeamCacheSizeTracker(BaseTest):
 
         # This should trigger eviction of test_key_1
         data3 = b"z" * 200
-        evicted = self.tracker.set("test_key_3", data3, 300)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 500):
+            evicted = self.tracker.set("test_key_3", data3, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIsNone(self._entry("test_key_1"))
@@ -216,7 +217,6 @@ class TestTeamCacheSizeTracker(BaseTest):
         tracker_team_a.purge()
         tracker_team_b.purge()
 
-    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500)
     def test_entry_larger_than_limit_evicts_all(self):
         self._seed_entry("test_key_1", b"x" * 100)
         self.tracker.track_cache_write("test_key_1", 100)
@@ -226,7 +226,8 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.assertEqual(self.tracker.get_total_size(), 200)
 
         large_data = b"z" * 600
-        evicted = self.tracker.set("large_key", large_data, 300)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 500):
+            evicted = self.tracker.set("large_key", large_data, 300)
 
         self.assertIn("test_key_1", evicted)
         self.assertIn("test_key_2", evicted)
@@ -270,12 +271,22 @@ class TestGetTeamCacheLimit(BaseTest):
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_uses_override(self):
-        # Set per-team override
+        # Per-team override must win over the fleet-wide instance setting
         self.team.extra_settings = {"cache_size_limit_bytes": 2_000_000_000}
         self.team.save()
 
-        limit = get_team_cache_limit(self.team.pk)
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 750_000_000):
+            limit = get_team_cache_limit(self.team.pk)
         self.assertEqual(limit, 2_000_000_000)
+
+    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
+    def test_get_team_cache_limit_uses_instance_setting(self):
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", 750_000_000):
+            self.assertEqual(get_team_cache_limit(self.team.pk), 750_000_000)
+
+        # Django admin edits the raw value without type validation
+        with override_instance_config("TEAM_CACHE_SIZE_LIMIT_BYTES", "not-a-number"):
+            self.assertEqual(get_team_cache_limit(self.team.pk), 500_000_000)
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_returns_default_for_nonexistent_team(self):
@@ -292,7 +303,13 @@ class TestGetTeamCacheLimit(BaseTest):
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
     def test_get_team_cache_limit_falls_back_to_default_when_postgres_errors(self):
-        with patch.object(Team.objects, "only", side_effect=OperationalError("query_wait_timeout")):
+        with (
+            patch.object(Team.objects, "only", side_effect=OperationalError("query_wait_timeout")),
+            patch(
+                "posthog.models.instance_setting.get_instance_setting",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+        ):
             limit = get_team_cache_limit(self.team.pk)
 
         self.assertEqual(limit, 500_000_000)
