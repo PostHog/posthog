@@ -55,9 +55,9 @@ describe('MemberSelectRow', () => {
         expect(checkbox!.checked).toBe(checked)
     })
 
-    it('fires onClick when the row is clicked', () => {
+    it('fires onClick when the name in a multi-select row is clicked', () => {
         const onClick = jest.fn()
-        renderRow({ onClick })
+        renderRow({ checked: false, onClick })
         fireEvent.click(screen.getByText(fullName(member.user)))
         expect(onClick).toHaveBeenCalledTimes(1)
     })
