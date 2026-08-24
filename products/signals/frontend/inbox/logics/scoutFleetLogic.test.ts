@@ -374,6 +374,35 @@ describe('scoutFleetLogic', () => {
             expect(second?.[1]).toBe(first?.[1])
         })
 
+        it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
+            jest.useFakeTimers().setSystemTime('2026-08-04T00:00:00Z')
+            try {
+                const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+                mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [
+                    JSON.parse(JSON.stringify(settledRun)),
+                ])
+                logic.unmount()
+                logic = scoutFleetLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadScoutConfigsSuccess([BASE_CONFIG])
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+                const firstRuns = logic.values.scoutRuns
+
+                expect(logic.values.rosterScouts[0].group).toBe('settling_in')
+
+                jest.setSystemTime('2026-08-06T00:00:00Z')
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+
+                expect(logic.values.scoutRuns).toBe(firstRuns)
+                expect(logic.values.rosterScouts[0].group).toBe('watching')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('keeps the runs array and settled run references when a poll changes nothing', async () => {
             const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
             mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [JSON.parse(JSON.stringify(settledRun))])
@@ -381,6 +410,7 @@ describe('scoutFleetLogic', () => {
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
             const first = logic.values.scoutRuns
+            const firstRoster = logic.values.rosterScouts
 
             logic.actions.loadScoutRuns()
             await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
@@ -388,6 +418,7 @@ describe('scoutFleetLogic', () => {
 
             expect(second).toBe(first)
             expect(second[0]).toBe(first[0])
+            expect(logic.values.rosterScouts).toBe(firstRoster)
         })
 
         it('keeps settled run references but not live ones when a poll reruns with a live run', async () => {

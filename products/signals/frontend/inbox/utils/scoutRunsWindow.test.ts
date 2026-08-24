@@ -134,5 +134,4 @@ describe('scoutRunsWindow report channel', () => {
             expect(computeFleetSummary([], rollups).touchedReportCount).toEqual(2)
         })
     })
-
 })
