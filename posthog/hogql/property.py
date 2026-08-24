@@ -568,12 +568,42 @@ def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
+        if is_json_field:
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotEq,
+                        left=expr,
+                        right=ast.Constant(value=None),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotEq,
+                        left=expr,
+                        right=ast.Constant(value="null"),
+                    ),
+                ]
+            )
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
+        if is_json_field:
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=expr,
+                        right=ast.Constant(value=None),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=expr,
+                        right=ast.Constant(value="null"),
+                    ),
+                ]
+            )
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
