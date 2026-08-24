@@ -19,7 +19,7 @@ type StepContext = Pick<OnboardingStepCompletedProperties, "github_connected">;
 
 interface ConnectGitHubStepProps {
   onNext: (context?: StepContext) => void;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
@@ -107,10 +107,12 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
         </Flex>
 
         <StepActions>
-          <Button size="3" variant="outline" color="gray" onClick={onBack}>
-            <ArrowLeft size={16} weight="bold" />
-            Back
-          </Button>
+          {onBack && (
+            <Button size="3" variant="outline" color="gray" onClick={onBack}>
+              <ArrowLeft size={16} weight="bold" />
+              Back
+            </Button>
+          )}
           <Button size="3" onClick={handleContinue}>
             Continue
             <ArrowRight size={16} weight="bold" />
