@@ -26,7 +26,7 @@ const usageRecordsFailedCounter = new Counter({
 const RETRYABLE_CODES = new Set([Code.Unavailable, Code.DeadlineExceeded, Code.ResourceExhausted, Code.Aborted])
 
 export interface UsageRecordInput {
-    /** Unique per (teamId, producerId). Reused verbatim on retry, which is what makes ingest idempotent. */
+    /** Unique per (teamId, producerId, usageKey). Reused verbatim on retry, which is what makes ingest idempotent. */
     recordId: string
     teamId: number
     usageKey: string
@@ -84,7 +84,6 @@ export class UsageIngestionClient {
                     mode: BillingUsageMode.DELTA,
                     unit: record.unit,
                     quantity: BigInt(record.quantity),
-                    version: 1n,
                     eventTimestampMs: BigInt(record.eventTimestampMs),
                     dimensions: record.dimensions ?? {},
                 })
