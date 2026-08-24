@@ -31,7 +31,6 @@ import {
   type ConsentRequirement,
   sampleConsentRequirement,
 } from "./consentRequirement";
-import { useHasImportableConfig } from "./useHasImportableConfig";
 
 export type { DetectedRepo };
 
@@ -134,8 +133,6 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const hasCodeAccess = useAuthStateValue((state) => state.hasCodeAccess);
-  const hasImportableConfig = useHasImportableConfig();
   const { data: githubUserIntegrations } = useUserGithubIntegrations();
   const hasGithubIntegration = githubUserIntegrations
     ? githubUserIntegrations.length > 0
@@ -143,6 +140,11 @@ export function useOnboardingFlow() {
   // Counted off the store rather than through useProjects, whose auto-select
   // effect would then run in a second place and re-clear the query cache.
   const orgProjectsMap = useAuthStateValue((state) => state.orgProjectsMap);
+  const hasDesktopAccess = useAuthStateValue(
+    (state) =>
+      state.desktopAccess.projectId === state.currentProjectId &&
+      state.desktopAccess.status === "allowed",
+  );
   const authFetched = useAuthStateFetched();
   const projectCount = useMemo(
     () =>
@@ -154,7 +156,7 @@ export function useOnboardingFlow() {
         : undefined,
     [authFetched, orgProjectsMap],
   );
-  const consent = useOrgConsent(hasCodeAccess === true);
+  const consent = useOrgConsent(hasDesktopAccess);
   const consentSatisfied =
     consent.status === "resolved" ? consent.satisfied : undefined;
   const [consentRequirement, setConsentRequirement] =
@@ -184,19 +186,11 @@ export function useOnboardingFlow() {
   const activeSteps = useMemo(
     () =>
       computeActiveSteps({
-        hasCodeAccess,
-        hasImportableConfig,
         hasGithubIntegration,
         projectCount,
         consentRequired,
       }),
-    [
-      hasCodeAccess,
-      hasImportableConfig,
-      hasGithubIntegration,
-      projectCount,
-      consentRequired,
-    ],
+    [hasGithubIntegration, projectCount, consentRequired],
   );
 
   useEffect(() => {

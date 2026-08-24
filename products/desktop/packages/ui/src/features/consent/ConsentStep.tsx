@@ -11,7 +11,7 @@ import { useOrgConsent } from "./useOrgConsent";
 
 interface ConsentStepProps {
   onNext: () => void;
-  onBack: () => void;
+  onBack?: () => void;
   requirements?: {
     needsAiConsent: boolean;
     needsBetaTerms: boolean;
@@ -65,16 +65,18 @@ export function ConsentStep({
           </div>
         </div>
         <StepActions>
-          <Button
-            variant="outline"
-            size="lg"
-            className="h-10 px-4 text-sm"
-            disabled={isSubmitting}
-            onClick={onBack}
-          >
-            <ArrowLeft size={16} />
-            Back
-          </Button>
+          {onBack && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="h-10 px-4 text-sm"
+              disabled={isSubmitting}
+              onClick={onBack}
+            >
+              <ArrowLeft size={16} />
+              Back
+            </Button>
+          )}
           <Button
             variant="primary"
             size="lg"

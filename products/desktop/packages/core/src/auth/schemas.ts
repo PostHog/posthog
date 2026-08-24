@@ -71,6 +71,49 @@ export function pickInitialProjectId(args: {
   return allProjectIds[0] ?? null;
 }
 
+export const desktopAccessReasonSchema = z.enum([
+  "startup_plan",
+  "prepaid_credits",
+]);
+export type DesktopAccessReason = z.infer<typeof desktopAccessReasonSchema>;
+
+export const desktopAccessResponseSchema = z.union([
+  z.object({ allowed: z.literal(true), reason: z.null() }),
+  z.object({
+    allowed: z.literal(false),
+    reason: desktopAccessReasonSchema.nullable(),
+  }),
+]);
+
+export const desktopAccessSchema = z.discriminatedUnion("status", [
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("unchecked"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("checking"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number(),
+    status: z.literal("allowed"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number(),
+    status: z.literal("blocked"),
+    reason: desktopAccessReasonSchema.nullable(),
+  }),
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("error"),
+    reason: z.null(),
+  }),
+]);
+export type DesktopAccess = z.infer<typeof desktopAccessSchema>;
+
 export const authStateSchema = z.object({
   status: authStatusSchema,
   bootstrapComplete: z.boolean(),
@@ -78,7 +121,7 @@ export const authStateSchema = z.object({
   orgProjectsMap: orgProjectsMapSchema,
   currentOrgId: z.string().nullable(),
   currentProjectId: z.number().nullable(),
-  hasCodeAccess: z.boolean().nullable(),
+  desktopAccess: desktopAccessSchema,
   needsScopeReauth: z.boolean(),
   sessionType: z.enum(["persistent", "impersonated"]).nullable(),
   sessionExpiresAt: z.number().nullable(),
