@@ -23,8 +23,6 @@ pub enum ValidationError {
     InvalidQuantity,
     #[error("delta quantity must be positive")]
     InvalidDeltaQuantity,
-    #[error("version must be positive")]
-    InvalidVersion,
     #[error(
         "event_timestamp_ms must be milliseconds since the epoch, between years 1900 and 2300"
     )]
@@ -48,12 +46,8 @@ pub struct KafkaBillingUsageRecord {
     pub mode: String,
     pub unit: String,
     pub quantity: i64,
-    pub version: u64,
     pub event_timestamp: String,
     pub inserted_at: String,
-    pub source_ref: String,
-    pub user_id: String,
-    pub variant: String,
     pub dimensions: std::collections::HashMap<String, String>,
 }
 
@@ -72,9 +66,6 @@ impl KafkaBillingUsageRecord {
         }
         if record.quantity < 0 {
             return Err(ValidationError::InvalidQuantity);
-        }
-        if record.version == 0 {
-            return Err(ValidationError::InvalidVersion);
         }
         if record.dimensions.len() > MAX_DIMENSIONS {
             return Err(ValidationError::TooManyDimensions);
@@ -111,12 +102,8 @@ impl KafkaBillingUsageRecord {
             mode: mode.to_string(),
             unit: record.unit,
             quantity: record.quantity,
-            version: record.version,
             event_timestamp: event_timestamp.to_rfc3339_opts(SecondsFormat::Millis, true),
             inserted_at: inserted_at.to_rfc3339_opts(SecondsFormat::Millis, true),
-            source_ref: record.source_ref.unwrap_or_default(),
-            user_id: record.user_id.unwrap_or_default(),
-            variant: record.variant.unwrap_or_default(),
             dimensions: record.dimensions,
         })
     }

@@ -90,7 +90,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       feed_id: feed.id,
     });
     toast.success("Saved search deleted");
-    void navigate({ to: "/website" });
+    void navigate({ to: "/spaces" });
   }, [feed, removeFeed, navigate]);
 
   if (!feed) {

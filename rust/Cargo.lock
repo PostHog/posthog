@@ -9221,6 +9221,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-database",
  "common-kafka",
  "common-metrics",
  "envconfig",

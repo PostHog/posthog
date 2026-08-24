@@ -11,9 +11,11 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
+import { UUID7 } from '~/common/utils/utils'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -64,6 +66,7 @@ export interface LogsIngestionConsumerDeps {
      * directly.
      */
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
+    usageBatch?: UsageRecordBatch
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
@@ -1031,11 +1034,33 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
+            const source = this.appSource === 'traces' ? 'apm' : 'logs'
+            // These records are per-flush aggregates, not one per billed thing, so there is no
+            // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
+            // the same team from colliding and collapsing one flush's quantity away.
+            const flushId = new UUID7().toString()
+            this.deps.usageBatch?.add(
+                teamId,
+                `${source}_bytes`,
+                flushId,
+                this.appSource === 'logs' ? { retention_days: String(stats.retentionDays) } : undefined,
+                stats.bytesAllowed,
+                'bytes'
+            )
+            this.deps.usageBatch?.add(
+                teamId,
+                source === 'apm' ? 'apm_spans' : 'logs_records',
+                flushId,
+                undefined,
+                stats.recordsAllowed,
+                'records'
+            )
         }
 
         // Best-effort: don't let metric failures block ingestion
         try {
             await this.appMetricsAggregator.flush()
+            await this.deps.usageBatch?.flush()
         } catch (error) {
             logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }

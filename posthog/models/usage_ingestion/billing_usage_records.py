@@ -15,18 +15,22 @@ KAFKA_BILLING_USAGE_RECORDS_TABLE = f"kafka_{BILLING_USAGE_RECORDS_TABLE}"
 BILLING_USAGE_RECORDS_MV = f"{BILLING_USAGE_RECORDS_TABLE}_mv"
 
 
-# ReplacingMergeTree collapses only within a partition, so a retry must reuse the
-# original event_timestamp — a correction that moves billable time into another month
-# lands in another partition and survives as a second row. Corrections belong on a new
-# version, which is a distinct row by design.
+# Producers stamp event_timestamp when they flush, so the same record_id re-sent after a
+# retry or a consumer replay carries a later timestamp. It therefore cannot be part of the
+# identity, or every resend would bill again. inserted_at is the version column: the latest
+# send of a record_id wins, which is also how a producer corrects a quantity.
+# ponytail: collapse is still partition-scoped, so a replay that crosses a month boundary
+# leaves both rows. Bounded by replays being operational events, not routine ones.
 def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
     return ReplacingMergeTree(
         SHARDED_BILLING_USAGE_RECORDS_TABLE,
         replication_scheme=ReplicationScheme.SHARDED,
-        ver="event_timestamp",
+        ver="inserted_at",
     )
 
 
+# dimensions sits outside the sort key, so two sends of one identity collapse to whichever
+# inserted last: a producer's dimensions have to be a function of its record_id.
 BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     schema_version UInt8,
     record_id String,
@@ -37,12 +41,8 @@ BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     mode Enum8('delta' = 1, 'snapshot' = 2),
     unit LowCardinality(String),
     quantity Int64,
-    version UInt64,
     event_timestamp DateTime64(6, 'UTC'),
     inserted_at DateTime64(6, 'UTC'),
-    source_ref String,
-    user_id String,
-    variant String,
     dimensions Map(LowCardinality(String), String)
 """.strip()
 
@@ -53,10 +53,11 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}
 (
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
+    , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
 )
 ENGINE = {billing_usage_records_data_table_engine()}
 PARTITION BY toYYYYMM(event_timestamp)
-ORDER BY (team_id, producer_id, record_id, version)
+ORDER BY (team_id, producer_id, usage_key, record_id)
 """
 
 
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS {BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
 """
 
 
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS {WRITABLE_BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
 """
 
 
@@ -113,12 +114,8 @@ AS SELECT
     mode,
     unit,
     quantity,
-    version,
     event_timestamp,
     inserted_at,
-    source_ref,
-    user_id,
-    variant,
     dimensions,
     _timestamp,
     _offset,

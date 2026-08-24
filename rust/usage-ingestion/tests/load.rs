@@ -17,11 +17,12 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 };
 use uuid::Uuid;
 
-/// One partition for every row. Originals span the first minute, retries sit an hour
-/// later, so "the retry won" is one countable predicate.
+/// Every record sits in the same month, so `PARTITION BY toYYYYMM(event_timestamp)` keeps a
+/// retry in the same partition as its original. ReplacingMergeTree only collapses within one.
 const BASE_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
+/// Retries sit an hour after their original, well inside the same partition. Producers stamp
+/// event time when they flush, so this is what a real retry looks like.
 const RETRY_OFFSET_MS: i64 = 3_600_000;
-const RETRY_BOUNDARY: &str = "2024-06-15 01:00:00";
 
 const BASELINE_REQUESTS: usize = 32;
 /// Sequential latency is dominated by the producer's 20ms linger, so there is a lot of
@@ -35,8 +36,9 @@ const USAGE_KEYS: [(&str, &str); 4] = [
     ("queries_executed", "query"),
 ];
 
-/// A `retry` must leave every field of the table's sorting key — team_id, producer_id,
-/// record_id, version — identical to the original, or it becomes a separate row.
+/// A retry reuses the sorting key `(team_id, producer_id, usage_key, record_id)` but moves
+/// event_timestamp, which is what a producer that stamps flush time actually sends. Putting
+/// event_timestamp back in the sorting key makes this test fail with double the rows.
 fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
@@ -52,13 +54,9 @@ fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
         },
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        version: 1 + (index % 3) as u64,
         event_timestamp_ms: BASE_EVENT_TIMESTAMP_MS
             + event_offset_ms
             + if retry { RETRY_OFFSET_MS } else { 0 },
-        source_ref: None,
-        user_id: None,
-        variant: Some(format!("variant-{}", index % 5)),
         dimensions: [("region".to_string(), format!("region-{}", index % 3))]
             .into_iter()
             .collect(),
@@ -107,7 +105,8 @@ async fn sustains_thousands_of_concurrent_requests() {
         .map(|index| record(&run, index, false))
         .chain((0..retries).map(|index| record(&run, index, true)))
         .collect();
-    // Arrival order must not match event order: a retry landing first still has to win.
+    // Arrival order must not match event order: a retry landing before its original still has
+    // to collapse to one row.
     plan.sort_by_key(|record| {
         let mut hasher = DefaultHasher::new();
         (&record.record_id, record.event_timestamp_ms).hash(&mut hasher);
@@ -208,21 +207,29 @@ async fn sustains_thousands_of_concurrent_requests() {
         &format!("OPTIMIZE TABLE {table} FINAL"),
     )
     .await;
-    // No FINAL: after OPTIMIZE the stored rows themselves must be collapsed.
-    let summary = clickhouse(
-        &http,
-        &clickhouse_url,
-        &format!(
-            "SELECT count(), countIf(event_timestamp >= toDateTime64('{RETRY_BOUNDARY}', 6, 'UTC')) FROM {table} WHERE startsWith(record_id, '{run}:') FORMAT TSV"
-        ),
-    )
-    .await;
-
-    assert_eq!(
-        summary.trim(),
-        format!("{expected_rows}\t{retries}"),
-        "expected {expected_rows} canonical rows with {retries} won by a retry"
-    );
+    // No FINAL in the read: after the merge the stored rows themselves must be collapsed. This
+    // merge covers every row the run inserted rather than the handful the e2e test writes, so
+    // poll instead of assuming OPTIMIZE returned with all parts already merged.
+    //
+    // Which of the two survives is not asserted: `ver` is inserted_at, so the copy that
+    // arrived second wins, and arrival order here is deliberately shuffled.
+    let collapse_query =
+        format!("SELECT count() FROM {table} WHERE startsWith(record_id, '{run}:') FORMAT TSV");
+    let collapse_deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let stored = clickhouse(&http, &clickhouse_url, &collapse_query)
+            .await
+            .trim()
+            .to_string();
+        if stored == expected_rows.to_string() {
+            break;
+        }
+        assert!(
+            Instant::now() < collapse_deadline,
+            "{retries} retries did not collapse: {stored} rows, expected {expected_rows}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     service.stop().await;
 }

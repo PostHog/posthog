@@ -19,9 +19,10 @@ enum BillingUsageMode {
 }
 
 message BillingUsageRecord {
-  // Stable UUID or producer-scoped identifier used for idempotent retries. A retry
-  // must reuse record_id, version, and event_timestamp_ms; a correction gets a new
-  // version instead. A correction that moves event time is a distinct billable row.
+  // (team_id, producer_id, usage_key, record_id) is the record's identity, so a retry
+  // reuses all four and collapses to one row. Correcting a quantity means re-sending
+  // the same identity: the last send wins. event_timestamp is free to move between
+  // sends, which is what makes a replay safe.
   string record_id = 1;
   string producer_id = 2;
 
@@ -33,12 +34,10 @@ message BillingUsageRecord {
   BillingUsageMode mode = 5;
   string unit = 6;
   int64 quantity = 7;
-  uint64 version = 8;
   int64 event_timestamp_ms = 9;
-  optional string source_ref = 10;
-  optional string user_id = 11;
-  optional string variant = 12;
   map<string, string> dimensions = 13;
+
+  reserved 8, 10, 11, 12; // version, source_ref, user_id, variant
 }
 
 message IngestBillingUsageRequest {

@@ -120,12 +120,8 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
@@ -1165,12 +1161,8 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
       
   , _timestamp DateTime
@@ -1178,7 +1170,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', sipHash64(team_id))
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
@@ -1197,12 +1189,8 @@
       mode,
       unit,
       quantity,
-      version,
       event_timestamp,
       inserted_at,
-      source_ref,
-      user_id,
-      variant,
       dimensions,
       _timestamp,
       _offset,
@@ -2442,12 +2430,8 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
@@ -6662,22 +6646,19 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
+      , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
   )
-  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp)
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
   PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, record_id, version)
+  ORDER BY (team_id, producer_id, usage_key, record_id)
   
   '''
 # ---
@@ -9194,12 +9175,8 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
       
   , _timestamp DateTime
@@ -9207,7 +9184,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', sipHash64(team_id))
+  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
@@ -11701,22 +11678,19 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      version UInt64,
       event_timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
-      source_ref String,
-      user_id String,
-      variant String,
       dimensions Map(LowCardinality(String), String)
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
+      , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
   )
-  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp)
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
   PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, record_id, version)
+  ORDER BY (team_id, producer_id, usage_key, record_id)
   
   '''
 # ---

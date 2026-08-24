@@ -1687,6 +1687,7 @@ POSTHOG_AI_PRODUCTS = [
 ]
 
 # ai_product values billed as PostHog Desktop credits.
+UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
@@ -1784,6 +1785,9 @@ def _get_teams_with_ai_credits_for_products(
     ai_product_expr, _ = get_property_string_expr(
         "events", "ai_product", "'ai_product'", "properties", use_new_events_schema=use_new
     )
+    task_origin_expr, _ = get_property_string_expr(
+        "events", "task_origin_product", "'task_origin_product'", "properties", use_new_events_schema=use_new
+    )
 
     with tags_context(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
@@ -1864,6 +1868,9 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
                         AND {ai_product_expr} IN %(ai_products)s
+                        -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
+                        -- to the customer. Events without the property yield '' and pass.
+                        AND {task_origin_expr} NOT IN %(unbilled_task_origins)s
                 )
                 WHERE
                     ai_billable = 1
@@ -1897,6 +1904,7 @@ def _get_teams_with_ai_credits_for_products(
                 "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
+                "unbilled_task_origins": UNBILLED_TASK_ORIGIN_PRODUCTS,
                 **region_filter_params,
             },
             workload=Workload.OFFLINE,

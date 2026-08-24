@@ -48,6 +48,7 @@ import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-in
 import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
+    createRecordEventUsageAfterIngestStep,
     createRecordEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveAiUsageKey } from '~/ingestion/common/usage-records/billable-events'
@@ -162,6 +163,8 @@ export function createAiIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    // createFetchPersonChunkStep below only reads persons.
+                    pipelineWritesPersons: false,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -277,6 +280,7 @@ export function createAiIngestionPipeline<
                     ),
                 ],
             })
+            .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b

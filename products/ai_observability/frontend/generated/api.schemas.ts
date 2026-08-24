@@ -863,6 +863,9 @@ export type EvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -919,6 +922,11 @@ export interface EvaluationApi {
     readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -992,6 +1000,9 @@ export type PatchedEvaluationApiTargetConfig =
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -1048,6 +1059,11 @@ export interface PatchedEvaluationApi {
     readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -1640,10 +1656,9 @@ export interface EvaluationReportCitationApi {
  * * `completed` - completed
  * * `metrics_unavailable` - metrics_unavailable
  */
-export type EvaluationReportRunContentGenerationStatusEnumApi =
-    (typeof EvaluationReportRunContentGenerationStatusEnumApi)[keyof typeof EvaluationReportRunContentGenerationStatusEnumApi]
+export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
 
-export const EvaluationReportRunContentGenerationStatusEnumApi = {
+export const GenerationStatusEnumApi = {
     Completed: 'completed',
     MetricsUnavailable: 'metrics_unavailable',
 } as const
@@ -1727,7 +1742,7 @@ export interface EvaluationReportRunContentApi {
      *
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable */
-    generation_status?: EvaluationReportRunContentGenerationStatusEnumApi
+    generation_status?: GenerationStatusEnumApi
     /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
@@ -1788,11 +1803,24 @@ export interface PaginatedEvaluationReportRunListApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface OfflineExperimentItemsRequestApi {
@@ -3240,13 +3268,13 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
 
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =

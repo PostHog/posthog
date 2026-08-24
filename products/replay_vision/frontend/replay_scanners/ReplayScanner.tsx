@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { percentage } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,6 +28,8 @@ import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
+import { ScannerScoutCard } from './components/ScannerScoutCard'
+import { ScannerScoutsTab } from './components/ScannerScoutsTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
@@ -41,6 +45,9 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
+    const visibleTabs = Object.values(ReplayScannerTab).filter((tab) => scoutDigests || tab !== ReplayScannerTab.Scouts)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -102,7 +109,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
             <ScanDroughtBanner scannerId={scannerId} />
 
             <LemonTabs
-                activeKey={activeTab}
+                // The scene logic keeps a `?tab=scouts` URL off this tab when the flag is off. This
+                // covers the other way in: a flag that flips off while the tab is already open.
+                activeKey={visibleTabs.includes(activeTab) ? activeTab : ReplayScannerTab.Overview}
                 onChange={setActiveTab}
                 data-attr="vision-scanner-tabs"
                 tabs={[
@@ -111,7 +120,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
-                                <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                {scoutDigests ? (
+                                    <ScannerScoutCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                ) : (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
                                 <ScannerOverview scannerId={scannerId} />
                             </div>
                         ),
@@ -141,9 +154,19 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Calibration',
                         content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
+                    ...(scoutDigests
+                        ? [
+                              {
+                                  key: ReplayScannerTab.Scouts,
+                                  label: 'Scouts',
+                                  content: <ScannerScoutsTab scannerId={scannerId} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: ReplayScannerTab.Actions,
-                        label: 'Digests and alerts',
+                        // Digests moved to their own Scouts tab, leaving this one to alerts alone.
+                        label: scoutDigests ? 'Alerts' : 'Digests and alerts',
                         content: (
                             <VisionActionsTab
                                 scannerId={scannerId}

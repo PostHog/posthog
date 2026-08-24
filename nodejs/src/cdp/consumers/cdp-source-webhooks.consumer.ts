@@ -299,6 +299,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
+                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+
                 addMetric({
                     metric_kind: 'billing',
                     metric_name: 'billable_invocation',
@@ -310,8 +312,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     recordId: `webhook:${invocationId}`,
                     kind: 'source_webhook',
                 })
-
-                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({
                     metric_kind: 'failure',

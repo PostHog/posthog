@@ -315,6 +315,9 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,

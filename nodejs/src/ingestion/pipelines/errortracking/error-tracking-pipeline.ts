@@ -36,6 +36,7 @@ import {
     EventUsageBatchContext,
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
+    createRecordEventUsageAfterIngestStep,
     createRecordEventUsageStep,
 } from '~/ingestion/common/steps/usage-records-steps'
 import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billable-events'
@@ -163,6 +164,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowMode,
                 preservePartitionLocality,
+                // createFetchPersonChunkStep below only reads persons.
+                pipelineWritesPersons: false,
             })
         )
         // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -226,6 +229,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
                     })),
                 ],
             })
+            .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) => b.pipe(createFlushEventUsageStep()))
             .build()

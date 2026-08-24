@@ -2115,12 +2115,8 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "version" { type = "UInt64" }
     column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "source_ref" { type = "String" }
-    column "user_id" { type = "String" }
-    column "variant" { type = "String" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
@@ -2129,7 +2125,7 @@ SQL
       cluster_name    = "posthog"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
-      sharding_key    = "sipHash64(team_id)"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -2144,12 +2140,8 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "version" { type = "UInt64" }
     column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "source_ref" { type = "String" }
-    column "user_id" { type = "String" }
-    column "variant" { type = "String" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     engine "kafka" {
       broker_list = "warpstream_ingestion"
@@ -2172,12 +2164,8 @@ SELECT
   mode,
   unit,
   quantity,
-  version,
   event_timestamp,
   inserted_at,
-  source_ref,
-  user_id,
-  variant,
   dimensions,
   _timestamp,
   _offset,
@@ -2194,12 +2182,8 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "version" { type = "UInt64" }
     column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "source_ref" { type = "String" }
-    column "user_id" { type = "String" }
-    column "variant" { type = "String" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }

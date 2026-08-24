@@ -343,23 +343,11 @@ database "posthog" {
     column "quantity" {
       type = "Int64"
     }
-    column "version" {
-      type = "UInt64"
-    }
     column "event_timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "source_ref" {
-      type = "String"
-    }
-    column "user_id" {
-      type = "String"
-    }
-    column "variant" {
-      type = "String"
     }
     column "dimensions" {
       type = "Map(LowCardinality(String), String)"
@@ -377,7 +365,7 @@ database "posthog" {
       cluster_name    = "posthog"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
-      sharding_key    = "sipHash64(team_id)"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -4981,7 +4969,7 @@ database "posthog" {
   }
 
   table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "producer_id", "record_id", "version"]
+    order_by     = ["team_id", "producer_id", "usage_key", "record_id"]
     partition_by = "toYYYYMM(event_timestamp)"
     settings = {
       index_granularity = "8192"
@@ -5013,23 +5001,11 @@ database "posthog" {
     column "quantity" {
       type = "Int64"
     }
-    column "version" {
-      type = "UInt64"
-    }
     column "event_timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "source_ref" {
-      type = "String"
-    }
-    column "user_id" {
-      type = "String"
-    }
-    column "variant" {
-      type = "String"
     }
     column "dimensions" {
       type = "Map(LowCardinality(String), String)"
@@ -5043,10 +5019,15 @@ database "posthog" {
     column "_partition" {
       type = "UInt64"
     }
+    index "event_timestamp_minmax" {
+      expr        = "event_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
-      version_column = "event_timestamp"
+      version_column = "inserted_at"
     }
   }
 
