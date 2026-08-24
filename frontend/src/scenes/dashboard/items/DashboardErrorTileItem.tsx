@@ -19,6 +19,7 @@ interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElemen
     onRemove?: () => void
     onRetry?: () => void
     retryLoading?: boolean
+    excludeSupport?: boolean
     showEditingControls?: boolean
 }
 
@@ -33,6 +34,7 @@ function DashboardErrorTileItemInternal(
         onRemove,
         onRetry,
         retryLoading,
+        excludeSupport,
         showEditingControls,
         showResizeHandles,
         ...divProps
@@ -62,6 +64,7 @@ function DashboardErrorTileItemInternal(
                 title="There is a problem loading this dashboard tile."
                 onRetry={onRetry}
                 retryLoading={retryLoading}
+                excludeSupport={excludeSupport}
             />
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />

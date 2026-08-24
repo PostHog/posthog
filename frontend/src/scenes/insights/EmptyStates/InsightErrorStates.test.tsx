@@ -207,6 +207,21 @@ describe('insight error states', () => {
         expect(screen.queryByText(/try again/i)).toBeNull()
     })
 
+    it('hides support links and query IDs in exported errors', () => {
+        render(
+            <InsightErrorState
+                title="There was a server problem."
+                titleStatus={500}
+                queryId="export-query-id"
+                excludeSupport
+                excludeQueryId
+            />
+        )
+
+        expect(screen.queryByText('If this persists, submit a bug report.')).toBeNull()
+        expect(screen.queryByText(/export-query-id/)).toBeNull()
+    })
+
     it('keeps the next step visible when error details are excluded', () => {
         render(
             <InsightErrorState title="You do not have permission to run this query." titleStatus={403} excludeDetail />
