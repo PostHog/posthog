@@ -446,22 +446,24 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="rounded border p-4 bg-bg-light flex flex-col gap-2">
-                <LemonSwitch
-                    checked={scanner.enabled}
-                    onChange={() => toggleEnabled()}
-                    loading={togglingEnabled}
-                    disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
-                    label="Enable scanner"
-                    bordered
-                    fullWidth
-                    data-attr="vision-scanner-toggle-enabled"
-                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
-                />
-                <span className="text-muted text-xs">
-                    {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
-                </span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded border p-4 bg-bg-light flex flex-col gap-2">
+                    <LemonSwitch
+                        checked={scanner.enabled}
+                        onChange={() => toggleEnabled()}
+                        loading={togglingEnabled}
+                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                        label="Enable scanner"
+                        bordered
+                        fullWidth
+                        data-attr="vision-scanner-toggle-enabled"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
+                    />
+                    <span className="text-muted text-xs">
+                        {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
+                    </span>
+                </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
