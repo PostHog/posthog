@@ -667,6 +667,19 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# Each observation search makes a synchronous embedding request and a brute-force cosine scan over
+# the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
+# the default Burst/Sustained throttles bypass.
+class ReplayVisionSearchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_search_burst"
+    rate = "30/minute"
+
+
+class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_search_sustained"
+    rate = "300/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 

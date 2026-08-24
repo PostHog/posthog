@@ -36,6 +36,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
@@ -1199,7 +1200,11 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             ),
         },
     )
-    @action(detail=False, methods=["GET"])
+    @action(
+        detail=False,
+        methods=["GET"],
+        throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
+    )
     def search(self, request: Request, **kwargs: Any) -> Response:
         """Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
         (verdict, score, tags)."""
