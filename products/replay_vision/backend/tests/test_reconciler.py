@@ -343,16 +343,32 @@ def _per_scanner_failure() -> tuple[_ReconcileMocks, dict[str, Any]]:
 
 
 def _all_failures() -> tuple[_ReconcileMocks, dict[str, Any]]:
-    sid_a, sid_b, sid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    # Enough ops all fail to look systemic, so the workflow raises for Temporal to retry.
+    upserts = [uuid.uuid4() for _ in range(3)]
+    deletes = [uuid.uuid4() for _ in range(3)]
     fp = compute_schedule_fingerprint({})
     return (
         _ReconcileMocks(
-            enabled=_enabled((sid_a, 1, fp)),
-            existing=_existing((sid_b, fp), (sid_c, fp)),
-            upsert_errors_for_ids={sid_a},
-            delete_errors_for_ids={sid_b, sid_c},
+            enabled=_enabled(*[(sid, 1, fp) for sid in upserts]),
+            existing=_existing(*[(sid, fp) for sid in deletes]),
+            upsert_errors_for_ids=set(upserts),
+            delete_errors_for_ids=set(deletes),
         ),
         {"raises": ApplicationError},
+    )
+
+
+def _all_fail_below_threshold() -> tuple[_ReconcileMocks, dict[str, Any]]:
+    # A tick with few ops that all fail is one flaky op, not an outage: return the failures, never page.
+    sid_a, sid_b = uuid.uuid4(), uuid.uuid4()
+    fp = compute_schedule_fingerprint({})
+    return (
+        _ReconcileMocks(
+            enabled=_enabled((sid_a, 1, fp), (sid_b, 2, fp)),
+            existing=_existing(),
+            upsert_errors_for_ids={sid_a, sid_b},
+        ),
+        {"upserted": [], "failed_upsert_set": {sid_a, sid_b}},
     )
 
 
@@ -377,6 +393,7 @@ def _partial_failure() -> tuple[_ReconcileMocks, dict[str, Any]]:
         ("drift_and_legacy", _drift_and_legacy),
         ("per_scanner_failure_isolated", _per_scanner_failure),
         ("all_failures_raise", _all_failures),
+        ("all_fail_below_threshold_no_raise", _all_fail_below_threshold),
         ("partial_failure_returns_partial", _partial_failure),
     ]
 )
@@ -393,7 +410,10 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
         assert result.upserted == expected["upserted"]
     if "deleted" in expected:
         assert result.deleted == expected["deleted"]
-    assert result.failed_upsert == expected.get("failed_upsert", [])
+    if "failed_upsert_set" in expected:
+        assert set(result.failed_upsert) == expected["failed_upsert_set"]
+    else:
+        assert result.failed_upsert == expected.get("failed_upsert", [])
     assert result.failed_delete == expected.get("failed_delete", [])
 
 
