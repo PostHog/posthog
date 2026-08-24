@@ -52,7 +52,7 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await expect(page.getByText(CHECK_NAME)).toBeVisible()
 
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
-    await page.getByText('Edit', { exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Edit' }).click()
     await page.getByLabel('Description').fill('Every order keeps a positive id')
     await page.getByTestId('data-quality-check-save').click()
 
@@ -69,7 +69,7 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     expect(editedCheck.last_run_at).toEqual(check.last_run_at)
 
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
-    await page.getByText('Delete', { exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
     await page.getByRole('button', { name: 'Delete' }).click()
 
     await expect(page.getByText(CHECK_NAME)).toHaveCount(0)
