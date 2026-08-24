@@ -976,6 +976,12 @@ jobs:
             ]
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # This job only sends telemetry, and nothing depends on it. GitHub downloads
+        # every `uses:` action during "Set up job", before any step `if:` or step-level
+        # `continue-on-error` runs. So an action-download outage kills the job at setup
+        # and reddens the whole CI graph, and the rerun skips the work on attempt 2.
+        # Job-level `continue-on-error` stops the job failure from failing the run.
+        continue-on-error: true
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend_code == 'true' && (
