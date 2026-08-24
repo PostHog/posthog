@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 
@@ -50,14 +52,29 @@ describe('sdksLogic', () => {
         expect(logic.values.selectedSDK?.docsLink).toBe('https://posthog.com/docs/libraries/convex')
     })
 
-    it('treats a failed snippet-events check as no events yet, without a failure', async () => {
-        jest.spyOn(api, 'queryHogQL').mockRejectedValue(new Error('A server error occurred.'))
+    it.each([
+        ['reports a genuine server error', new Error('A server error occurred.'), true],
+        ['stays quiet on a transient gateway error', new ApiError('Bad gateway', 502), false],
+    ])(
+        'treats a failed snippet-events check as no events yet, without a failure, and %s',
+        async (_, error, reported) => {
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            jest.spyOn(api, 'queryHogQL').mockRejectedValue(error)
 
-        await expectLogic(logic, () => {
-            logic.actions.loadSnippetEvents()
-        })
-            .toDispatchActions(['loadSnippetEvents', 'loadSnippetEventsSuccess'])
-            .toNotHaveDispatchedActions(['loadSnippetEventsFailure'])
-            .toMatchValues({ hasSnippetEvents: false })
-    })
+            await expectLogic(logic, () => {
+                logic.actions.loadSnippetEvents()
+            })
+                .toDispatchActions(['loadSnippetEvents', 'loadSnippetEventsSuccess'])
+                .toNotHaveDispatchedActions(['loadSnippetEventsFailure'])
+                .toMatchValues({ hasSnippetEvents: false })
+
+            if (reported) {
+                expect(captureExceptionSpy).toHaveBeenCalledWith(error)
+            } else {
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+        }
+    )
 })
