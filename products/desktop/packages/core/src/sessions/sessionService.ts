@@ -1900,7 +1900,6 @@ export class SessionService {
     const { task } = params;
     const taskId = task.id;
     this.taskCreationMarks.delete(taskId);
-    this.d.store.clearTaskStarting?.(taskId);
     this.localRepoPaths.set(taskId, params.repoPath);
     this.sessionLastUsedAt.set(taskId, Date.now());
     void this.evictIdleSessions(taskId);
@@ -1914,8 +1913,12 @@ export class SessionService {
     // Check for existing connected session
     const existingSession = this.d.store.getSessionByTaskId(taskId);
     if (existingSession?.status === "connected") {
+      this.d.store.clearTaskStarting?.(taskId);
       this.d.log.info("Already connected to task", { taskId });
       return;
+    }
+    if (task.latest_run?.environment !== "cloud") {
+      this.d.store.setTaskStarting?.(taskId);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
