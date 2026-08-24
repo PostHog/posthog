@@ -1,7 +1,6 @@
 export type OnboardingStep =
   | "welcome"
   | "project-select"
-  | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
@@ -11,7 +10,6 @@ export type OnboardingStep =
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   "welcome",
   "project-select",
-  "invite-code",
   "consent",
   "connect-github",
   "install-cli",
@@ -28,7 +26,6 @@ export interface DetectedRepo {
 }
 
 export function computeActiveSteps(options: {
-  hasCodeAccess: boolean | null | undefined;
   hasImportableConfig: boolean;
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
@@ -38,7 +35,6 @@ export function computeActiveSteps(options: {
 }): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
-    if (step === "invite-code" && options.hasCodeAccess === true) return false;
     if (step === "consent" && options.consentRequired === false) return false;
     if (step === "import-config" && !options.hasImportableConfig) return false;
     if (step === "install-cli" && options.hasGithubIntegration === true) {

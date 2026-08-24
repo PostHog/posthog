@@ -44,7 +44,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { InviteCodeStep } from "./InviteCodeStep";
 import { ProjectSelectStep } from "./ProjectSelectStep";
 import { SelectRepoStep } from "./SelectRepoStep";
 
@@ -357,21 +356,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
               className="min-h-0 w-full flex-1"
             >
               <ProjectSelectStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "invite-code" && (
-            <motion.div
-              key="invite-code"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <InviteCodeStep onNext={handleNext} onBack={handleBack} />
             </motion.div>
           )}
 
