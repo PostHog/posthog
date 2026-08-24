@@ -18,7 +18,6 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
-import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
 
 const mixedPrChecks = {
@@ -124,7 +123,7 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const Report: Story = {
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} tab="reports" />
+            <ReportDetail report={reportTabReports[0]} />
         </Frame>
     ),
 }
@@ -139,7 +138,6 @@ export const ReportMinimal: Story = {
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
                 })}
-                tab="reports"
             />
         </Frame>
     ),
@@ -148,7 +146,7 @@ export const ReportMinimal: Story = {
 export const PullRequest: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
         </Frame>
     ),
 }
@@ -156,7 +154,7 @@ export const PullRequest: Story = {
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[1]} />
+            <ReportDetail report={pullRequestReports[1]} />
         </Frame>
     ),
 }
@@ -262,7 +260,7 @@ export const PullRequestInlineReview: Story = {
     decorators: [inlineReviewMocks],
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
         </Frame>
     ),
 }

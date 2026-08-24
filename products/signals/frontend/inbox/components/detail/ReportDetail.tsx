@@ -2,7 +2,7 @@ import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
-import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconExternal, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -88,25 +88,43 @@ export function ReportDetailBadges({
 const SIGNALS_TOOLTIP =
     'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
 
+/** Status / actionability / billing chips, on the "Report summary" row above the title. */
+function ReportDetailChips({
+    report,
+    actionabilityExplanation,
+}: {
+    report: SignalReport
+    actionabilityExplanation?: string | null
+}): JSX.Element {
+    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
+    return (
+        <>
+            {showStatus && <SignalReportStatusBadge status={report.status} />}
+            <SignalReportActionabilityBadge
+                actionability={report.actionability}
+                explanation={actionabilityExplanation}
+            />
+            <SignalReportBillingBadge report={report} />
+        </>
+    )
+}
+
 /**
- * Single meta line under the title: status/actionability chips, then dot-separated stats
- * (finding count · updated · source stack). `evidenceCount` switches to the live signal count once
- * findings load, so the row reads the same before and after the query resolves.
+ * Dot-separated stats under the title (signal count · first seen · last updated · source stack).
+ * `evidenceCount` switches to the live signal count once findings load, so the row reads the same
+ * before and after the query resolves.
  */
-function ReportDetailMeta({
+function ReportDetailStats({
     report,
     evidenceCount,
-    actionabilityExplanation,
     scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
-    actionabilityExplanation?: string | null
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
     scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
 
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
@@ -136,21 +154,13 @@ function ReportDetailMeta({
     }
 
     return (
-        <div className="flex items-center gap-x-2 gap-y-1.5 flex-wrap text-xs text-tertiary leading-none select-none">
-            {showStatus && <SignalReportStatusBadge status={report.status} />}
-            <SignalReportActionabilityBadge
-                actionability={report.actionability}
-                explanation={actionabilityExplanation}
-            />
-            <SignalReportBillingBadge report={report} />
-            <span className="flex items-center gap-2 flex-wrap min-w-0">
-                {stats.map((node, i) => (
-                    <span key={i} className="flex items-center gap-2 min-w-0">
-                        {i > 0 && <span aria-hidden>·</span>}
-                        {node}
-                    </span>
-                ))}
-            </span>
+        <div className="flex items-center gap-2 flex-wrap min-w-0 text-xs text-tertiary leading-none select-none">
+            {stats.map((node, i) => (
+                <span key={i} className="flex items-center gap-2 min-w-0">
+                    {i > 0 && <span aria-hidden>·</span>}
+                    {node}
+                </span>
+            ))}
         </div>
     )
 }
@@ -210,46 +220,58 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
     )
 }
 
+/** Column classes shared by the frame and its skeleton, so the two can't drift apart. */
+const DETAIL_PAGE_CLASS = '@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-4 text-sm'
+const DETAIL_CONTAINER_CLASS =
+    'flex flex-col rounded-lg border border-primary bg-surface-primary @5xl:flex-row @5xl:items-start'
+// The evidence rail: first in the DOM so it leads on wide layouts, ordered after the summary when
+// the columns stack, because reading the summary first is what a narrow screen wants.
+const DETAIL_ASIDE_CLASS =
+    'order-2 flex w-full min-w-0 flex-col gap-5 border-t border-primary p-5 @5xl:order-none @5xl:w-[26rem] @5xl:shrink-0 @5xl:self-stretch @5xl:border-t-0 @5xl:border-r'
+const DETAIL_MAIN_CLASS = 'order-1 min-w-0 flex-1 px-6 py-5 @5xl:order-none @5xl:px-8'
+
 /**
  * Layout-faithful placeholder shown while a report's base record loads on a cold open (deep link
- * with no list row to seed from). Mirrors `InboxDetailFrame`'s header + two-column shape so the
- * page doesn't jump when the real content lands — and so loading reads as "this view, populating"
- * rather than a bare centered spinner.
+ * with no list row to seed from). Mirrors `InboxDetailFrame`'s header row + evidence-first
+ * two-column container so the page doesn't jump when the real content lands — and so loading
+ * reads as "this view, populating" rather than a bare centered spinner.
  */
 export function ReportDetailSkeleton(): JSX.Element {
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm" aria-hidden>
-            <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
-                <div className="h-3.5 w-24 rounded bg-fill-highlight-50 animate-pulse" />
-                <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
-                    <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
-                        <div className="size-7 shrink-0 mt-0.5 rounded bg-fill-highlight-100 animate-pulse" />
-                        <div className="flex flex-col gap-2 min-w-0 flex-1">
-                            <div className="h-6 w-2/3 rounded bg-fill-highlight-100 animate-pulse" />
-                            <div className="h-3 w-1/2 rounded bg-fill-highlight-50 animate-pulse" />
-                        </div>
-                    </div>
-                    <div className="flex items-center flex-wrap gap-2 @2xl:shrink-0">
-                        <div className="h-8 w-24 rounded bg-fill-highlight-50 animate-pulse" />
-                        <div className="h-8 w-20 rounded bg-fill-highlight-50 animate-pulse" />
-                    </div>
+        <div className={DETAIL_PAGE_CLASS} aria-hidden>
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="h-8 w-24 rounded bg-fill-highlight-50 animate-pulse" />
+                <div className="flex items-center gap-2">
+                    <div className="h-8 w-24 rounded bg-fill-highlight-50 animate-pulse" />
+                    <div className="h-8 w-20 rounded bg-fill-highlight-50 animate-pulse" />
                 </div>
             </div>
-
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0 flex flex-col gap-2.5">
-                    <div className="h-4 w-28 rounded bg-fill-highlight-100 animate-pulse" />
-                    <div className="h-3 w-full rounded bg-fill-highlight-50 animate-pulse" />
-                    <div className="h-3 w-11/12 rounded bg-fill-highlight-50 animate-pulse" />
-                    <div className="h-3 w-3/4 rounded bg-fill-highlight-50 animate-pulse" />
-                </div>
-                <div className="flex flex-col min-w-0 gap-5">
+            <div className={DETAIL_CONTAINER_CLASS}>
+                <div className={DETAIL_ASIDE_CLASS}>
                     {Array.from({ length: 2 }).map((_, i) => (
                         <div key={i} className="flex flex-col gap-2.5">
                             <div className="h-4 w-24 rounded bg-fill-highlight-100 animate-pulse" />
-                            <div className="h-16 w-full rounded border border-primary bg-surface-primary animate-pulse" />
+                            <div className="h-16 w-full rounded border border-primary bg-surface-secondary animate-pulse" />
                         </div>
                     ))}
+                </div>
+                <div className={DETAIL_MAIN_CLASS}>
+                    <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-primary">
+                        <div className="h-3.5 w-28 rounded bg-fill-highlight-100 animate-pulse" />
+                        <div className="h-4 w-20 rounded bg-fill-highlight-50 animate-pulse" />
+                    </div>
+                    <div className="flex items-start gap-3 min-w-0">
+                        <div className="size-7 shrink-0 mt-0.5 rounded bg-fill-highlight-100 animate-pulse" />
+                        <div className="flex flex-col gap-2 min-w-0 flex-1">
+                            <div className="h-7 w-2/3 rounded bg-fill-highlight-100 animate-pulse" />
+                            <div className="h-3 w-1/2 rounded bg-fill-highlight-50 animate-pulse" />
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-2.5 mt-6">
+                        <div className="h-3 w-full rounded bg-fill-highlight-50 animate-pulse" />
+                        <div className="h-3 w-11/12 rounded bg-fill-highlight-50 animate-pulse" />
+                        <div className="h-3 w-3/4 rounded bg-fill-highlight-50 animate-pulse" />
+                    </div>
                 </div>
             </div>
         </div>
@@ -258,11 +280,7 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    /** Active inbox tab — drives the back link and the report URL seeded into Discuss. */
-    tab: InboxTabKey
-    /** Summary section heading icon + title. */
-    summary: { icon: ReactNode; title: string }
-    /** Content rendered in the main column directly under the Summary (e.g. the PR conversation). */
+    /** Content rendered in the main column directly under the summary (e.g. the PR conversation). */
     summaryFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
@@ -281,15 +299,13 @@ interface InboxDetailFrameProps {
 }
 
 /**
- * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
- * (title) merged with the badges/meta/actions, then summary on the left
- * and supporting sections (Evidence, Runs, Reviewers) on the right. Mirrors desktop
- * `InboxDetailFrame`. AgentRunDetail keeps its own layout + shell header.
+ * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
+ * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
+ * checks, reviewers, runs, and activity), and the report summary on the right under its own
+ * "Report summary" header with the title, chips, and stats. AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
     report,
-    tab,
-    summary,
     summaryFooter,
     primaryAction,
     showFilesTab,
@@ -347,7 +363,7 @@ export function InboxDetailFrame({
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
-    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
+    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
@@ -364,45 +380,9 @@ export function InboxDetailFrame({
     // change on the mounted instance.
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0 flex flex-col gap-5">
-                    <DetailSection
-                        icon={summary.icon}
-                        title={summary.title}
-                        collapsible
-                        onToggleCollapsed={captureSectionToggle('summary')}
-                    >
-                        {report.summary ? (
-                            <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
-                                disableImages
-                                renderChartRef={renderChartRef}
-                            >
-                                {report.summary}
-                            </LemonMarkdown>
-                        ) : (
-                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet. An agent is still investigating.
-                            </p>
-                        )}
-                        {trailingCharts.length > 0 && (
-                            <div className="flex flex-col gap-4 mt-5">
-                                {trailingCharts.map((chart) => (
-                                    <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                                ))}
-                            </div>
-                        )}
-                    </DetailSection>
-                    {summaryFooter}
-                    {/* The rating closes out the report body, where the reading ends – ahead of the
-                    supporting sections, which stack underneath once the layout drops to one column. */}
-                    <ReportFeedbackFooter report={report} />
-                </div>
-
-                <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
-                    {children}
-                    <SuggestedReviewersSection report={report} />
+            <div className={DETAIL_CONTAINER_CLASS}>
+                <aside className={DETAIL_ASIDE_CLASS}>
+                    {/* Evidence leads: it is what the summary's claims rest on. */}
                     {hasEvidence && (
                         <DetailSection
                             icon={<IconSearch />}
@@ -428,90 +408,130 @@ export function InboxDetailFrame({
                             )}
                         </DetailSection>
                     )}
+                    {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                    {children}
+                    <SuggestedReviewersSection report={report} />
                     <ReportTasksSection report={report} />
                     <ReportActivitySection report={report} />
-                </div>
+                </aside>
+
+                <main className={DETAIL_MAIN_CLASS}>
+                    <div className="mb-4 flex flex-wrap items-center gap-2.5 border-b border-primary pb-3">
+                        <span className="text-sm font-semibold">Report summary</span>
+                        <ReportDetailChips report={report} actionabilityExplanation={actionabilityExplanation} />
+                        <span className="flex-1" />
+                        <span className="flex items-center gap-1 text-xs text-tertiary">
+                            Generated <TZLabel time={report.created_at} />
+                        </span>
+                    </div>
+
+                    <div className="flex flex-col gap-6">
+                        <header className="flex items-start gap-3 min-w-0">
+                            {/* Priority square anchors the title. */}
+                            {report.priority && (
+                                <div className="shrink-0 mt-1">
+                                    <SignalReportPriorityBadge
+                                        priority={report.priority}
+                                        explanation={priorityExplanation}
+                                    />
+                                </div>
+                            )}
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
+                                    {conventionalTitle && (
+                                        <ConventionalCommitScopeTag
+                                            type={conventionalTitle.type}
+                                            scope={conventionalTitle.scope}
+                                        />
+                                    )}
+                                    {displayTitle}
+                                </h1>
+                                <ReportDetailStats
+                                    report={report}
+                                    evidenceCount={evidenceCount}
+                                    scoutSkillName={report.scout_name}
+                                />
+                            </div>
+                        </header>
+
+                        <div>
+                            {report.summary ? (
+                                <LemonMarkdown
+                                    className="text-[15px] text-secondary leading-relaxed break-words [&>*+*]:mt-3.5 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-8 [&_h1]:text-lg [&_h2]:mt-8 [&_h2]:text-lg [&_h3]:mt-6 [&_h3]:text-base"
+                                    disableImages
+                                    renderChartRef={renderChartRef}
+                                >
+                                    {report.summary}
+                                </LemonMarkdown>
+                            ) : (
+                                <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                    No summary yet. An agent is still investigating.
+                                </p>
+                            )}
+                            {trailingCharts.length > 0 && (
+                                <div className="flex flex-col gap-4 mt-5">
+                                    {trailingCharts.map((chart) => (
+                                        <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        {summaryFooter}
+                        {/* The rating closes out the report body, where the reading ends. */}
+                        <ReportFeedbackFooter report={report} />
+                    </div>
+                </main>
             </div>
         </BindLogic>
     )
 
     return (
-        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            {/* With a diff present the tab bar owns the full-width divider, so the heading drops its own. */}
-            <div className={`flex flex-col gap-3.5 ${hasDiff ? 'mb-4' : 'mb-6 pb-5 border-b border-primary'}`}>
+        <div className={DETAIL_PAGE_CLASS}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <LemonButton
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={backOverride ?? urls.inbox(tab)}
+                    to={backOverride ?? urls.inbox('reports')}
                     className="-ml-2 w-fit"
+                    data-attr="inbox-report-back"
                 >
-                    {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}
+                    {backOverride ? 'Back' : 'Inbox'}
                 </LemonButton>
-                <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
-                    {/* Priority square anchors the title; everything else collapses into the meta line. */}
-                    <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
-                        {report.priority && (
-                            <div className="shrink-0 mt-0.5">
-                                <SignalReportPriorityBadge
-                                    priority={report.priority}
-                                    explanation={priorityExplanation}
-                                />
-                            </div>
-                        )}
-                        <div className="flex flex-col gap-2 min-w-0">
-                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {conventionalTitle && (
-                                    <ConventionalCommitScopeTag
-                                        type={conventionalTitle.type}
-                                        scope={conventionalTitle.scope}
-                                    />
-                                )}
-                                {displayTitle}
-                            </h1>
-                            <ReportDetailMeta
-                                report={report}
-                                evidenceCount={evidenceCount}
-                                actionabilityExplanation={actionabilityExplanation}
-                                scoutSkillName={report.scout_name}
+                <div className="flex items-center gap-2">
+                    {primaryAction}
+                    {/* Discuss is always available and stays inline as its own dropdown button. */}
+                    <DiscussReportButton report={report} reportUrl={reportUrl} />
+                    {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
+                    <div className="hidden @4xl:flex items-center gap-2">
+                        {reportActions.map((action) => (
+                            <LemonButton
+                                key={action.key}
+                                type="secondary"
+                                size="small"
+                                icon={action.icon}
+                                loading={action.loading}
+                                // A disabled action explains only why it's unavailable — not what it would do.
+                                tooltip={action.disabledReason ? undefined : action.tooltip}
+                                disabledReason={action.disabledReason}
+                                onClick={action.onClick}
+                            >
+                                {action.label}
+                            </LemonButton>
+                        ))}
+                    </div>
+                    {/* A resolved report past its refund window has no secondary actions at all. */}
+                    {overflowMenuItems.length > 0 && (
+                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconEllipsis />}
+                                aria-label="More actions"
+                                className="@4xl:hidden"
                             />
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 @2xl:shrink-0">
-                        {primaryAction}
-                        {/* Discuss is always available and stays inline as its own dropdown button. */}
-                        <DiscussReportButton report={report} reportUrl={reportUrl} />
-                        {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
-                        <div className="hidden @4xl:flex items-center gap-2">
-                            {reportActions.map((action) => (
-                                <LemonButton
-                                    key={action.key}
-                                    type="secondary"
-                                    size="small"
-                                    icon={action.icon}
-                                    loading={action.loading}
-                                    // A disabled action explains only why it's unavailable — not what it would do.
-                                    tooltip={action.disabledReason ? undefined : action.tooltip}
-                                    disabledReason={action.disabledReason}
-                                    onClick={action.onClick}
-                                >
-                                    {action.label}
-                                </LemonButton>
-                            ))}
-                        </div>
-                        {/* A resolved report past its refund window has no secondary actions at all. */}
-                        {overflowMenuItems.length > 0 && (
-                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconEllipsis />}
-                                    aria-label="More actions"
-                                    className="@4xl:hidden"
-                                />
-                            </LemonMenu>
-                        )}
-                    </div>
+                        </LemonMenu>
+                    )}
                 </div>
             </div>
 
@@ -568,7 +588,7 @@ function prFilesUrl(prUrl: string): string {
  * report. When the report has a "Commit pushed" artefact, a GitHub-style "Files changed" tab renders
  * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
-export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
+export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
@@ -587,8 +607,6 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
     return (
         <InboxDetailFrame
             report={report}
-            tab={tab}
-            summary={{ icon: hasPr ? <IconPullRequest /> : <IconDocument />, title: 'Summary' }}
             primaryAction={
                 hasPr ? (
                     <LemonButton

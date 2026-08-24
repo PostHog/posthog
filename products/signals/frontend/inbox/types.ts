@@ -167,76 +167,62 @@ export const SOURCE_STEERING_KEY = 'steering'
 export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 
-// ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
+// ── Inbox IA: page tabs, report views, scope ─────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'scouts' | 'not-actionable' | 'runs' | 'archived' | 'config'
+/** The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned. */
+export type InboxTabKey = 'reports' | 'scouts' | 'settings'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = [
-    'pulls',
-    'reports',
-    'scouts',
-    'not-actionable',
-    'runs',
-    'archived',
-    'config',
-]
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
-    pulls: 'Pull requests',
     reports: 'Reports',
     scouts: 'Scouts',
-    'not-actionable': 'Not actionable',
-    runs: 'Runs',
-    archived: 'Archive',
-    config: 'Configuration',
+    settings: 'Settings',
 }
 
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
-    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
-    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+    reports: 'Issues and opportunities found in your product, ready to review.',
     scouts: 'Scheduled agents that sweep this project and file what they find.',
-    'not-actionable':
-        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
-    runs: 'Project-wide list of agent runs, for debugging.',
-    archived: 'Reports you archived. You can restore them to the inbox at any time.',
-    config: 'Set up signal sources, scouts, and how autonomously agents can act.',
+    settings: 'Signal sources, PR generation, code access, and notifications.',
 }
 
 /**
- * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
- * narrow for the right-hand setup rail (see `AgentSetupColumn`); on wide viewports the rail
- * replaces it. Kept a real routing key so deep links and narrow-mode navigation work.
+ * The views inside the Reports tab. Each is a flat report list with its own fixed server filter
+ * (see `INBOX_FLAT_TAB_LIST_PARAMS`), keyed `reportListLogic` instance, count chip, and pagination.
+ * The active view rides on the `?view=` search param, so the keys are pinned.
  */
-export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
-
-/** Tabs that show a report-count chip. */
-export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
-
-/**
- * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
- * triage surface; everything else (including Runs) is public to any team member.
- */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
-
-/** Small tag rendered next to a tab's label in the tab bar. */
-export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
-    'not-actionable': 'Staff',
-}
-
-/** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
-export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
+export const INBOX_FLAT_LIST_TAB_KEYS = ['needs-decision', 'monitoring', 'resolved', 'not-actionable'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
 
-export interface InboxTabCounts {
-    pulls: number
-    reports: number
-    'not-actionable': number
-    runs: number
-    archived: number
+export const INBOX_DEFAULT_FLAT_LIST_TAB_KEY: InboxFlatListTabKey = 'needs-decision'
+
+export const INBOX_FLAT_TAB_LABEL: Record<InboxFlatListTabKey, string> = {
+    'needs-decision': 'Needs a decision',
+    monitoring: 'Monitoring',
+    resolved: 'Resolved',
+    'not-actionable': 'Not actionable',
 }
 
-export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0, archived: 0 }
+/** One line per view, shown as the view tab's tooltip. */
+export const INBOX_FLAT_TAB_DESCRIPTION: Record<InboxFlatListTabKey, string> = {
+    'needs-decision': 'Reports that need your judgment before an agent acts.',
+    monitoring: 'Reports with a pull request open. Review and merge them on GitHub.',
+    resolved: 'Reports resolved by a merged pull request, and reports you archived.',
+    'not-actionable':
+        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
+}
+
+/**
+ * Views only visible to staff users (internal). The Not-actionable list is an internal triage
+ * surface; every other view is public to any team member.
+ */
+export const INBOX_STAFF_ONLY_FLAT_LIST_TAB_KEYS: InboxFlatListTabKey[] = ['not-actionable']
+
+/** Small tag rendered next to a view's label in the view switcher. */
+export const INBOX_FLAT_TAB_TAG: Partial<Record<InboxFlatListTabKey, 'Staff'>> = {
+    'not-actionable': 'Staff',
+}
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
 export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`

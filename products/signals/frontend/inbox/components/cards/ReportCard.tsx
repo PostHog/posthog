@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconArchive, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -9,10 +9,10 @@ import { derivePrState } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
-import { urls } from 'scenes/urls'
 
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { inboxReportDetailUrl } from '../../utils/inboxViewParam'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -94,7 +94,7 @@ export function InboxCardSourceMeta({
  */
 export function ReportCard({
     report,
-    tabKey = 'reports',
+    tabKey = 'needs-decision',
     attached = false,
     onArchive,
     onRestore,
@@ -112,9 +112,9 @@ export function ReportCard({
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
 }): JSX.Element {
-    const isArchived = tabKey === 'archived'
+    const isArchived = tabKey === 'resolved'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab. They can't be restored or re-archived; refunding their PR lives in the detail pane.
+    // Resolved view. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -126,9 +126,7 @@ export function ReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = backUrl
-        ? combineUrl(urls.inboxReport(tabKey, report.id), { back: backUrl }).url
-        : urls.inboxReport(tabKey, report.id)
+    const detailUrl = inboxReportDetailUrl(report.id, tabKey, backUrl)
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -140,7 +138,7 @@ export function ReportCard({
 
     const isRefunded = !!report.refund
 
-    // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
+    // On the Resolved view, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
     // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
     // The dedicated billing badge already marks refunded reports, so skip the duplicate chip there.

@@ -354,12 +354,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['sourceConfigs', 'sourceConfigsLoading', 'enabledSourcesCount', 'hasEmittingScanner'],
             scoutFleetLogic,
             ['scoutConfigs', 'scoutConfigsLoading', 'enabledCount as enabledScoutsCount'],
-            // Mount the pulls + reports count loaders directly (cheap limit=1 each) so we know
-            // whether there's existing work even during a takeover, when the tab bar that usually
-            // mounts these isn't rendered. Same keyed instances the tab bar uses – no double-fetch.
-            reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls }),
+            // Mount the monitoring + needs-decision count loaders directly (cheap limit=1 each) so we
+            // know whether there's existing work even during a takeover, when the view switcher that
+            // usually mounts these isn't rendered. Same keyed instances it uses – no double-fetch.
+            reportListLogic({ tabKey: 'monitoring', listParams: INBOX_FLAT_TAB_LIST_PARAMS.monitoring }),
             ['count as pullsCount', 'countLoading as pullsCountLoading'],
-            reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }),
+            reportListLogic({ tabKey: 'needs-decision', listParams: INBOX_FLAT_TAB_LIST_PARAMS['needs-decision'] }),
             ['count as reportsCount', 'countLoading as reportsCountLoading'],
             // Already mounted app-wide by the sync widget; connecting here just reads its verdict.
             wizardActiveSessionDetectorLogic,
@@ -376,9 +376,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['loadSourceConfigs'],
             scoutFleetLogic,
             ['loadScoutConfigs'],
-            reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls }),
+            reportListLogic({ tabKey: 'monitoring', listParams: INBOX_FLAT_TAB_LIST_PARAMS.monitoring }),
             ['loadCount as loadPullsCount'],
-            reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }),
+            reportListLogic({ tabKey: 'needs-decision', listParams: INBOX_FLAT_TAB_LIST_PARAMS['needs-decision'] }),
             ['loadCount as loadReportsCount'],
         ],
     })),

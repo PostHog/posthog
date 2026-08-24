@@ -29,11 +29,11 @@ interface InboxReportListProps extends ReportListLogicProps {
 }
 
 /**
- * Shared body for the three flat report-list tabs (Pull requests / Reports /
- * Not actionable). Each is the same primitive – only the `listParams` filter and
- * the empty-state copy differ. Binds the keyed `reportListLogic`, loads the first
- * page lazily on mount, shows a skeleton while a known-non-empty tab loads, and
- * appends pages via an IntersectionObserver sentinel.
+ * Shared body for the report views (Needs a decision / Monitoring / Resolved / Not actionable).
+ * Each is the same primitive – only the `listParams` filter and the empty-state copy differ.
+ * Binds the keyed `reportListLogic`, loads the first page lazily on mount, shows a skeleton
+ * while a known-non-empty view loads, and appends pages via an IntersectionObserver sentinel.
+ * The caller owns the surrounding column; this renders the filter bar and the list.
  */
 export function InboxReportList(props: InboxReportListProps): JSX.Element {
     return (
@@ -51,17 +51,26 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
-    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
-    const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isFocusOpen } =
+        useValues(inboxSceneLogic)
+    const listVisible =
+        !selectedReportId &&
+        !selectedScoutSkillName &&
+        !isScratchpadOpen &&
+        !isFindingsOpen &&
+        !isRunsOpen &&
+        !isFocusOpen
 
-    // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
-    // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
-    // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
+    // The Monitoring / Needs-a-decision badge counts go on every `Inbox viewed`, whatever view is
+    // open: the active view's `total_count` alone says nothing about a user who lands on Monitoring
+    // and has 200 reports waiting. These share the view switcher's keyed instances, so no extra
+    // requests. The analytics keep the original `pulls` / `reports` property names: the server
+    // filters behind them are unchanged, so the numbers stay comparable across the redesign.
     const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
-        reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
+        reportListLogic({ tabKey: 'monitoring', listParams: INBOX_FLAT_TAB_LIST_PARAMS.monitoring })
     )
     const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
-        reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
+        reportListLogic({ tabKey: 'needs-decision', listParams: INBOX_FLAT_TAB_LIST_PARAMS['needs-decision'] })
     )
     // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
     // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
@@ -182,12 +191,12 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
-        <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
+        <div className="@container flex flex-col gap-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
             <InboxBulkSelectionBar />
 
             {showSkeleton ? (
-                <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
+                <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'monitoring'} />
             ) : reports.length === 0 ? (
                 'content' in emptyState ? (
                     emptyState.content
@@ -216,7 +225,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}
                         {isLoaded && reportsResponseLoading && (
-                            <CardSkeleton count={2} variant="cards" dashed={tabKey !== 'pulls'} />
+                            <CardSkeleton count={2} variant="cards" dashed={tabKey !== 'monitoring'} />
                         )}
                     </div>
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}

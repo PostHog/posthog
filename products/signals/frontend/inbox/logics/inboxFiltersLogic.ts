@@ -8,7 +8,14 @@ import { urls } from 'scenes/urls'
 
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
-import { INBOX_SCOPE_FOR_YOU, INBOX_TAB_KEYS, InboxScope, SignalReportPriority } from '../types'
+import {
+    INBOX_DEFAULT_FLAT_LIST_TAB_KEY,
+    INBOX_FLAT_LIST_TAB_KEYS,
+    INBOX_SCOPE_FOR_YOU,
+    INBOX_TAB_KEYS,
+    InboxScope,
+    SignalReportPriority,
+} from '../types'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
 export interface InboxReviewerOption {
@@ -97,15 +104,23 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
 }
 
 /**
- * The inbox tab in the current URL, or null off a tab route (the scout panels, or a bare `/inbox`).
- * Read from the router rather than connected from `inboxSceneLogic`, which already connects this
- * logic — the reverse edge would be a cycle.
+ * The list the filters apply to, for the `tab` analytics property: the Reports view from the URL's
+ * `?view=` (the landing view when absent), another page tab's key, or null off a tab route (the
+ * scout panels, or a bare `/inbox`). Read from the router rather than connected from
+ * `inboxSceneLogic`, which already connects this logic — the reverse edge would be a cycle.
  */
 function currentInboxTab(): string | null {
     const segments = router.values.location.pathname.split('/').filter(Boolean)
     const inboxIndex = segments.indexOf('inbox')
     const candidate = inboxIndex === -1 ? undefined : segments[inboxIndex + 1]
-    return candidate && (INBOX_TAB_KEYS as string[]).includes(candidate) ? candidate : null
+    if (!candidate || !(INBOX_TAB_KEYS as string[]).includes(candidate)) {
+        return null
+    }
+    if (candidate !== 'reports') {
+        return candidate
+    }
+    const view = router.values.searchParams.view
+    return (INBOX_FLAT_LIST_TAB_KEYS as readonly string[]).includes(view) ? view : INBOX_DEFAULT_FLAT_LIST_TAB_KEY
 }
 
 function sameSet(a: string[], b: string[]): boolean {
@@ -523,6 +538,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [urls.inbox(':tab')]: applyFromUrl,
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
+            [urls.inboxRuns()]: applyFromUrl,
+            [urls.inboxFocus()]: applyFromUrl,
             [urls.inboxScout(':skillName')]: applyFromUrl,
             [urls.inboxScout(':skillName', ':findingId')]: applyFromUrl,
             [urls.inboxReport(':tab', ':reportId')]: applyFromUrl,

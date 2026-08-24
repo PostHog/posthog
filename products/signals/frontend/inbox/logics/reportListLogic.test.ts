@@ -3,24 +3,24 @@ import { shouldDefaultToEntireProject } from './reportListLogic'
 
 describe('shouldDefaultToEntireProject', () => {
     const base = {
-        tabKey: 'pulls' as InboxFlatListTabKey,
+        tabKey: 'needs-decision' as InboxFlatListTabKey,
         scope: INBOX_SCOPE_FOR_YOU as InboxScope,
         hasUserChosenScope: false,
         hasResolvedUser: true,
         count: 0 as number | null,
     }
 
-    it('switches to Entire project when a fresh user has zero assigned PRs', () => {
+    it('switches to Entire project when a fresh user has zero assigned reports', () => {
         expect(shouldDefaultToEntireProject(base)).toBe(true)
     })
 
     it.each<[string, Partial<typeof base>]>([
-        // The user has PRs assigned – keep them on For you.
-        ['user has assigned PRs', { count: 3 }],
-        // The user deliberately picked a scope – never override it, even with zero PRs.
+        // The user has reports assigned – keep them on For you.
+        ['user has assigned reports', { count: 3 }],
+        // The user deliberately picked a scope – never override it, even with zero reports.
         ['user chose their scope', { hasUserChosenScope: true }],
-        // Only the Pull requests tab (their assigned PRs) drives the default.
-        ['not the pulls tab', { tabKey: 'reports' as InboxFlatListTabKey }],
+        // Only the landing view (Needs a decision) drives the default.
+        ['not the landing view', { tabKey: 'monitoring' as InboxFlatListTabKey }],
         // Already off For you – nothing to default.
         ['already entire project', { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope }],
         // Count for For-you scope is only meaningful once the user's uuid has resolved.

@@ -1,10 +1,12 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -22,8 +24,18 @@ import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
-// layout: header, tab bar + single border, scope picker, filter bar, and the
-// centered list column. Switch tabs / scope inside the story to exercise each view.
+// layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
+// centered list column. Switch tabs / views / scope inside the story to exercise each.
+
+// The scene reads its tab, view, and open surface from the URL.
+function routeTo(pathname: string, searchParams: Record<string, string> = {}): Decorator {
+    return (Story) => {
+        useEffect(() => {
+            router.actions.push(pathname, searchParams)
+        }, [])
+        return <Story />
+    }
+}
 
 const sceneMocks = mswDecorator({
     get: {
@@ -32,6 +44,10 @@ const sceneMocks = mswDecorator({
             { results: allReports, count: allReports.length, next: null, previous: null },
         ],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
+        '/api/projects/:id/signals/reports/:reportId': (req) => {
+            const report = allReports.find((candidate) => candidate.id === req.params.reportId)
+            return report ? [200, report] : [404, { detail: 'Not found.' }]
+        },
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => [
             200,
             mockArtefacts(req.params.reportId as string),
@@ -72,6 +88,34 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+export const ReportsMonitoring: Story = {
+    decorators: [routeTo(urls.inbox('reports'), { view: 'monitoring' })],
+}
+
+export const ReportsResolved: Story = {
+    decorators: [routeTo(urls.inbox('reports'), { view: 'resolved' })],
+}
+
+// Focus mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
+export const Focus: Story = {
+    decorators: [routeTo(urls.inboxFocus())],
+}
+
+export const Scouts: Story = {
+    decorators: [
+        routeTo(urls.inbox('scouts')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+            },
+        }),
+    ],
+}
+
+export const Settings: Story = {
+    decorators: [routeTo(urls.inbox('settings'))],
+}
 
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {

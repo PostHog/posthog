@@ -91,8 +91,8 @@ describe('InboxReportList', () => {
     it('keeps paging once the sentinel scrolls into view', async () => {
         render(
             <InboxReportList
-                tabKey="reports"
-                listParams={INBOX_FLAT_TAB_LIST_PARAMS.reports}
+                tabKey="needs-decision"
+                listParams={INBOX_FLAT_TAB_LIST_PARAMS['needs-decision']}
                 Card={StubCard}
                 emptyState={{ content: <div>empty</div> }}
             />

@@ -1,17 +1,21 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
-import { SignalReport, SignalRun } from '../../types'
-import { PullRequestsTab } from './PullRequestsTab'
+import { inboxSceneLogic } from '../../inboxSceneLogic'
+import { InboxFlatListTabKey, SignalReport, SignalRun } from '../../types'
 import { ReportsTab } from './ReportsTab'
 import { RunsTab } from './RunsTab'
 
-// Stories for the inbox tab bodies. The flat report tabs (Reports / Pull requests) load via
-// `reportListLogic`, so they get an mswDecorator that mocks the reports list endpoint; the
-// Runs tab is prop-driven and receives mock runs directly. Use these to polish list density
-// and the scout/signal run-card design.
+// Stories for the inbox tab bodies. The Reports tab loads its views via `reportListLogic`, so it
+// gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven and
+// receives mock runs directly. Use these to polish list density and the run-card design.
 
 const SAMPLE_RUNS: SignalRun[] = [
     {
@@ -40,7 +44,7 @@ const SAMPLE_RUNS: SignalRun[] = [
     },
 ]
 
-// Mocks the shared reports list endpoint so the logic-driven flat tabs render the given set.
+// Mocks the shared reports list endpoint so the logic-driven views render the given set.
 function reportsListDecorator(reports: SignalReport[]): Decorator {
     return mswDecorator({
         get: {
@@ -48,8 +52,23 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
                 200,
                 { results: reports, count: reports.length, next: null, previous: null },
             ],
+            '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
+            '/api/projects/:id/signals/scout/configs': () => [200, []],
         },
     })
+}
+
+// The Reports tab reads its active view from the scene logic, which reads it from the URL.
+function ReportsTabAt({ view }: { view: InboxFlatListTabKey }): JSX.Element {
+    useMountedLogic(inboxSceneLogic)
+    useEffect(() => {
+        router.actions.push(urls.inbox('reports'), view === 'needs-decision' ? {} : { view })
+    }, [view])
+    return (
+        <div className="bg-primary min-h-screen">
+            <ReportsTab />
+        </div>
+    )
 }
 
 const meta: Meta = {
@@ -65,40 +84,24 @@ export default meta
 
 type Story = StoryObj
 
-export const Reports: Story = {
+export const NeedsDecision: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTab />
-        </div>
-    ),
+    render: () => <ReportsTabAt view="needs-decision" />,
 }
 
-export const ReportsEmpty: Story = {
+export const NeedsDecisionEmpty: Story = {
     decorators: [reportsListDecorator([])],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <ReportsTab />
-        </div>
-    ),
+    render: () => <ReportsTabAt view="needs-decision" />,
 }
 
-export const PullRequests: Story = {
+export const Monitoring: Story = {
     decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
-        </div>
-    ),
+    render: () => <ReportsTabAt view="monitoring" />,
 }
 
-export const PullRequestsEmpty: Story = {
+export const MonitoringEmpty: Story = {
     decorators: [reportsListDecorator([])],
-    render: () => (
-        <div className="bg-primary min-h-screen">
-            <PullRequestsTab />
-        </div>
-    ),
+    render: () => <ReportsTabAt view="monitoring" />,
 }
 
 export const Runs: Story = {

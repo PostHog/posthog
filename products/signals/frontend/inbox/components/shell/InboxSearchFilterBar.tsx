@@ -18,6 +18,7 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { FilterItem, FilterPopover } from './filterControls'
+import { InboxScopeSelect } from './InboxScopeSelect'
 
 /**
  * Collapsible per-scout sub-filter nested under the "Scout" source row. Collapsed by default
@@ -89,11 +90,10 @@ interface InboxSearchFilterBarProps {
 }
 
 /**
- * Search input + Sort / Source / Priority filter popovers + refresh. There is no
- * status filter (desktop dropped it; status is a fixed request constant). Each
- * popover stays a quiet, muted chip until its filter is in use, then gains a
- * solid border and shows its value. Filter state is persisted via
- * `inboxFiltersLogic`; the central scene reloads on change.
+ * Search input + reviewer scope + Sort / Source / Priority filter popovers + refresh. There is
+ * no status filter: the Reports views above the bar are the status split. Each popover stays a
+ * quiet, muted chip until its filter is in use, then gains a solid border and shows its value.
+ * Filter state is persisted via `inboxFiltersLogic`; the central scene reloads on change.
  */
 export function InboxSearchFilterBar({
     searchPlaceholder = 'Search by title or description…',
@@ -130,6 +130,7 @@ export function InboxSearchFilterBar({
                 overflowing on narrow viewports — each can wrap within the group rather than the
                 whole row clipping, the behavior the flat (ungrouped) layout had before. */}
             <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
+                <InboxScopeSelect />
                 <FilterPopover
                     label="Sort"
                     value={activeSort?.label ?? 'Priority first'}

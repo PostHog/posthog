@@ -219,6 +219,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/runs': ['Inbox', 'inbox'],
+    '/inbox/reports/focus': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
     '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
@@ -1425,12 +1427,14 @@ export const productUrls = {
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxFocus: (): string => '/inbox/reports/focus',
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
         const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
         return `/inbox/scouts/${skillName}${segment}`
     },
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
+    inboxRuns: (): string => '/inbox/scouts/runs',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (

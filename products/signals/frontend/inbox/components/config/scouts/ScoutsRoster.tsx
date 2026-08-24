@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
@@ -82,7 +84,10 @@ export function ScoutsRoster(): JSX.Element {
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
                     {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
                     created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.
+                    project.{' '}
+                    <Link to={urls.inboxRuns()} data-attr="inbox-open-runs">
+                        See every recent run
+                    </Link>
                 </span>
                 <ScoutHelperSkillLinks />
             </div>
