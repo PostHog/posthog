@@ -1981,6 +1981,40 @@ export class PostHogAPIClient {
     });
   }
 
+  async areDesktopBetaTermsAccepted(): Promise<boolean> {
+    const urlPath = `/api/organizations/@current/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(): Promise<void> {
+    const urlPath = `/api/organizations/@current/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
+  }
+
   async getProject(projectId: number) {
     //@ts-expect-error this is not in the generated client
     const data = await this.api.get("/api/projects/{project_id}/", {

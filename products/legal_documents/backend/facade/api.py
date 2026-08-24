@@ -24,11 +24,22 @@ from ..logic.pandadoc import (
     PandaDocError,
     verify_webhook_signature as _verify_pandadoc_webhook_signature,
 )
-from ..models import LegalDocument
+from ..models import DesktopBetaTermsAcceptance, LegalDocument
 from . import contracts
 from .enums import LegalDocumentStatus
 
 logger = structlog.get_logger(__name__)
+
+
+def are_desktop_beta_terms_accepted(organization_id: UUID) -> bool:
+    return DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).exists()
+
+
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> None:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
 
 
 class LegalDocumentPdfArchiveFailed(Exception):

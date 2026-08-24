@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DesktopBetaTermsAcceptanceApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
+}
+
 export interface LegalDocumentCreatorApi {
     first_name: string
     email: string
