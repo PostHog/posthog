@@ -64,6 +64,7 @@ export interface ChannelItemActions {
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
+  fileCanvas: (item: ChannelItemModel, channelId: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -320,7 +321,7 @@ export function ChannelItemRow({
   );
 
   // A canvas gets the same menu with the items it actually has: command-centre
-  // placement, pin, and delete instead of archive. Filing remains task-only.
+  // placement, pin, filing, and delete instead of archive.
   //
   // Memoized because it travels to the shared preview card as the trigger's
   // payload, which is written to the card's store whenever its identity changes.
@@ -332,6 +333,9 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            channelId,
+            onFile: (targetChannelId) =>
+              actions.fileCanvas(item, targetChannelId),
             onTogglePin: () => actions.togglePin(item),
             onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
