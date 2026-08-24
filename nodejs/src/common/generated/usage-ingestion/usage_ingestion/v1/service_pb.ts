@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_usage_ingestion_v1_service: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIswDChJCaWxsaW5nVXNhZ2VSZWNvcmQSEQoJcmVjb3JkX2lkGAEgASgJEhMKC3Byb2R1Y2VyX2lkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEQoJdXNhZ2Vfa2V5GAQgASgJEjIKBG1vZGUYBSABKA4yJC51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlTW9kZRIMCgR1bml0GAYgASgJEhAKCHF1YW50aXR5GAcgASgDEg8KB3ZlcnNpb24YCCABKAQSGgoSZXZlbnRfdGltZXN0YW1wX21zGAkgASgDEhcKCnNvdXJjZV9yZWYYCiABKAlIAIgBARIUCgd1c2VyX2lkGAsgASgJSAGIAQESFAoHdmFyaWFudBgMIAEoCUgCiAEBEkoKCmRpbWVuc2lvbnMYDSADKAsyNi51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlUmVjb3JkLkRpbWVuc2lvbnNFbnRyeRoxCg9EaW1lbnNpb25zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUINCgtfc291cmNlX3JlZkIKCghfdXNlcl9pZEIKCghfdmFyaWFudCJUChlJbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0EjcKB3JlY29yZHMYASADKAsyJi51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlUmVjb3JkIjkKGkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlEhsKE2FjY2VwdGVkX3JlY29yZF9pZHMYASADKAkqdQoQQmlsbGluZ1VzYWdlTW9kZRIiCh5CSUxMSU5HX1VTQUdFX01PREVfVU5TUEVDSUZJRUQQABIcChhCSUxMSU5HX1VTQUdFX01PREVfREVMVEEQARIfChtCSUxMSU5HX1VTQUdFX01PREVfU05BUFNIT1QQAjKFAQoOVXNhZ2VJbmdlc3Rpb24ScwoSSW5nZXN0QmlsbGluZ1VzYWdlEi0udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlcXVlc3QaLi51c2FnZV9pbmdlc3Rpb24udjEuSW5nZXN0QmlsbGluZ1VzYWdlUmVzcG9uc2ViBnByb3RvMw'
+        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIucCChJCaWxsaW5nVXNhZ2VSZWNvcmQSEQoJcmVjb3JkX2lkGAEgASgJEhMKC3Byb2R1Y2VyX2lkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEQoJdXNhZ2Vfa2V5GAQgASgJEjIKBG1vZGUYBSABKA4yJC51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlTW9kZRIMCgR1bml0GAYgASgJEhAKCHF1YW50aXR5GAcgASgDEhoKEmV2ZW50X3RpbWVzdGFtcF9tcxgJIAEoAxJKCgpkaW1lbnNpb25zGA0gAygLMjYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZC5EaW1lbnNpb25zRW50cnkaMQoPRGltZW5zaW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgIEAlKBAgKEAtKBAgLEAxKBAgMEA0iVAoZSW5nZXN0QmlsbGluZ1VzYWdlUmVxdWVzdBI3CgdyZWNvcmRzGAEgAygLMiYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZCI5ChpJbmdlc3RCaWxsaW5nVXNhZ2VSZXNwb25zZRIbChNhY2NlcHRlZF9yZWNvcmRfaWRzGAEgAygJKnUKEEJpbGxpbmdVc2FnZU1vZGUSIgoeQklMTElOR19VU0FHRV9NT0RFX1VOU1BFQ0lGSUVEEAASHAoYQklMTElOR19VU0FHRV9NT0RFX0RFTFRBEAESHwobQklMTElOR19VU0FHRV9NT0RFX1NOQVBTSE9UEAIyhQEKDlVzYWdlSW5nZXN0aW9uEnMKEkluZ2VzdEJpbGxpbmdVc2FnZRItLnVzYWdlX2luZ2VzdGlvbi52MS5Jbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0Gi4udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlYgZwcm90bzM'
     )
 
 /**
@@ -18,9 +18,10 @@ export const file_usage_ingestion_v1_service: GenFile =
  */
 export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'> & {
     /**
-     * Stable UUID or producer-scoped identifier used for idempotent retries. A retry
-     * must reuse record_id, version, and event_timestamp_ms; a correction gets a new
-     * version instead.
+     * (team_id, producer_id, usage_key, record_id) is the record's identity, so a retry
+     * reuses all four and collapses to one row. Correcting a quantity means re-sending
+     * the same identity: the last send wins. event_timestamp is free to move between
+     * sends, which is what makes a replay safe.
      *
      * @generated from field: string record_id = 1;
      */
@@ -60,29 +61,9 @@ export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'
     quantity: bigint
 
     /**
-     * @generated from field: uint64 version = 8;
-     */
-    version: bigint
-
-    /**
      * @generated from field: int64 event_timestamp_ms = 9;
      */
     eventTimestampMs: bigint
-
-    /**
-     * @generated from field: optional string source_ref = 10;
-     */
-    sourceRef?: string
-
-    /**
-     * @generated from field: optional string user_id = 11;
-     */
-    userId?: string
-
-    /**
-     * @generated from field: optional string variant = 12;
-     */
-    variant?: string
 
     /**
      * @generated from field: map<string, string> dimensions = 13;
@@ -121,8 +102,10 @@ export const IngestBillingUsageRequestSchema: GenMessage<IngestBillingUsageReque
  */
 export type IngestBillingUsageResponse = Message<'usage_ingestion.v1.IngestBillingUsageResponse'> & {
     /**
-     * Records were validated and submitted to Kafka. A retry after an unavailable
-     * response is safe because record_id is the deduplication identity.
+     * The service validates a whole batch before producing, so validation failures accept no
+     * records. The RPC waits for Kafka delivery confirmation, so callers must use it off their
+     * request-critical path. A retry after an unavailable response is safe because record_id is
+     * the deduplication identity, including when Kafka delivered only part of the batch.
      *
      * @generated from field: repeated string accepted_record_ids = 1;
      */

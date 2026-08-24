@@ -10,18 +10,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { LOOPS_FLAG } from "@posthog/shared";
+import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
-  paneForView,
+  pickRailDestination,
   type RailCounts,
   type RailDestination,
   visibleRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
+import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
-import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -32,15 +33,11 @@ import {
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
-import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouterState } from "@tanstack/react-router";
 import {
   type ComponentPropsWithRef,
   type ReactElement,
   type ReactNode,
-  useEffect,
-  useRef,
   useState,
 } from "react";
 
@@ -175,8 +172,9 @@ function ActivityNavItem({
  * that sidebar leaves the destinations reachable.
  */
 export function NavRail() {
-  const view = useAppView();
+  const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const contextEnabled = useContextLayerFlag();
 
   const { counts: inboxCounts } = useInboxAllReports({
     ignoreFilters: true,
@@ -189,42 +187,28 @@ export function NavRail() {
     activity: unseenActivity,
     commandCenter: commandCenterCount,
   };
-  const railPane = useNavRailStore((s) => s.pane);
-  const setRailPane = useNavRailStore((s) => s.setPane);
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const inWebsiteTree = pathname.startsWith("/website");
+  // The route is the only thing that says where you are, so the rail cannot
+  // light a destination the screen isn't on.
+  const railPane = useRailPane();
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const destinations = visibleRailDestinations({
     overrides: navItemOverrides,
     order: navItemOrder,
+    home: homeEnabled,
     loops: loopsEnabled,
+    context: contextEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
-  const pick =
-    ({ pane, analyticsId, onPick }: RailDestination) =>
-    () => {
-      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-        item: analyticsId,
-        in_more: false,
-        layout: "channels",
-      });
-      setRailPane(pane);
-      onPick?.({ inWebsiteTree });
-    };
-
-  // Keyed on the path, not on the pane it derives: two routes can share a
-  // destination, and a move between them still has to pull the rail off
-  // Activity. Not keyed on every render either, or picking Spaces or Activity
-  // would snap straight back to the screen behind them.
-  const routePane = paneForView(view.type);
-  const lastPathRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (lastPathRef.current === pathname) return;
-    lastPathRef.current = pathname;
-    setRailPane(routePane);
-  }, [pathname, routePane, setRailPane]);
+  const pick = (destination: RailDestination) => () => {
+    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+      item: destination.analyticsId,
+      in_more: false,
+      layout: "channels",
+    });
+    pickRailDestination(destination, railPane);
+  };
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider

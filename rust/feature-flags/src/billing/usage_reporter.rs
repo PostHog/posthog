@@ -156,11 +156,7 @@ fn build_records(
             mode: BillingUsageMode::Delta as i32,
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
-            version: 1,
             event_timestamp_ms,
-            source_ref: None,
-            user_id: None,
-            variant: None,
             dimensions: dimensions_for(key),
         })
         .collect()

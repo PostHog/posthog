@@ -906,17 +906,14 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, event_timestamp, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
+  _partition UInt64,
+  INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, producer_id, usage_key, record_id) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -2921,12 +2918,8 @@ CREATE TABLE posthog.billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
