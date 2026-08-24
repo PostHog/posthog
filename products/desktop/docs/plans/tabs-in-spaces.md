@@ -1,6 +1,6 @@
 # PRD: Browser tabs in the spaces layout
 
-Status: decided, not built
+Status: mostly shipped in this PR. Two plan items remain, recorded under "Remaining" at the end.
 Surface: the whole app under `channelsLayout` (spaces / project-bluebird), not just `/spaces/*`
 Supersedes the decisions in [browser-tabs.md](./browser-tabs.md), which describes the strip as it shipped
 into the pre-rail layout. That document stays as the record of what was built; this one records what changes.
@@ -205,7 +205,15 @@ rewritten and double its test surface.
   focus by the guard in `__root.tsx`, which only sees the active tab. Either filter bluebird-only hrefs
   at restore, or skip the snapshot entirely while the flag is off.
 
-## Note
+## Remaining
 
-`packages/ui/src/features/browser-tabs/AGENTS.md` still describes shipped behaviour and should not be
-edited until this is built. When it is, the invariant at the top of this document belongs there.
+Most of this plan shipped in this PR:
+the tab strip under `channelsLayout`, the href-primary tab record and its migration,
+per-tab `viewState` and rail memory, the deleted dedup, and the search-in-rail move.
+`packages/ui/src/features/browser-tabs/AGENTS.md` was rewritten in the same PR and now documents the tab behaviour as built,
+so it is the live reference and is no longer frozen against edits.
+
+Two plan items are not built yet:
+
+- Settings still uses the `isSettingsRoute` early return in `__root.tsx` instead of rendering as a normal tab (see "Settings becomes a normal tab").
+- The tier-2 view-state stores are not yet scoped through a `createTabScopedStore` primitive (see "View state tiers").
