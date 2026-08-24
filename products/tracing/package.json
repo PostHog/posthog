@@ -6,6 +6,7 @@
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
@@ -19,9 +20,11 @@
         "@posthog/icons": "catalog:",
         "@testing-library/react": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "fast-equals": "catalog:",
         "react": "*",
+        "react-dom": "*",
         "react-window": "*"
     }
 }

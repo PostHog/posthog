@@ -1,0 +1,217 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { truncate } from 'lib/utils/strings'
+
+import {
+    AlertEvaluationHistoryChart,
+    AlertEvaluationHistoryPoint,
+    AlertEvaluationThreshold,
+} from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
+import {
+    AlertEventKindEnumApi as TracingAlertEventKindEnumApi,
+    LogsAlertThresholdOperatorEnumApi as TracingAlertThresholdOperatorEnumApi,
+    TracingAlertConfigurationApi,
+    TracingAlertEventApi,
+} from 'products/tracing/frontend/generated/api.schemas'
+
+import { TracingAlertEventHistoryLogicProps, tracingAlertEventHistoryLogic } from './tracingAlertEventHistoryLogic'
+
+export function TracingAlertEventHistoryContent({ alert }: { alert: TracingAlertConfigurationApi }): JSX.Element {
+    const logicProps: TracingAlertEventHistoryLogicProps = { alertId: alert.id }
+
+    return (
+        <BindLogic logic={tracingAlertEventHistoryLogic} props={logicProps}>
+            <TracingAlertEventTimeline alert={alert} />
+        </BindLogic>
+    )
+}
+
+function getHistoryThresholds(alert: TracingAlertConfigurationApi): AlertEvaluationThreshold[] {
+    const thresholdValue = alert.threshold_count ?? 100
+    if (alert.threshold_operator === TracingAlertThresholdOperatorEnumApi.Below) {
+        return [{ direction: 'lower', value: thresholdValue, label: `Below (${thresholdValue})` }]
+    }
+    return [{ direction: 'upper', value: thresholdValue, label: `Above (${thresholdValue})` }]
+}
+
+function getHistoryPoints(events: TracingAlertEventApi[]): AlertEvaluationHistoryPoint[] {
+    return events
+        .filter((event) => event.kind === TracingAlertEventKindEnumApi.Check && event.result_count !== null)
+        .sort((left, right) => left.created_at.localeCompare(right.created_at))
+        .map((event) => ({
+            label: dayjs(event.created_at).format('MMM D, HH:mm'),
+            value: event.result_count ?? 0,
+            firedAtTime: event.state_after === 'firing',
+        }))
+}
+
+function TracingAlertEventTimeline({ alert }: { alert: TracingAlertConfigurationApi }): JSX.Element {
+    const { eventsPage, eventsPageLoading } = useValues(tracingAlertEventHistoryLogic)
+    const { loadMore } = useActions(tracingAlertEventHistoryLogic)
+    const historyPoints = getHistoryPoints(eventsPage.results)
+
+    const columns: LemonTableColumns<TracingAlertEventApi> = [
+        {
+            title: 'Event',
+            render: (_, event) => {
+                const { label, type } = describeEvent(event)
+                return <LemonTag type={type}>{label}</LemonTag>
+            },
+        },
+        {
+            title: 'When',
+            render: (_, event) => <TZLabel time={event.created_at} formatDate="MMM D" formatTime="HH:mm:ss" />,
+        },
+        {
+            title: 'Detail',
+            render: (_, event) => {
+                const { detail } = describeEvent(event)
+                return detail ? <span className="text-muted text-xs">{detail}</span> : null
+            },
+        },
+    ]
+
+    const hasMore = eventsPage.next !== null
+    const shownOf =
+        eventsPage.count > eventsPage.results.length
+            ? ` · Showing ${eventsPage.results.length} of ${eventsPage.count}`
+            : ''
+
+    return (
+        <div className="space-y-4">
+            {historyPoints.length > 0 ? (
+                <AlertEvaluationHistoryChart
+                    points={historyPoints}
+                    valueLabel="Matching spans"
+                    thresholds={getHistoryThresholds(alert)}
+                    historyLimit={Math.max(historyPoints.length, 1)}
+                    evaluationNoun="evaluation"
+                />
+            ) : null}
+            <div className="max-h-96 overflow-y-auto">
+                <LemonTable
+                    columns={columns}
+                    dataSource={eventsPage.results}
+                    rowKey="id"
+                    loading={eventsPageLoading}
+                    emptyState="No events yet. Evaluations, transitions, and user actions will appear here."
+                    size="small"
+                    expandable={{
+                        rowExpandable: () => true,
+                        expandedRowRender: (event) => <TracingAlertEventDetails event={event} />,
+                    }}
+                />
+            </div>
+            {hasMore ? (
+                <div className="flex justify-center">
+                    <LemonButton type="secondary" size="small" onClick={loadMore} loading={eventsPageLoading}>
+                        Load more{shownOf}
+                    </LemonButton>
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+interface EventDescription {
+    label: string
+    type: LemonTagType
+    detail: string | null
+}
+
+const CONTROL_PLANE_DESCRIPTIONS: Record<
+    Exclude<TracingAlertEventKindEnumApi, typeof TracingAlertEventKindEnumApi.Check>,
+    Pick<EventDescription, 'label' | 'type'>
+> = {
+    [TracingAlertEventKindEnumApi.Reset]: { label: 'Reset', type: 'primary' },
+    [TracingAlertEventKindEnumApi.Enable]: { label: 'Enabled', type: 'success' },
+    [TracingAlertEventKindEnumApi.Disable]: { label: 'Disabled', type: 'muted' },
+    [TracingAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
+    [TracingAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
+    [TracingAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
+    [TracingAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
+}
+
+function describeEvent(event: TracingAlertEventApi): EventDescription {
+    if (event.kind !== TracingAlertEventKindEnumApi.Check) {
+        return { ...CONTROL_PLANE_DESCRIPTIONS[event.kind], detail: formatTransition(event) }
+    }
+    if (event.error_message && event.state_after === 'broken') {
+        return { label: 'Auto-disabled', type: 'caution', detail: '5 consecutive errors' }
+    }
+    if (event.error_message) {
+        return { label: 'Errored', type: 'warning', detail: truncate(event.error_message, 80) }
+    }
+    if (event.state_before !== 'firing' && event.state_after === 'firing') {
+        return {
+            label: 'Fired',
+            type: 'danger',
+            detail:
+                event.result_count !== null ? `${event.result_count} spans · threshold breached` : 'threshold breached',
+        }
+    }
+    if (event.state_before === 'firing' && event.state_after !== 'firing') {
+        return {
+            label: 'Resolved',
+            type: 'success',
+            detail: event.result_count !== null ? `${event.result_count} spans · back to normal` : 'back to normal',
+        }
+    }
+    return {
+        label: 'Check',
+        type: 'default',
+        detail: event.result_count !== null ? `${event.result_count} spans` : null,
+    }
+}
+
+function TracingAlertEventDetails({ event }: { event: TracingAlertEventApi }): JSX.Element {
+    return (
+        <dl className="px-3 py-2 text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            <dt className="text-muted">Kind</dt>
+            <dd className="font-mono">{event.kind}</dd>
+            <dt className="text-muted">State</dt>
+            <dd className="font-mono">
+                {event.state_before} → {event.state_after}
+            </dd>
+            {event.kind === TracingAlertEventKindEnumApi.Check ? (
+                <>
+                    <dt className="text-muted">Breached</dt>
+                    <dd className="font-mono">{event.threshold_breached ? 'yes' : 'no'}</dd>
+                </>
+            ) : null}
+            {event.result_count !== null ? (
+                <>
+                    <dt className="text-muted">Result count</dt>
+                    <dd className="font-mono">{event.result_count}</dd>
+                </>
+            ) : null}
+            {event.query_duration_ms !== null ? (
+                <>
+                    <dt className="text-muted">Query duration</dt>
+                    <dd className="font-mono">{event.query_duration_ms} ms</dd>
+                </>
+            ) : null}
+            {event.error_message ? (
+                <>
+                    <dt className="text-muted">Error</dt>
+                    <dd className="font-mono whitespace-pre-wrap break-words">{event.error_message}</dd>
+                </>
+            ) : null}
+            <dt className="text-muted">Timestamp</dt>
+            <dd className="font-mono">
+                <TZLabel time={event.created_at} />
+            </dd>
+        </dl>
+    )
+}
+
+function formatTransition(event: TracingAlertEventApi): string | null {
+    if (event.state_before === event.state_after) {
+        return null
+    }
+    return `${event.state_before} → ${event.state_after}`
+}
