@@ -7231,7 +7231,7 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel."""
+    """Soft-delete an empty public channel. Archived tasks do not count as content."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -7239,10 +7239,24 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
-    channel.deleted = True
-    channel.save(update_fields=["deleted", "updated_at"])
+    with transaction.atomic():
+        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
+        # its channel: unlocked, a task can land after the check and be orphaned in a channel
+        # this call goes on to delete.
+        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        if channel is None:
+            return "not_found"
+        if (
+            channel.tasks.filter(deleted=False, archived=False).exists()
+            or channel.canvases.filter(deleted=False).exists()
+        ):
+            return "not_empty"
+        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
+        # no lock on the channel and can happen after the check above. Task visibility joins
+        # through the channel, so a task left pointing at a deleted one leaves every list.
+        channel.tasks.filter(deleted=False).update(channel=None)
+        channel.deleted = True
+        channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
 
 
