@@ -30,8 +30,8 @@ Measured locally: two identical batches landing in separate parts read as 6 rows
 | `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                          | `USAGE_INGESTION_REPORT_WAREHOUSE_ROWS_TEAMS` |
 | `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                           | `USAGE_INGESTION_REPORT_BATCH_EXPORTS_TEAMS`  |
 | `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                              | `USAGE_INGESTION_REPORT_REPLAY_VISION_TEAMS`  |
-| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | the flush timestamp                                                                             | `USAGE_INGESTION_REPORT_LOGS_TEAMS`           |
-| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | the flush timestamp                                                                             | `USAGE_INGESTION_REPORT_APM_TEAMS`            |
+| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_LOGS_TEAMS`           |
+| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_APM_TEAMS`            |
 | `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
 | `ingestion`         | `enhanced_person_events`                                | events         | the event UUID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
 
@@ -41,6 +41,12 @@ There is deliberately no percentage option: sampling a share of a team's events 
 
 Every record carries quantity 1 and names one billed thing, so the aggregate lives in ClickHouse rather than in the producer.
 A producer that sees the same identity twice sends one record, because two records sharing an identity collapse rather than add.
+
+Three producers break that shape: feature flags, logs and APM send per-flush aggregates rather than one record per billed thing.
+They have no identity to reproduce, so each flush mints a fresh UUIDv7.
+That makes them retry-safe but not replay-safe, and it is deliberate: the quantity is a delta over a window, so a replayed flush is new usage rather than the same usage seen twice.
+Deriving those IDs from a clock instead would let two pods flushing one team in the same millisecond collapse into one row and drop a real quantity.
+Note the existing nightly report reaches the same totals additively — `app_metrics2` is an `AggregatingMergeTree` summing `count` per hour — so it has no identity to collide in the first place.
 
 ## Analytics ingestion
 
