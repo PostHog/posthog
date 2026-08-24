@@ -74,7 +74,7 @@ _NO_RETRY = Retry(total=0)
 # extend the shared policy to retry POST too — it keeps the same backoff, `Retry-After` handling,
 # and transient status list. An exhausted attempt still raises `AdobeCommerceRetryableError` in
 # `_mint`, which `AdobeCommerceSource.get_retryable_errors` keeps out of error tracking.
-_TOKEN_MINT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset({"POST", *DEFAULT_RETRY.allowed_methods}))
+_TOKEN_MINT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset({"POST", *(DEFAULT_RETRY.allowed_methods or ())}))
 
 # Magento compares searchCriteria datetime filters against MySQL `DATETIME` columns stored in UTC.
 MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
