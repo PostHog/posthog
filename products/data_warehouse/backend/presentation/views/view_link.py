@@ -414,7 +414,6 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             if is_safe:
                 response_data["detail"] = str(e)
         except QueryError as e:
-            capture_exception(e)
             response_data = {
                 "attr": None,
                 "code": e.__class__.__name__,

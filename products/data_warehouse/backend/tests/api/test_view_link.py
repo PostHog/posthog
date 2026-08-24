@@ -604,7 +604,8 @@ class TestViewLinkValidation(APIBaseTest):
             "SELECT DISTINCT source_key, joining_key FROM (SELECT toString(ifNull(distinct_id, '')) AS source_key, validation.id AS joining_key FROM events LIMIT 1000) LIMIT 5",
         )
 
-    def test_nonexistent_field(self):
+    @patch(f"{VIEW_LINK_PATH}.capture_exception")
+    def test_nonexistent_field(self, mock_capture_exception):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -625,6 +626,8 @@ class TestViewLinkValidation(APIBaseTest):
             data["hogql"],
             "SELECT DISTINCT source_key, joining_key FROM (SELECT nonexistent_field AS source_key, validation.id AS joining_key FROM events LIMIT 1000) LIMIT 5",
         )
+        # A bad join key is user input, so it must not reach error tracking
+        mock_capture_exception.assert_not_called()
 
     def test_invalid_source_table(self):
         response = self.client.post(
