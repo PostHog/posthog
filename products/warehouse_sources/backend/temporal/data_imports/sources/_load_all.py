@@ -249,6 +249,7 @@ from .cisco_duo.source import CiscoDuoSource
 from .cisco_meraki.source import CiscoMerakiSource
 from .clari.source import ClariSource
 from .clarifai.source import ClarifaiSource
+from .clarify.source import ClarifySource
 from .classy.source import ClassySource
 from .clay.source import ClaySource
 from .clazar.source import ClazarSource
@@ -328,6 +329,7 @@ from .datadog.source import DatadogSource
 from .dataforseo.source import DataForSEOSource
 from .datahub.source import DatahubSource
 from .datascope.source import DatascopeSource
+from .datocms.source import DatoCMSSource
 from .datorama.source import DatoramaSource
 from .dayforce.source import DayforceSource
 from .db2.source import Db2Source
