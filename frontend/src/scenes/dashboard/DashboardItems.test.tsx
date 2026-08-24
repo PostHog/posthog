@@ -87,11 +87,13 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
         showResizeHandles,
         apiErrored,
         apiError,
+        refresh,
     }: {
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
-        apiError?: Error & { status?: number; detail?: string | null; code?: string | null }
+        apiError?: Error & { status?: number; detail?: string | null; code?: string | null; data?: { queryId?: string } }
+        refresh?: () => void
     }) => (
         <div
             data-attr="insight-card"
@@ -101,6 +103,8 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
             data-api-error-status={apiError?.status}
             data-api-error-detail={apiError?.detail ?? undefined}
             data-api-error-code={apiError?.code ?? undefined}
+            data-api-error-query-id={apiError?.data?.queryId}
+            data-refreshable={refresh ? 'true' : undefined}
         />
     ),
 }))
@@ -538,6 +542,8 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
+        expect(insightCard).toHaveAttribute('data-api-error-query-id', 'failed-query-id')
+        expect(insightCard).toHaveAttribute('data-refreshable', 'true')
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'
