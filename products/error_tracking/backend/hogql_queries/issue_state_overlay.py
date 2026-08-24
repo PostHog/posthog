@@ -4,7 +4,7 @@ from uuid import UUID
 from django.db import DEFAULT_DB_ALIAS
 from django.utils import timezone
 
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +22,14 @@ RECENT_ISSUE_STATE_ROW_COUNT = Histogram(
     "error_tracking_recent_issue_state_row_count",
     "Number of recent Postgres issue-state rows sent with an error tracking query",
     buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, float("inf")),
+)
+
+# These reads pin to the primary (read-after-write freshness), so they cannot fall back to a replica.
+# When the primary times out, the query degrades without the overlay; count each degraded read here.
+RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE = Counter(
+    "error_tracking_recent_issue_state_overlay_unavailable_total",
+    "Times an error tracking overlay Postgres read failed and the query ran without the overlay",
+    ["read"],
 )
 
 

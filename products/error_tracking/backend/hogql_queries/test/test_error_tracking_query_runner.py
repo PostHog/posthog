@@ -12,8 +12,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest import TestCase
+from unittest import TestCase, mock
 
+from django.db import OperationalError
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -402,6 +403,24 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             mutated_payload["error_tracking_issue_state_watermark"],
             expired_payload["error_tracking_issue_state_watermark"],
         )
+
+    def test_cache_payload_degrades_when_watermark_read_fails(self):
+        # A primary-Postgres pool timeout while reading the issue-state watermark runs on the
+        # cache-key path and must not 500 a request whose result may already be cached; the marker
+        # degrades to a stable "unavailable" instead.
+        query = ErrorTrackingQuery(
+            kind="ErrorTrackingQuery",
+            dateRange=DateRange(date_from="all"),
+            orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+            volumeResolution=1,
+        )
+        with mock.patch(
+            "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.latest_issue_state_watermark",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            payload = ErrorTrackingQueryRunner(team=self.team, query=query).get_cache_payload()
+
+        self.assertEqual(payload["error_tracking_issue_state_watermark"], "unavailable")
 
     @freeze_time("2022-01-10T12:11:00")
     def test_missing_date_from_defaults_to_seven_days(self):

@@ -1,6 +1,10 @@
 import datetime
 from zoneinfo import ZoneInfo
 
+from django.db import OperationalError
+
+import structlog
+
 from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
 
 from posthog.hogql import ast
@@ -20,10 +24,13 @@ from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQu
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
+    RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
     RecentIssueState,
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -67,8 +74,18 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
-        watermark = latest_issue_state_watermark(self.team.pk)
-        payload["error_tracking_issue_state_watermark"] = watermark.isoformat() if watermark is not None else None
+        # This read runs on the cache-key path, before any cache lookup, and hits primary Postgres.
+        # Under connection-pool saturation it can time out (OperationalError); degrade to a stable
+        # "unavailable" marker instead of 500-ing a request whose result may already be cached.
+        # Mirrors AnalyticsQueryRunner._products_modifiers_for_cache.
+        try:
+            watermark = latest_issue_state_watermark(self.team.pk)
+        except OperationalError:
+            logger.warning("error_tracking_issue_state_watermark_unavailable", team_id=self.team.pk, exc_info=True)
+            RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="watermark").inc()
+            payload["error_tracking_issue_state_watermark"] = "unavailable"
+        else:
+            payload["error_tracking_issue_state_watermark"] = watermark.isoformat() if watermark is not None else None
         return payload
 
     @classmethod
@@ -109,7 +126,14 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     def _calculate(self):
         with self.timings.measure("error_tracking_query_recent_issue_state"):
-            recent_issue_states = load_recent_issue_states(self.team.pk)
+            # The overlay layers fresh Postgres state onto ClickHouse results. If the primary read
+            # fails, run without the overlay rather than failing the whole query.
+            try:
+                recent_issue_states = load_recent_issue_states(self.team.pk)
+            except OperationalError:
+                logger.warning("error_tracking_recent_issue_states_unavailable", team_id=self.team.pk, exc_info=True)
+                RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="recent_states").inc()
+                recent_issue_states = []
         context = self._hogql_context(recent_issue_states)
         builder = ErrorTrackingQueryBuilder(
             self.query,
