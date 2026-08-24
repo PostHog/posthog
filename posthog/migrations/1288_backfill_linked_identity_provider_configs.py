@@ -7,18 +7,11 @@ def backfill_linked_identity_provider_configs(apps, schema_editor):
     OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
     LinkedIdentityProviderConfig = apps.get_model("posthog", "LinkedIdentityProviderConfig")
 
-    if "_identity_provider_config" in {field.name for field in OrganizationDomain._meta.fields}:
-        links = (
-            OrganizationDomain.objects.filter(_identity_provider_config__isnull=False)
-            .values_list("id", "_identity_provider_config_id")
-            .iterator(chunk_size=CHUNK_SIZE)
-        )
-    else:
-        links = (
-            OrganizationDomain.objects.filter(identity_provider_config__isnull=False)
-            .values_list("id", "identity_provider_config_id")
-            .iterator(chunk_size=CHUNK_SIZE)
-        )
+    links = (
+        OrganizationDomain.objects.filter(identity_provider_config__isnull=False)
+        .values_list("id", "identity_provider_config_id")
+        .iterator(chunk_size=CHUNK_SIZE)
+    )
 
     chunk = []
     for domain_id, config_id in links:
