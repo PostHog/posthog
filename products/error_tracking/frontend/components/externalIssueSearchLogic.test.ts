@@ -47,4 +47,20 @@ describe('externalIssueSearchLogic', () => {
         }).toDispatchActions(['searchIssuesSuccess'])
         expect(mockSearchIssues).toHaveBeenCalledTimes(1)
     })
+
+    it('typing right after a selection does not suppress the next genuine clear', async () => {
+        // Typing within the debounce cancels the selection-clear search before it can
+        // consume the suppression, so the flag must be reset by the nonblank search.
+        await expectLogic(logic, () => {
+            logic.actions.inputChanged('')
+            logic.actions.issueSelected()
+            logic.actions.inputChanged('crash')
+        }).toDispatchActions(['searchIssuesSuccess'])
+        expect(mockSearchIssues).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic, () => {
+            logic.actions.inputChanged('')
+        }).toDispatchActions(['searchIssuesSuccess'])
+        expect(mockSearchIssues).toHaveBeenCalledTimes(2)
+    })
 })

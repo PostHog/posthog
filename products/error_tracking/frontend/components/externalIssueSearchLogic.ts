@@ -73,6 +73,12 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
             {
                 searchIssues: async (query, breakpoint) => {
                     const search = query.trim()
+                    if (search) {
+                        // A nonblank search cancels any pending selection-clear search at the
+                        // breakpoint below, so its suppression must not survive to swallow a
+                        // later genuine clear.
+                        cache.suppressNextBlankSearch = false
+                    }
                     if (props.requiresRepository && !values.repository) {
                         return values.results
                     }
@@ -115,7 +121,11 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
         },
     }),
     listeners(({ actions, cache }) => ({
-        setRepository: () => actions.searchIssues(''),
+        setRepository: () => {
+            // A repository change clears the results, so the reload must not be suppressed.
+            cache.suppressNextBlankSearch = false
+            actions.searchIssues('')
+        },
         issueSelected: () => {
             cache.suppressNextBlankSearch = true
         },
