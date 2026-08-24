@@ -319,7 +319,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
         // production batches use the per-team value from settings; this is only a safety net for
         // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 500000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
