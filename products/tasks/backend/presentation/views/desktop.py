@@ -14,7 +14,7 @@ from products.tasks.backend.presentation.desktop_serializers import DesktopBetaT
 
 
 class DesktopBetaTermsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "desktop_beta_terms"
+    scope_object = "organization"
     permission_classes = [OrganizationAdminWritePermissions]
     pagination_class = None
 
