@@ -400,6 +400,13 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return value
 
+    # map_virtual_properties rewrites a $virt_ key to a typed column on the parent table instead
+    # of a JSON extract, so its LHS is already numeric and has no PropertyDefinition row to look
+    # up. Without this guard the lookup below misses and stringifies, which breaks numeric virtual
+    # properties such as $virt_revenue.
+    if property.key and property.key.startswith("$virt_"):
+        return value
+
     if property.type == "person":
         definition_type = PropertyDefinition.Type.PERSON
         extra_filters: dict[str, object] = {}
