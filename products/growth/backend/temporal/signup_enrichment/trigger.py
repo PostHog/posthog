@@ -75,7 +75,9 @@ def start_signup_enrichment_workflow(
         return
 
     work_email = not _generic_emails.is_generic(email)
-    _record_work_email(organization_id=str(organization_id), work_email=work_email)
+    _record_work_email(
+        organization_id=str(organization_id), work_email=work_email, signup_role=role_at_organization or None
+    )
     if not work_email or not distinct_id:
         return
 
@@ -137,10 +139,10 @@ def _geoip_country_code(ip_address: str | None) -> str | None:
         return None
 
 
-def _record_work_email(*, organization_id: str, work_email: bool) -> None:
+def _record_work_email(*, organization_id: str, work_email: bool, signup_role: str | None = None) -> None:
     # The write runs in its own savepoint; a failure here must never surface to signup.
     try:
-        record_signup_work_email(organization_id=organization_id, work_email=work_email)
+        record_signup_work_email(organization_id=organization_id, work_email=work_email, signup_role=signup_role)
     except Exception as e:
         capture_exception(e)
 
