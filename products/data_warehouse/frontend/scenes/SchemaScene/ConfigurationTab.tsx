@@ -75,7 +75,9 @@ export function excludedColumnNames(
     available: { name: string }[],
     alwaysRetained: Set<string>
 ): string[] {
-    if (!enabledColumns) {
+    // An empty selection projects to nothing, which the backend reads as "sync all" (SELECT *) —
+    // unless a primary key or incremental field is retained, which still narrows the projection.
+    if (!enabledColumns || (enabledColumns.length === 0 && alwaysRetained.size === 0)) {
         return []
     }
     const enabled = new Set(enabledColumns)
