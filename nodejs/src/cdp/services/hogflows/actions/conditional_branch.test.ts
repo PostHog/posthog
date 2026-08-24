@@ -227,7 +227,7 @@ describe('action.conditional_branch', () => {
                 person: freshPerson,
                 filterGlobals: { ...waitInvocation.filterGlobals, person: freshPerson },
             })
-            const result = createInvocationResult(waitInvocation)
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
 
             await handler.execute({ invocation: waitInvocation, action: waitAction, result })
 
