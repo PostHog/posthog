@@ -71,9 +71,10 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
-import { CompletedSubBatch, StreamIngestDriver, WorkerIngestServer } from '../ingestion/api/grpc-server'
+import { WorkerIngestServer } from '../ingestion/api/grpc-server'
+import { GrpcBatchContext, GrpcStreamIngestDriver } from '../ingestion/api/grpc-stream-ingest-driver'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
-import { IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage } from '../ingestion/api/types'
+import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
@@ -182,9 +183,6 @@ const eventSecondsInFlight = new Counter({
     help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
 })
 
-/** Batch context fed with each gRPC sub-batch so its completion routes back to the right stream. */
-type GrpcBatchContext = { grpcStreamId: number; grpcSeq: number }
-
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -215,19 +213,9 @@ export class IngestionApiServer implements NodeServer {
     // (moved to caller-side production so create and flush share one path).
     private ingestionOutputs?: FlushBatchStoresOutputs
 
-    private joinedPipeline!: ReturnType<
+    // Set when the HTTP transport is active (INGESTION_API_GRPC_ENABLED off).
+    private httpPipeline?: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
-    >
-    // Separate pipeline instance for the gRPC path: HTTP handlers pump their
-    // pipeline's next() themselves, so sharing one instance would let an HTTP
-    // handler consume a gRPC batch's completion (and its ack). Stores,
-    // producers, and services are shared; only the batching state is split.
-    private grpcPipeline?: ReturnType<
-        typeof createJoinedIngestionPipeline<
-            JoinedIngestionPipelineInput,
-            JoinedIngestionPipelineContext,
-            GrpcBatchContext
-        >
     >
     private grpcServer?: WorkerIngestServer
     private promiseScheduler = new PromiseScheduler()
@@ -236,11 +224,11 @@ export class IngestionApiServer implements NodeServer {
     // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
     private feedOrderSentinel?: FeedOrderSentinel
 
-    // Latched on the first unexpected pipeline error. The joinedPipeline is a
-    // single long-lived instance shared across all requests; a throw can leave
-    // it permanently poisoned (e.g. a group exhausted retries), so we mirror the
-    // Kafka consumer's contract of crashing and rebuilding rather than serving a
-    // wedged pipeline forever.
+    // Latched on the first unexpected pipeline error. The pipeline is a single
+    // long-lived instance shared across all requests; a throw can leave it
+    // permanently poisoned (e.g. a group exhausted retries), so we mirror the
+    // Kafka consumer's contract of crashing and rebuilding rather than serving
+    // a wedged pipeline forever.
     private fatalError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
@@ -519,18 +507,12 @@ export class IngestionApiServer implements NodeServer {
             groupTypeManager,
             topHog: this.topHog,
         }
-        this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
-
-        // 8. Register the ingest endpoint and service
+        // 8. Register the ingest transport — exactly one of gRPC or HTTP.
         if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
             this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
         }
-        this.lifecycle.expressApp.post('/ingest', async (req, res) => {
-            await this.handleIngestRequest(req, res)
-        })
-
         if (this.config.INGESTION_API_GRPC_ENABLED) {
-            this.grpcPipeline = createJoinedIngestionPipeline<
+            const grpcPipeline = createJoinedIngestionPipeline<
                 JoinedIngestionPipelineInput,
                 JoinedIngestionPipelineContext,
                 GrpcBatchContext
@@ -548,7 +530,7 @@ export class IngestionApiServer implements NodeServer {
                     drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
                 },
                 {
-                    driver: this.createStreamIngestDriver(),
+                    driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
                     feedOrderSentinel: this.feedOrderSentinel,
                     onFatal: (error) => {
                         // Same crash-and-rebuild contract as the HTTP path.
@@ -560,6 +542,11 @@ export class IngestionApiServer implements NodeServer {
                 }
             )
             await this.grpcServer.start()
+        } else {
+            this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
+            this.lifecycle.expressApp.post('/ingest', async (req, res) => {
+                await this.handleIngestRequest(req, res)
+            })
         }
 
         const service: PluginServerService = {
@@ -582,6 +569,9 @@ export class IngestionApiServer implements NodeServer {
         }
     ): Promise<void> {
         const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
+
+        // The route is only registered when the HTTP transport is active.
+        const pipeline = this.httpPipeline!
 
         if (!serializedMessages || serializedMessages.length === 0) {
             res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
@@ -606,7 +596,7 @@ export class IngestionApiServer implements NodeServer {
             // stage processes each key in feed order, so this measures the
             // "processed in order per distinct_id" invariant.
             this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await this.joinedPipeline.feed(batch, {})
+            const feedResult = await pipeline.feed(batch, {})
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
                 // behavior — the Rust consumer holds a per-worker Semaphore
@@ -643,9 +633,9 @@ export class IngestionApiServer implements NodeServer {
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
             // to do.
-            let result = await this.joinedPipeline.next()
+            let result = await pipeline.next()
             while (result !== null) {
-                result = await this.joinedPipeline.next()
+                result = await pipeline.next()
             }
 
             // Wait for all side effects — the HTTP response is the ACK to the
@@ -681,43 +671,6 @@ export class IngestionApiServer implements NodeServer {
                 eventsInFlight.dec(inFlight.events)
                 eventSecondsInFlight.inc((inFlight.events * (Date.now() - inFlight.acceptedAt)) / 1000)
             }
-        }
-    }
-
-    /**
-     * Pipeline mechanics for the gRPC stream server. The `settled` promise on
-     * each completed batch is the ack barrier: it mirrors the HTTP handler's
-     * contract (side effects plus the promise scheduler) but stays a promise
-     * so the server can settle many batches concurrently.
-     */
-    private createStreamIngestDriver(): StreamIngestDriver {
-        const pipeline = this.grpcPipeline!
-        return {
-            feed: (streamId: number, seq: number, messages: SerializedKafkaMessage[]) => {
-                const batch = messages.map((serialized) => {
-                    const message = deserializeKafkaMessage(serialized)
-                    return createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
-                })
-                return pipeline.feed(batch, { grpcStreamId: streamId, grpcSeq: seq })
-            },
-            next: async (): Promise<CompletedSubBatch | null> => {
-                const result = await pipeline.next()
-                if (result === null) {
-                    return null
-                }
-                // waitForAll snapshots the currently scheduled promises, so
-                // this settles even under sustained load from other batches.
-                const settled = (async (): Promise<void> => {
-                    await Promise.all(result.sideEffects ?? [])
-                    await this.promiseScheduler.waitForAll()
-                })()
-                return {
-                    streamId: result.batchContext.grpcStreamId,
-                    seq: result.batchContext.grpcSeq,
-                    accepted: result.elements.length,
-                    settled,
-                }
-            },
         }
     }
 
