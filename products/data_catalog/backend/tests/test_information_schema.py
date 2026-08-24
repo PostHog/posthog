@@ -389,6 +389,28 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert response.results == []
 
+    def test_child_environment_sees_its_own_certification(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Child environment"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="env_revenue",
+            format="Parquet",
+            team=child_team,
+            url_pattern="s3://bucket/env_revenue",
+            columns=_COLUMNS,
+        )
+        deprecate(propose_certification(team=child_team, user=self.user, table_id=str(table.id)), self.user)
+
+        database = Database.create_for(team=child_team, user=self.user)
+        context = HogQLContext(team=child_team, team_id=child_team.pk, database=database)
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'env_revenue'",
+            team=child_team,
+            context=context,
+        )
+        assert response.results == [("deprecated",)]
+
     def test_certification_is_found_under_the_dotted_catalog_name(self) -> None:
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
         table = DataWarehouseTable.objects.create(
