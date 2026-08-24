@@ -22,9 +22,9 @@ export interface messageRatingsLogicActions {
     pruneOldRatings: () => {
         value: true
     }
-    setRating: (payload: { rating: MessageRating; key: string }) => {
-        rating: MessageRating
+    setRating: (payload: { key: string; rating: MessageRating }) => {
         key: string
+        rating: MessageRating
     }
 }
 
