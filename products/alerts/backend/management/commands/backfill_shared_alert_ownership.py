@@ -92,9 +92,9 @@ def _normalize_inputs(inputs: Any) -> str:
 
 @dataclass
 class AlertBackfillStats:
-    insights_linked: int = 0
-    insights_ambiguous: int = 0
-    insights_skipped_existing: int = 0
+    insight_linked: int = 0
+    insight_ambiguous: int = 0
+    insight_skipped_existing: int = 0
     logs_linked: int = 0
     logs_ambiguous: int = 0
     logs_skipped_existing: int = 0
@@ -104,9 +104,9 @@ class AlertBackfillStats:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "insights_linked": self.insights_linked,
-            "insights_ambiguous": self.insights_ambiguous,
-            "insights_skipped_existing": self.insights_skipped_existing,
+            "insight_linked": self.insight_linked,
+            "insight_ambiguous": self.insight_ambiguous,
+            "insight_skipped_existing": self.insight_skipped_existing,
             "logs_linked": self.logs_linked,
             "logs_ambiguous": self.logs_ambiguous,
             "logs_skipped_existing": self.logs_skipped_existing,
@@ -385,13 +385,16 @@ class Command(BaseCommand):
     def _find_candidate_executors(self, *, alert_id: str, team_id: int | None) -> list[HogFunction]:
         """Pull every HogFunction that could belong to this alert.
 
-        Matching mirrors the shared destination service's ownership filter so
-        the snapshot the backfill classifies is the same one the API sees.
-        Ambiguity at this stage (different templates across one alert) is
-        handled by grouping, not by rejecting the row.
+        Matching mirrors the shared destination service's ownership filter: only
+        `internal_destination` rows are eligible (the DB constraint on the new
+        columns would reject any other type once stamping), their template is
+        one of the four alert destination templates, and the JSON filter still
+        names this alert. Ambiguity at this stage (different templates across
+        one alert) is handled by grouping, not by rejecting the row.
         """
         queryset = HogFunction.objects.filter(
             deleted=False,
+            type="internal_destination",
             template_id__in=list(DESTINATION_TEMPLATE_IDS.values()),
             filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
         )

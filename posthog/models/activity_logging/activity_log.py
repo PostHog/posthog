@@ -795,6 +795,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "is_calculating",
         "last_notified_at",
         "last_error_at",
+        # Cross-product OneToOne added for explicit alert ownership; the related
+        # object isn't JSON-serializable by the activity-log path and the
+        # ownership migration is itself tracked through its own tooling.
+        "shared_alert",
     ],
     "Action": [
         "bytecode",

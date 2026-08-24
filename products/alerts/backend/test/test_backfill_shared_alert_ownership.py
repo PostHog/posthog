@@ -31,7 +31,10 @@ class TestBackfillSharedAlertOwnership(APIBaseTest):
         return HogFunction.objects.create(
             team=team or self.team,
             name="Test destination",
-            type="destination",
+            # Alert destinations are created as internal_destination; anything else
+            # wouldn't pass the hogfunction_alert_ownership_shape constraint once
+            # ownership is stamped.
+            type="internal_destination",
             template_id=template_id,
             enabled=True,
             inputs_schema=[],
@@ -62,15 +65,23 @@ class TestBackfillSharedAlertOwnership(APIBaseTest):
         assert function.alert_event_kind == "firing"
 
     def test_creates_one_destination_per_template_per_inputs_digest(self) -> None:
+        # `HogFunction.save()` strips inputs that aren't in inputs_schema, so
+        # each fixture keeps its own schema to let its inputs survive.
+        slack_schema = [
+            {"key": "slack_workspace", "type": "integration", "required": True},
+            {"key": "channel", "type": "string", "required": True},
+        ]
         alert = self._make_insight_alert()
         first_slack = self._make_executor(
             alert_id=str(alert.id), template_id="template-slack", event_id="$insight_alert_firing"
         )
+        first_slack.inputs_schema = slack_schema
         first_slack.inputs = {"slack_workspace": {"value": 1}, "channel": {"value": "C-1"}}
         first_slack.save()
         second_slack = self._make_executor(
             alert_id=str(alert.id), template_id="template-slack", event_id="$insight_alert_firing"
         )
+        second_slack.inputs_schema = slack_schema
         second_slack.inputs = {"slack_workspace": {"value": 1}, "channel": {"value": "C-2"}}
         second_slack.save()
 
@@ -88,6 +99,7 @@ class TestBackfillSharedAlertOwnership(APIBaseTest):
         call_command("backfill_shared_alert_ownership", product="insight")
 
         unclear.refresh_from_db()
+        alert.refresh_from_db()
         # Unknown event kinds can't be safely stamped; the alert is linked but
         # the executor keeps filter-based routing for review.
         assert unclear.alert_destination_id is None
