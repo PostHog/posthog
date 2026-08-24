@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common_redis::{CustomRedisError, ScriptRunner};
+use tracing::warn;
 
 use crate::modes::processing::redis_heal::HealGate;
 
@@ -50,6 +51,27 @@ redis.call('expire', key, ttl)
 return { admitted }
 "#;
 
+/// Put one token back. Returns 1 when the bucket took it, 0 when there was no
+/// bucket to credit.
+const REFUND_SCRIPT: &str = r#"
+local key = KEYS[1]
+local max, ttl = tonumber(ARGV[1]), tonumber(ARGV[2])
+
+-- A missing bucket is already a full one, so there is nothing to credit and no
+-- reason to allocate a key.
+local pool = redis.call('hget', key, 'pool')
+if pool == false then return { 0 } end
+
+local tokens = tonumber(pool) + 1
+if tokens > max then tokens = max end
+
+-- `ts` is left where it is. The charge script refills from it, so the window
+-- since the last charge survives this write.
+redis.call('hset', key, 'pool', tokens)
+redis.call('expire', key, ttl)
+return { 1 }
+"#;
+
 pub struct TokenBucket {
     redis: Arc<dyn ScriptRunner>,
     key_prefix: String,
@@ -61,20 +83,30 @@ pub struct TokenBucket {
 
 impl TokenBucket {
     /// A bucket that bursts to `per_hour` and sustains the same rate. `max /
-    /// rate` is therefore always one hour, so a `ttl_seconds` below 3600 would
-    /// drop a partly refilled bucket and hand the next caller a full one.
+    /// rate` is therefore always one hour, and `ttl_seconds` is raised to match:
+    /// a shorter TTL drops a partly refilled bucket and hands the next caller a
+    /// full one, which loosens the very limit the operator was tuning.
     pub fn per_hour(
         redis: Arc<dyn ScriptRunner>,
         key_prefix: String,
         per_hour: f64,
         ttl_seconds: u64,
     ) -> Self {
+        let refill_window_seconds = SECONDS_PER_HOUR as u64;
+        if ttl_seconds < refill_window_seconds {
+            warn!(
+                requested = ttl_seconds,
+                using = refill_window_seconds,
+                "issue-created bucket TTL raised to the refill window",
+            );
+        }
+
         Self {
             redis,
             key_prefix,
             max: per_hour,
             rate: per_hour / SECONDS_PER_HOUR,
-            ttl_seconds,
+            ttl_seconds: ttl_seconds.max(refill_window_seconds),
             heal_gate: HealGate::new(),
         }
     }
@@ -103,20 +135,32 @@ impl TokenBucket {
         Ok(res.first().copied().unwrap_or(0) > 0)
     }
 
+    /// Give one token back, for a charge that bought nothing. A bucket that has
+    /// since expired stays missing, because a missing bucket is already a full
+    /// one.
+    pub async fn refund(&self, team_id: i32) -> Result<(), CustomRedisError> {
+        let args = vec![self.max.to_string(), self.ttl_seconds.to_string()];
+        self.redis
+            .eval_int_vec(REFUND_SCRIPT, vec![self.key(team_id)], args)
+            .await?;
+        Ok(())
+    }
+
     fn key(&self, team_id: i32) -> String {
         // The braces are a Redis Cluster hash tag, so a team's keys share one slot.
         format!("{}/{{{team_id}}}/issue_created", self.key_prefix)
     }
 }
 
-/// Ignored by default, because they need Docker. Run with:
+/// The Redis-backed tests are ignored by default, because they need Docker. Run
+/// them with:
 /// ```sh
 /// cargo test -p cymbal token_bucket::tests -- --ignored --test-threads=1
 /// ```
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::start_redis;
+    use crate::test_support::{start_redis, FakeRunner};
     use common_redis::RedisClient;
 
     fn bucket(client: Arc<RedisClient>, prefix: &str, per_hour: f64) -> TokenBucket {
@@ -133,6 +177,31 @@ mod tests {
             assert!(bucket.charge(1).await.unwrap());
         }
         assert!(!bucket.charge(1).await.unwrap());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_refund_hands_the_token_back() {
+        let (client, _container) = start_redis().await;
+        let bucket = bucket(client, "tb/refund", 1.0);
+
+        assert!(bucket.charge(1).await.unwrap());
+        assert!(!bucket.charge(1).await.unwrap());
+
+        bucket.refund(1).await.unwrap();
+        assert!(bucket.charge(1).await.unwrap());
+    }
+
+    #[test]
+    fn a_ttl_below_the_refill_window_is_raised_to_it() {
+        let bucket = TokenBucket::per_hour(
+            FakeRunner::returning(vec![1]),
+            "tb/ttl".to_string(),
+            1000.0,
+            60,
+        );
+
+        assert_eq!(bucket.ttl_seconds, SECONDS_PER_HOUR as u64);
     }
 
     #[tokio::test]

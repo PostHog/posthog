@@ -13,6 +13,7 @@ use tracing::{info, warn};
 use crate::core::error::UnhandledError;
 use crate::core::metric_consts::{
     ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN, ISSUE_CREATED_RATE_LIMIT_OUTCOMES,
+    ISSUE_CREATED_RATE_LIMIT_REFUNDS,
 };
 use crate::modes::notifications::config::NotificationsConfig;
 use crate::modes::notifications::token_bucket::TokenBucket;
@@ -87,10 +88,37 @@ impl IssueCreatedRateLimiter {
             }
         }
     }
+
+    /// Hand back a token charged for a workflow that turned out to be already
+    /// running, so a Kafka replay does not spend a team's budget twice. Best
+    /// effort: a failed refund costs the team one token and is not retried,
+    /// because a retry risks crediting twice. A refund that follows a
+    /// failed-open charge credits a token that was never spent, which the bucket
+    /// size caps and which errs the way the rest of the limiter already does.
+    pub async fn refund(&self, team_id: i32) {
+        let Some(bucket) = self.bucket.as_ref() else {
+            return;
+        };
+
+        match bucket.refund(team_id).await {
+            Ok(()) => record_refund("refunded"),
+            Err(e) => {
+                if is_connection_error(&e) {
+                    bucket.spawn_heal();
+                }
+                warn!("issue-created rate limiter could not refund team {team_id}: {e}");
+                record_refund("error");
+            }
+        }
+    }
 }
 
 fn record(outcome: &'static str) {
     metrics::counter!(ISSUE_CREATED_RATE_LIMIT_OUTCOMES, "outcome" => outcome).increment(1);
+}
+
+fn record_refund(outcome: &'static str) {
+    metrics::counter!(ISSUE_CREATED_RATE_LIMIT_REFUNDS, "outcome" => outcome).increment(1);
 }
 
 fn optional_millis(millis: u64) -> Option<std::time::Duration> {
@@ -100,35 +128,7 @@ fn optional_millis(millis: u64) -> Option<std::time::Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use common_redis::{CustomRedisError, ScriptRunner};
-
-    /// A `ScriptRunner` that never touches Redis: a canned reply, or an error.
-    struct FakeRunner {
-        reply: Option<Vec<i64>>,
-    }
-
-    impl FakeRunner {
-        fn returning(reply: Vec<i64>) -> Arc<Self> {
-            Arc::new(Self { reply: Some(reply) })
-        }
-
-        fn failing() -> Arc<Self> {
-            Arc::new(Self { reply: None })
-        }
-    }
-
-    #[async_trait]
-    impl ScriptRunner for FakeRunner {
-        async fn eval_int_vec(
-            &self,
-            _script: &str,
-            _keys: Vec<String>,
-            _args: Vec<String>,
-        ) -> Result<Vec<i64>, CustomRedisError> {
-            self.reply.clone().ok_or(CustomRedisError::Timeout)
-        }
-    }
+    use crate::test_support::FakeRunner;
 
     fn limiter_with(runner: Arc<FakeRunner>) -> IssueCreatedRateLimiter {
         IssueCreatedRateLimiter {

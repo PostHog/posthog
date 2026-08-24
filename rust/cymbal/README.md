@@ -33,7 +33,10 @@ alerts.
 The gate sits in the consumer rather than in processing mode, because the
 consumer is what starts the workflows. The Kafka payload carries no decision, so
 a replayed notification is judged the same way every time. `start_workflow` is
-idempotent on the workflow id, so a replay starts nothing.
+idempotent on the workflow id, so a replay starts nothing, and the token it
+charged is credited back. `cymbal_issue_created_rate_limit_refunds` counts those
+credits, under an `error` label when the credit itself failed and the team kept
+the charge.
 
 A Redis failure while the consumer is running fails open: the notification is
 admitted and `cymbal_issue_created_rate_limit_fail_open` goes up, because a
@@ -49,7 +52,7 @@ are named for what is actually capped. Only issue-created is charged.
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` | none | Required. The service does not start without it. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR` | `1000` | Bucket size, and the tokens a team earns back per hour. Zero or less disables the limit. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
-| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. Do not go below 3600: a bucket takes an hour to refill, so a shorter TTL loosens the limit. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
 
 The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
 far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then

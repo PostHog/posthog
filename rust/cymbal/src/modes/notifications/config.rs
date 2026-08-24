@@ -79,9 +79,9 @@ pub struct NotificationsConfig {
     )]
     pub notifications_rate_limit_key_prefix: String,
 
-    /// Idle buckets expire after this long. Values below 3600 drop a partly
-    /// refilled bucket and hand the next caller a full one, which loosens the
-    /// limit, because a bucket always takes an hour to refill.
+    /// Idle buckets expire after this long. A bucket always takes an hour to
+    /// refill, so anything below 3600 is raised to 3600: a shorter TTL would
+    /// drop a partly refilled bucket and hand the next caller a full one.
     #[envconfig(
         from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS",
         default = "3600"

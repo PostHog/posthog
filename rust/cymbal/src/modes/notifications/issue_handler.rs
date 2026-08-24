@@ -1,3 +1,5 @@
+use common_temporal::StartWorkflowOutcome;
+
 use crate::core::{
     error::UnhandledError,
     types::notification::{IssueCreated, IssueReopened, IssueSpiking},
@@ -24,10 +26,17 @@ pub async fn handle_issue_created(
         return Ok(());
     }
 
-    context
+    let outcome = context
         .issue_lifecycle_workflow_starters
         .start_created(&notification)
         .await?;
+
+    // A replayed notification carries the same workflow id, so this start bought
+    // nothing. Hand the token back rather than let redelivery spend the team's
+    // budget on work Temporal is already doing.
+    if matches!(outcome, StartWorkflowOutcome::Existing { .. }) {
+        context.issue_created_limiter.refund(team_id).await;
+    }
 
     capture_issue_created(team_id, issue_id, sentry_integration, false);
     Ok(())

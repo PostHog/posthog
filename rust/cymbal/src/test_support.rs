@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_redis::{CompressionConfig, RedisClient, RedisValueFormat};
+use async_trait::async_trait;
+use common_redis::{
+    CompressionConfig, CustomRedisError, RedisClient, RedisValueFormat, ScriptRunner,
+};
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage};
@@ -46,4 +49,31 @@ pub async fn start_redis() -> (Arc<RedisClient>, RedisContainer) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("redis container never became ready");
+}
+
+/// A [`ScriptRunner`] that never touches Redis: a canned reply, or an error.
+pub struct FakeRunner {
+    reply: Option<Vec<i64>>,
+}
+
+impl FakeRunner {
+    pub fn returning(reply: Vec<i64>) -> Arc<Self> {
+        Arc::new(Self { reply: Some(reply) })
+    }
+
+    pub fn failing() -> Arc<Self> {
+        Arc::new(Self { reply: None })
+    }
+}
+
+#[async_trait]
+impl ScriptRunner for FakeRunner {
+    async fn eval_int_vec(
+        &self,
+        _script: &str,
+        _keys: Vec<String>,
+        _args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        self.reply.clone().ok_or(CustomRedisError::Timeout)
+    }
 }
