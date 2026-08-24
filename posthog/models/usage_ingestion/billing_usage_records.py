@@ -15,12 +15,10 @@ KAFKA_BILLING_USAGE_RECORDS_TABLE = f"kafka_{BILLING_USAGE_RECORDS_TABLE}"
 BILLING_USAGE_RECORDS_MV = f"{BILLING_USAGE_RECORDS_TABLE}_mv"
 
 
-# Producers stamp event_timestamp when they flush, so the same record_id re-sent after a
-# retry or a consumer replay carries a later timestamp. It therefore cannot be part of the
-# identity, or every resend would bill again. inserted_at is the version column: the latest
-# send of a record_id wins, which is also how a producer corrects a quantity.
-# ponytail: collapse is still partition-scoped, so a replay that crosses a month boundary
-# leaves both rows. Bounded by replays being operational events, not routine ones.
+# inserted_at is the version column, so the latest send of an identity wins, which is also
+# how a producer corrects a quantity. It is deliberately absent from the HogQL schema:
+# `timestamp` is monotonic per resend, so argMax on it reads what a merge would keep, and
+# exposing two time columns invites filtering on the one that is not in the sorting key.
 def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
     return ReplacingMergeTree(
         SHARDED_BILLING_USAGE_RECORDS_TABLE,
@@ -29,6 +27,10 @@ def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
     )
 
 
+# Every producer stamps `timestamp` from its own clock when it flushes, never from anything a
+# customer sends, which is what lets toDate(timestamp) sit in the sorting key. Sourcing it from
+# event data would hand a customer control over whether their records deduplicate.
+#
 # dimensions sits outside the sort key, so two sends of one identity collapse to whichever
 # inserted last: a producer's dimensions have to be a function of its record_id.
 BASE_BILLING_USAGE_RECORDS_COLUMNS = """
@@ -41,7 +43,7 @@ BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     mode Enum8('delta' = 1, 'snapshot' = 2),
     unit LowCardinality(String),
     quantity Int64,
-    event_timestamp DateTime64(6, 'UTC'),
+    timestamp DateTime64(6, 'UTC'),
     inserted_at DateTime64(6, 'UTC'),
     dimensions Map(LowCardinality(String), String)
 """.strip()
@@ -53,11 +55,10 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}
 (
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
-    , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
 )
 ENGINE = {billing_usage_records_data_table_engine()}
-PARTITION BY toYYYYMM(event_timestamp)
-ORDER BY (team_id, producer_id, usage_key, record_id)
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
 """
 
 
@@ -114,7 +115,7 @@ AS SELECT
     mode,
     unit,
     quantity,
-    event_timestamp,
+    timestamp,
     inserted_at,
     dimensions,
     _timestamp,
