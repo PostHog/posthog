@@ -1,7 +1,7 @@
 # PRD: Browser Tabs for the Channels Canvas Surface
 
 Status: ready-for-agent
-Surface: Channels space (`/website/*`) — the canvas surface with the `< >` nav and "Go back to Code" / "Leave feedback" chrome.
+Surface: Channels space (`/spaces/*`) — the canvas surface with the `< >` nav and "Go back to Code" / "Leave feedback" chrome.
 
 ## Problem Statement
 

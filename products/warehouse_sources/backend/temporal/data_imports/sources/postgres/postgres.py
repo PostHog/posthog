@@ -307,11 +307,20 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # fresh reconnect re-establishes a new session — the same transient class. Matching only the
 # "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
 # could be a permanent pooler/protocol failure that should surface immediately, not be retried.
+#
+# Neon's own compute-side WAL relay ("walsender") surfaces the same generic XX000 InternalError_
+# when it loses connectivity to a safekeeper — the storage-tier peer that actually holds the WAL,
+# since a Neon compute doesn't keep it locally: "[walsender] Failed to read WAL (...): failed to
+# connect to safekeeper-<n>.<cell>....neon.tech:<port> to fetch WAL: ... server closed the
+# connection unexpectedly". Not a pooler, but the same transient class — a safekeeper failover or
+# network blip — and a fresh peek recovers once Neon's storage tier is reachable again. Match the
+# stable "failed to connect to safekeeper" phrase, excluding the volatile hostname/port.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "edbhandlerexited",
     "echeckoutretries",
     "echeckouttimeout",
     "internal error (authenticated): :closed",
+    "failed to connect to safekeeper",
 )
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
@@ -389,8 +398,9 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
-    # Supavisor's pooler drop arrives as a generic XX000 InternalError_, not the libpq/PgBouncer
-    # types above, so match it on its own narrow signature (see _POOLER_CONNECTION_DROPPED_*).
+    # Supavisor's pooler drop and Neon's own walsender-to-safekeeper drop both arrive as a generic
+    # XX000 InternalError_, not the libpq/PgBouncer types above, so match on their own narrow
+    # signatures (see _POOLER_CONNECTION_DROPPED_*).
     if isinstance(error, psycopg.errors.InternalError_):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS)
@@ -1185,6 +1195,20 @@ def _is_unsupported_statement_timeout_error(error: Exception) -> bool:
     return "statement_timeout" in message and "not supported" in message
 
 
+def _is_statement_timeout_error(error: BaseException) -> bool:
+    """True when the guarding `SET LOCAL statement_timeout` on a best-effort catalog scan fires.
+
+    Distinct from `_is_unsupported_statement_timeout_error`, which recognises an engine
+    rejecting the `SET` itself. This recognises the `SET` succeeding and the guarded query
+    running long enough to hit it — the guard doing exactly what it's there for, on the same
+    best-effort metadata scan `_xmin_capable_tables_from_conn` already degrades quietly for.
+    """
+    return (
+        isinstance(error, psycopg.errors.QueryCanceled)
+        and "statement timeout" in " ".join(str(arg) for arg in error.args).lower()
+    )
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1261,13 +1285,19 @@ def _rls_active_from_conn(
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
-        # than flooding error tracking. Still capture genuinely unexpected failures.
+        # than flooding error tracking. A genuine statement timeout is the same kind of expected
+        # outcome: this lookup is best-effort like the PK/xmin/index lookups it runs alongside, and
+        # they all run under the same 30s SET LOCAL guard against a runaway catalog scan — hitting
+        # it is the guard working, not new information about a bug here (mirrors
+        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). Still capture
+        # genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
             and not isinstance(e, psycopg.errors.InFailedSqlTransaction)
             and not _is_unsupported_function_error(e, "row_security_active")
             and not _is_unsupported_statement_timeout_error(e)
+            and not _is_statement_timeout_error(e)
         ):
             capture_exception(e)
         return {}

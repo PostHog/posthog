@@ -525,9 +525,12 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
-# Nested SourceFieldSelectConfig containers (Stripe `auth_method`, Snowflake `auth_type`,
-# ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
+# Nested containers that keep their secrets one level down, not at the top level: the
+# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, ServiceNow
+# `auth_method`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
+# one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
+# secret check below applies either way.
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
@@ -1320,10 +1323,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
 
-        # Nested SourceFieldSelectConfig containers (e.g. Stripe `auth_method`, Snowflake `auth_type`) need
-        # a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge above
-        # would otherwise wipe redacted credentials nested inside these containers.
-        for container_key in ("auth_method", "auth_type"):
+        # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
+        # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
+        # above would otherwise wipe redacted credentials nested inside these containers. Same container
+        # list as the host-change gate above, so a merge here always has a matching preserved-credential check.
+        for container_key in _NESTED_AUTH_CONTAINERS:
             existing_container = existing_job_inputs.get(container_key)
             incoming_container = incoming_job_inputs.get(container_key)
             if incoming_container is not None and not isinstance(incoming_container, dict):

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}
 (
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
+    , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
 )
 ENGINE = {billing_usage_records_data_table_engine()}
 PARTITION BY toYYYYMM(event_timestamp)
