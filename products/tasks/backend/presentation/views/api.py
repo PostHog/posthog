@@ -2531,7 +2531,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
-            if access_response := code_access_required_response(request.user):
+            if access_response := code_access_required_response(request, self.organization):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
