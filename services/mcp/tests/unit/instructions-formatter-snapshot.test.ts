@@ -138,6 +138,22 @@ describe('InstructionsFormatter prompt snapshots', () => {
         expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
     })
 
+    // `notebooks-add-cell` is flag-gated, so the Python-in-a-notebook guidance has to
+    // follow the advertised tool set rather than assume the cell surface exists.
+    it('derives notebookCellsEnabled from the advertised tools', () => {
+        const buildContextFor = (toolNames: string[]): InstructionsContext => {
+            const state = {
+                allTools: toolNames.map((name) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+                toolFeatureFlags: {},
+            } as unknown as ResolvedState
+            return new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)
+        }
+
+        expect(buildContextFor(['dashboard-create']).notebookCellsEnabled).toBe(false)
+        expect(buildContextFor(['dashboard-create', 'notebooks-add-cell']).notebookCellsEnabled).toBe(true)
+    })
+
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.
