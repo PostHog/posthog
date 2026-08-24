@@ -7142,6 +7142,7 @@ export enum SidePanelTab {
     /** Access detail for one member or role. Opened programmatically from access control settings. */
     AccessDetail = 'access-detail',
     Info = 'info',
+    DashboardOnboarding = 'dashboard-onboarding',
 }
 
 export interface ProductPricingTierSubrows {

@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
+import { IconListCheck, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -27,6 +27,7 @@ import { SidePanelSupportIcon } from 'products/conversations/frontend/components
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelAccessDetail } from './panels/access_control/SidePanelAccessDetail'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDashboardOnboarding } from './panels/dashboard/SidePanelDashboardOnboarding'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
@@ -81,6 +82,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
+    },
+    [SidePanelTab.DashboardOnboarding]: {
+        label: 'Dashboard setup',
+        Icon: IconListCheck,
+        Content: SidePanelDashboardOnboarding,
     },
 }
 

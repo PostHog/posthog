@@ -173,6 +173,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Info)
                 }
 
+                if (/\/dashboard\/\d+/.test(location.pathname)) {
+                    tabs.push(SidePanelTab.DashboardOnboarding)
+                }
+
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 

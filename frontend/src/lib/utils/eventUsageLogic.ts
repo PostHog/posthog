@@ -701,13 +701,6 @@ export interface eventUsageLogicActions {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
-    reportDashboardEmptyAiPromptClicked: (
-        promptLabel: string,
-        dashboardId: number | undefined
-    ) => {
-        dashboardId: number | undefined
-        promptLabel: string
-    }
     reportDashboardOnboardingAiStarted: (
         dashboardId: number,
         surface: 'checklist' | 'empty_state'
@@ -2452,11 +2445,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
-        /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
-            promptLabel,
-            dashboardId,
-        }),
         reportDashboardOnboardingAiStarted: (dashboardId: number, surface: 'checklist' | 'empty_state') => ({
             dashboardId,
             surface,
@@ -3532,13 +3520,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,
-            })
-        },
-        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
-            posthog.capture('dashboard empty ai prompt clicked', {
-                prompt_label: promptLabel,
-                dashboard_id: dashboardId,
-                source: 'web',
             })
         },
         reportDashboardOnboardingAiStarted: async ({ dashboardId, surface }) => {

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
-import { IconPlus } from '@posthog/icons'
+import { IconListCheck, IconPlus } from '@posthog/icons'
 import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -10,7 +10,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
@@ -26,7 +25,6 @@ import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardOnboardingChecklistLogic } from './dashboardOnboardingChecklistLogic'
-import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const HedgehogChart = pngHoggie(chartPng)
 
@@ -38,25 +36,22 @@ const BASE_TEXT =
 function DashboardEmptyActions({
     canEdit,
     dashboard,
-    aiDisabledReason,
     dashboardWidgetsEnabled,
     onAddInsight,
     onAddWidget,
     push,
-    onOpenAiWithPrompt,
-    dashboardOnboardingChecklistActive,
 }: {
     canEdit: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
-    aiDisabledReason: string | false
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
     onAddWidget: () => void
     push: (path: string) => void
-    onOpenAiWithPrompt: (prompt: string) => void
-    dashboardOnboardingChecklistActive: boolean
 }): JSX.Element {
-    const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
+    const { active: onboardingChecklistActive } = useValues(
+        dashboardOnboardingChecklistLogic({ dashboardId: dashboard?.id ?? -1 })
+    )
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
@@ -97,14 +92,17 @@ function DashboardEmptyActions({
                         </LemonButton>
                     </AccessControlAction>
                 )}
+                {onboardingChecklistActive && dashboard?.id && (
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconListCheck />}
+                        onClick={() => openSidePanel(SidePanelTab.DashboardOnboarding, String(dashboard.id))}
+                        data-attr="dashboard-onboarding-open"
+                    >
+                        Onboarding checklist
+                    </LemonButton>
+                )}
             </div>
-            {!dashboardOnboardingChecklistActive && (
-                <EmptyDashboardAiStarterPrompts
-                    dashboardId={dashboard?.id}
-                    chipDisabledReason={chipDisabledReason}
-                    onOpenAiWithPrompt={onOpenAiWithPrompt}
-                />
-            )}
         </div>
     )
 }
@@ -112,28 +110,8 @@ function DashboardEmptyActions({
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { active: dashboardOnboardingChecklistActive } = useValues(
-        dashboardOnboardingChecklistLogic({ dashboardId: dashboard?.id ?? -1 })
-    )
     const { setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { push } = useActions(router)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-
-    const aiDisabledReason =
-        !dataProcessingAccepted &&
-        (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
-
-    const onOpenAiWithPrompt = (prompt: string): void => {
-        const trimmed = prompt.trim()
-        if (trimmed) {
-            // `!` = auto-send after mount (parseCommandString in maxLogic); same as #panel=max:!…
-            openSidePanel(SidePanelTab.Max, `!${trimmed}`)
-        } else {
-            openSidePanel(SidePanelTab.Max)
-        }
-    }
-
     return (
         <ProductIntroduction
             productName="Dashboard"
@@ -151,13 +129,10 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                 <DashboardEmptyActions
                     canEdit={canEdit}
                     dashboard={dashboard}
-                    aiDisabledReason={aiDisabledReason}
                     dashboardWidgetsEnabled={dashboardWidgetsEnabled}
                     onAddInsight={showAddInsightToDashboardModal}
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
-                    onOpenAiWithPrompt={onOpenAiWithPrompt}
-                    dashboardOnboardingChecklistActive={dashboardOnboardingChecklistActive}
                 />
             }
         />

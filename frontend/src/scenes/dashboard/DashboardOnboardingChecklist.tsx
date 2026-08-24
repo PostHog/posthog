@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconCheckCircle, IconPin, IconPlus, IconSparkles, IconX } from '@posthog/icons'
+import { IconBell, IconCheckCircle, IconPlus, IconShare, IconSparkles } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -49,13 +49,11 @@ export function DashboardOnboardingChecklist({ dashboardId }: { dashboardId: num
 }
 
 function DashboardOnboardingChecklistContent({ dashboardId }: { dashboardId: number }): JSX.Element {
-    const { tiles, isPinned } = useValues(dashboardLogic)
+    const { dashboard, tiles } = useValues(dashboardLogic)
     const { subscriptions, subscriptionsLoading } = useValues(subscriptionsLogic({ dashboardId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { togglePinned } = useActions(dashboardLogic)
-    const { dismiss } = useActions(dashboardOnboardingChecklistLogic({ dashboardId }))
-    const { reportDashboardEmptyAiPromptClicked, reportDashboardOnboardingAiStarted } = useActions(eventUsageLogic)
+    const { reportDashboardOnboardingAiStarted } = useActions(eventUsageLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { push } = useActions(router)
 
@@ -68,30 +66,12 @@ function DashboardOnboardingChecklistContent({ dashboardId }: { dashboardId: num
         showAddInsightToDashboardModal()
     }
     const askAi = (): void => {
-        reportDashboardEmptyAiPromptClicked('Ask PostHog AI for an insight', dashboardId)
         reportDashboardOnboardingAiStarted(dashboardId, 'checklist')
         openSidePanel(SidePanelTab.Max, '!Help me create a useful first insight for this dashboard.')
     }
 
     return (
-        <div className="mb-4 rounded border bg-fill-tertiary p-4" data-attr="dashboard-onboarding-checklist">
-            <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                    <h2 className="text-base font-semibold m-0">Set up your dashboard</h2>
-                    <p className="text-sm text-secondary m-0 mt-1">
-                        Add the data and updates you want to check regularly.
-                    </p>
-                </div>
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconX />}
-                    onClick={dismiss}
-                    tooltip="Dismiss checklist"
-                    aria-label="Dismiss checklist"
-                    data-attr="dashboard-onboarding-dismiss"
-                />
-            </div>
+        <div className="px-2 pb-4" data-attr="dashboard-onboarding-checklist">
             <div className="flex flex-col gap-3">
                 <ChecklistTask
                     complete={hasTiles}
@@ -110,22 +90,6 @@ function DashboardOnboardingChecklistContent({ dashboardId }: { dashboardId: num
                     }
                 />
                 <ChecklistTask
-                    complete={isPinned}
-                    icon={<IconPin />}
-                    description="Pin this dashboard"
-                    action={
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconPin />}
-                            onClick={togglePinned}
-                            data-attr="dashboard-onboarding-pin"
-                        >
-                            Pin dashboard
-                        </LemonButton>
-                    }
-                />
-                <ChecklistTask
                     complete={hasSubscription}
                     icon={<IconBell />}
                     description="Subscribe to dashboard updates"
@@ -139,6 +103,23 @@ function DashboardOnboardingChecklistContent({ dashboardId }: { dashboardId: num
                             data-attr="dashboard-onboarding-subscribe"
                         >
                             Subscribe
+                        </LemonButton>
+                    }
+                />
+                <ChecklistTask
+                    complete={!!dashboard?.is_shared}
+                    icon={<IconShare />}
+                    description="Share this dashboard"
+                    action={
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconShare />}
+                            disabledReason={hasTiles ? undefined : 'Add an insight before you share this dashboard'}
+                            onClick={() => push(urls.dashboardSharing(dashboardId))}
+                            data-attr="dashboard-onboarding-share"
+                        >
+                            Share dashboard
                         </LemonButton>
                     }
                 />

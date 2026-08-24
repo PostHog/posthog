@@ -18,10 +18,6 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
-jest.mock('./emptyDashboardAiStarterPrompts', () => ({
-    EmptyDashboardAiStarterPrompts: () => null,
-}))
-
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     id: 5,
     name: 'Test Dashboard',
