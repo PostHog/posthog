@@ -112,21 +112,29 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
 
     @parameterized.expand(
         [
-            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
-            ("object_storage_error", object_storage.ObjectStorageError("read failed")),
-            ("boto_core_error", BotoCoreError()),
-            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
+            # ObjectStorageError is already captured at its source (object_storage.read_object,
+            # with bucket and key attached), so hypercache must not capture it a second time.
+            ("object_storage_error", object_storage.ObjectStorageError("read failed"), False),
+            # These reach hypercache unwrapped (e.g. boto3 raising on client construction) and
+            # object_storage never saw them, so hypercache captures them.
+            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}"), True),
+            ("boto_core_error", BotoCoreError(), True),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject"), True),
         ]
     )
-    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
+    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception, expect_capture):
         """A storage-layer failure on the S3 read must degrade to a cache miss, not a 500."""
         self.hypercache.clear_cache(self.team_id, kinds=["redis"])
 
-        with patch.object(object_storage, "read", side_effect=exception):
+        with (
+            patch.object(object_storage, "read", side_effect=exception),
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+        ):
             result, source = self.hypercache.get_from_cache_with_source(self.team_id)
 
         assert result == {"default": "data"}
         assert source == "db"
+        assert mock_capture.call_count == (1 if expect_capture else 0)
 
     def test_get_from_cache_corrupt_s3_payload_falls_back_to_db(self):
         """A malformed S3 blob (json.JSONDecodeError, a ValueError subclass) must degrade to a cache miss."""

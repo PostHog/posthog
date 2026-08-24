@@ -263,7 +263,7 @@ class ObjectStorage(ObjectStorageClient):
                 file_name=key,
                 error=e,
             )
-            capture_exception(e)
+            capture_exception(e, additional_properties={"bucket": bucket, "key": key})
             raise ObjectStorageError("read failed") from e
         except Exception as e:
             logger.exception(
@@ -273,7 +273,7 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
+            capture_exception(e, additional_properties={"bucket": bucket, "key": key})
             raise ObjectStorageError("read failed") from e
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
