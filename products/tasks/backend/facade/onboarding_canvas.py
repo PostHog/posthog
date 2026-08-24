@@ -23,93 +23,199 @@ TEACHING_CANVAS_NAME = "Start here"
 # must stay within the canvas platform allowlist; a canvas-product test
 # validates this source against the contract.
 TEACHING_CANVAS_CODE = """\
-import { Text } from "@posthog/quill";
-import { Bot, BookOpen, Hash, LayoutDashboard } from "lucide-react";
+import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Button, Heading, Text } from "@posthog/quill";
+import { ArrowLeft, ArrowRight, Bot, BookOpen, Hash, LayoutDashboard } from "lucide-react";
 
-const SECTIONS = [
+const TOPICS = [
   {
     id: "spaces",
     icon: Hash,
     title: "Spaces",
-    body:
-      "Spaces organize work with your team. #general is shared with everyone in your workspace. " +
-      "Each space has a feed of tasks and reports, plus its own canvases, like this one.",
+    tagline: "Where work happens with your team",
+    body: [
+      "A space is a shared feed of work. #general is open to everyone in your workspace, and your personal space is only yours.",
+      "Each space collects the tasks you start there, the reports PostHog writes into it, and its own context and canvases.",
+    ],
+    prompts: ["What happened in this project this week?"],
   },
   {
     id: "agent",
     icon: Bot,
     title: "The agent",
-    body:
-      "Type what you want done in any space. The agent can query your product data, investigate " +
-      "errors, watch for problems, and open pull requests in your repos. Each request becomes a " +
-      "task you can follow and steer.",
+    tagline: "Type what you want done",
+    body: [
+      "Every message you send in a space starts a task. The agent can query your product data, investigate errors, watch for problems, and open pull requests in your repos.",
+      "You can follow along while it works, steer it mid-task, and pick up the thread later.",
+    ],
+    prompts: ["What are our top errors this week?", "Add PostHog to my repo and open a pull request."],
   },
   {
     id: "context",
     icon: BookOpen,
     title: "Context",
-    body:
-      "Each space keeps shared context that the agent reads before it starts any task. What your " +
-      "company does gets saved there, so you don't have to repeat yourself. Open a space's " +
-      "context page to read or edit it.",
+    tagline: "What the agent already knows",
+    body: [
+      "Each space keeps shared context that the agent reads before it starts any task. What your company does gets saved there, so you don't have to repeat yourself.",
+      "Open a space's context page to read or edit it. Anything you correct there sticks for every future task.",
+    ],
+    prompts: ["Update this space's context with what my company does."],
   },
   {
     id: "canvases",
     icon: LayoutDashboard,
     title: "Canvases",
-    body:
-      "Canvases are small apps that live in a space: dashboards, forms, tools, prototypes. They " +
-      "can run live queries against your PostHog data. To make one, or to change this one, ask " +
-      "the agent.",
+    tagline: "Small apps that live in a space",
+    body: [
+      "Canvases are apps the agent builds for you: dashboards, forms, tools, prototypes. They can run live queries against your PostHog data.",
+      "This page is a canvas. To make a new one, or change this one, ask the agent.",
+    ],
+    prompts: ["Build a canvas that charts signups by week."],
   },
 ];
 
-const PROMPTS = [
-  "Build a canvas that charts signups by week.",
-  "What are our top errors this week?",
-  "Add PostHog to my repo and open a pull request.",
-];
+const spring = { type: "spring", stiffness: 380, damping: 32 };
+
+function IconChip({ icon: Icon }) {
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+      <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+    </div>
+  );
+}
+
+function HomeView({ onOpen, reduced }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: reduced ? 0 : 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: reduced ? 0 : -8 }}
+      transition={{ duration: 0.15 }}
+      className="flex flex-col gap-6"
+    >
+      <div className="flex flex-col gap-1">
+        <Heading size="xl" render={<h1 />}>
+          How PostHog Desktop works
+        </Heading>
+        <Text variant="muted">A quick tour. Pick a topic to see how it works.</Text>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {TOPICS.map((topic, index) => (
+          <motion.div
+            key={topic.id}
+            initial={{ opacity: 0, y: reduced ? 0 : 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...spring, delay: 0.04 * index }}
+            whileHover={reduced ? undefined : { y: -2 }}
+          >
+            <Button
+              variant="outline"
+              className="h-auto w-full whitespace-normal p-4 text-left"
+              onClick={() => onOpen(topic.id)}
+            >
+              <div className="flex w-full items-start gap-3">
+                <IconChip icon={topic.icon} />
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <Text weight="medium">{topic.title}</Text>
+                  <Text size="sm" variant="muted">
+                    {topic.tagline}
+                  </Text>
+                </div>
+                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </div>
+            </Button>
+          </motion.div>
+        ))}
+      </div>
+      <Text size="sm" variant="muted">
+        This page is a canvas: a small app that lives in this space. Done with the tour? You can
+        delete it whenever you like.
+      </Text>
+    </motion.div>
+  );
+}
+
+function DetailView({ topic, next, onBack, onNext, reduced }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: reduced ? 0 : 16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: reduced ? 0 : -16 }}
+      transition={{ duration: 0.15 }}
+      className="flex flex-col gap-5"
+    >
+      <div>
+        <Button variant="link-muted" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          All topics
+        </Button>
+      </div>
+      <div className="flex items-center gap-3">
+        <IconChip icon={topic.icon} />
+        <div className="flex flex-col">
+          <Heading size="xl" render={<h1 />}>
+            {topic.title}
+          </Heading>
+          <Text size="sm" variant="muted">
+            {topic.tagline}
+          </Text>
+        </div>
+      </div>
+      <div className="flex flex-col gap-3">
+        {topic.body.map((paragraph) => (
+          <Text key={paragraph}>{paragraph}</Text>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2 rounded-md border border-border bg-muted p-4">
+        <Text size="sm" weight="medium">
+          Try asking
+        </Text>
+        {topic.prompts.map((prompt) => (
+          <Text key={prompt} size="sm" variant="muted">
+            "{prompt}"
+          </Text>
+        ))}
+      </div>
+      <div className="flex justify-end">
+        {next ? (
+          <Button variant="outline" onClick={onNext}>
+            Next: {next.title}
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={onBack}>
+            Back to all topics
+          </Button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
 export default function StartHere() {
+  const [topicId, setTopicId] = useState(null);
+  const reduced = !!useReducedMotion();
+  const index = TOPICS.findIndex((topic) => topic.id === topicId);
+  const topic = index === -1 ? null : TOPICS[index];
+  const next = topic && index < TOPICS.length - 1 ? TOPICS[index + 1] : null;
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex max-w-xl flex-col gap-5 p-6">
-        <div className="flex flex-col gap-1">
-          <Text size="lg" weight="semibold">
-            How PostHog Desktop works
-          </Text>
-          <Text size="sm" variant="muted">
-            This page is a canvas: a small app that lives in this space. The agent builds and
-            changes canvases for you. This one is a quick tour.
-          </Text>
-        </div>
-        <div className="flex flex-col gap-3">
-          {SECTIONS.map((section) => {
-            const Icon = section.icon;
-            return (
-              <div key={section.id} className="flex flex-col gap-1 rounded-md border p-3">
-                <div className="flex items-center gap-2">
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <Text weight="medium">{section.title}</Text>
-                </div>
-                <Text size="sm" variant="muted">
-                  {section.body}
-                </Text>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex flex-col gap-1">
-          <Text weight="medium">Things to try</Text>
-          {PROMPTS.map((prompt) => (
-            <Text key={prompt} size="sm" variant="muted">
-              "{prompt}"
-            </Text>
-          ))}
-        </div>
-        <Text size="sm" variant="muted">
-          Done with this page? You can delete it from the space whenever you like.
-        </Text>
+    <div className="h-screen overflow-y-auto bg-background">
+      <div className="mx-auto max-w-2xl px-6 py-10">
+        <AnimatePresence mode="wait">
+          {topic ? (
+            <DetailView
+              key={topic.id}
+              topic={topic}
+              next={next}
+              reduced={reduced}
+              onBack={() => setTopicId(null)}
+              onNext={() => next && setTopicId(next.id)}
+            />
+          ) : (
+            <HomeView key="home" onOpen={setTopicId} reduced={reduced} />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
