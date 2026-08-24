@@ -53,7 +53,7 @@ interface Org {
 
 interface ProjectSelectStepProps {
   onNext: () => void;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
@@ -380,10 +380,12 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
         </Flex>
 
         <StepActions>
-          <Button size="3" variant="outline" color="gray" onClick={onBack}>
-            <ArrowLeft size={16} weight="bold" />
-            Back
-          </Button>
+          {onBack && (
+            <Button size="3" variant="outline" color="gray" onClick={onBack}>
+              <ArrowLeft size={16} weight="bold" />
+              Back
+            </Button>
+          )}
           {isAuthenticated && !isLoading && (
             <Button
               size="3"
