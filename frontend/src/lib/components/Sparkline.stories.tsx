@@ -19,6 +19,9 @@ export const BarChart: Story = {
         data: [10, 5, 3, 30, 22, 10, 2],
         labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
     },
+    // `Sparkline` now dispatches to the quill chart, whose canvas has no intrinsic size, so the
+    // wrapper needs an explicit height — a bare `w-full` collapses to zero height under the runner.
+    render: (args) => <Sparkline {...args} className="w-64 h-16" />,
 }
 
 const dataRange = Array.from({ length: 50 }, (_, i) => i)
