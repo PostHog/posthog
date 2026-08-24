@@ -440,8 +440,9 @@ pub(crate) fn temporal_seconds_pair(
 /// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
 /// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
 /// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
-/// keeps the legacy path where a non-number operand errors, so this coercion does NOT change their
-/// behavior. The semantics here match the Python/TS reference VMs (and ClickHouse for temporals).
+/// keeps the strict path where operands other than numbers and numeric arrays error, so this coercion
+/// does NOT change their behavior. The semantics here match the Python/TS reference VMs (and
+/// ClickHouse for temporals).
 ///
 /// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
 ///    and the Python/TS reference VMs; see the [`crate::stl`] module note.

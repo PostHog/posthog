@@ -2834,11 +2834,19 @@ describe('Hogflow Executor', () => {
                 },
             })
 
+            // A watcher-degraded flow enters at priority 2; the routing must stash that
+            // exact value, not the 0 that per-action result clones reset queuePriority to
+            // before the email action runs (the trigger action executes first here).
+            invocation.queuePriority = 2
+
             // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
             const hogflowResult = await executor.execute(invocation)
             expect(hogflowResult.finished).toBe(false)
             expect(hogflowResult.invocation.queue).toBe('email')
             expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
+            // Uncategorized sends classify as bulk (priority 1).
+            expect(hogflowResult.invocation.queuePriority).toBe(1)
+            expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
             // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
             let emailResult = await executor.execute(hogflowResult.invocation)

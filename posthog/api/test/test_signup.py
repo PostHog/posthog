@@ -3284,6 +3284,17 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertNotIn("pending_invite", response.json())
 
+    def test_precheck_rejects_plus_addressed_email(self):
+        response = self.client.post("/api/signup/precheck", {"email": "newperson+alias@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+
+    def test_precheck_reports_collision_with_an_aliased_account(self):
+        User.objects.create_user(email="dupe+old@acme.com", password=None, first_name="Dupe")
+        response = self.client.post("/api/signup/precheck", {"email": "dupe@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(response.json()["email_exists"])
+
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):

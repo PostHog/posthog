@@ -85,7 +85,7 @@ All are Vite build-time vars (`import.meta.env.*`), baked in at build time.
 
 | Var | Required | Purpose |
 | --- | --- | --- |
-| `VITE_POSTHOG_API_KEY` | Recommended | Real `phc_…` project key. Enables posthog-js analytics, error/rejection capture, session recording, and real feature flags. The guard in `main.tsx` requires the `phc_` prefix; without it posthog stays uninitialized and the tracker/analytics service no-op, leaving only the host-forced `SYNC_CLOUD_TASKS_FLAG` on (every other flag reads `false`). |
+| `VITE_POSTHOG_API_KEY` | Recommended | Real `phc_…` project key. Enables posthog-js analytics, error/rejection capture, session recording, and real feature flags. The guard in `main.tsx` requires the `phc_` prefix; without it posthog stays uninitialized, the tracker/analytics service no-op and every flag reads `false`. |
 | `VITE_POSTHOG_API_HOST` | No | posthog-js ingestion host. Default `https://internal-c.posthog.com`. |
 | `VITE_POSTHOG_UI_HOST` | No | posthog-js UI host. Default `https://us.i.posthog.com`. |
 | `VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE` | No | Dev/test only: a static access token that bypasses the OAuth flow (`AUTH_TOKEN_OVERRIDE`). Leave unset in production. |

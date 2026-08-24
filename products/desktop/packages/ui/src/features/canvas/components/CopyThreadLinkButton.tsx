@@ -21,7 +21,6 @@ export function CopyThreadLinkButton({
       <TooltipTrigger
         render={
           <Button
-            variant="outline"
             size="icon-sm"
             aria-label="Copy link to thread"
             className="no-drag"

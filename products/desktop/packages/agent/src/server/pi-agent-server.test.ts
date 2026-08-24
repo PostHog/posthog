@@ -111,7 +111,11 @@ describe("PiAgentServer", () => {
       timestamp: 1,
       content: [{ type: "text", text: "hello" }],
     });
-    server.handleEvent({ type: "turn_completed", timestamp: 2 });
+    server.handleEvent({
+      type: "turn_completed",
+      timestamp: 2,
+      totalTokens: 1_234,
+    });
     await server.logFlushQueue;
 
     expect(appendTaskRunLog).toHaveBeenCalledWith("task-1", "run-1", [
@@ -133,6 +137,7 @@ describe("PiAgentServer", () => {
         event: {
           type: "turn_completed",
           timestamp: 2,
+          totalTokens: 1_234,
           sourceId: expect.any(String),
         },
       },
@@ -395,6 +400,172 @@ describe("PiAgentServer", () => {
     ]);
 
     await rm(repositoryPath, { recursive: true });
+  });
+
+  it("aborts the streaming run and re-prompts when a steer arrives", async () => {
+    const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
+      success: true,
+    }));
+    const order: string[] = [];
+    const abort = vi.fn(async () => {
+      order.push("abort");
+    });
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: true })),
+          abort,
+        },
+        sendCommand: vi.fn(async (command: Record<string, unknown>) => {
+          order.push("sendCommand");
+          return sendCommand(command);
+        }),
+      },
+    };
+
+    await server.executeCommand("user_message", {
+      content: "stop, do this instead",
+      messageId: "message-1",
+      steer: true,
+    });
+
+    expect(order).toEqual(["abort", "sendCommand"]);
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-1",
+      type: "prompt",
+      message: "stop, do this instead",
+      images: [],
+    });
+  });
+
+  it("queues a steer that pi rejects because another run took the idle slot", async () => {
+    const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
+      if (command.type === "prompt") {
+        return { success: false, error: "Agent is already processing." };
+      }
+      return { success: true };
+    });
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: true })),
+          abort: vi.fn(async () => {}),
+        },
+        sendCommand,
+      },
+    };
+
+    const result = await server.executeCommand("user_message", {
+      content: "stop, do this instead",
+      messageId: "message-3",
+      steer: true,
+    });
+
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      id: "message-3",
+      type: "follow_up",
+      message: "stop, do this instead",
+      images: [],
+    });
+    expect(result).toMatchObject({ success: true });
+  });
+
+  it("declines a steer whose re-prompt fails while pi stays idle so the host redelivers", async () => {
+    const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
+      if (command.type === "prompt") {
+        return {
+          success: false,
+          error: "Cannot submit a prompt while compaction is in progress.",
+        };
+      }
+      return { success: true };
+    });
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce({ isStreaming: true })
+      .mockResolvedValueOnce({ isStreaming: false });
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState,
+          abort: vi.fn(async () => {}),
+        },
+        sendCommand,
+      },
+    };
+
+    const result = await server.executeCommand("user_message", {
+      content: "stop, do this instead",
+      messageId: "message-4",
+      steer: true,
+    });
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-4",
+      type: "prompt",
+      message: "stop, do this instead",
+      images: [],
+    });
+    expect(result).toMatchObject({ success: false });
+  });
+
+  it("queues a mid-turn message that is not a steer instead of aborting", async () => {
+    const sendCommand = vi.fn(
+      async (_command: Record<string, unknown>) => ({}),
+    );
+    const abort = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: true })),
+          abort,
+        },
+        sendCommand,
+      },
+    };
+
+    await server.executeCommand("user_message", {
+      content: "when you are done, also update the docs",
+      messageId: "message-2",
+    });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-2",
+      type: "follow_up",
+      message: "when you are done, also update the docs",
+      images: [],
+    });
   });
 
   it("allows a failed user-message delivery to be retried", async () => {

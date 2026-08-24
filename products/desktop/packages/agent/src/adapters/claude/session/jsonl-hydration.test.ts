@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostHogAPIClient } from "../../../posthog-api";
+import { createNotification } from "../../../sagas/test-fixtures";
 import type { StoredEntry } from "../../../types";
 import {
   conversationTurnsToJsonlEntries,
@@ -115,6 +116,47 @@ describe("rebuildConversation", () => {
       },
     ];
     expect(rebuildConversation(entries)).toEqual([]);
+  });
+
+  it.each([
+    { method: "_posthog/conversation_cleared" },
+    { method: "__posthog/conversation_cleared" },
+  ])("drops turns before a $method marker (/clear boundary)", ({ method }) => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "old reply" },
+      }),
+      createNotification(method, { sessionId: "sdk-new" }),
+      entry("user_message", { content: { type: "text", text: "new" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "new reply" },
+      }),
+    ]);
+
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "new" }],
+    });
+    expect(turns[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "new reply" }],
+    });
+  });
+
+  it("drops an in-progress assistant turn at a clear marker", () => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message_chunk", {
+        content: { type: "text", text: "partial" },
+      }),
+      createNotification("_posthog/conversation_cleared", {
+        sessionId: "sdk-new",
+      }),
+    ]);
+
+    expect(turns).toEqual([]);
   });
 
   it("produces a single user turn from user_message", () => {
@@ -480,6 +522,32 @@ describe("conversationTurnsToJsonlEntries", () => {
     expect(parsed.permissionMode).toBe("default");
     expect(parsed.gitBranch).toBeDefined();
     expect(parsed.slug).toBeDefined();
+  });
+
+  it("derives a stable slug from the session id across rehydrations", () => {
+    const turns = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+    ];
+    const slugOf = (lines: string[]) =>
+      parseConversationEntries(lines).find((e: { slug?: string }) => e.slug)
+        ?.slug;
+
+    const slugFor = (sessionId: string) =>
+      slugOf(conversationTurnsToJsonlEntries(turns, { ...config, sessionId }));
+
+    const first = slugOf(conversationTurnsToJsonlEntries(turns, config));
+
+    expect(first).toBeDefined();
+    expect(slugOf(conversationTurnsToJsonlEntries(turns, config))).toBe(first);
+    expect(slugFor("sess-2")).not.toBe(first);
+
+    const sameMillisecondA = "01a011f5-c8f3-73d9-a32e-ff7eee2a8793";
+    const sameMillisecondB = "01a011f5-c8f3-7b41-9c05-1122334455aa";
+
+    expect(slugFor(sameMillisecondA)).not.toBe(slugFor(sameMillisecondB));
   });
 
   it("chains parentUuid across conversation entries", () => {
@@ -1388,6 +1456,106 @@ describe("sanitizeSessionJsonl", () => {
 
     expect(await sanitizeSessionJsonl(file)).toBe(false);
     expect(await fs.readFile(file, "utf8")).toBe(before);
+  });
+
+  it("skips the parse entirely when the file stat is unchanged since the last clean pass", async () => {
+    // "hello" moves from the text block to the uuid so both lines have the
+    // same byte length; with mtime pinned, the stats are indistinguishable.
+    const clean = {
+      type: "assistant",
+      uuid: "a1",
+      parentUuid: null,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+      },
+    };
+    const dirty = {
+      type: "assistant",
+      uuid: "a1hello",
+      parentUuid: null,
+      message: { role: "assistant", content: [{ type: "text", text: "" }] },
+    };
+    expect(JSON.stringify(clean).length).toBe(JSON.stringify(dirty).length);
+
+    const pinned = new Date(1700000000000);
+    const file = await writeJsonl([clean]);
+    await fs.utimes(file, pinned, pinned);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+
+    // Would be healed if parsed; the stat-based skip must win instead.
+    await fs.writeFile(file, `${JSON.stringify(dirty)}\n`);
+    await fs.utimes(file, pinned, pinned);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+    const lines = await readJsonl(file);
+    expect((lines[0].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: "" },
+    ]);
+  });
+
+  it("re-sanitizes after the file grows past a clean pass", async () => {
+    const file = await writeJsonl([
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: null,
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      },
+    ]);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "a1",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      })}\n`,
+    );
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+    const lines = await readJsonl(file);
+    expect((lines[1].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: " " },
+    ]);
+  });
+
+  it("re-sanitizes after the file grows past a healed pass", async () => {
+    // The heal path memoizes too; a dirty line appended after a heal must
+    // still be caught on the next pass.
+    const file = await writeJsonl([
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: null,
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      },
+    ]);
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "a1",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      })}\n`,
+    );
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+    const lines = await readJsonl(file);
+    expect((lines[1].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: " " },
+    ]);
   });
 
   it("neutralizes an oversized image nested in a tool_result", async () => {

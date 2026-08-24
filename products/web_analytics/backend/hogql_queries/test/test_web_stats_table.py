@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
@@ -1245,6 +1246,7 @@ class TestWebStatsTableQueryRunner(
         assert sorted(row[0] for row in results) == expected
 
     @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
+    @skip_clickhouse_query_snapshots
     def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
         # The Paths tile splits user filters across three separate events scans
         # instead of the single `all_properties` clause the Sources tiles use, so
@@ -1253,23 +1255,23 @@ class TestWebStatsTableQueryRunner(
 
         def drilled_down_paths(flag_on):
             with self._patch_first_pageview_flag(enabled=flag_on):
-                return [
-                    row[0]
-                    for row in self._run_web_stats_table_query(
-                        "all",
-                        "2024-06-27",
-                        breakdown_by=WebStatsBreakdown.PAGE,
-                        include_bounce_rate=True,
-                        include_avg_time_on_page=include_avg_time_on_page,
-                        properties=[
-                            SessionPropertyFilter(
-                                key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT
-                            )
-                        ],
-                    ).results
-                ]
+                return self._run_web_stats_table_query(
+                    "all",
+                    "2024-06-27",
+                    breakdown_by=WebStatsBreakdown.PAGE,
+                    include_bounce_rate=True,
+                    include_avg_time_on_page=include_avg_time_on_page,
+                    properties=[
+                        SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+                    ],
+                ).results
 
-        assert drilled_down_paths(flag_on=True) == ["/landing"]
+        expected = (
+            [["/landing", (1, 0), (1, 0), (0.0, 0.0), (0.0, 0.0), 1.0, ""]]
+            if include_avg_time_on_page
+            else [["/landing", (1, 0), (1, 0), (None, None), 1.0, ""]]
+        )
+        assert drilled_down_paths(flag_on=True) == expected
         assert drilled_down_paths(flag_on=False) == []
 
     def test_first_pageview_attribution_filter_changes_cache_key(self):

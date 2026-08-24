@@ -83,7 +83,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def _get_date_where_sql(self, **kwargs):
         builder = self._get_builder(**kwargs)
         date_expr = builder._date_where_expr()
-        return self._print_hogql_expr(list(date_expr))
+        return self._print_hogql_expr(date_expr.as_exprs())
 
     def _get_utc_string(self, dt: datetime | None) -> str | None:
         if dt is None:

@@ -381,6 +381,7 @@ const RecordingsUniversalFilterGroup = ({
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
+    const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
     useOnMountEffect(() => setAllowInitiallyOpen(true))
 
     return (
@@ -430,6 +431,7 @@ const RecordingsUniversalFilterGroup = ({
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen}
                         metadataSource={{ kind: NodeKind.RecordingsQuery }}
+                        allowEntityNegation={allowEntityNegation}
                         operatorAllowlist={
                             isCommentTextFilter(filterOrGroup)
                                 ? [PropertyOperator.IsSet, PropertyOperator.Exact, PropertyOperator.IContains]

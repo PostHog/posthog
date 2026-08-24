@@ -12,6 +12,7 @@ if is_inbox_ranking_registered():
         assets=[
             inbox_ranking_dataset.inbox_report_state,
             inbox_ranking_dataset.inbox_report_embeddings,
+            inbox_ranking_dataset.inbox_signal_embeddings,
             inbox_ranking_dataset.inbox_report_labels,
             inbox_ranking_dataset.inbox_report_model_data,
         ],

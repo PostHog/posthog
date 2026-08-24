@@ -10,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
@@ -119,10 +120,15 @@ function captionHelp(caption?: string): JSX.Element | undefined {
 /** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
  *  without hunting for the disconnect/reconnect action elsewhere on the page. */
 function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
     return (
         <Link
             disableClientSideRouting
             to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+            onClick={() =>
+                reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')
+            }
         >
             Reconnect
         </Link>
@@ -420,8 +426,8 @@ function IntegrationAccountFieldWithDropdown({
                         )}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
                             <p className="m-0 text-xs text-warning">
-                                No accounts are accessible for this connection. Check that the connected account has the
-                                right permissions, then <ReconnectLink integrationKind={integrationKind} />.
+                                No accounts to show. If you know the {fieldLabel}, enter it above and save. You can also{' '}
+                                <ReconnectLink integrationKind={integrationKind} /> to grant access to more accounts.
                             </p>
                         )}
                         {savedValueMissing && (

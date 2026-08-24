@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -70,9 +70,17 @@ function updatedShare(existing: number, changed: number): string | null {
     return percentage(Math.min(share, 0.99), 0)
 }
 
-// The bound table's sync history in the data warehouse. Null when the source has no warehouse
-// binding, or when the caller can't view the warehouse source that owns it.
-function schemaSyncsUrl(source: CustomPropertySourceApi): string | null {
+// Whether the source reads a materialized view rather than a synced table.
+function bindsAView(source: CustomPropertySourceApi): boolean {
+    return !!source.saved_query && !source.external_data_schema
+}
+
+// Where the bound table or view's own run history lives. Null when the source has no warehouse
+// binding, or when the caller can't view what it reads.
+function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
+    if (bindsAView(source)) {
+        return source.saved_query ? urls.sqlEditor({ view_id: source.saved_query }) : null
+    }
     if (!source.external_data_source || !source.external_data_schema) {
         return null
     }
@@ -233,6 +241,24 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             title: 'Name',
             dataIndex: 'name',
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
+        },
+        {
+            title: 'Reads',
+            tooltip: 'The warehouse table or materialized view this property reads its values from.',
+            render: (_, definition) => {
+                const source = definition.source
+                const name = source?.saved_query_name ?? source?.table_name
+                if (!source || !name) {
+                    return <span className="text-secondary">—</span>
+                }
+                const url = sourceRunsUrl(source)
+                return (
+                    <span className="flex items-center gap-2">
+                        {url ? <Link to={url}>{name}</Link> : <span>{name}</span>}
+                        <LemonTag type="muted">{bindsAView(source) ? 'View' : 'Table'}</LemonTag>
+                    </span>
+                )
+            },
         },
         {
             title: labels.keyColumn,
@@ -396,7 +422,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             <ProfilePropertyRuns
                                 sourceId={definition.source.id}
                                 labels={labels}
-                                syncsUrl={schemaSyncsUrl(definition.source)}
+                                syncsUrl={sourceRunsUrl(definition.source)}
                             />
                         ) : null,
                 }}

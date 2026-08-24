@@ -153,6 +153,22 @@ class TestQueryService(APIBaseTest):
             joining_table_name__in={"selected_table", "selected_table_2"},
         )
 
+    def test_database_schema_query_supports_shallow_and_filtered_modes(self):
+        full = cast(DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery()))
+        shallow = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(includeFields=False))
+        )
+        filtered = cast(
+            DatabaseSchemaQueryResponse, process_query_model(self.team, DatabaseSchemaQuery(tables=["events"]))
+        )
+
+        assert set(shallow.tables.keys()) == set(full.tables.keys())
+        assert all(table.fields == {} for table in shallow.tables.values())
+        assert full.tables["events"].fields != {}
+
+        assert set(filtered.tables.keys()) == {"events"}
+        assert filtered.tables["events"] == full.tables["events"]
+
     @parameterized.expand(
         [
             ("resolve", "resolve_database_for_connection"),

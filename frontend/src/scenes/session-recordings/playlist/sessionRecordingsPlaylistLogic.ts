@@ -464,8 +464,10 @@ export interface SessionRecordingPlaylistLogicProps {
     /** Called with each freshly loaded page of recordings (not the accumulated list). */
     onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
     /**
-     * Called when a recording is selected (clicked, played next, or picked via the URL) —
-     * not for the initial autoplayed recording, which is selected implicitly.
+     * Called once each time the recording the player shows changes — clicked, played next,
+     * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
+     * load, and again when a reload changes which recording is at the top). Re-selecting the
+     * recording already shown does not re-fire.
      */
     onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
@@ -953,7 +955,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
+                    // Captured before the awaits: `values` reads throw if this logic unmounts
+                    // mid-flight, and the fetch report must carry the filters the request was
+                    // built from, not whatever they are once the response lands.
+                    const filters = values.filters
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
@@ -1005,11 +1011,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     actions.reportRecordingsListFetched(
                         loadTimeMs,
-                        values.filters,
+                        filters,
                         defaultRecordingDurationFilter,
                         props.analyticsSource
                     )
 
+                    // Must run after the fetch report (superseded and abandoned fetches still
+                    // count toward load-time metrics) and before the `values` reads below
+                    // (they throw once the logic is unmounted).
                     breakpoint()
 
                     return {
@@ -1250,7 +1259,28 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    listeners(({ props, actions, values }) => {
+    listeners(({ props, actions, values, cache }) => {
+        // The player can start showing a recording with no action dispatched: under autoPlay it
+        // falls back to the first in the list, and moves when a reload changes which recording
+        // is first. So selection is reported from the resulting active id after every action
+        // that can move it — deduped, since several of them can land on the same recording.
+        const notifyRecordingSelected = (): void => {
+            const activeId = values.activeSessionRecordingId
+            if (activeId) {
+                if (cache.lastReportedSelectedRecordingId !== activeId) {
+                    cache.lastReportedSelectedRecordingId = activeId
+                    props.onRecordingSelected?.(activeId)
+                }
+            } else if (!values.sessionRecordingsResponseLoading && !values.pinnedRecordingsLoading) {
+                // Settled on the empty state (a reload matched nothing): whatever shows next is
+                // shown afresh — even the recording reported last — so drop the dedupe. While a
+                // load is in flight the empty is transient (one loader's success can observe the
+                // other's reload window), and clearing on it would re-report an unchanged top
+                // recording once the reload lands.
+                cache.lastReportedSelectedRecordingId = undefined
+            }
+        }
+
         // Selection is only ever set by user action, so it can go stale once the underlying
         // list changes shape - keep it intersected with what's actually rendered.
         const pruneSelectedRecordingsIds = (): void => {
@@ -1471,19 +1501,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
                 props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
                 pruneSelectedRecordingsIds()
+                notifyRecordingSelected()
             },
 
             loadPinnedRecordingsSuccess: () => {
                 pruneSelectedRecordingsIds()
+                // Pinned recordings sort first, so this load can change which recording the
+                // autoplay fallback shows, just like a list load.
+                notifyRecordingSelected()
             },
 
-            setSelectedRecordingId: ({ id }) => {
+            setSelectedRecordingId: () => {
                 // Close filters when selecting a recording
                 actions.setIsFiltersExpanded(false)
 
-                if (id) {
-                    props.onRecordingSelected?.(id)
-                }
+                notifyRecordingSelected()
 
                 const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
 

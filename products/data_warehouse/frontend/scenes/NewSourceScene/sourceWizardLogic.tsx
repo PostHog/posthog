@@ -322,6 +322,28 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     return undefined
 }
 
+// Supabase tables carry arbitrary user columns, so the "any timestamp/date" and id-column
+// fallbacks above can land on a value that never changes on update (a date of birth, a
+// config integer). Such a cursor syncs each row once and then silently stops seeing
+// updates, so only trust update-tracking columns and otherwise default to full refresh.
+export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
+    fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
+
+// Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
+// rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
+// (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
+// enabling them always takes an explicit per-table opt-in. Bulk disable still clears them.
+export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, selectAll: boolean): boolean => {
+    if (schema.permission_error) {
+        return false
+    }
+    if (selectAll && schema.should_sync_default === false) {
+        return schema.should_sync
+    }
+    return selectAll
+}
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -596,6 +618,7 @@ export interface sourceWizardLogicActions {
             | 'Aircall'
             | 'AirOps'
             | 'Airtable'
+            | 'Airwallex'
             | 'Aiven'
             | 'AkamaiReporting'
             | 'Akeneo'
@@ -778,6 +801,7 @@ export interface sourceWizardLogicActions {
             | 'CanvasLms'
             | 'CapsuleCRM'
             | 'CaptainData'
+            | 'Capterra'
             | 'Captivate'
             | 'CareQualityCommission'
             | 'CartCom'
@@ -895,9 +919,11 @@ export interface sourceWizardLogicActions {
             | 'Debugbear'
             | 'Decagon'
             | 'Deel'
+            | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
             | 'DenoDeploy'
+            | 'Depot'
             | 'Deputy'
             | 'Descope'
             | 'Develocity'
@@ -915,6 +941,7 @@ export interface sourceWizardLogicActions {
             | 'Docusign'
             | 'DodoPayments'
             | 'DoIt'
+            | 'Dokploy'
             | 'Dolibarr'
             | 'Donorbox'
             | 'Doorloop'
@@ -1083,6 +1110,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
+            | 'GooglePostmasterTools'
             | 'GoogleSearchConsole'
             | 'GoogleSheets'
             | 'GoogleTasks'
@@ -1095,6 +1123,7 @@ export interface sourceWizardLogicActions {
             | 'GreytHr'
             | 'Gridly'
             | 'Groq'
+            | 'Growi'
             | 'GrowthBook'
             | 'Guardian'
             | 'Guesty'
@@ -1129,6 +1158,7 @@ export interface sourceWizardLogicActions {
             | 'Honeycomb'
             | 'Hookdeck'
             | 'HoorayHR'
+            | 'Hootsuite'
             | 'Hostaway'
             | 'HousecallPro'
             | 'Hubplanner'
@@ -1165,6 +1195,7 @@ export interface sourceWizardLogicActions {
             | 'Invoiced'
             | 'Invoiceninja'
             | 'IP2Whois'
+            | 'IronSourceAds'
             | 'Iterable'
             | 'Iyzico'
             | 'JamfPro'
@@ -1183,6 +1214,7 @@ export interface sourceWizardLogicActions {
             | 'K6Cloud'
             | 'Kafka'
             | 'Kajabi'
+            | 'Kalshi'
             | 'Kameleoon'
             | 'Kandji'
             | 'KapaAI'
@@ -1294,6 +1326,7 @@ export interface sourceWizardLogicActions {
             | 'MicrosoftDefenderEndpoint'
             | 'MicrosoftDefenderForCloud'
             | 'MicrosoftEntraId'
+            | 'MicrosoftExcel'
             | 'MicrosoftIntune'
             | 'MicrosoftLists'
             | 'MicrosoftPurview'
@@ -1467,6 +1500,7 @@ export interface sourceWizardLogicActions {
             | 'Podium'
             | 'Polar'
             | 'Polygon'
+            | 'Polymarket'
             | 'Poplar'
             | 'Postgres'
             | 'Postmark'
@@ -1484,6 +1518,7 @@ export interface sourceWizardLogicActions {
             | 'Productboard'
             | 'Productiv'
             | 'Productive'
+            | 'Profound'
             | 'PromptingCompany'
             | 'PromptWatch'
             | 'ProofpointTap'
@@ -1503,6 +1538,7 @@ export interface sourceWizardLogicActions {
             | 'Railz'
             | 'Raisely'
             | 'Raken'
+            | 'RakutenAdvertising'
             | 'Ramp'
             | 'Rapid7Insightvm'
             | 'Raygun'
@@ -1555,6 +1591,7 @@ export interface sourceWizardLogicActions {
             | 'SalesforceMarketingCloud'
             | 'SalesLoft'
             | 'Salestrics'
+            | 'SamCart'
             | 'Sanity'
             | 'SapConcur'
             | 'SapErp'
@@ -1565,6 +1602,7 @@ export interface sourceWizardLogicActions {
             | 'ScaleAI'
             | 'Scaleway'
             | 'Scalr'
+            | 'Schematic'
             | 'SearchAds360'
             | 'SecEdgar'
             | 'Secoda'
@@ -1801,6 +1839,7 @@ export interface sourceWizardLogicActions {
             | 'WikipediaPageviews'
             | 'Windmill'
             | 'WindsorAi'
+            | 'WisprFlow'
             | 'Wix'
             | 'Wiz'
             | 'Wompi'
@@ -1842,6 +1881,7 @@ export interface sourceWizardLogicActions {
             | 'Zenloop'
             | 'Zep'
             | 'Zero'
+            | 'Zitadel'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -2355,20 +2395,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
-                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: schema.permission_error ? false : selectAll,
+                            should_sync: bulkToggledShouldSync(schema, selectAll),
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
                         should_sync: targetSet.has(schema.table)
-                            ? schema.permission_error
-                                ? false
-                                : selectAll
+                            ? bulkToggledShouldSync(schema, selectAll)
                             : schema.should_sync,
                     }))
                 },
@@ -3497,7 +3534,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField =
+                                values.selectedConnector.name === 'Supabase'
+                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                                    : resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field
@@ -3512,8 +3552,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     // Onboarding one-click setup: opt every syncable table in (permission errors
                     // already continued above), so the user can sync the whole source in one click.
+                    // Default-off tables stay off via the shared bulk rule: this path shows no
+                    // table picker, so nothing else stops a secrets table from syncing.
                     if (props.autoConfigureTables) {
-                        schema.should_sync = true
+                        schema.should_sync = bulkToggledShouldSync(schema, true)
                     }
                 }
 

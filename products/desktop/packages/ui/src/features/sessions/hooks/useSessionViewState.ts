@@ -9,14 +9,13 @@ export function useSessionViewState(taskId: string, task: Task) {
   const session = useSessionForTask(taskId);
   const repoPath = useCwd(taskId) ?? null;
   const workspace = useWorkspace(taskId);
-  const isCloud = useIsCloudTask(taskId, task);
+  const taskIsCloud = useIsCloudTask(taskId, task);
 
-  const derived = deriveSessionViewState(session, task, workspace, isCloud);
+  const derived = deriveSessionViewState(session, task, workspace, taskIsCloud);
 
   return {
     session,
     repoPath,
-    isCloud,
     ...derived,
   };
 }

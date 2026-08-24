@@ -63,6 +63,8 @@ import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
+import { PagePerformance } from './PagePerformance'
+import { PagePerformanceFilters } from './PagePerformanceFilters'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -643,6 +645,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
             return null
         case ProductTab.BOT_ANALYTICS:
             return <BotAnalyticsFilters tabs={tabs} />
+        case ProductTab.PAGE_PERFORMANCE:
+            return <PagePerformanceFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -665,6 +669,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.BOT_ANALYTICS) {
         return <BotAnalyticsTiles />
+    }
+
+    if (productTab === ProductTab.PAGE_PERFORMANCE) {
+        return <PagePerformance />
     }
 
     return <Tiles />
@@ -742,6 +750,29 @@ const botAnalyticsTab = (
                 </div>
             ),
             link: urls.webAnalyticsBotAnalytics(),
+        },
+    ]
+}
+
+const pagePerformanceTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.PAGE_PERFORMANCE,
+            label: (
+                <div className="flex items-center gap-1">
+                    Search & AI
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsPagePerformance(),
         },
     ]
 }
@@ -859,6 +890,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
                 ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
+                ...pagePerformanceTab(featureFlags),
                 ...healthTab(),
             ]}
             sceneInset

@@ -23,6 +23,7 @@ import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -89,12 +90,14 @@ interface UseTaskCreationOptions {
   customImageId?: string;
   signalReportId?: string;
   channelContext?: string;
+  channelContextPath?: string;
+  submissionBlocked?: boolean;
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns the channel's CONTEXT.md (the
-   * `/website/$channelId` id, distinct from the feed `channelId`). Lets the
+   * `/spaces/$channelId` id, distinct from the feed `channelId`). Lets the
    * injected context address CONTEXT.md upkeep writes by a stable id.
    */
   channelContextId?: string;
@@ -115,6 +118,8 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
+  /** The task is on its way; the composer fades out before the chat replaces it. */
+  isExitingComposer: boolean;
   canSubmit: boolean;
   handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
   additionalDirectories: string[];
@@ -194,6 +199,8 @@ export function useTaskCreation({
   customImageId,
   signalReportId,
   channelContext,
+  channelContextPath,
+  submissionBlocked = false,
   channelName,
   channelId,
   channelContextId,
@@ -202,6 +209,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -230,11 +238,9 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me
-  // backend channel so they still surface in the Channels space instead of
-  // staying unfiled. The personal channel is per-user and provisioned lazily
-  // server-side on first list, so this can't collide across teammates. If it
-  // hasn't loaded yet the task is created unfiled, as before.
+  // Tasks created without a channel default into the user's private #me channel so they
+  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
+  // cannot collide across teammates; before the list loads the task is created unfiled.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -247,7 +253,11 @@ export function useTaskCreation({
       ? !!selectedRepository
       : !!selectedDirectory;
   const canSubmitBase =
-    isAuthenticated && isOnline && hasRequiredPath && !isCreatingTask;
+    isAuthenticated &&
+    isOnline &&
+    hasRequiredPath &&
+    !isCreatingTask &&
+    !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
@@ -343,6 +353,10 @@ export function useTaskCreation({
               label: a.label,
             })),
           });
+          // Fade the composer out before the chat fades in, so the phases
+          // hand over instead of cutting.
+          setIsExitingComposer(true);
+          await waitForComposerExit();
           navigateToTaskPending(pendingTaskKey);
           if (!contentOverride) {
             editor.clear();
@@ -394,6 +408,7 @@ export function useTaskCreation({
             signalReportId,
             additionalDirectories,
             channelContext,
+            channelContextPath,
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
@@ -554,6 +569,7 @@ export function useTaskCreation({
         }
       } finally {
         setIsCreatingTask(false);
+        setIsExitingComposer(false);
       }
     },
     [
@@ -581,6 +597,7 @@ export function useTaskCreation({
       signalReportId,
       additionalDirectories,
       channelContext,
+      channelContextPath,
       channelName,
       channelId,
       channelContextId,
@@ -603,6 +620,7 @@ export function useTaskCreation({
 
   return {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

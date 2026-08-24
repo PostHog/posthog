@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// A "File to…" target. `starred` floats it to the top of the submenu.
+const fileToChannel = z.object({
+  id: z.string(),
+  name: z.string(),
+  channelType: z.enum(["public", "personal"]).optional(),
+  starred: z.boolean().optional(),
+});
+
 export const taskContextMenuInput = z.object({
   taskTitle: z.string(),
   worktreePath: z.string().optional(),
@@ -10,9 +18,11 @@ export const taskContextMenuInput = z.object({
   isInCommandCenter: z.boolean().optional(),
   hasEmptyCommandCenterCell: z.boolean().optional(),
   showArchivePrior: z.boolean().optional(),
+  // Only the task's owner may hand it off; callers omit the item otherwise.
+  canHandoff: z.boolean().optional(),
   // The project's channels available as "File to…" targets.
   // Omit (or pass empty) to hide the submenu entirely.
-  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const bulkTaskContextMenuInput = z.object({
@@ -24,7 +34,7 @@ export const bulkTaskContextMenuInput = z.object({
   // Whether archiving would also shut a cloud sandbox down.
   stopsCloudSandbox: z.boolean().optional(),
   // "File to…" targets. Omit (or pass empty) to hide the submenu entirely.
-  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
+  channels: z.array(fileToChannel).optional(),
 });
 
 export const archivedTaskContextMenuInput = z.object({
@@ -60,6 +70,7 @@ const taskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive-prior") }),
   z.object({ type: z.literal("delete") }),
   z.object({ type: z.literal("add-to-command-center") }),
+  z.object({ type: z.literal("handoff") }),
   z.object({ type: z.literal("external-app"), action: externalAppAction }),
   z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);

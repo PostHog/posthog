@@ -1799,6 +1799,47 @@ async fn an_op_id_reused_with_a_different_request_is_rejected() {
         .await
         .expect_err("a different request must not attach");
     assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        personhog_common::grpc::semantic_refusal_reason(&status),
+        Some("op_id_reused"),
+        "callers branch on the refusal reason, not the message"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_create_race_loser_answers_retryable_unavailable() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(h.leader.clone(), h.ctx.tables.clone()),
+    );
+    let op_id = Uuid::now_v7();
+
+    // Drive a first frozen request to terminal: its target resolves to
+    // nothing, so the claim aborts the op in a single step.
+    let mut frozen_a =
+        serde_json::to_value(merge_request("race-target", &["race-source"])).unwrap();
+    frozen_a["original"] = json!({"call": "a"});
+    frozen_a["inline_results"] = json!({});
+    executor
+        .execute(op_id, h.ctx.team_id, &frozen_a)
+        .await
+        .expect("first request drives to terminal");
+
+    // The entrance reaches this create path only after its attach-first
+    // check found no op row, so a mismatch here is the insert-race
+    // window: it must answer retryable UNAVAILABLE (the retry attaches
+    // fine), not the terminal FAILED_PRECONDITION neither client stack
+    // retries.
+    let mut frozen_b = frozen_a.clone();
+    frozen_b["original"] = json!({"call": "b"});
+    let status = executor
+        .execute(op_id, h.ctx.team_id, &frozen_b)
+        .await
+        .expect_err("a mismatched frozen request must not attach");
+    assert_eq!(status.code(), Code::Unavailable);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1869,6 +1910,21 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
                 created_at: -1,
                 ..rpc_request(team_id, "t", &["s"], op)
             },
+            Code::InvalidArgument,
+        ),
+        (
+            "oversized target",
+            rpc_request(team_id, &"x".repeat(401), &["s"], op),
+            Code::InvalidArgument,
+        ),
+        (
+            "NUL target",
+            rpc_request(team_id, "nul\u{0000}target", &["s"], op),
+            Code::InvalidArgument,
+        ),
+        (
+            "NUL source",
+            rpc_request(team_id, "t", &["nul\u{0000}source"], op),
             Code::InvalidArgument,
         ),
     ];

@@ -1,4 +1,4 @@
-import type { AuthService } from "@posthog/core/auth/auth";
+import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
@@ -46,11 +46,9 @@ import type {
   SLACK_INTEGRATION_SERVICE,
 } from "@posthog/core/integrations/identifiers";
 import type { SlackIntegrationService } from "@posthog/core/integrations/slack";
-import type { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import type { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import type { ChannelLinkService } from "@posthog/core/links/channel-link";
 import type {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -131,6 +129,11 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import type {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+  QuickAskRunDefaults,
+} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
@@ -271,7 +274,6 @@ import type { WorkspaceServerService } from "../services/workspace-server/servic
 import type { rendererStore } from "../utils/store";
 import type {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -377,6 +379,8 @@ export interface MainBindings {
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
+  [QUICK_ASK_FETCH]: FetchLike;
+  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
@@ -457,7 +461,6 @@ export interface MainBindings {
   [MAIN_INBOX_LINK_SERVICE]: InboxLinkService;
   [MAIN_SCOUT_LINK_SERVICE]: ScoutLinkService;
   [MAIN_NEW_TASK_LINK_SERVICE]: NewTaskLinkService;
-  [MAIN_APPROVAL_LINK_SERVICE]: ApprovalLinkService;
   [MAIN_OPEN_TARGET_LINK_SERVICE]: OpenTargetLinkService;
   [MAIN_CANVAS_LINK_SERVICE]: CanvasLinkService;
   [MAIN_CHANNEL_LINK_SERVICE]: ChannelLinkService;
@@ -466,7 +469,6 @@ export interface MainBindings {
   [INBOX_LINK_SERVICE]: InboxLinkService;
   [SCOUT_LINK_SERVICE]: ScoutLinkService;
   [NEW_TASK_LINK_SERVICE]: NewTaskLinkService;
-  [APPROVAL_LINK_SERVICE]: ApprovalLinkService;
   [OPEN_TARGET_LINK_SERVICE]: OpenTargetLinkService;
   [CANVAS_LINK_SERVICE]: CanvasLinkService;
   [CHANNEL_LINK_SERVICE]: ChannelLinkService;

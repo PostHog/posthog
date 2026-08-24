@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -77,11 +78,11 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
-    "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
-    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
     "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
@@ -290,6 +291,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
+    class CreatedVia(models.TextChoices):
+        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+        # attribution can be counted together. The last three have no source equivalent — they cover
+        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+        # whoever happened to trigger the run.
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
+        SOURCE = "source", "source"
+        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+        DEMO = "demo", "demo"
+
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -299,6 +314,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
@@ -501,8 +521,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
-            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so this SET stays until chdb is upgraded past that release.
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
@@ -695,6 +716,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         | DirectSnowflakeTable
         | DirectRedshiftTable
         | DirectClickHouseTable
+        | DirectMotherDuckTable
     ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
@@ -702,6 +724,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
             DIRECT_CLICKHOUSE_DATABASE_OPTION,
             DIRECT_CLICKHOUSE_TABLE_OPTION,
+            DIRECT_MOTHERDUCK_CATALOG_OPTION,
+            DIRECT_MOTHERDUCK_SCHEMA_OPTION,
+            DIRECT_MOTHERDUCK_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -821,6 +846,40 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        # Engine-keyed like ClickHouse (no is_direct_motherduck) to satisfy the source-agnostic
+        # guard; the is_direct_query check keeps synced sources' tables S3-backed.
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "motherduck"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            motherduck_database = (
+                self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
+                else job_inputs.get("database", "")
+            )
+            motherduck_schema = (
+                self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_SCHEMA_OPTION), str)
+                else "main"
+            )
+            motherduck_table_name = (
+                self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MOTHERDUCK_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMotherDuckTable(
+                name=self.name,
+                fields=fields,
+                motherduck_database=motherduck_database,
+                motherduck_schema=motherduck_schema,
+                motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
             )
 
         # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The

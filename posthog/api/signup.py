@@ -40,11 +40,11 @@ from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
-from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
+from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -399,7 +399,12 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        email_exists = False
+        if not settings.DEMO:
+            # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
+            # the user fills in the rest, and only then hits the rejection on submit.
+            reject_plus_addressed_email(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
         if email_exists:
             return response.Response(
                 {

@@ -79,6 +79,16 @@ class TestWordpressSource:
         matches = [friendly for key, friendly in errors.items() if key in raised]
         assert matches and matches[0] is not None
 
+    @pytest.mark.parametrize("status_code", [429, 503])
+    def test_exhausted_retryable_error_message_matches_retryable_error(self, status_code):
+        # get_rows()'s fetch_page raises this once its own tenacity retry budget for a 429/5xx
+        # response is exhausted. The status code and URL that follow are variable, so the
+        # classifier must match on the stable prefix alone to keep this out of error tracking.
+        raised = (
+            f"WordPress API error (retryable): status={status_code}, url=https://example.com/wp-json/wp/v2/categories"
+        )
+        assert any(pattern.lower() in raised.lower() for pattern in self.source.get_retryable_errors())
+
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
