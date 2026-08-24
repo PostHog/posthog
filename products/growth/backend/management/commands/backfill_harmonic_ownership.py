@@ -23,6 +23,7 @@ import time
 import asyncio
 from typing import Any, Optional
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
@@ -36,6 +37,8 @@ from products.growth.backend.enrichment.labels import signup_domain_for_organiza
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
 from products.growth.backend.enrichment.writer import archive_provider_fetch, write_organization_enrichment
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
+
+from ee.billing.salesforce_enrichment.harmonic_client import MissingHarmonicAPIKeyError
 
 _PROGRESS_INTERVAL = 100
 _ACQUIRED_OR_MERGED = "ACQUIRED_OR_MERGED"
@@ -87,6 +90,14 @@ class Command(BaseCommand):
             raise CommandError("--limit must be at least 1")
         if sleep_seconds < 0:
             raise CommandError("--sleep must be at least 0")
+        # Every fetch builds a fresh Harmonic client, which needs HARMONIC_API_KEY. The key lives
+        # only on the Temporal workers, so a run from any other pod would fail the same way for
+        # every org. Fail once here rather than turn one config mistake into a capture per record.
+        if not settings.HARMONIC_API_KEY:
+            raise CommandError(
+                "HARMONIC_API_KEY is not set. This command reaches Harmonic once per org, and the "
+                "key lives only on the Temporal workers. Run it there."
+            )
 
         qs = _unbackfilled_qs()
         if after_id:
@@ -115,6 +126,8 @@ class Command(BaseCommand):
                 last_id = str(record.id)
                 try:
                     self._process_one(record, provider, pha_client, dry_run, sleep_seconds, counts)
+                except MissingHarmonicAPIKeyError as e:
+                    raise CommandError(str(e))
                 except Exception as e:
                     capture_exception(e, {"organization_id": str(record.organization_id)})
                     counts["errors"] += 1
@@ -143,6 +156,10 @@ class Command(BaseCommand):
 
         try:
             lookup = asyncio.run(provider.enrich_by_domain(domain))
+        except MissingHarmonicAPIKeyError:
+            # A missing key is a fatal, non-retryable config fault. Re-raise so the run aborts
+            # instead of counting it as a per-org fetch failure and grinding through every record.
+            raise
         except Exception as e:
             capture_exception(e, {"organization_id": str(record.organization_id), "domain": domain})
             counts["fetch_failures"] += 1
