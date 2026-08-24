@@ -40,10 +40,27 @@ interface WebHealthCheckConfig {
     title: string
     passingDescription: string
     failingDescription: string
+    // Optional extra sentence appended to `failingDescription`, built from the failing issue's
+    // payload — for per-project detail the static copy can't carry.
+    buildFailingDescriptionExtra?: (payload: Record<string, any>) => string | null
     passingAction?: HealthCheckAction
     failingAction?: HealthCheckAction
     docsUrl?: string
     urgent?: boolean
+}
+
+// Estimate how many extra events enabling $pageleave adds for this project, as a percentage of
+// $pageview. The backend stores the ratio (sessions / pageviews) on the issue payload.
+function pageleaveVolumeExtra(payload: Record<string, any>): string | null {
+    const ratio = payload?.estimated_pageleave_ratio
+    if (typeof ratio !== 'number') {
+        return null
+    }
+    const percent = Math.round(ratio * 100)
+    if (percent < 1) {
+        return 'Enabling it adds less than 1% more events for this project.'
+    }
+    return `Enabling it adds about ${percent}% more events for this project.`
 }
 
 const INSTALL_GUIDE_ACTION: HealthCheckAction = {
@@ -78,6 +95,7 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         title: '$pageleave',
         passingDescription: 'Bounce rate and session duration are accurate!',
         failingDescription: 'Without $pageleave events, bounce rate and session duration might be inaccurate.',
+        buildFailingDescriptionExtra: pageleaveVolumeExtra,
         failingAction: INSTALL_GUIDE_ACTION,
         docsUrl: 'https://posthog.com/docs/web-analytics/dashboard#bounce-rate',
     },
@@ -416,11 +434,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
                     // Critical backend severity surfaces as an error, everything else as a warning.
                     const status: HealthCheckStatus = issue.severity === 'critical' ? 'error' : 'warning'
+                    const extra = config.buildFailingDescriptionExtra?.(issue.payload)
                     return {
                         id: config.id,
                         category: config.category,
                         title: config.title,
-                        description: config.failingDescription,
+                        description: extra ? `${config.failingDescription} ${extra}` : config.failingDescription,
                         status,
                         action: config.failingAction,
                         docsUrl: config.docsUrl,
