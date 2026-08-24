@@ -11,6 +11,22 @@ import { InboxQuestionSource, captureInboxReportAction, discussQuestionPropertie
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
+// How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
+// of it. Long enough that two questions opening on the same few words ("Which teams…", "Why did…")
+// don't read as one, short enough that a heavy rewrite around a kept phrase still does.
+const RECOGNIZABLE_RUN = 10
+
+/** Whether a submitted draft is still the suggestion it was filled from, rather than a fresh question. */
+function isEditOf(draft: string, suggestion: string): boolean {
+    if (draft.length < RECOGNIZABLE_RUN || suggestion.length < RECOGNIZABLE_RUN) {
+        return draft === suggestion
+    }
+    return (
+        draft.slice(0, RECOGNIZABLE_RUN) === suggestion.slice(0, RECOGNIZABLE_RUN) ||
+        draft.slice(-RECOGNIZABLE_RUN) === suggestion.slice(-RECOGNIZABLE_RUN)
+    )
+}
+
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const { isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { discussReport } = useActions(inboxTaskKickoffLogic)
@@ -19,7 +35,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const [isOpen, setIsOpen] = useState(false)
     const [question, setQuestion] = useState('')
     // The suggestion the textarea was last filled from, so a submitted question can be reported as
-    // sent as written or edited first. Null once the reader has typed something of their own.
+    // sent as written, edited first, or written from scratch. Null until a row is clicked.
     const [filledFrom, setFilledFrom] = useState<string | null>(null)
 
     const suggestions = report.suggested_prompts ?? []
@@ -28,7 +44,12 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
         if (filledFrom === null) {
             return 'typed'
         }
-        return trimmed === filledFrom ? 'suggested' : 'edited_suggestion'
+        if (trimmed === filledFrom) {
+            return 'suggested'
+        }
+        // Selecting the filled box and typing over it leaves nothing of the suggestion, so the
+        // question is the reader's own. Counting it as an edit would read as adoption.
+        return isEditOf(trimmed, filledFrom) ? 'edited_suggestion' : 'typed'
     }
 
     const fillFromSuggestion = (suggestion: string): void => {
@@ -101,14 +122,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                     <LemonTextArea
                         ref={textAreaRef}
                         value={question}
-                        onChange={(value) => {
-                            setQuestion(value)
-                            // Emptying the box starts over: what the reader types next is their own
-                            // question, not an edit of the suggestion that used to be there.
-                            if (!value) {
-                                setFilledFrom(null)
-                            }
-                        }}
+                        onChange={setQuestion}
                         onPressCmdEnter={submit}
                         placeholder={
                             suggestions.length > 0

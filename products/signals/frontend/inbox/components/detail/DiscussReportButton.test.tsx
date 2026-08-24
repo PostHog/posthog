@@ -75,10 +75,12 @@ describe('DiscussReportButton', () => {
 
     it.each([
         [
+            'sending a suggestion as written',
             'suggested',
             async (user: ReturnType<typeof userEvent.setup>) => await user.click(screen.getByText(SUGGESTION)),
         ],
         [
+            'narrowing a suggestion before sending',
             'edited_suggestion',
             async (user: ReturnType<typeof userEvent.setup>) => {
                 await user.click(screen.getByText(SUGGESTION))
@@ -86,6 +88,7 @@ describe('DiscussReportButton', () => {
             },
         ],
         [
+            'emptying the box and writing another question',
             'typed',
             async (user: ReturnType<typeof userEvent.setup>) => {
                 await user.click(screen.getByText(SUGGESTION))
@@ -93,7 +96,18 @@ describe('DiscussReportButton', () => {
                 await user.type(screen.getByRole('textbox'), 'Something else entirely?')
             },
         ],
-    ])('reports question_source as %s', async (expected, act) => {
+        [
+            'selecting the filled box and typing over it',
+            'typed',
+            async (user: ReturnType<typeof userEvent.setup>) => {
+                // Select-all-and-replace never empties the box, so provenance can't be tracked from an
+                // intermediate value: the question that arrives keeps nothing of the suggestion.
+                await user.click(screen.getByText(SUGGESTION))
+                await user.click(screen.getByRole('textbox'))
+                await user.keyboard('{Control>}a{/Control}Something else entirely?')
+            },
+        ],
+    ])('reports question_source after %s', async (_name, expected, act) => {
         // This property is the only way to tell whether the suggestions are worth offering. Collapsing
         // any of the three into another makes the readout lie about it: crediting an edited question as
         // `suggested` overstates them, and crediting a cleared box as `edited_suggestion` understates
