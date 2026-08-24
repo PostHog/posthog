@@ -11,7 +11,6 @@ use posthog_replay_anonymizer::{
 use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
-const PSEUDO_TEAM: &str = "0123456789abcdef0123456789abcdef";
 const URL_KEY: &str = "0123456789abcdef0123456789abcdef";
 
 fn payload_tagged(tag: &str, attrs: Value) -> Vec<u8> {
@@ -54,7 +53,6 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
             None,
             None,
             Some(UrlCollection {
-                pseudo_team: PSEUDO_TEAM.to_string(),
                 url_key: URL_KEY.to_string(),
             }),
         )
@@ -85,15 +83,19 @@ fn only_an_image_bearing_tag_has_its_src_collected() {
 }
 
 #[test]
-fn a_video_poster_is_still_collected() {
-    // poster only exists on a video and always names a still image.
-    assert_eq!(
-        collect_urls_of(
+fn attributes_other_than_src_are_not_collected() {
+    for (tag, attrs) in [
+        ("img", json!({ "rr_src": "https://cdn.example.com/a.png" })),
+        (
             "video",
-            json!({ "poster": "https://cdn.example.com/poster.jpg" })
+            json!({ "poster": "https://cdn.example.com/poster.jpg" }),
         ),
-        vec!["byte_walk=true:1", "byte_walk=false:1"]
-    );
+    ] {
+        assert_eq!(
+            collect_urls_of(tag, attrs),
+            vec!["byte_walk=true:0", "byte_walk=false:0"]
+        );
+    }
 }
 
 fn payload(attrs: Value) -> Vec<u8> {
@@ -129,7 +131,6 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
     for byte_walk in [true, false] {
         let mut bytes = payload(attrs.clone());
         let collection = collect.then(|| UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
             url_key: URL_KEY.to_string(),
         });
         let msg = anonymize_kafka_payload_collecting(
@@ -176,18 +177,19 @@ fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
         let url_ref = attrs_of(line)["data-anon-image-ref-src"]
             .as_str()
             .expect("the URL ref is stashed");
-        assert!(
-            url_ref.starts_with(&format!("imageurl:{PSEUDO_TEAM}:")),
-            "{engine}: expected a URL ref, got {url_ref}"
-        );
+        assert!(url_ref.starts_with("imageurl:"), "{engine}: got {url_ref}");
 
         let urls = meta["urls"].as_array().expect("meta.urls present");
         assert_eq!(urls.len(), 1, "{engine}");
         assert_eq!(urls[0]["url"], "https://cdn.example.com/hero.png?w=200");
         assert_eq!(urls[0]["host"], "cdn.example.com");
         assert!(
-            url_ref.ends_with(urls[0]["hash"].as_str().expect("hash is a string")),
-            "{engine}: the ref must carry the hash meta reports"
+            url_ref
+                == format!(
+                    "imageurl:{}",
+                    urls[0]["hash"].as_str().expect("hash is a string")
+                ),
+            "{engine}: the ref must equal the hash meta reports"
         );
 
         assert!(
@@ -271,63 +273,31 @@ fn srcset_stays_out_of_scope_and_keeps_the_placeholder() {
 }
 
 #[test]
-fn one_url_under_two_signatures_collects_once() {
-    // The whole reason canonicalization splits the dedup URL from the fetch URL.
-    let allow = AllowLists::default();
-    let mut bytes = json!({
-        "distinct_id": "d",
-        "data": json!({
-            "event": "$snapshot_items",
-            "properties": {
-                "$session_id": "s",
-                "$window_id": "w",
-                "$snapshot_items": [
-                    {"type": 3, "timestamp": TS0, "data": {"source": 0, "adds": [
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 1,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa"}, "childNodes": []}},
-                        {"parentId": 1, "nextId": null, "node": {"type": 2, "tagName": "img", "id": 2,
-                          "attributes": {"src": "https://cdn.example.com/a.png?X-Amz-Signature=bbb"}, "childNodes": []}}
-                    ]}}
-                ]
-            }
-        }).to_string()
-    })
-    .to_string()
-    .into_bytes();
-
-    let msg = anonymize_kafka_payload_collecting(
-        &allow,
-        &mut bytes,
-        AnonymizeOpts::default(),
-        None,
-        None,
-        Some(UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
-            url_key: URL_KEY.to_string(),
-        }),
-    )
-    .expect("anonymize should succeed");
-
-    assert_eq!(
-        msg.meta.urls.len(),
-        1,
-        "two signatures of one image are one URL to fetch"
-    );
+fn signed_urls_produce_no_ref_or_fetch_candidate() {
+    for (engine, result) in run(
+        json!({ "src": "https://cdn.example.com/a.png?X-Amz-Signature=aaa" }),
+        true,
+    ) {
+        let (line, meta) = (&result[0], &result[1]);
+        assert!(
+            attrs_of(line).get("data-anon-image-ref-src").is_none(),
+            "{engine}: signed URLs must not produce a global ref"
+        );
+        assert!(meta.get("urls").is_none(), "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["reason"], "credential", "{engine}");
+        assert_eq!(meta["urlDeclines"][0]["count"], 1, "{engine}");
+    }
 }
 
 #[test]
-fn every_refusal_is_counted_with_a_reason() {
+fn a_refusal_is_counted_with_a_reason() {
     // A silent decline makes the lane look like the traffic carries fewer images than it does,
     // which is exactly the number the measurement phase exists to produce.
     let allow = AllowLists::default();
     let mut bytes = payload_tagged(
         "img",
         json!({
-            // https, so this refusal counts as an address refusal. The scheme check runs first, so
-            // over http it would count as a scheme refusal instead.
-            "src": "https://169.254.169.254/meta.png",
-            "rr_src": "ftp://files.example.com/a.png",
-            "poster": "/relative/a.png"
+            "src": "https://169.254.169.254/meta.png"
         }),
     );
     let msg = anonymize_kafka_payload_collecting(
@@ -337,7 +307,6 @@ fn every_refusal_is_counted_with_a_reason() {
         None,
         None,
         Some(UrlCollection {
-            pseudo_team: PSEUDO_TEAM.to_string(),
             url_key: URL_KEY.to_string(),
         }),
     )
@@ -351,6 +320,4 @@ fn every_refusal_is_counted_with_a_reason() {
         .map(|d| d.reason.as_str())
         .collect();
     assert!(reasons.contains(&"non_public_host"), "{reasons:?}");
-    assert!(reasons.contains(&"bad_scheme"), "{reasons:?}");
-    assert!(reasons.contains(&"not_absolute"), "{reasons:?}");
 }

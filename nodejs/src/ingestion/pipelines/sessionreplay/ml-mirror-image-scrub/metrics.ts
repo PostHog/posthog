@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { ScrubWaitReason } from './scrub-client'
 
@@ -91,6 +91,15 @@ export class ImageScrubConsumerMetrics {
         help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): batches approaching it get the pod evicted mid-batch, and the partition is redone by whoever picks it up',
         buckets: [1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
+    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchElapsed = new Gauge({
+        name: 'ml_mirror_image_scrub_consumer_active_batch_elapsed_seconds',
+        help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
+        collect() {
+            const startedAtMs = ImageScrubConsumerMetrics.activeBatchStartedAtMs
+            this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
+        },
+    })
     /**
      * Images parked on the dead-letter topic because the sidecar could not process them.
      *
@@ -162,7 +171,13 @@ export class ImageScrubConsumerMetrics {
         }
         this.batchDuration.observe(durationSeconds)
     }
-    public static incDeadLettered(reason: string): void {
+    public static startBatch(nowMs = performance.now()): void {
+        this.activeBatchStartedAtMs = nowMs
+    }
+    public static finishBatch(): void {
+        this.activeBatchStartedAtMs = undefined
+    }
+    public static incDeadLettered(reason: ScrubWaitReason): void {
         this.deadLettered.labels(reason).inc()
     }
     public static incDeadLetterFailed(): void {
