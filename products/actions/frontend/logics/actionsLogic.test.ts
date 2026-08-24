@@ -69,7 +69,7 @@ describe('actionsLogic', () => {
             },
             patch: {
                 '/api/projects/:team/actions/:id/': async ({ request }) => {
-                    patchedBody = await request.json()
+                    patchedBody = (await request.json()) as Record<string, any>
                     return [200, { ...blankNameAction, ...patchedBody }]
                 },
             },
