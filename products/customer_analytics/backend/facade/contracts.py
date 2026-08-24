@@ -672,8 +672,19 @@ class FeatureRequestListFilters:
     priorities: tuple[str, ...] = ()
     product_area_ids: tuple[UUID, ...] = ()
     account_ids: tuple[UUID, ...] = ()
+    created_by_ids: tuple[int, ...] = ()
     archive_state: str = "active"
     ordering: str = "-updated_at"
+
+
+@dataclass(frozen=True)
+class FeatureRequestEvidenceInput:
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -683,6 +694,7 @@ class CreateFeatureRequestInput:
     account_id: UUID
     product_area_ids: tuple[UUID, ...]
     idempotency_key: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
 
 
 @dataclass(frozen=True)
@@ -701,16 +713,6 @@ class UpdateFeatureRequestInput:
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
-
-
-@dataclass(frozen=True)
-class FeatureRequestEvidenceInput:
-    summary: str
-    customer_quote: str
-    evidence_source: str
-    source_url: str
-    requested_on: date | None
-    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)

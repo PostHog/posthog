@@ -7,14 +7,26 @@ import { initKeaTests } from '~/test/init'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { observationsDockLogic } from './observationsDockLogic'
+import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: { success: jest.fn(), info: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
+function summaryObservation(): ReplayObservationApi {
+    return {
+        id: 'obs-summary',
+        scanner_id: 'scanner-x',
+        session_id: 'sess-1',
+        status: 'succeeded',
+        scanner_snapshot: { scanner_type: 'summarizer' },
+    } as ReplayObservationApi
+}
+
 describe('observationsDockLogic', () => {
     let logic: ReturnType<typeof observationsDockLogic.build>
+    let preferences: ReturnType<typeof visionDockPreferenceLogic.build>
     let observeCalls: number
     let inlineScanCalls: number
     let releaseObserve: () => void
@@ -65,6 +77,10 @@ describe('observationsDockLogic', () => {
             },
         })
         initKeaTests()
+        // Persisted, so a collapse in one test would otherwise decide the next test's starting state.
+        preferences = visionDockPreferenceLogic()
+        preferences.mount()
+        preferences.actions.setSummaryDockAutoExpand(true)
         logic = observationsDockLogic({ sessionId: 'sess-1' })
         logic.mount()
     })
@@ -74,6 +90,7 @@ describe('observationsDockLogic', () => {
         releaseInlineScan?.()
         releaseScanners?.()
         logic?.unmount()
+        preferences?.unmount()
     })
 
     // Regression guard: the picker used `scanners.length === 0` alone to decide when to show the
@@ -148,5 +165,30 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ dockOpen: true, observations: observationResults })
         expect(lemonToast.info).toHaveBeenCalled()
         expect(lemonToast.warning).not.toHaveBeenCalled()
+    })
+
+    it('opens the dock for a recording that already has a summary', async () => {
+        observationResults = [summaryObservation()]
+
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(logic).toMatchValues({ dockOpen: true })
+    })
+
+    it('leaves the dock closed on the next recording once the user collapses it', async () => {
+        // The preference has to outlive the dock logic, which is keyed by session. Held per key, a
+        // collapse would be forgotten the moment the user clicks the next recording in the playlist.
+        observationResults = [summaryObservation()]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.setDockOpen(false)
+
+        const nextRecording = observationsDockLogic({ sessionId: 'sess-2' })
+        nextRecording.mount()
+        await expectLogic(nextRecording).toDispatchActions(['loadObservationsSuccess'])
+        await expectLogic(nextRecording).toMatchValues({ dockOpen: false })
+        nextRecording.unmount()
     })
 })
