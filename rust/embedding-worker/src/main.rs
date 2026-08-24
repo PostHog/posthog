@@ -11,7 +11,7 @@ use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::embedding::{EmbeddingRecord, EmbeddingRequest};
 use embedding_worker::{
-    ad_hoc::{handle_ad_hoc_request, AdHocEmbeddingRequest, AdHocEmbeddingResponse, AdHocError},
+    ad_hoc::{handle_ad_hoc_request, AdHocEmbeddingRequest, AdHocEmbeddingResponse},
     app_context::AppContext,
     config::Config,
     handle_batch,
@@ -54,12 +54,7 @@ async fn ad_hoc_handler(
         Ok(response) => Ok(Json(response)),
         Err(e) => {
             error!("Ad hoc embedding request failed: {:?}", e);
-            let status = match &e {
-                AdHocError::NotOptedIn => StatusCode::FORBIDDEN,
-                AdHocError::ContentTooLong => StatusCode::BAD_REQUEST,
-                AdHocError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            Err((status, e.message().to_owned()))
+            Err((e.status_code(), e.message().to_owned()))
         }
     }
 }
