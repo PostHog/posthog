@@ -1319,7 +1319,7 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channelId);
     if (!spacesLayout) {
       void navigate({ to: "/spaces/$channelId", params: { channelId } });
@@ -1344,7 +1344,7 @@ function useOpenChannel(): (channel: Channel) => void {
       surface: "sidebar",
       channel_id: channel.id,
     });
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channel.id);
     if (!spacesLayout) {
       void navigate({
