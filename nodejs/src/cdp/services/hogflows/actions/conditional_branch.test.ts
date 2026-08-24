@@ -219,17 +219,22 @@ describe('action.conditional_branch', () => {
             counterHogflowRekeyWake.reset()
         })
 
-        it('refreshes the person before a wait evaluates for the first time', async () => {
-            const refreshPerson = jest.fn().mockResolvedValue(undefined)
-            waitInvocation.refreshPerson = refreshPerson
-
-            await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
+        it('evaluates a first wait against the refreshed person, on the invocation and the result alike', async () => {
+            // The result carries a shallow clone, so both have to land on the fresh person: whichever
+            // one a later reader picks up must not still hold the person the dequeue cached.
+            const freshPerson = { id: 'p1', properties: { email: 'written-after-caching@posthog.com' } }
+            waitInvocation.refreshPerson = jest.fn().mockResolvedValue({
+                person: freshPerson,
+                filterGlobals: { ...waitInvocation.filterGlobals, person: freshPerson },
             })
+            const result = createInvocationResult(waitInvocation)
 
-            expect(refreshPerson).toHaveBeenCalledTimes(1)
+            await handler.execute({ invocation: waitInvocation, action: waitAction, result })
+
+            expect(waitInvocation.refreshPerson).toHaveBeenCalledTimes(1)
+            expect(waitInvocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
+            expect(result.invocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
+            expect(result.invocation.person).toEqual(freshPerson)
         })
 
         it('keeps the cached person on a re-check of a wait that already parked', async () => {
