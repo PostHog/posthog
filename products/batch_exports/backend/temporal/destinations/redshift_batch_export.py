@@ -972,10 +972,10 @@ class ServerlessWorkgroup:
 
 def _parse_redshift_host(host: str) -> ProvisionedCluster | ServerlessWorkgroup:
     """Parse a Redshift endpoint hostname into its cluster or workgroup location."""
-    match host.split("."):
-        case [cluster_identifier, _, region, "redshift", "amazonaws", *_]:
+    match host.split(".", maxsplit=3):
+        case [cluster_identifier, _, region, "redshift.amazonaws.com"]:
             return ProvisionedCluster(cluster_identifier=cluster_identifier, region=region)
-        case [workgroup, account_id, region, "redshift-serverless", "amazonaws", *_]:
+        case [workgroup, account_id, region, "redshift-serverless.amazonaws.com"]:
             return ServerlessWorkgroup(workgroup=workgroup, account_id=account_id, region=region)
         case _:
             raise IntegrationError(
