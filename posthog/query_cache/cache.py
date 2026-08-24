@@ -104,9 +104,14 @@ class QueryCache:
                     self.cache_key, pointer, settings.CACHED_RESULTS_TTL, expected=storage_bytes
                 ),
             )
-            # The freshness index only schedules cache warming, so its writes must stay inside the
-            # guard too: a sorted-set write that fails must not throw away a result the query already
-            # computed and cached above.
+        except Exception:
+            logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
+            return
+
+        # The freshness index only schedules cache warming, so guard it in its own block. The result
+        # is already cached above, so a failed sorted-set write must not be reported as a store
+        # failure (hence the distinct event name) and must not skip counting the successful write.
+        try:
             if target_age:
                 update_target_age(
                     team_id=self.team_id,
@@ -117,7 +122,6 @@ class QueryCache:
             else:
                 remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
         except Exception:
-            logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
-            return
+            logger.exception("query_cache_freshness_index_write_failed", team_id=self.team_id, cache_key=self.cache_key)
 
         count_cache_write_data(data_size)
