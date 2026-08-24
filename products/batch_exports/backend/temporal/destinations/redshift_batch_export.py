@@ -950,7 +950,7 @@ async def _get_aws_s3_integration(integration_id: int, team_id: int) -> AWSS3Rol
 @frozen
 class RedshiftCredentials:
     user: str
-    password: str
+    password: str = dataclasses.field(repr=False)
 
 
 @frozen
