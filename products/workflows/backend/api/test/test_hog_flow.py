@@ -2387,6 +2387,8 @@ class TestHogFlowAPI(APIBaseTest):
             # non-empty while the compiled filter matches every channel.
             ("is_set_channel", [{"key": "channel", "value": "is_set", "operator": "is_set", "type": "event"}]),
             ("negated_channel", [{"key": "channel", "value": ["C0ALERTS"], "operator": "is_not", "type": "event"}]),
+            # Channel ids are opaque, so a pattern can only widen; ".*" matches every channel.
+            ("regex_channel", [{"key": "channel", "value": [".*"], "operator": "regex", "type": "event"}]),
         ]
     )
     def test_hog_flow_slack_trigger_requires_a_channel_filter_to_activate(self, _name, properties):
