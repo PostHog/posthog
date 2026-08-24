@@ -17,8 +17,8 @@ interface TicketsListProps {
 }
 
 export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
-    const { tickets, ticketsLoading, canCreateTicket } = useValues(sidepanelTicketsLogic)
-    const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
+    const { tickets, ticketsLoading, ticketsError, canCreateTicket } = useValues(sidepanelTicketsLogic)
+    const { setCurrentTicket, setView, loadTickets } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
@@ -34,6 +34,21 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
         return (
             <div className="flex items-center justify-center h-40">
                 <Spinner />
+            </div>
+        )
+    }
+
+    if (ticketsError) {
+        return (
+            <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-8">
+                <p className="m-0">
+                    {ticketsError === 'rate_limited'
+                        ? 'Too many requests. Wait a moment, then try again.'
+                        : "We couldn't load your tickets."}
+                </p>
+                <LemonButton type="secondary" onClick={() => loadTickets()} data-attr="sidebar-retry-load-tickets">
+                    Try again
+                </LemonButton>
             </div>
         )
     }

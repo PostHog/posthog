@@ -45,6 +45,9 @@ import type {
 
 const POLL_INTERVAL = 60 * 1000 // 60 seconds
 
+// Why the ticket list failed to load, so the panel can show an inline retry instead of a toast
+export type TicketsLoadError = 'load_failed' | 'rate_limited'
+
 // Panel options for a ticket deep link (#panel=support:ticket:<id>); supportRouterLogic skips this prefix
 const TICKET_OPTIONS_PREFIX = 'ticket:'
 
@@ -98,6 +101,7 @@ export interface sidepanelTicketsLogicValues {
     restoreError: string | null
     restoreState: RestoreFlowState
     tickets: ConversationTicket[]
+    ticketsError: TicketsLoadError | null
     ticketsLoading: boolean
     totalUnreadCount: number
     view: SidePanelViewState
@@ -190,6 +194,9 @@ export interface sidepanelTicketsLogicActions {
     setTicketsLoading: (loading: boolean) => {
         loading: boolean
     }
+    setTicketsError: (error: TicketsLoadError | null) => {
+        error: TicketsLoadError | null
+    }
     setView: (view: SidePanelViewState) => {
         view: SidePanelViewState
     }
@@ -266,6 +273,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
+        setTicketsError: (error: TicketsLoadError | null) => ({ error }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         markAsRead: (ticketId: string) => ({ ticketId }),
         setMessageSending: (sending: boolean) => ({ sending }),
@@ -311,6 +319,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             false,
             {
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        // A load starting clears the previous failure, so a retry drops the inline error as it runs
+        ticketsError: [
+            null as TicketsLoadError | null,
+            {
+                setTicketsError: (_, { error }) => error,
+                setTicketsLoading: (state, { loading }) => (loading ? null : state),
             },
         ],
         currentTicket: [
@@ -519,6 +535,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
+                const statusCode = (e as any)?.statusCode ?? null
                 // Reported because a customer who can't see their tickets can't reply to support on
                 // them either, and the toast alone left us blind to how often that happens
                 captureSupportWidgetLoadFailed({
@@ -526,8 +543,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     reason: 'tickets_load_failed',
                     error: e,
                     can_create_ticket: values.canCreateTicket,
+                    status_code: statusCode,
                 })
-                lemonToast.error('Failed to load tickets.')
+                // Show the failure in place with a retry. A toast blocks the surface and can't be
+                // acted on, and a poll landing on a throttle would otherwise raise one every minute.
+                actions.setTicketsError(statusCode === 429 ? 'rate_limited' : 'load_failed')
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -564,6 +584,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Fetch all pages of messages using `after` timestamp pagination
                 while (hasMore) {
                     const response = await (posthog.conversations.getMessages as any)(ticketId, after)
+                    // A send switches views and can unmount this logic mid-load. Dispatching to a
+                    // torn-down store throws, which the catch below would misreport as a failed load
+                    // and toast over a message that actually sent. Skip the rest quietly instead.
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
                     if (!response || values.currentTicket?.id !== ticketId) {
                         return
@@ -598,7 +624,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 })
                 lemonToast.error('Failed to load messages. Please try again.')
             } finally {
-                actions.setMessagesLoading(false)
+                // The finally runs even after an unmount aborts the load, so guard the dispatch
+                if (!cache.disposables.isDisposed) {
+                    actions.setMessagesLoading(false)
+                }
             }
         },
         sendMessage: async ({ content, onSuccess }) => {
@@ -667,14 +696,25 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
+                // posthog-js reports an unreachable server as statusCode 0 and a non-2xx rejection
+                // with the real status. Split them so both live send-failure branches stay
+                // measurable. The draft survives either way: onSuccess is the only path that clears it.
+                const statusCode = (e as any)?.statusCode ?? null
+                const unreachable = statusCode === 0
                 captureSupportTicketBlocked({
                     surface: 'side_panel_composer',
-                    reason: 'send_failed',
+                    reason: unreachable ? 'server_unreachable' : 'send_failed',
                     message: content,
                     error: e,
+                    status_code: statusCode,
                     is_new_ticket: values.view === 'new',
                 })
-                lemonToast.error('Failed to send message. Please try again.', { button: EMAIL_SUPPORT_BUTTON })
+                lemonToast.error(
+                    unreachable
+                        ? "We couldn't reach the server. Check your connection and try again."
+                        : 'Failed to send message. Please try again.',
+                    { button: EMAIL_SUPPORT_BUTTON }
+                )
             } finally {
                 actions.setMessageSending(false)
             }
