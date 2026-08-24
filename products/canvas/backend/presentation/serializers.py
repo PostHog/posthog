@@ -19,6 +19,7 @@ from products.canvas.backend.facade.api import (
     MAX_LAYOUT_PATCH_OPERATIONS,
     PLACEMENT_ID_RE,
     PLACEMENT_STATUSES,
+    RESERVED_TEMPLATE_IDS,
 )
 from products.canvas.backend.models import Canvas, CanvasState
 
@@ -128,7 +129,6 @@ class CanvasSerializer(serializers.ModelSerializer):
             "template_id",
             "context",
             "generation_task_id",
-            "discussion_task_id",
             "pinned",
             "pinned_at",
             "current_version_id",
@@ -187,6 +187,11 @@ class CanvasCreateSerializer(serializers.Serializer):
     template_id = serializers.CharField(
         required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
     )
+
+    def validate_template_id(self, value: str) -> str:
+        if value in RESERVED_TEMPLATE_IDS:
+            raise serializers.ValidationError("This template id is reserved for canvases PostHog seeds.")
+        return value
 
 
 class CanvasUpdateSerializer(serializers.Serializer):

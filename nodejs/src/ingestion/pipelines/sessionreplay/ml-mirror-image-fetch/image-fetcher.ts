@@ -1,15 +1,18 @@
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
+import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
+import { HttpCacheMetadata } from './crawl-history'
+import { ImageFetchRequestMetrics } from './metrics'
+import { canonicalizeUrl } from './politeness-key'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**
- * The raster set the anonymizer keeps on a collected ref, so a fetched image and an inline one reach
- * the scrub lane as the same kind of thing.
+ * The raster formats that the fetch lane and image scrubber accept.
  *
  * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
  * belongs on the inline path rather than on an image model.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
@@ -20,25 +23,38 @@ export type FetchOutcome =
     | 'rate_limited'
     | 'server_error'
     | 'unexpected_status'
-    | 'too_many_redirects'
     | 'bad_redirect'
-    | 'redirect_deferred'
+    | 'request_deferred'
+    | 'redirect_policy_refused'
     | 'redirect_offsite'
+    | 'redirect_continuation'
     | 'too_large'
     | 'not_image'
     | 'unsupported_encoding'
     | 'blocked'
+    | 'opt_out'
+    | 'not_modified'
     | 'timeout'
     | 'error'
+
+export type TransientFetchOutcome = Extract<FetchOutcome, 'timeout' | 'error' | 'rate_limited' | 'server_error'>
+export type FetchRefusalReason = OriginPolicyReason | ResponseOptOutReason | 'configuration_refused'
 
 export interface ImageFetchResult {
     outcome: FetchOutcome
     redirects: number
+    currentUrl: string
     status?: number
     bytes?: Buffer
     contentType?: ImageContentType
-    /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for that period. */
+    contentEncoding?: string
+    cache?: HttpCacheMetadata
+    refusalReason?: FetchRefusalReason
+    /** Set by a 429 or a 503 that named a period. The caller holds the registrable domain for that period. */
     retryAfterMs?: number
+    schedulingReason?: RequestScheduleBlockReason
+    schedulingWaitMs?: number
+    policyTransient?: boolean
     /** Where a redirect this lane did not follow points. The caller republishes it rather than fetching it. */
     redirectTarget?: { url: string; host: string }
 }
@@ -48,30 +64,29 @@ export interface ImageFetchOptions {
     /** Covers the redirect chain as a whole, so a chain of slow hops cannot outlive one hop's budget. */
     timeoutMs: number
     maxRedirects: number
-    /**
-     * The fetch asks this for every redirect target it will follow, so each hop spends a token.
-     *
-     * `remainingMs` is what is left of this request, so a wait longer than that must `defer`.
-     *
-     * A `defer` must not read as a `refuse`, because the caller writes a refusal to the crawl
-     * history and writes nothing for a deferral.
-     */
-    authorizeRedirect: (url: URL, remainingMs: number) => Promise<RedirectDecision>
-    /**
-     * True when the target belongs to another operator, so this fetch must not follow it.
-     *
-     * The fetch asks this before it applies the redirect limit, and the question spends nothing. The
-     * limit bounds the hops this request follows itself. Nobody here follows a target for another
-     * operator, so it goes back to Kafka and costs one hop instead. Requirement 7.
-     */
-    isOffsite: (url: URL) => boolean
+    scheduleRequest: <T>(
+        url: URL,
+        deadlineMs: number,
+        request: () => Promise<T>
+    ) => Promise<{ ran: true; value: T } | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }>
+    checkRedirectPolicy: (url: string) => Promise<RedirectTargetPolicy>
+    isDifferentOrigin: (url: URL) => boolean
+    cache?: HttpCacheMetadata
+    tdmrepReservation: boolean
+    onRedirectResponse?: () => void
 }
 
-/**
- * `allow` follows the target here. `defer` means the budget is spent or the breaker is open.
- * `refuse` means this lane will never follow the target.
- */
-export type RedirectDecision = 'allow' | 'refuse' | 'defer'
+export type RequestScheduleBlockReason =
+    | 'breaker_open'
+    | 'backoff'
+    | 'deadline'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
+    | 'connection_limit'
+
+export type RedirectTargetPolicy =
+    | { allowed: true; tdmrepReservation: boolean }
+    | { allowed: false; transient: boolean; reason: OriginPolicyReason | 'configuration_refused' }
 
 export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
@@ -82,9 +97,7 @@ const USER_AGENT = 'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-res
 const REQUEST_HEADERS: Record<string, string> = {
     'user-agent': USER_AGENT,
     accept: 'image/*',
-    // Every type this lane accepts is compressed already, so gzip saves the origin almost nothing,
-    // and the byte limit can count what arrives rather than what a decoder would produce from it.
-    'accept-encoding': 'identity',
+    'accept-encoding': 'gzip, deflate, br, zstd',
 }
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -106,119 +119,186 @@ export class HttpImageFetcher implements ImageFetcher {
     public async fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult> {
         const deadlineMs = Date.now() + options.timeoutMs
         let target = url
+        let currentCache = options.cache
+        let tdmrepReservation = options.tdmrepReservation
         for (let redirects = 0; ; redirects++) {
             const remainingMs = deadlineMs - Date.now()
             if (remainingMs <= 0) {
-                return { outcome: 'timeout', redirects }
+                return { outcome: 'timeout', redirects, currentUrl: target }
             }
-            let hop: HopResult
+            let scheduled:
+                | { ran: true; value: HopResult }
+                | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }
             try {
-                hop = await this.hop(target, remainingMs, options.maxBytes)
+                scheduled = await options.scheduleRequest(new URL(target), deadlineMs, () =>
+                    this.hop(
+                        target,
+                        Math.max(1, deadlineMs - Date.now()),
+                        options.maxBytes,
+                        currentCache,
+                        tdmrepReservation
+                    )
+                )
             } catch (error) {
-                return { outcome: classifyError(error), redirects }
+                return { outcome: classifyError(error), redirects, currentUrl: target }
             }
+            if (!scheduled.ran) {
+                return {
+                    outcome: 'request_deferred',
+                    redirects,
+                    currentUrl: target,
+                    schedulingReason: scheduled.reason,
+                    schedulingWaitMs: scheduled.waitMs,
+                }
+            }
+            const hop = scheduled.value
             if (hop.kind !== 'redirect') {
-                return { ...hop.result, redirects }
+                return { ...hop.result, redirects, currentUrl: target }
             }
             const next = resolveRedirect(target, hop.location, this.policy)
             if (!next) {
-                return { outcome: 'bad_redirect', redirects, status: hop.status }
+                return { outcome: 'bad_redirect', redirects, currentUrl: target, status: hop.status }
             }
-            if (options.isOffsite(next)) {
-                // The budget, the breaker, and the connection count for that domain belong to the
-                // consumer that owns its partition.
+            options.onRedirectResponse?.()
+            if (options.isDifferentOrigin(next)) {
                 return {
                     outcome: 'redirect_offsite',
                     redirects,
+                    currentUrl: target,
                     status: hop.status,
                     redirectTarget: { url: next.toString(), host: next.hostname },
                 }
             }
-            // After the offsite test and before authorization, so a hop this lane refuses spends no
-            // token from the budget of the site it would have landed on.
             if (redirects >= options.maxRedirects) {
-                return { outcome: 'too_many_redirects', redirects, status: hop.status }
+                return {
+                    outcome: 'redirect_continuation',
+                    redirects,
+                    currentUrl: target,
+                    status: hop.status,
+                    redirectTarget: { url: next.toString(), host: next.hostname },
+                    cache: hop.cache,
+                }
             }
-            let decision: RedirectDecision
-            try {
-                decision = await options.authorizeRedirect(next, deadlineMs - Date.now())
-            } catch (error) {
-                return { outcome: classifyError(error), redirects }
-            }
-            if (decision !== 'allow') {
-                const outcome = decision === 'defer' ? 'redirect_deferred' : 'bad_redirect'
-                return { outcome, redirects, status: hop.status }
+            const redirectPolicy = await options.checkRedirectPolicy(next.toString())
+            if (!redirectPolicy.allowed) {
+                return {
+                    outcome: 'redirect_policy_refused',
+                    redirects: redirects + 1,
+                    currentUrl: next.toString(),
+                    status: hop.status,
+                    refusalReason: redirectPolicy.reason,
+                    policyTransient: redirectPolicy.transient,
+                    cache: hop.cache,
+                }
             }
             target = next.toString()
+            currentCache = undefined
+            tdmrepReservation = redirectPolicy.tdmrepReservation
         }
     }
 
-    private async hop(url: string, timeoutMs: number, maxBytes: number): Promise<HopResult> {
-        const headers = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
-        const response = await fetchStreamed(url, { headers, timeoutMs })
-        const status = response.status
+    private async hop(
+        url: string,
+        timeoutMs: number,
+        maxBytes: number,
+        previousCache: HttpCacheMetadata | undefined,
+        tdmrepReservation: boolean
+    ): Promise<HopResult> {
+        const requestTimeMs = Date.now()
+        const canonical = canonicalizeUrl(url)
+        let requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus()
+        const headers: Record<string, string> = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
+        if (previousCache?.etag) {
+            headers['if-none-match'] = previousCache.etag
+        } else if (previousCache?.lastModified) {
+            headers['if-modified-since'] = previousCache.lastModified
+        }
+        try {
+            const response = await fetchStreamed(url, { headers, timeoutMs })
+            const status = response.status
+            requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus(status)
+            const cache = cacheMetadata(requestTimeMs, Date.now(), response.headerLines)
+            const optOut = responseOptOutReason(response.headerLines, tdmrepReservation)
+            if (optOut) {
+                response.discard()
+                return { kind: 'done', result: { outcome: 'opt_out', status, refusalReason: optOut, cache } }
+            }
 
-        if (REDIRECT_STATUSES.has(status)) {
-            response.discard()
-            const location = response.headers['location']
-            return location
-                ? { kind: 'redirect', status, location }
-                : { kind: 'done', result: { outcome: 'bad_redirect', status } }
-        }
-        if (status !== 200) {
-            response.discard()
-            return { kind: 'done', result: statusResult(status, response.headers['retry-after']) }
-        }
+            if (REDIRECT_STATUSES.has(status)) {
+                response.discard()
+                const locations = headerValues(response.headerLines, 'location')
+                const location = locations.length === 1 ? locations[0] : undefined
+                return location
+                    ? { kind: 'redirect', status, location, cache }
+                    : { kind: 'done', result: { outcome: 'bad_redirect', status, cache } }
+            }
+            if (status === 304) {
+                response.discard()
+                const outcome =
+                    previousCache?.etag || previousCache?.lastModified ? 'not_modified' : 'unexpected_status'
+                return { kind: 'done', result: { outcome, status, cache } }
+            }
+            if (status !== 200) {
+                response.discard()
+                return {
+                    kind: 'done',
+                    result: { ...statusResult(status, headerValues(response.headerLines, 'retry-after')), cache },
+                }
+            }
 
-        const contentType = normalizeContentType(response.headers['content-type'])
-        if (!contentType) {
-            response.discard()
-            return { kind: 'done', result: { outcome: 'not_image', status } }
-        }
-        // An origin that compresses anyway makes the byte limit count compressed bytes, and the
-        // payload behind them can be far larger. This is a refusal by this lane rather than a fact
-        // about the image, so it gets its own outcome and does not write the URL off.
-        const encoding = response.headers['content-encoding']?.trim().toLowerCase()
-        if (encoding && encoding !== 'identity') {
-            response.discard()
-            return { kind: 'done', result: { outcome: 'unsupported_encoding', status } }
-        }
-        // Before the body, so a declared size over the limit costs one header exchange.
-        const declaredBytes = Number(response.headers['content-length'])
-        if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
-            response.discard()
-            return { kind: 'done', result: { outcome: 'too_large', status } }
-        }
+            const contentTypes = headerValues(response.headerLines, 'content-type').map(normalizeContentType)
+            const contentType = contentTypes[0]
+            if (!contentType || contentTypes.some((candidate) => candidate !== contentType)) {
+                response.discard()
+                return { kind: 'done', result: { outcome: 'not_image', status, cache } }
+            }
+            const contentEncoding = normalizeContentEncoding(headerValues(response.headerLines, 'content-encoding'))
+            if (contentEncoding === null) {
+                response.discard()
+                return { kind: 'done', result: { outcome: 'unsupported_encoding', status, cache } }
+            }
+            const declaredTooLarge = headerValues(response.headerLines, 'content-length').some((value) => {
+                const declaredBytes = Number(value)
+                return Number.isFinite(declaredBytes) && declaredBytes > maxBytes
+            })
+            if (declaredTooLarge) {
+                response.discard()
+                return { kind: 'done', result: { outcome: 'too_large', status, cache } }
+            }
 
-        const { bytes, overLimit } = await response.read(maxBytes)
-        if (overLimit) {
-            return { kind: 'done', result: { outcome: 'too_large', status } }
+            const { bytes, overLimit } = await response.read(maxBytes, false)
+            if (overLimit) {
+                return { kind: 'done', result: { outcome: 'too_large', status, cache } }
+            }
+            return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType, contentEncoding, cache } }
+        } finally {
+            if (canonical) {
+                ImageFetchRequestMetrics.observeRequest(requestOutcome, (Date.now() - requestTimeMs) / 1000)
+            }
         }
-        // A payload that disagrees with its declared type would reach the scrub lane as an image no
-        // model can read, and by then the URL that produced it is gone.
-        if (!magicBytesMatch(bytes, contentType)) {
-            return { kind: 'done', result: { outcome: 'not_image', status } }
-        }
-        return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType } }
     }
 }
 
 type HopResult =
-    | { kind: 'redirect'; status: number; location: string }
-    | { kind: 'done'; result: Omit<ImageFetchResult, 'redirects'> }
+    | { kind: 'redirect'; status: number; location: string; cache: HttpCacheMetadata }
+    | { kind: 'done'; result: Omit<ImageFetchResult, 'redirects' | 'currentUrl'> }
 
-function statusResult(status: number, retryAfter: string | undefined): Omit<ImageFetchResult, 'redirects'> {
+function statusResult(status: number, retryAfterValues: string[]): Omit<ImageFetchResult, 'redirects' | 'currentUrl'> {
+    const retryAfterMs = maximumRetryAfterMs(retryAfterValues)
     if (status === 404 || status === 410) {
         return { outcome: 'not_found', status }
     }
     if (status === 401 || status === 403) {
         return { outcome: 'forbidden', status }
     }
+    if (status === 408 || status === 425) {
+        return { outcome: 'rate_limited', status }
+    }
     if (status === 429) {
-        return { outcome: 'rate_limited', status, retryAfterMs: parseRetryAfterMs(retryAfter) }
+        return { outcome: 'rate_limited', status, retryAfterMs }
     }
     if (status === 503) {
-        return { outcome: 'server_error', status, retryAfterMs: parseRetryAfterMs(retryAfter) }
+        return { outcome: 'server_error', status, retryAfterMs }
     }
     if (status >= 500) {
         return { outcome: 'server_error', status }
@@ -226,17 +306,23 @@ function statusResult(status: number, retryAfter: string | undefined): Omit<Imag
     return { outcome: 'unexpected_status', status }
 }
 
+function maximumRetryAfterMs(values: string[]): number | undefined {
+    const parsed = values.flatMap((value) => {
+        const retryAfterMs = parseRetryAfterMs(value)
+        return retryAfterMs === undefined ? [] : [retryAfterMs]
+    })
+    return parsed.length > 0 ? Math.max(...parsed) : undefined
+}
+
 /** RFC 9110 allows a count of seconds or an HTTP date. Real responses use both. */
 export function parseRetryAfterMs(value: string | undefined): number | undefined {
     if (!value) {
         return undefined
     }
-    // An absent, zero, or past period returns undefined, so the caller applies its own default
-    // rather than reading zero as a site that wants no pause.
     const trimmed = value.trim()
-    const seconds = trimmed === '' ? NaN : Number(trimmed)
-    if (Number.isFinite(seconds)) {
-        return seconds > 0 ? seconds * 1000 : undefined
+    if (/^\d+$/.test(trimmed)) {
+        const seconds = Number(trimmed)
+        return Number.isSafeInteger(seconds) && seconds <= Number.MAX_SAFE_INTEGER / 1000 ? seconds * 1000 : undefined
     }
     const dateMs = Date.parse(trimmed)
     if (Number.isNaN(dateMs)) {
@@ -281,14 +367,14 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     if (next.port !== '') {
         return null
     }
-    const target = next.toString()
-    if (target.length > policy.maxUrlLength) {
+    const canonical = canonicalizeUrl(next.toString())
+    if (!canonical || canonical.fetch.length > policy.maxUrlLength) {
         return null
     }
-    if (!policy.isPublicHost(next.hostname)) {
+    if (!policy.isPublicHost(canonical.host)) {
         return null
     }
-    return next
+    return new URL(canonical.fetch)
 }
 
 function normalizeContentType(header: string | undefined): ImageContentType | undefined {
@@ -299,48 +385,50 @@ function normalizeContentType(header: string | undefined): ImageContentType | un
     return ALLOWED_CONTENT_TYPES.find((allowed) => allowed === type)
 }
 
-function startsWith(bytes: Buffer, signature: number[], offset = 0): boolean {
-    if (bytes.length < offset + signature.length) {
-        return false
+const ALLOWED_CONTENT_ENCODINGS = new Set(['gzip', 'deflate', 'br', 'zstd'])
+const MAX_CONTENT_ENCODING_LAYERS = 4
+
+function normalizeContentEncoding(values: string[]): string | undefined | null {
+    const declaredCodings = values.flatMap((value) => value.split(',')).map((coding) => coding.trim().toLowerCase())
+    if (declaredCodings.length > MAX_CONTENT_ENCODING_LAYERS || declaredCodings.some((coding) => coding === '')) {
+        return null
     }
-    return signature.every((byte, index) => bytes[offset + index] === byte)
+    const codings = declaredCodings.filter((coding) => coding !== 'identity')
+    if (codings.some((coding) => !ALLOWED_CONTENT_ENCODINGS.has(coding))) {
+        return null
+    }
+    return codings.length > 0 ? codings.join(', ') : undefined
 }
 
-function asciiAt(bytes: Buffer, offset: number, text: string): boolean {
-    return startsWith(
-        bytes,
-        [...text].map((char) => char.charCodeAt(0)),
-        offset
-    )
+function headerValues(headerLines: Array<{ name: string; value: string }>, name: string): string[] {
+    return headerLines.filter((line) => line.name === name).map((line) => line.value)
 }
 
-/**
- * This checks agreement rather than format. Anything that passes still reaches an image decoder
- * later, so this only has to catch a payload that is not the format it claims.
- */
-export function magicBytesMatch(bytes: Buffer, contentType: ImageContentType): boolean {
-    switch (contentType) {
-        case 'image/png':
-            return startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-        case 'image/jpeg':
-            return startsWith(bytes, [0xff, 0xd8, 0xff])
-        case 'image/gif':
-            return asciiAt(bytes, 0, 'GIF87a') || asciiAt(bytes, 0, 'GIF89a')
-        case 'image/webp':
-            return asciiAt(bytes, 0, 'RIFF') && asciiAt(bytes, 8, 'WEBP')
-        case 'image/bmp':
-            return asciiAt(bytes, 0, 'BM')
-        case 'image/avif':
-            // An ISO base media file names its brand after the `ftyp` box header, and AVIF still
-            // ships under the `mif1` and `msf1` brands that came before the AVIF ones.
-            return (
-                asciiAt(bytes, 4, 'ftyp') &&
-                (asciiAt(bytes, 8, 'avif') ||
-                    asciiAt(bytes, 8, 'avis') ||
-                    asciiAt(bytes, 8, 'mif1') ||
-                    asciiAt(bytes, 8, 'msf1'))
-            )
+function cacheMetadata(
+    requestTimeMs: number,
+    responseTimeMs: number,
+    headerLines: Array<{ name: string; value: string }>
+): HttpCacheMetadata {
+    return {
+        requestTimeMs,
+        responseTimeMs,
+        etag: singletonHeader(headerLines, 'etag'),
+        lastModified: singletonHeader(headerLines, 'last-modified'),
+        date: singletonHeader(headerLines, 'date'),
+        age: singletonHeader(headerLines, 'age'),
+        cacheControl: combinedHeader(headerLines, 'cache-control'),
+        expires: singletonHeader(headerLines, 'expires'),
     }
+}
+
+function singletonHeader(headerLines: Array<{ name: string; value: string }>, name: string): string | undefined {
+    const values = headerValues(headerLines, name)
+    return values.length === 1 ? values[0] : undefined
+}
+
+function combinedHeader(headerLines: Array<{ name: string; value: string }>, name: string): string | undefined {
+    const values = headerValues(headerLines, name)
+    return values.length > 0 ? values.join(', ') : undefined
 }
 
 export function classifyError(error: unknown): FetchOutcome {

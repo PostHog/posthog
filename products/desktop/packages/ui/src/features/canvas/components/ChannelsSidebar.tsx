@@ -1,6 +1,5 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
@@ -8,8 +7,10 @@ import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSi
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
+import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
@@ -23,7 +24,6 @@ import {
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -47,6 +47,7 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
+import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
 /**
@@ -158,13 +159,7 @@ export function ChannelsSidebar() {
   // Channels stay behind project-bluebird: the switch only appears where the
   // canvas backend is wired, and a persisted "on" is ignored when the flag is
   // off so the sidebar can't strand a user on an unsupported feature.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const channelsWorld = channelsLayout || channelsEnabled;
+  const channelsWorld = useChannelsWorld();
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
   // beside Settings — the bottom of the sidebar belongs to the channel list.
@@ -191,6 +186,7 @@ export function ChannelsSidebar() {
   // slide to there's only the list.
   const { showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
+  const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;
 
@@ -237,6 +233,8 @@ export function ChannelsSidebar() {
                 selectedId={selectedActivityId}
                 onActivate={selectActivityItem}
               />
+            ) : feedId ? (
+              <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
             ) : (
               <ChannelPanes
                 channelId={currentChannelId}
