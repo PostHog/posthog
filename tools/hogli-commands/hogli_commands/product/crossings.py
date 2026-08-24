@@ -583,6 +583,8 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     """Every use of every crossing class in consumer code, sorted, one entry per kind per module.
 
     Plus every `apps.get_model` reference to any product model from outside the owning product."""
+    # Consumed twice below; a generator argument would silently empty the second pass.
+    products = list(products) if products is not None else None
     classes = crossing_classes(products)
     owning_dir = {c.label: PRODUCTS_DIR / c.product for c in classes}
     owning_dir |= {label: PRODUCTS_DIR / product for label, product in product_model_labels(products).items()}
