@@ -21,7 +21,7 @@ by the sibling ``organization_members`` module.
 import json
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -50,6 +50,10 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountNoteView,
     AccountRelationship,
     AccountRelationshipDefinition,
+    AccountTableField,
+    AccountTrackRuleFieldKind,
+    AccountTrackRulePreview,
+    AccountTrackRuleRunView,
     AccountView,
     CalendarSyncStatus,
     CustomerJourneyView,
@@ -70,6 +74,114 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
+
+
+class AccountTrackRuleFieldSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=[kind.value for kind in AccountTrackRuleFieldKind])
+    field = serializers.ChoiceField(
+        choices=[field.value for field in AccountTableField], required=False, allow_null=True
+    )
+    definition_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def to_internal_value(self, data):
+        return {key: value for key, value in super().to_internal_value(data).items() if value is not None}
+
+    def to_representation(self, instance):
+        return {key: value for key, value in super().to_representation(instance).items() if value is not None}
+
+
+class AccountTrackRuleConditionSerializer(serializers.Serializer):
+    field = AccountTrackRuleFieldSerializer()
+    operator = serializers.CharField()
+    values = serializers.ListField(child=serializers.JSONField(), required=False, default=list)
+
+
+class AccountTrackRuleGroupSerializer(serializers.Serializer):
+    conditions = AccountTrackRuleConditionSerializer(many=True)
+
+
+@extend_schema_serializer(many=False)
+class AccountTrackRulesConfigSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField()
+    version = serializers.IntegerField(min_value=0)
+    enabled = serializers.BooleanField()
+    groups = AccountTrackRuleGroupSerializer(many=True)
+
+
+class AccountTrackRuleSampleSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    external_id = serializers.CharField(read_only=True, allow_null=True)
+    rule_values = serializers.DictField(child=serializers.JSONField(), read_only=True)
+
+
+class AccountTrackRulePreviewSerializer(DataclassSerializer):
+    tracked_samples = AccountTrackRuleSampleSerializer(many=True, read_only=True)
+    ignored_samples = AccountTrackRuleSampleSerializer(many=True, read_only=True)
+
+    class Meta:
+        dataclass = AccountTrackRulePreview
+        fields = [
+            "config_version",
+            "eligible_active",
+            "skipped_churned",
+            "tracked",
+            "ignored",
+            "newly_ignored",
+            "restored",
+            "tracked_samples",
+            "ignored_samples",
+            "validation_errors",
+        ]
+
+
+class AccountTrackRuleRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    config_version = serializers.IntegerField(read_only=True, min_value=0)
+    trigger = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    eligible_active = serializers.IntegerField(read_only=True, min_value=0)
+    skipped_churned = serializers.IntegerField(read_only=True, min_value=0)
+    tracked = serializers.IntegerField(read_only=True, min_value=0)
+    ignored = serializers.IntegerField(read_only=True, min_value=0)
+    newly_ignored = serializers.IntegerField(read_only=True, min_value=0)
+    restored = serializers.IntegerField(read_only=True, min_value=0)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    error = serializers.CharField(read_only=True, allow_null=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = AccountTrackRuleRunView
+        fields = [
+            "id",
+            "config_version",
+            "trigger",
+            "status",
+            "eligible_active",
+            "skipped_churned",
+            "tracked",
+            "ignored",
+            "newly_ignored",
+            "restored",
+            "started_at",
+            "finished_at",
+            "error",
+            "created_by",
+            "created_at",
+        ]
+
+
+class AccountTrackRuleRunRequestSerializer(serializers.Serializer):
+    idempotency_key = serializers.UUIDField()
+    confirmed = serializers.BooleanField()
+
+    def validate_confirmed(self, value: bool) -> bool:
+        if not value:
+            raise serializers.ValidationError("Confirm before running Track Rules.")
+        return value
+
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
 # here rather than read off the model so this module imports no product models — the

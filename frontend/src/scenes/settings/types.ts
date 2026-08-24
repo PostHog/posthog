@@ -127,6 +127,7 @@ export type SettingId =
     | 'customer-analytics-event-stream'
     | 'customer-analytics-group-properties'
     | 'customer-analytics-person-properties'
+    | 'customer-analytics-track-rules'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
     | 'data-theme'

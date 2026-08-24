@@ -85,6 +85,103 @@ export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ z
     })
     .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
 
+export const accountTrackRulesUpdateBodyVersionMin = 0
+
+export const AccountTrackRulesUpdateBody = /* @__PURE__ */ zod.object({
+    schema_version: zod.number(),
+    version: zod.number().min(accountTrackRulesUpdateBodyVersionMin),
+    enabled: zod.boolean(),
+    groups: zod.array(
+        zod.object({
+            conditions: zod.array(
+                zod.object({
+                    field: zod.object({
+                        kind: zod
+                            .enum(['account_field', 'custom_property'])
+                            .describe('\* `account_field` - account_field\n\* `custom_property` - custom_property'),
+                        field: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'name',
+                                        'external_id',
+                                        'created_at',
+                                        'updated_at',
+                                        'churned_at',
+                                        'ignored_at',
+                                        'stripe_customer_id',
+                                        'hubspot_deal_id',
+                                        'billing_id',
+                                        'sfdc_id',
+                                        'zendesk_id',
+                                    ])
+                                    .describe(
+                                        '\* `name` - name\n\* `external_id` - external_id\n\* `created_at` - created_at\n\* `updated_at` - updated_at\n\* `churned_at` - churned_at\n\* `ignored_at` - ignored_at\n\* `stripe_customer_id` - stripe_customer_id\n\* `hubspot_deal_id` - hubspot_deal_id\n\* `billing_id` - billing_id\n\* `sfdc_id` - sfdc_id\n\* `zendesk_id` - zendesk_id'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        definition_id: zod.uuid().nullish(),
+                    }),
+                    operator: zod.string(),
+                    values: zod.array(zod.unknown()).optional(),
+                })
+            ),
+        })
+    ),
+})
+
+export const accountTrackRulesPreviewCreateBodyVersionMin = 0
+
+export const AccountTrackRulesPreviewCreateBody = /* @__PURE__ */ zod.object({
+    schema_version: zod.number(),
+    version: zod.number().min(accountTrackRulesPreviewCreateBodyVersionMin),
+    enabled: zod.boolean(),
+    groups: zod.array(
+        zod.object({
+            conditions: zod.array(
+                zod.object({
+                    field: zod.object({
+                        kind: zod
+                            .enum(['account_field', 'custom_property'])
+                            .describe('\* `account_field` - account_field\n\* `custom_property` - custom_property'),
+                        field: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'name',
+                                        'external_id',
+                                        'created_at',
+                                        'updated_at',
+                                        'churned_at',
+                                        'ignored_at',
+                                        'stripe_customer_id',
+                                        'hubspot_deal_id',
+                                        'billing_id',
+                                        'sfdc_id',
+                                        'zendesk_id',
+                                    ])
+                                    .describe(
+                                        '\* `name` - name\n\* `external_id` - external_id\n\* `created_at` - created_at\n\* `updated_at` - updated_at\n\* `churned_at` - churned_at\n\* `ignored_at` - ignored_at\n\* `stripe_customer_id` - stripe_customer_id\n\* `hubspot_deal_id` - hubspot_deal_id\n\* `billing_id` - billing_id\n\* `sfdc_id` - sfdc_id\n\* `zendesk_id` - zendesk_id'
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        definition_id: zod.uuid().nullish(),
+                    }),
+                    operator: zod.string(),
+                    values: zod.array(zod.unknown()).optional(),
+                })
+            ),
+        })
+    ),
+})
+
+export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
+    idempotency_key: zod.uuid(),
+    confirmed: zod.boolean(),
+})
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400

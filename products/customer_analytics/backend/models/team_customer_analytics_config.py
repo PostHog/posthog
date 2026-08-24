@@ -11,6 +11,15 @@ from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 logger = logging.getLogger(__name__)
 
 
+def default_account_track_rules() -> dict:
+    return {
+        "schema_version": 1,
+        "version": 0,
+        "enabled": False,
+        "groups": [],
+    }
+
+
 class TeamCustomerAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
@@ -20,6 +29,9 @@ class TeamCustomerAnalyticsConfig(models.Model):
     subscription_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     payment_event = field_access_control(models.JSONField(default=dict), "project", "admin")
     account_group_type_index = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
+    account_track_rules = field_access_control(
+        models.JSONField(default=default_account_track_rules), "project", "admin"
+    )
 
     def to_cache_key_dict(self) -> dict:
         return {

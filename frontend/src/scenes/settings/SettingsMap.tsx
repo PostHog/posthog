@@ -49,6 +49,7 @@ import { GeneralSection } from 'products/conversations/frontend/scenes/settings/
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
     WarehouseGroupPropertiesSetting,
@@ -453,6 +454,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-track-rules',
+                title: 'Track rules',
+                description: 'Choose which active accounts appear in Customer analytics.',
+                component: <AccountTrackRules />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_TRACK_RULES'],
+                keywords: ['accounts', 'track', 'ignore', 'rules', 'filter'],
             },
             {
                 id: 'customer-analytics-calendar-sync',
