@@ -288,7 +288,7 @@ fixes, clear with no jargon). Rules:
 - **Link every PostHog entity** by ID. Cohorts: `https://<us|eu>.posthog.com/project/<id>/cohorts/<cohort_id>`. Flags: `.../feature_flags/<flag_id>`. Surveys: `.../surveys/<survey_id>`. Match the customer's instance (US vs EU).
 - **Predict the expected outcome** so the customer can verify the fix worked ("you should see ~X going forward").
 - **Gauge the customer's technical level.** If they can run SQL and hit the API, offer the patch path. If not, offer to apply the fix ourselves (and confirm any destructive detail first).
-- **Do NOT offer to "hop on a call" or book a meeting.** PostHog support is async-first. Close with "We're always here if you need a follow-up."
+- **Do NOT offer to "hop on a call" or book a meeting.** PostHog support is async-first. If the customer wants live help, point them to the paid [30-minute onboarding consultation](https://shop.posthog.com/products/30-min-onboarding-consultation) and offer to keep going over email. Close with "We're always here if you need a follow-up."
 - **Never leak internals** — no MCP tool names, code paths, line numbers, Django admin, staff impersonation, or other customers. Keep it to product concepts a customer recognizes.
 - **Run the final draft through a humanizer skill before sending** (if you have one, e.g. `humanizer`). Strip em dashes, setup phrases ("Here's the thing:", "Three things to know"), rule-of-three padding, and tidy parallel list structure. The reply should read like a person typed it.
 
