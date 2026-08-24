@@ -161,8 +161,7 @@ function DashboardScene({
                             : () => loadDashboard({ action: DashboardLoadAction.Update })
                     }
                     retryLoading={dashboardLoading}
-                    excludeSupport={placement === DashboardPlacement.Export}
-                    excludeQueryId={placement === DashboardPlacement.Export}
+                    placement={placement}
                 />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />

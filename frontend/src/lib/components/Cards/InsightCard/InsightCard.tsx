@@ -375,7 +375,7 @@ function InsightCardInternal(
                         validationErrorCode={extractValidationErrorCode(apiError)}
                         query={insight.query}
                         excludeActions={sharedView}
-                        excludeSupport={placement === DashboardPlacement.Export}
+                        placement={placement}
                     />
                 )
             } else if (apiError instanceof ApiError) {
@@ -388,8 +388,7 @@ function InsightCardInternal(
                         retryLoading={loading}
                         query={insight.query}
                         excludeActions={sharedView}
-                        excludeSupport={placement === DashboardPlacement.Export}
-                        excludeQueryId={placement === DashboardPlacement.Export}
+                        placement={placement}
                         onRetry={sharedView ? undefined : refresh}
                     />
                 )

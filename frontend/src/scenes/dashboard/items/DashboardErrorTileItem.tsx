@@ -7,7 +7,7 @@ import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightC
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
-import { DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { getDashboardTileDisplayName } from '../dashboardUtils'
 
@@ -19,7 +19,7 @@ interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElemen
     onRemove?: () => void
     onRetry?: () => void
     retryLoading?: boolean
-    excludeSupport?: boolean
+    placement?: DashboardPlacement
     showEditingControls?: boolean
 }
 
@@ -34,7 +34,7 @@ function DashboardErrorTileItemInternal(
         onRemove,
         onRetry,
         retryLoading,
-        excludeSupport,
+        placement,
         showEditingControls,
         showResizeHandles,
         ...divProps
@@ -64,7 +64,7 @@ function DashboardErrorTileItemInternal(
                 title="There is a problem loading this dashboard tile."
                 onRetry={onRetry}
                 retryLoading={retryLoading}
-                excludeSupport={excludeSupport}
+                placement={placement}
             />
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />

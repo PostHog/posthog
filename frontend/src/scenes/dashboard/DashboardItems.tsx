@@ -553,7 +553,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         tile={tile}
                                         onRetry={retryFailedDashboardTile}
                                         retryLoading={dashboardLoading}
-                                        excludeSupport={placement === DashboardPlacement.Export}
+                                        placement={placement}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={showResizeHandles}
                                         canEnterEditModeFromEdge={canEnterEditModeFromEdge}

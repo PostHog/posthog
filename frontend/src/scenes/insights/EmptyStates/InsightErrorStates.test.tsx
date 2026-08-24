@@ -5,6 +5,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { DashboardPlacement } from '~/types'
 
 import { InsightErrorState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
 
@@ -213,8 +214,7 @@ describe('insight error states', () => {
                 title="There was a server problem."
                 titleStatus={500}
                 queryId="export-query-id"
-                excludeSupport
-                excludeQueryId
+                placement={DashboardPlacement.Export}
             />
         )
 

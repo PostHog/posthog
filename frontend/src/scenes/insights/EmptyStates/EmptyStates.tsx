@@ -47,6 +47,7 @@ import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardPlacement,
     FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
@@ -597,7 +598,7 @@ export function InsightValidationError({
     onRetry,
     cta,
     excludeActions = false,
-    excludeSupport = false,
+    placement,
 }: {
     detail: string
     validationErrorCode?: string | null
@@ -605,13 +606,17 @@ export function InsightValidationError({
     onRetry?: () => void
     cta?: JSX.Element
     excludeActions?: boolean
-    excludeSupport?: boolean
+    placement?: DashboardPlacement | 'SavedInsightGrid'
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
     const displayDetail = getInsightValidationDetail(detail)
-    const showQueryDebuggerInstruction = query && displayDetail !== 'Check the query for errors, then run it again.'
+    const showQueryDebuggerInstruction =
+        query &&
+        displayDetail !== 'Check the query for errors, then run it again.' &&
+        placement !== DashboardPlacement.Export
+    const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
@@ -639,7 +644,7 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
 
-            {showQueryDebuggerInstruction && !excludeActions && (
+            {showQueryDebuggerInstruction && !shouldExcludeActions && (
                 <p className="text-sm text-muted max-w-120 mb-2">Open the query debugger and correct the query.</p>
             )}
 
@@ -647,7 +652,7 @@ export function InsightValidationError({
                 beside it so users who decline AI consent (or lack AI access) still have a next step.
                 onClick fires when consent was already given (popover hidden); onApprove fires after
                 the consent flow completes — same pattern as InsightAIAnalysis. */}
-            {!excludeActions &&
+            {!shouldExcludeActions &&
                 (isMemoryLimitError && !cta ? (
                     <div className="flex items-center gap-2">
                         <AIConsentPopoverWrapper onApprove={debugWithAI}>
@@ -665,7 +670,7 @@ export function InsightValidationError({
                     defaultCta
                 ))}
 
-            {detail.includes('Exclusion') && !excludeSupport && (
+            {detail.includes('Exclusion') && placement !== DashboardPlacement.Export && (
                 <div className="mt-4">
                     <Link
                         data-attr="insight-funnels-emptystate-help"
@@ -789,8 +794,7 @@ export interface InsightErrorStateProps {
     queryId?: string | null
     retryAfter?: string | null
     retryLoading?: boolean
-    excludeSupport?: boolean
-    excludeQueryId?: boolean
+    placement?: DashboardPlacement | 'SavedInsightGrid'
     excludeDetail?: boolean
     excludeActions?: boolean
     supportOnly?: boolean
@@ -805,8 +809,7 @@ export function InsightErrorState({
     queryId,
     retryAfter,
     retryLoading = false,
-    excludeSupport = false,
-    excludeQueryId = false,
+    placement,
     excludeDetail = false,
     excludeActions = false,
     supportOnly = false,
@@ -817,7 +820,8 @@ export function InsightErrorState({
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
-    const showBugReport = errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown'
+    const isExport = placement === DashboardPlacement.Export
+    const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     const remediation = getInsightErrorRemediation(errorKind, retryAfter)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -872,13 +876,13 @@ export function InsightErrorState({
             {!supportOnly && (
                 <div className="mt-4">
                     {remediation && <p>{remediation}</p>}
-                    {!excludeDetail && !excludeSupport && showBugReport && <p>{bugReportLink}</p>}
+                    {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
             )}
 
             {/* Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
                 supportOnly still needs the bug-report path or it dead-ends. */}
-            {supportOnly && !excludeSupport && <div className="mt-4">{bugReportLink}</div>}
+            {supportOnly && !isExport && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
@@ -890,7 +894,7 @@ export function InsightErrorState({
                     {fixWithAIComponent ?? null}
                 </div>
             )}
-            {!excludeQueryId && <QueryIdDisplay queryId={queryId} />}
+            {!isExport && <QueryIdDisplay queryId={queryId} />}
         </div>
     )
 }
