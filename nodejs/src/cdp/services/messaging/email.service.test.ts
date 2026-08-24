@@ -499,6 +499,9 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
+                // The reschedule must carry the email payload forward: without queueParameters the
+                // retry has nothing to send and the throttled email is dropped rather than delayed.
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // 120/minute refills a token every 500ms, so the clamped jittered wake lands in [1s, 2s].
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 1000)

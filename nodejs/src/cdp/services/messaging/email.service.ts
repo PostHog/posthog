@@ -314,6 +314,12 @@ export class EmailService {
                 if (granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
+                    // Re-attach the email payload before rescheduling. createInvocationResult cleared
+                    // queueParameters, so without this the rescheduled dequeue has no 'email' params to
+                    // re-enter the send path — the retry would resume the Hog VM instead and drop the
+                    // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
+                    // queue-routing paths, which re-attach the same way.
+                    result.invocation.queueParameters = params
                     const retryDelayMs = pickWorkflowRateLimitRetryDelayMs(refillPerSecond)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(
