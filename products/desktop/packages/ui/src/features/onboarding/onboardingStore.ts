@@ -24,7 +24,7 @@ interface OnboardingStoreActions {
 type OnboardingStore = OnboardingStoreState & OnboardingStoreActions;
 
 const initialState: OnboardingStoreState = {
-  currentStep: "welcome",
+  currentStep: "project-select",
   hasCompletedOnboarding: false,
   hasShippedFirstPr: false,
   selectedProjectId: null,
@@ -54,7 +54,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
       resetOnboarding: () => set({ ...initialState }),
       resetSelections: () =>
         set({
-          currentStep: "welcome",
+          currentStep: "project-select",
           selectedProjectId: null,
         }),
       selectProjectId: (selectedProjectId) => set({ selectedProjectId }),
