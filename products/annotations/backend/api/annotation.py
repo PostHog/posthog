@@ -17,8 +17,14 @@ from products.product_analytics.backend.facade.models import Insight
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    # Soft-deleted parents are accepted here: the frontend echoes both FKs back on every write, so a
+    # project-scoped annotation whose dashboard was deleted would otherwise be impossible to edit or
+    # delete. Annotations actually scoped to a deleted parent never reach validation — the scope-gated
+    # filter in AnnotationsViewSet.safely_get_queryset hides them first.
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
-    dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
+    dashboard_item = TeamScopedPrimaryKeyRelatedField(
+        queryset=Insight.objects_including_soft_deleted.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Annotation
@@ -106,7 +112,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
         dashboard_id = attrs.get("dashboard_id")
         if dashboard_id is not None:
-            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
+            if not Dashboard.objects_including_soft_deleted.filter(id=dashboard_id, team_id=team.id).exists():
                 raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
 
         scope = attrs.get("scope", None)

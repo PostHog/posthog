@@ -666,7 +666,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             ("organization_scope_deleted_dashboard", Annotation.Scope.ORGANIZATION, "dashboard"),
         ]
     )
-    def test_project_wide_annotations_survive_a_soft_deleted_parent(
+    def test_project_and_org_scoped_annotations_survive_a_soft_deleted_parent(
         self, _name: str, scope: str, parent_kind: str
     ) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")
@@ -690,6 +690,26 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/")
         assert retrieve_response.status_code == status.HTTP_200_OK
+
+        # The UI echoes both parent IDs back on every write, so editing and deleting have to tolerate
+        # the stale pointer to the now-deleted parent.
+        echoed_parents = {"dashboard_item": insight.id, "dashboard_id": dashboard.id}
+
+        edit_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"content": "Rolled back the new checkout", **echoed_parents},
+        )
+        assert edit_response.status_code == status.HTTP_200_OK
+        assert edit_response.json()["content"] == "Rolled back the new checkout"
+
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"deleted": True, **echoed_parents},
+        )
+        assert delete_response.status_code == status.HTTP_200_OK
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id not in {a["id"] for a in list_response.json()["results"]}
 
     def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
         response = self.client.post(
