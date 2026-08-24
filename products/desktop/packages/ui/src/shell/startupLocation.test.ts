@@ -350,7 +350,7 @@ describe("startup location", () => {
 
     await expect(prefetchedSession).resolves.toBe("session-id");
     await expect(startup).resolves.toEqual({
-      href: "/website/general-id/tasks/session-id",
+      href: "/spaces/general-id/tasks/session-id",
       firstRun: { generalChannelId: "general-id" },
     });
     expect(client.startOnboardingSession).toHaveBeenCalledOnce();
