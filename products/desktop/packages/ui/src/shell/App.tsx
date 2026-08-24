@@ -1,6 +1,10 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { ToastProvider } from "@posthog/quill";
-import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
+import {
+  CHANNELS_LAYOUT_FLAG,
+  EXTERNAL_LINKS,
+  isNotAuthenticatedError,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { AiApprovalScreen } from "@posthog/ui/features/ai-approval/AiApprovalScreen";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -16,6 +20,7 @@ import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -91,6 +96,12 @@ function App({ devToolbar }: AppProps) {
     wasShowingAiGateRef.current = needsAiApproval;
   }, [needsAiApproval, currentOrg]);
 
+  const spacesLayoutEnabled = useFeatureFlag(CHANNELS_LAYOUT_FLAG);
+  // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
+  // a route the user has already moved off.
+  const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
+  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+
   const readyForMainApp =
     isBootstrapped &&
     isAuthenticated &&
@@ -117,6 +128,7 @@ function App({ devToolbar }: AppProps) {
         const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,
+          spacesLayoutEnabledRef.current,
         );
         if (firstRun) {
           showChannelList(firstRun.generalChannelId);

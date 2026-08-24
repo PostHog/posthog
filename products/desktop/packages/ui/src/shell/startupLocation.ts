@@ -6,7 +6,7 @@ import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 type StartupLocationClient = Pick<
   PostHogAPIClient,
-  "provisionDefaultTaskChannels"
+  "provisionDefaultTaskChannels" | "startOnboardingSession"
 >;
 
 const storageKey = (identity: string): string =>
@@ -62,6 +62,7 @@ async function consumePrimedProvision(
 export async function resolveStartupLocation(
   identity: string,
   client: StartupLocationClient,
+  spacesEnabled: boolean,
 ): Promise<StartupLocation> {
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
@@ -83,10 +84,23 @@ export async function resolveStartupLocation(
   );
   if (!general) throw new Error("#general was not provisioned");
 
+  // /website renders WebsiteLayout, which suppresses ContentHeader and hides the Channels
+  // toggle, and the route stays registered whether or not the layout is on. Sending someone
+  // there before we know they can leave again is how a first run strands with no way back;
+  // /code is navigable either way. An uncached flag reads false here, so a flag-on user can
+  // land on /code once, which costs them a click rather than the session.
+  if (!spacesEnabled) return { href: "/code", firstRun: null };
+
   // A reinstall or a new machine loses only the saved location, so the created
   // flags decide this rather than the absence of one.
   const isFirstRun =
     provisioned.personal_created || provisioned.general_created;
+  if (provisioned.personal_created) {
+    // personal_created is true exactly once per person per team, which is what keeps a
+    // relaunch from opening a second session. Deliberately not awaited: it reads the
+    // company's homepage, and this call is what blocks the app opening.
+    void client.startOnboardingSession().catch(() => {});
+  }
   return {
     href: `/spaces/${general.id}`,
     firstRun: isFirstRun ? { generalChannelId: general.id } : null,

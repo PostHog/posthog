@@ -1371,8 +1371,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
 
-  // Personal channels are provisioned lazily server-side when the channel list
-  // is fetched; `undefined` just means the list hasn't loaded it yet.
+  // Startup provisions #me, so `undefined` means the list has not loaded yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);

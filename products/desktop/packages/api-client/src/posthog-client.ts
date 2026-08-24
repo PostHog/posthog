@@ -2790,8 +2790,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2858,6 +2858,22 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<boolean> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    return response.ok;
   }
 
   async updateTaskChannelRepositories(

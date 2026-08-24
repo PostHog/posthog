@@ -238,11 +238,9 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me
-  // backend channel so they still surface in the Channels space instead of
-  // staying unfiled. The personal channel is per-user and provisioned lazily
-  // server-side on first list, so this can't collide across teammates. If it
-  // hasn't loaded yet the task is created unfiled, as before.
+  // Tasks created without a channel default into the user's private #me channel so they
+  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
+  // cannot collide across teammates; before the list loads the task is created unfiled.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
