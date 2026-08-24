@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -19,6 +20,8 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
+import { IssueSeveritySelect } from '../IssueSeveritySelect'
+import { IssueSeverityTag } from '../IssueSeverityTag'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { RuntimeIcon } from '../RuntimeIcon'
 import { CustomSeparator } from '../TableColumns'
@@ -60,7 +63,9 @@ export function ErrorTrackingIssueListRow({
     orderBy?: string
     canMutateIssues?: boolean
 }): JSX.Element {
-    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
+    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
+    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
     const runtime = getRuntimeFromLib(issue.library)
     const sparklineKey = issue.id ?? 'issue-unknown'
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
@@ -111,6 +116,20 @@ export function ErrorTrackingIssueListRow({
                         <StatusIndicator status={issue.status} size="small" />
                     )}
                     <CustomSeparator />
+                    {hasSeverityRules ? (
+                        <>
+                            {canMutateIssues ? (
+                                <IssueSeveritySelect
+                                    severity={issue.severity}
+                                    onChange={(severity) => updateIssueSeverity(issue.id, severity)}
+                                    loading={severityUpdateInFlightIds.includes(issue.id)}
+                                />
+                            ) : (
+                                <IssueSeverityTag severity={issue.severity} />
+                            )}
+                            <CustomSeparator />
+                        </>
+                    ) : null}
                     {canMutateIssues ? (
                         <AssigneeSelect
                             assignee={issue.assignee}
