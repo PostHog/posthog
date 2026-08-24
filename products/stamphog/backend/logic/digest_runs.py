@@ -222,6 +222,12 @@ def _claim_and_partition(
     config that can change between the merge and the digest. A row whose merges route nowhere is
     left unlinked, so a declaration added later picks it up instead of losing it.
 
+    A destination depends only on the audience and the repository a merge came from, so every
+    repository is resolved before the query rather than per claimed row. That is what lets the
+    claim exclude unroutable repositories in SQL, and the cap then applies to rows this run can
+    actually post. Capping first would let an audience whose oldest merges are all unroutable
+    select the same rows every day and never reach the routable ones behind them, which age out.
+
     The repo's digest toggle is read here for the same reason. Capture only decides what gets
     stamped, so a repo switched off after its merges landed would still post them. Reading the
     toggle at claim time means switching it off stops the next digest, including the merges already
@@ -234,6 +240,15 @@ def _claim_and_partition(
     write_db = router.db_for_write(PullRequestAudience)
     opened: list[tuple[DigestRun, Destination, list[PullRequestAudience]]] = []
 
+    destination_by_repo = {
+        repository: destination
+        for repository in context.registry_by_repo
+        if (destination := resolve_destination(context, audience_key, repository)) is not None
+    }
+    if not destination_by_repo:
+        logger.info("stamphog_digest_no_destination", team_id=team_id, audience_key=audience_key)
+        return []
+
     with transaction.atomic(using=write_db):
         audiences = list(
             PullRequestAudience.objects.for_team(team_id)
@@ -241,6 +256,7 @@ def _claim_and_partition(
                 audience_key=audience_key,
                 digest_run__isnull=True,
                 pull_request__repo_config__digest_enabled=True,
+                pull_request__repo_config__repository__in=destination_by_repo,
                 pull_request__merged_at__gte=claim_floor,
             )
             .select_for_update(of=("self",))
@@ -250,22 +266,9 @@ def _claim_and_partition(
         if not audiences:
             return []
 
-        # A destination depends only on the audience and the repository a merge came from, and a
-        # claim usually spans one or two repositories, so resolve per repository rather than per
-        # merge. This runs inside the claim lock; keeping it a dict lookup keeps the hold short.
         by_destination: dict[Destination, list[PullRequestAudience]] = defaultdict(list)
-        destination_by_repo: dict[str, Destination | None] = {}
         for audience in audiences:
-            repository = audience.pull_request.repo_config.repository
-            if repository not in destination_by_repo:
-                destination_by_repo[repository] = resolve_destination(context, audience_key, repository)
-            destination = destination_by_repo[repository]
-            if destination is not None:
-                by_destination[destination].append(audience)
-
-        if not by_destination:
-            logger.info("stamphog_digest_no_destination", team_id=team_id, audience_key=audience_key)
-            return []
+            by_destination[destination_by_repo[audience.pull_request.repo_config.repository]].append(audience)
 
         for destination, group in by_destination.items():
             run = DigestRun.objects.for_team(team_id).create(

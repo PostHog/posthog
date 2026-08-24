@@ -586,7 +586,8 @@ class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                 team_id=self.team.id,
                 audience_key=audience,
                 slack_channel_id=channel_id,
-                slack_channel_name=f"#{audience}",
+                # Stored bare, the way _match records it. The "#" belongs to display only.
+                slack_channel_name=audience,
                 resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
                 status=DigestRunStatus.COMPLETED,
             )

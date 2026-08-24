@@ -247,15 +247,20 @@ class DigestRun(ProductTeamModel):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # The bucket this run drained, e.g. a team slug or "repo:owner/name".
-    audience_key = models.CharField(max_length=255, default="")
-    slack_channel_id = models.CharField(max_length=64, default="")
-    slack_channel_name = models.CharField(max_length=255, blank=True, default="")
+    #
+    # db_default on all four: during a rolling deploy the previous release still inserts rows here
+    # without these columns, and Django's default= is applied in Python only. Without a database
+    # default those inserts fail the NOT NULL check for as long as both releases are running.
+    audience_key = models.CharField(max_length=255, default="", db_default="")
+    slack_channel_id = models.CharField(max_length=64, default="", db_default="")
+    slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     # How the destination was decided: the repo's own digest config, an owners.yaml entry, or a
     # plain name match on the slug. It is what answers "why did my digest go there".
     resolution_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in ChannelResolutionSource],
         default=ChannelResolutionSource.SLACK_NAME_MATCH,
+        db_default=ChannelResolutionSource.SLACK_NAME_MATCH.value,
     )
     status = models.CharField(
         max_length=32,

@@ -355,6 +355,31 @@ def test_switching_a_repos_digest_off_stops_merges_it_already_captured(team) -> 
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_unroutable_merges_do_not_starve_routable_ones_behind_them(team) -> None:
+    # The cap used to be applied before routing. An audience whose oldest merges all came from an
+    # unroutable repo filled the whole claim with rows the run then dropped, and because dropped
+    # rows stay unclaimed the next run selected exactly the same ones. The routable merges behind
+    # them were never reached and aged out of the window unposted.
+    _seed_prs(team.id, pr_count=2, repository="acme/nowhere", first_number=1)
+    _seed_prs(team.id, pr_count=2, repository=REPO, first_number=10)
+    context = _routing_context(
+        registry_by_repo={REPO: {}},  # acme/nowhere is not a candidate repo, so it routes nowhere
+        channels_by_name={AUDIENCE: _channel("C1")},
+    )
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        patch("products.stamphog.backend.logic.digest_runs.DIGEST_MAX_PRS_PER_RUN", 2),
+    ):
+        _run_digests(team.id, context)
+
+    assert post.called
+    _team_id, _destination, posted = post.call_args.args
+    assert {pr.pr_number for pr in posted.prs} == {10, 11}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_repo_with_no_registry_inherits_one(team) -> None:
     # The convenience layer. charts carries no ownership file at all, so a team whose channel is not
     # named after its slug still routes correctly there because the monorepo says where it goes.
