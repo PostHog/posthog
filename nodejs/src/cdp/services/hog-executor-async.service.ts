@@ -477,7 +477,9 @@ export class HogExecutorAsyncService {
                 this.config.fetchBackoffMaxMs
             )
 
-            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
+            const declaredFinal =
+                !!fetchResponse?.status && (params.nonRetriableStatusCodes ?? []).includes(fetchResponse.status)
+            const canRetry = !declaredFinal && isFetchResponseRetriable(fetchResponse, fetchError)
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
             // true while no retry follows, so the customer-facing log has to gate on the same

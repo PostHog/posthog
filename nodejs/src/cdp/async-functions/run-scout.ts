@@ -63,6 +63,9 @@ registerAsyncFunction('postHogRunScout', {
             url: `${context.siteUrl}/api/projects/${context.invocation.teamId}/workflow_scout_runs/`,
             method: 'POST',
             timeoutMs: REQUEST_TIMEOUT_MS,
+            // A 429 here is the scout's cooldown, daily budget, or quota, none of which clears
+            // within the retry backoff, so retrying only repeats the rejection.
+            nonRetriableStatusCodes: [429],
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,

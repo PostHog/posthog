@@ -5,23 +5,28 @@ Covers the three things that make this path different from the manual `run` endp
 stamp that both of those read off.
 """
 
+import uuid
 from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import TRIGGERED_BY_WORKFLOW, WORKFLOW_RUN_COOLDOWN_S
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejectionKind
 from products.signals.backend.scout_harness.workflow_runs import WorkflowScoutRunRejected, start_workflow_scout_run
+from products.signals.backend.temporal.agentic.scout_scheduler import workflow_triggered_run_workflow_id
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 from products.workflows.backend.models import HogFlow
@@ -57,6 +62,8 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         self.config = SignalScoutConfig.objects.create(
             team=self.team, skill_name=SKILL, status=SignalScoutConfig.Status.ACTIVE, enabled=True
         )
+        # Stable per (team, skill): what the endpoint hands back, and what a retry collides with.
+        self.workflow_id = workflow_triggered_run_workflow_id(self.team.id, SKILL)
 
     def _enrol(self, payload: dict) -> None:
         flag = patch(_FLAG, return_value=payload)
@@ -88,6 +95,7 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
     def _assert_rejected(self, reason: str, kind: ScoutRunRejectionKind) -> None:
         with self.assertRaises(WorkflowScoutRunRejected) as caught:
             self._run()
+        self.last_rejection = caught.exception
         assert caught.exception.rejection.reason == reason
         assert caught.exception.rejection.kind is kind
 
@@ -95,7 +103,7 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         started = self._run()
 
         assert started.skill_name == SKILL
-        assert started.workflow_id == "wf-1"
+        assert started.workflow_id == self.workflow_id
         self.last_dispatch.assert_called_once()
         assert self.last_dispatch.call_args.kwargs["skill_name"] == SKILL
 
@@ -114,7 +122,7 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
     def test_allows_a_fire_once_the_cooldown_has_rolled(self) -> None:
         self._seed_run(triggered_by=TRIGGERED_BY_WORKFLOW, age=timedelta(seconds=WORKFLOW_RUN_COOLDOWN_S + 60))
 
-        assert self._run().workflow_id == "wf-1"
+        assert self._run().workflow_id == self.workflow_id
 
     def test_a_scheduled_or_manual_run_does_not_extend_the_workflow_cooldown(self) -> None:
         # The cooldown bounds the workflow path specifically, so unrelated activity must not
@@ -122,7 +130,7 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         self._seed_run(triggered_by=None, age=timedelta(minutes=5))
         self._seed_run(triggered_by="manual", age=timedelta(minutes=5))
 
-        assert self._run().workflow_id == "wf-1"
+        assert self._run().workflow_id == self.workflow_id
 
     def test_rejects_an_unenrolled_project(self) -> None:
         # `skip_team_ids` is the operator kill switch: the coordinator never schedules a skipped
@@ -158,6 +166,27 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         )
 
         self._assert_rejected("run_in_flight", ScoutRunRejectionKind.CONFLICT)
+        assert self.last_rejection.in_flight_workflow_id == self.workflow_id
+
+    def test_reports_the_workflow_id_when_temporal_single_flights_the_start(self) -> None:
+        with self.assertRaises(WorkflowScoutRunRejected) as caught:
+            with patch(_CONNECT), patch(_DISPATCH, side_effect=WorkflowAlreadyStartedError("wf", "RunSignalsScout")):
+                start_workflow_scout_run(team_id=self.team.id, skill_name=SKILL)
+
+        assert caught.exception.rejection.reason == "run_in_flight"
+        assert caught.exception.in_flight_workflow_id == self.workflow_id
+
+    def test_refuses_a_child_environment(self) -> None:
+        # No human credential is left at run time to authorize against the environment that owns
+        # the scouts, so a child environment's workflow is refused rather than resolved upwards.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+
+        with self.assertRaises(WorkflowScoutRunRejected) as caught:
+            with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+                start_workflow_scout_run(team_id=env.id, skill_name=SKILL)
+
+        assert caught.exception.rejection.kind is ScoutRunRejectionKind.FORBIDDEN
+        dispatch.assert_not_called()
 
 
 @override_settings(SIGNALS_SCOUT_RUN_JWT_SECRETS=[SECRET])
@@ -192,7 +221,11 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
             response = self._post()
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"skill_name": SKILL, "workflow_id": "wf-1", "started": True}
+        assert response.json() == {
+            "skill_name": SKILL,
+            "workflow_id": workflow_triggered_run_workflow_id(self.team.id, SKILL),
+            "started": True,
+        }
 
     def test_replays_the_202_to_a_retried_step(self) -> None:
         # The engine re-sends the identical request when the first 202 is lost (a client-side
@@ -206,6 +239,41 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert (first.status_code, second.status_code, third.status_code) == (202, 202, 202)
         assert second.json() == first.json()
         assert dispatch.call_count == 2
+
+    def test_answers_a_retry_that_overlaps_its_first_attempt(self) -> None:
+        # The first attempt is still inside the Temporal start when the engine's retry arrives, so
+        # the key is claimed but holds no result yet. The retry then collides with its sibling's
+        # run; it must read that as its own success, not as a skip.
+        key = f"workflow_scout_run:{self.team.id}:{self.hog_flow.id}:inv-1:run_scout"
+        assert cache.add(key, {"pending": True}, timeout=60)
+        with patch(_CONNECT), patch(_DISPATCH, side_effect=WorkflowAlreadyStartedError("wf", "RunSignalsScout")):
+            response = self._post(body={"idempotency_key": "inv-1:run_scout"})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["workflow_id"] == workflow_triggered_run_workflow_id(self.team.id, SKILL)
+
+    def test_releases_the_key_when_the_fire_is_rejected(self) -> None:
+        # A rejected fire started nothing, so a later fire under the same key is judged afresh
+        # rather than finding a stale claim.
+        SignalScoutConfig.objects.filter(team=self.team, skill_name=SKILL).update(
+            status=SignalScoutConfig.Status.PAUSED_BY_USER, enabled=False
+        )
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            first = self._post(body={"idempotency_key": "inv-1:run_scout"})
+            SignalScoutConfig.objects.filter(team=self.team, skill_name=SKILL).update(
+                status=SignalScoutConfig.Status.ACTIVE, enabled=True
+            )
+            second = self._post(body={"idempotency_key": "inv-1:run_scout"})
+
+        assert (first.status_code, second.status_code) == (409, 202)
+        assert dispatch.call_count == 1
+
+    def test_accepts_the_longest_key_the_engine_can_send(self) -> None:
+        # `<invocation uuid>:<action id>` at the action id's own 200-character limit.
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1"):
+            response = self._post(body={"idempotency_key": f"{uuid.uuid4()}:{'a' * 200}"})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
     def test_does_not_replay_another_workflows_key(self) -> None:
         other_flow = HogFlow.objects.create(

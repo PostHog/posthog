@@ -46,11 +46,16 @@ logger = structlog.get_logger(__name__)
 
 class WorkflowScoutRunRejected(Exception):
     """A fire that will not become a run. Carries the shared `ScoutRunRejection` so the HTTP layer
-    maps it to a status code without re-deriving why."""
+    maps it to a status code without re-deriving why.
 
-    def __init__(self, rejection: ScoutRunRejection) -> None:
+    `in_flight_workflow_id` is set on a `run_in_flight` rejection: the id a workflow-triggered run
+    of this scout carries (stable per team and skill), so the HTTP layer can recognise its own
+    earlier attempt as the run it collided with."""
+
+    def __init__(self, rejection: ScoutRunRejection, *, in_flight_workflow_id: str | None = None) -> None:
         super().__init__(rejection.detail)
         self.rejection = rejection
+        self.in_flight_workflow_id = in_flight_workflow_id
 
 
 @frozen
@@ -66,24 +71,25 @@ def _rejected(kind: ScoutRunRejectionKind, reason: str, detail: str) -> Workflow
 def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutRunStarted:
     """Start one workflow-triggered run of `skill_name`, or raise `WorkflowScoutRunRejected`.
 
-    `team_id` may be a child environment; scout rows live under the canonical parent project, so
-    everything below resolves against that — matching how the coordinator plans and how the manual
-    endpoint canonicalizes.
+    `team_id` has to be the project's main environment. Scout rows live under it, and unlike the
+    manual endpoint there is no human credential here to re-authorize against it, so a child
+    environment's workflow is refused rather than resolved upwards (save validation already
+    rejects the node there; this is the backstop for a flow saved before that rule).
 
     Rejection kinds are chosen so the workflow step reads them correctly: `NOT_FOUND` means the
     node names a scout that cannot run (a typo, a deleted skill) and should surface as a step
     failure the author notices, while `CONFLICT` / `THROTTLED` are ordinary backpressure the step
     treats as a graceful skip.
     """
-    # Scout rows, the flag's team config, and the spend gates are all keyed to the canonical
-    # project, so resolve to it up front and use that team everywhere below — passing a child
-    # environment's row to the gates would check the wrong quota and daily-report ledger.
     team = Team.objects.get(pk=team_id)
     if team.parent_team_id:
-        team = Team.objects.get(pk=team.parent_team_id)
-    canonical_team_id = team.id
+        raise _rejected(
+            ScoutRunRejectionKind.FORBIDDEN,
+            "child_environment",
+            "Running a scout from a workflow is only available in the project's main environment.",
+        )
 
-    config = SignalScoutConfig.objects.for_team(canonical_team_id).filter(skill_name=skill_name).first()
+    config = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
     if config is None:
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,
@@ -94,7 +100,7 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
     # A withheld scout is invisible across the whole config API and the runner would refuse it
     # anyway, so it is "not found" here too rather than a skip — the node names something the
     # project cannot run.
-    if skill_name in withheld_skills_for_team(canonical_team_id):
+    if skill_name in withheld_skills_for_team(team_id):
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,
             "scout_withheld",
@@ -104,7 +110,7 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
     # A config can outlive its skill. Dispatching for one would hand back a workflow id whose run
     # dies in `load_skill_for_run` before any run row exists, so the step would look successful
     # while nothing ever happens. Reject up front, mirroring the manual endpoint.
-    if not LLMSkill.objects.filter(team_id=canonical_team_id, name=skill_name, is_latest=True, deleted=False).exists():
+    if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
         raise _rejected(
             ScoutRunRejectionKind.NOT_FOUND,
             "skill_missing",
@@ -121,37 +127,44 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
             f"Scout '{skill_name}' is {config.status} and does not accept workflow triggers.",
         )
 
+    # Deferred: keeps the Signals Temporal workflow/activity graph off this module's import path,
+    # which the workflows API imports just to reach this function.
+    from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415
+        start_workflow_signals_scout_run,
+        workflow_triggered_run_workflow_id,
+    )
+
+    workflow_id = workflow_triggered_run_workflow_id(team_id, skill_name)
+
     for rejection in (
-        check_fleet_gates(canonical_team_id),
+        check_fleet_gates(team_id),
         check_spend_gates(team),
         # Ordered before the in-flight check so a burst of fires reports the cooldown (the thing the
         # author can actually act on) rather than whichever run happens to still be running.
-        check_workflow_cooldown(canonical_team_id, skill_name),
-        check_run_in_flight(canonical_team_id, skill_name),
+        check_workflow_cooldown(team_id, skill_name),
+        check_run_in_flight(team_id, skill_name),
     ):
         if rejection is not None:
-            raise WorkflowScoutRunRejected(rejection)
-
-    # Deferred: keeps the Signals Temporal workflow/activity graph off this module's import path,
-    # which the workflows API imports just to reach this function.
-    from products.signals.backend.temporal.agentic.scout_scheduler import (
-        start_workflow_signals_scout_run,  # noqa: PLC0415
-    )
+            in_flight = workflow_id if rejection.reason == "run_in_flight" else None
+            raise WorkflowScoutRunRejected(rejection, in_flight_workflow_id=in_flight)
 
     try:
-        workflow_id = start_workflow_signals_scout_run(sync_connect(), team_id=canonical_team_id, skill_name=skill_name)
+        start_workflow_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
     except WorkflowAlreadyStartedError:
         # A run was dispatched between the in-flight check and the start call — the Temporal
         # server's id-conflict policy single-flights it. Same graceful skip.
-        raise _rejected(
-            ScoutRunRejectionKind.CONFLICT,
-            "run_in_flight",
-            "A run for this scout is already in progress.",
+        raise WorkflowScoutRunRejected(
+            ScoutRunRejection(
+                kind=ScoutRunRejectionKind.CONFLICT,
+                reason="run_in_flight",
+                detail="A run for this scout is already in progress.",
+            ),
+            in_flight_workflow_id=workflow_id,
         )
 
     logger.info(
         "signals_scout: workflow-triggered run dispatched",
-        team_id=canonical_team_id,
+        team_id=team_id,
         skill_name=skill_name,
         workflow_id=workflow_id,
     )

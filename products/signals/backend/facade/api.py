@@ -28,6 +28,12 @@ from products.signals.backend.scout_harness.customer_events import (
     # the flow runs, without reaching into the scout harness.
     SCOUT_EMITTED_EVENTS as SCOUT_EMITTED_EVENTS,
 )
+from products.signals.backend.scout_harness.limits import (
+    # The 30-minute cooldown between workflow-triggered runs of one scout. Re-exported so the
+    # workflows product's save-time guard can demand a masking window at least that long, instead
+    # of accepting a window that only buys guaranteed cooldown skips.
+    WORKFLOW_RUN_COOLDOWN_S as WORKFLOW_RUN_COOLDOWN_S,
+)
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.

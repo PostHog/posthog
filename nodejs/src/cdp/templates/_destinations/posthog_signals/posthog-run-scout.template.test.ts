@@ -27,6 +27,8 @@ describe('posthog run scout template', () => {
         expect(params.url).toMatch(/\/api\/projects\/1\/workflow_scout_runs\/$/)
         // Dispatch opens a Temporal connection server-side, so the default 3s budget is too tight.
         expect(params.timeoutMs).toBe(15_000)
+        // A 429 is the cooldown or budget, which the retry backoff cannot outwait.
+        expect(params.nonRetriableStatusCodes).toEqual([429])
 
         // The triggering event is deliberately absent: v1 is a pure kick, so the run's prompt is
         // identical to a scheduled run's.

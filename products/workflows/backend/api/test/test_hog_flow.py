@@ -5105,6 +5105,25 @@ class TestFlagGatedTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Template not found" in str(response.json())
 
+    def test_a_grandfathered_step_cannot_switch_to_another_gated_template(self):
+        # Grandfathering is per (step, template): a step that passed one template's gate must not
+        # be re-submitted under a different gated template the team has no flag for.
+        flow_id = self._create_active_flow_with_gated_step()
+        actions = HogFlow.objects.get(id=flow_id).actions
+        gated_step = next(action for action in actions if action["id"] == "action_1")
+        gated_step["config"] = {
+            "template_id": "template-posthog-run-scout",
+            "inputs": {"skill_name": {"value": "signals-scout-general"}},
+        }
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": actions, "trigger_masking": {"hash": "'run-scout'", "ttl": 1800}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Template not found" in str(response.json())
+
     def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self):
         flow_id = self._create_active_flow_with_gated_step()
 

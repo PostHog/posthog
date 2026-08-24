@@ -16,6 +16,7 @@ from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from products.signals.backend.facade.api import (
     ScoutRunRejectionKind,
     WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted,
     start_workflow_scout_run,
 )
 from products.workflows.backend.models import HogFlow
@@ -28,6 +29,10 @@ logger = structlog.get_logger(__name__)
 # likely), and every retry has to read as the same success rather than a 409 from its own run.
 # Sized to the step token's lifetime, which already bounds the whole fetch retry chain.
 _REPLAY_TTL_S = 30 * 60
+
+# Placeholder a request claims its key with before dispatching, so a retry that overlaps it can
+# tell "my earlier attempt is mid-dispatch" from "nothing has run for this key".
+_PENDING = {"pending": True}
 
 # How a Signals rejection is surfaced. 409 and 429 are declared non-failure statuses on the
 # template, so the workflow step reads them as a graceful skip; everything else fails the step,
@@ -59,8 +64,10 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
         max_length=200, help_text="Name of the scout to run, as shown in the project's scout fleet."
     )
+    # Wide enough for the engine's `<invocation uuid>:<action id>` key at the action id's own
+    # 200-character limit; a valid step must never 400 here.
     idempotency_key = serializers.CharField(
-        max_length=128,
+        max_length=256,
         required=False,
         help_text=(
             "Stable key for this workflow step. A retry carrying the key of a fire that already "
@@ -99,7 +106,7 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             ),
             403: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
-                description="Signals scouts are not enabled for this project",
+                description="Signals scouts are not enabled for this project, or the workflow lives in a child environment",
             ),
             404: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
@@ -140,23 +147,38 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         if not HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).exists():
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        # The original 202 was lost in transit but the run is already going; re-answer it rather
-        # than let the retry collide with its own run (a 409 the step would record as a skip).
-        replayed = cache.get(replay_key) if replay_key else None
-        if replayed is not None:
-            logger.info(
-                "workflow_scout_run_replayed",
-                team_id=team_id,
-                hog_flow_id=str(hog_flow_id),
-                skill_name=skill_name,
-                workflow_id=replayed["workflow_id"],
-                step_key=step_key,
-            )
-            return _started(replayed["skill_name"], replayed["workflow_id"])
+        # Claim the key atomically before dispatching. A retry that arrives while the first
+        # attempt is still dispatching (the client gave up on it, but Django is still in the
+        # Temporal start) must not read an empty cache and race it.
+        claimed = bool(replay_key) and cache.add(replay_key, _PENDING, timeout=_REPLAY_TTL_S)
+        if replay_key and not claimed:
+            # The original 202 was lost in transit but the run is already going; re-answer it
+            # rather than let the retry collide with its own run (a 409 the step would record
+            # as a skip). A still-pending sibling falls through: the in-flight collision below
+            # is how it learns the outcome.
+            replayed = _replay(cache.get(replay_key), skill_name)
+            if replayed is not None:
+                self._log_replay(team_id, hog_flow_id, skill_name, replayed, step_key)
+                return _started(replayed.skill_name, replayed.workflow_id)
 
         try:
             started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
         except WorkflowScoutRunRejected as error:
+            if replay_key and claimed:
+                # Nothing ran, so a later fire under the same key must be judged afresh.
+                cache.delete(replay_key)
+            elif replay_key and error.in_flight_workflow_id:
+                # The run this collided with is the sibling's if the key is still held. It has
+                # passed the same gates this request just did, so the only outcome that would
+                # make the 202 wrong is a third run beating both, which the sibling's own
+                # rejection (and its key release) would have shown here.
+                marker = cache.get(replay_key)
+                if marker is not None:
+                    replayed = _replay(marker, skill_name) or WorkflowScoutRunStarted(
+                        skill_name=skill_name, workflow_id=error.in_flight_workflow_id
+                    )
+                    self._log_replay(team_id, hog_flow_id, skill_name, replayed, step_key)
+                    return _started(replayed.skill_name, replayed.workflow_id)
             rejection = error.rejection
             logger.info(
                 "workflow_scout_run_rejected",
@@ -167,6 +189,10 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
                 step_key=step_key,
             )
             return _rejected(rejection.detail, _REJECTION_STATUS[rejection.kind])
+        except BaseException:
+            if replay_key and claimed:
+                cache.delete(replay_key)
+            raise
 
         if replay_key:
             cache.set(
@@ -183,6 +209,26 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             step_key=step_key,
         )
         return _started(started.skill_name, started.workflow_id)
+
+    @staticmethod
+    def _log_replay(
+        team_id: int, hog_flow_id: uuid.UUID, skill_name: str, replayed: WorkflowScoutRunStarted, step_key: str | None
+    ) -> None:
+        logger.info(
+            "workflow_scout_run_replayed",
+            team_id=team_id,
+            hog_flow_id=str(hog_flow_id),
+            skill_name=skill_name,
+            workflow_id=replayed.workflow_id,
+            step_key=step_key,
+        )
+
+
+def _replay(marker: Any, skill_name: str) -> WorkflowScoutRunStarted | None:
+    """The dispatched run a cached marker records, or None while it is still the pending claim."""
+    if not isinstance(marker, dict) or "workflow_id" not in marker:
+        return None
+    return WorkflowScoutRunStarted(skill_name=marker.get("skill_name") or skill_name, workflow_id=marker["workflow_id"])
 
 
 def _started(skill_name: str, workflow_id: str) -> Response:
