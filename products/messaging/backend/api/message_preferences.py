@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
@@ -108,6 +109,22 @@ class MessagingErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human-readable description of what went wrong.")
 
 
+class OptOutsListQuerySerializer(serializers.Serializer):
+    # allow_blank preserves the pre-serializer behavior: an empty category_key reads as "no
+    # category" (the global list) rather than a 400.
+    category_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=512,
+        help_text="Case-insensitive substring match on the recipient identifier.",
+    )
+
+
 class PaginatedOptOutsSerializer(serializers.Serializer):
     """OpenAPI shape for the paginated opt-outs response, so the generated clients get the
     {count, next, previous, results} envelope instead of an untyped object."""
@@ -187,37 +204,24 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("hog_flow", required_level):
             raise PermissionDenied(message)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=OptOutsListQuerySerializer,
         parameters=[
-            OpenApiParameter(
-                name="category_key",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
-            ),
-            OpenApiParameter(
-                name="search",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Case-insensitive substring match on the recipient identifier.",
-            ),
             OpenApiParameter(name="page", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(name="page_size", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
         ],
         responses={
-            200: PaginatedOptOutsSerializer,
+            200: OpenApiResponse(response=PaginatedOptOutsSerializer),
             404: OpenApiResponse(response=MessagingErrorSerializer),
         },
         summary="List recipients opted out of a message category",
     )
     @action(detail=False, methods=["get"])
-    def opt_outs(self, request: Request, **kwargs: Any) -> Response:
+    def opt_outs(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         """Get opt-outs filtered by category or overall opt-outs if no category specified"""
         self._require_resource_access("viewer", "You need hog_flow viewer access to view the opt-out list.")
 
-        category_key = request.query_params.get("category_key")
+        category_key = request.validated_query_data.get("category_key")
 
         # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
         preference_key = ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -232,10 +236,8 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             **{f"preferences__{preference_key}": PreferenceStatus.OPTED_OUT.value},
         )
 
-        search = (request.query_params.get("search") or "").strip()
+        search = request.validated_query_data.get("search")
         if search:
-            if len(search) > 512:
-                raise serializers.ValidationError({"search": "Search term must be 512 characters or fewer."})
             opt_outs = opt_outs.filter(identifier__icontains=search)
 
         opt_outs = opt_outs.order_by("-updated_at")  # Order by most recently updated first

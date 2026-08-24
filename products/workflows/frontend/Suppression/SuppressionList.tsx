@@ -110,7 +110,7 @@ export function SuppressionList(): JSX.Element {
                     icon={<IconRefresh />}
                     size="small"
                     type="secondary"
-                    onClick={loadSuppressions}
+                    onClick={() => loadSuppressions()}
                     loading={suppressionsLoading}
                 >
                     Reload

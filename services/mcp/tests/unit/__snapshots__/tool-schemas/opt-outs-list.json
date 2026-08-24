@@ -13,6 +13,7 @@
         },
         "search": {
             "description": "Case-insensitive substring match on the recipient identifier.",
+            "maxLength": 512,
             "type": "string"
         }
     },

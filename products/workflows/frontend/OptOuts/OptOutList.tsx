@@ -181,7 +181,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     icon={<IconRefresh />}
                     size="small"
                     type="secondary"
-                    onClick={loadOptOutPersons}
+                    onClick={() => loadOptOutPersons()}
                     loading={optOutPersonsLoading}
                 >
                     Reload

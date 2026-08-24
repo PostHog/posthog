@@ -4,7 +4,7 @@ from django.db.models import F
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
@@ -79,6 +80,15 @@ class PaginatedMessageSuppressionSerializer(serializers.Serializer):
     results = MessageSuppressionSerializer(many=True)
 
 
+class SuppressionsListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=512,
+        help_text="Case-insensitive substring match on the recipient email address.",
+    )
+
+
 class AddSuppressionRequestSerializer(serializers.Serializer):
     identifier = serializers.CharField(
         max_length=512,
@@ -101,19 +111,13 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_write_actions = ["add_suppression", "remove_suppression"]
     serializer_class = _FallbackSerializer
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=SuppressionsListQuerySerializer,
         parameters=[
-            OpenApiParameter(
-                name="search",
-                type=str,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Case-insensitive substring match on the recipient email address.",
-            ),
             OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(name="page_size", type=int, location=OpenApiParameter.QUERY, required=False),
         ],
-        responses={200: PaginatedMessageSuppressionSerializer},
+        responses={200: OpenApiResponse(response=PaginatedMessageSuppressionSerializer)},
         summary="List suppressed email addresses for the team",
     )
     # The rows carry recipient email addresses and their SMTP diagnostics, so reading them is
@@ -122,7 +126,7 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # could enumerate who a team emails, and probe whether a given address is known by paging for
     # it. The UI uses session auth, which skips scope checks, so the suppression list is unaffected.
     @action(detail=False, methods=["get"], required_scopes=["hog_flow:read", "person:read"])
-    def suppressions(self, request: Request, **kwargs: Any) -> Response:
+    def suppressions(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         """List suppressed recipients for the team, most recently updated first."""
         # Resource-level check: `AccessControlPermission` only guarantees the caller has some
         # hog_flow object access. Since this endpoint returns team-wide data (every suppressed
@@ -134,10 +138,8 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         suppressions = MessageSuppression.objects.for_team(self.team_id).filter(suppressed=True, deleted=False)
 
-        search = (request.query_params.get("search") or "").strip()
+        search = request.validated_query_data.get("search")
         if search:
-            if len(search) > 512:
-                raise serializers.ValidationError({"search": "Search term must be 512 characters or fewer."})
             suppressions = suppressions.filter(identifier__icontains=search)
 
         suppressions = suppressions.order_by("-updated_at")

@@ -92995,6 +92995,7 @@ export namespace Schemas {
     page_size?: number;
     /**
      * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
      */
     search?: string;
     };
@@ -93004,6 +93005,7 @@ export namespace Schemas {
     page_size?: number;
     /**
      * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
      */
     search?: string;
     };
