@@ -36,4 +36,34 @@ describe('scoutNotePreview', () => {
         expect(scoutNotePreview(`${'あ'.repeat(200)}${link}`)).toBe(`${'あ'.repeat(200)}…`)
         expect(scoutNotePreview(link)).toBe('…')
     })
+
+    it.each([
+        // Both of these used to shrink the preview for nothing: the first backed up 275 characters
+        // to the one space in the note, the second read `build@…` as an address and dropped it.
+        ['the last whitespace sits far behind the cut', `Note: ${'あ'.repeat(400)}`, `Note: ${'あ'.repeat(274)}…`],
+        [
+            'an @ runs past the cut with no domain after it',
+            `${'あ'.repeat(200)}build@${'a'.repeat(200)}`,
+            `${'あ'.repeat(200)}build@${'a'.repeat(74)}…`,
+        ],
+    ])('fills the preview when %s', (_name, content, expected) => {
+        expect(scoutNotePreview(content)).toBe(expected)
+    })
+
+    it('previews notes in a browser with no grapheme segmenter', async () => {
+        // The panel is one import away from every scout page, so a segmenter built at module scope
+        // takes the whole page down on a browser that has none, rather than losing only precision.
+        const intl = Intl as { Segmenter?: typeof Intl.Segmenter }
+        const segmenter = intl.Segmenter
+        try {
+            delete intl.Segmenter
+            jest.resetModules()
+            const { scoutNotePreview: withoutSegmenter } = await import('./scoutNotePreview')
+
+            expect(withoutSegmenter('🙂'.repeat(NOTE_PREVIEW_CHARS + 1))).toBe(`${'🙂'.repeat(NOTE_PREVIEW_CHARS)}…`)
+        } finally {
+            intl.Segmenter = segmenter
+            jest.resetModules()
+        }
+    })
 })
