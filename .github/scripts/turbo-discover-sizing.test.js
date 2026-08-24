@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -47,4 +47,24 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 
     // posthog/temporal/ is excluded from Core even though JUnit recorded it.
     assert.equal(getSegmentDuration('Core', union, ran), 100)
+})
+
+// Sizing at 50% parallel efficiency: a shard's test time equals its overhead,
+// which reduces to ceil(work / overhead).
+test('calculateShards sizes a segment at 50% parallel efficiency', () => {
+    // 100 min of work against 10 min of overhead: 10 shards, each 10 min of tests.
+    assert.equal(calculateShards(6000, 600, 1), 10)
+})
+
+test('calculateShards rounds up, so efficiency never falls below half', () => {
+    assert.equal(calculateShards(6001, 600, 1), 11)
+})
+
+test('calculateShards keeps the floor and ceiling', () => {
+    assert.equal(calculateShards(1, 600), 3)
+    assert.equal(calculateShards(6000, 1, 1), 50)
+})
+
+test('calculateShards caps out rather than dividing by a zero overhead', () => {
+    assert.equal(calculateShards(6000, 0, 1), 50)
 })

@@ -61,9 +61,11 @@ const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
 // old 60s and every product over-sizes (MAPE 43%).
 const PRODUCT_PER_INVOCATION_SECONDS = 15
 const PRODUCT_PER_TEST_OVERHEAD_SECONDS = 0.08
-// Aligned with DJANGO_SAFETY_FACTOR below. Was 2x originally because pytest-
-// split data was noisy under Django Core's shared session; the outlier-based
-// merge produces cleaner numbers now.
+// Headroom for run-to-run variance when deciding how much fits in a bucket. Was
+// 2x originally because pytest-split data was noisy under Django Core's shared
+// session; the outlier-based merge produces cleaner numbers now. Django no
+// longer has a counterpart: sizing at a fixed efficiency needs no headroom,
+// because there is no wall target left to overshoot.
 const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
@@ -112,19 +114,23 @@ const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 //   Temporal: median ~4 min                → 6 min has headroom for temporal-server boot
 //
 // Master pushes SKIP the schema-cache restore and walk migrations fresh
-// (~7 min), so master shards run ~11 min overhead and blow past the 20 min
-// target. That is accepted: master runs are rare, happen uniformly across
-// shards, and are where .test_durations is collected anyway. Calibrating up
-// to protect them would over-shard every PR. Note the consequence: a PR with
-// a schema-cache MISS (stale branch, key drift) falls back to the full walk
-// and its shards will also overrun — uniformly, same as master.
+// (~7 min), so master shards carry a much larger overhead. Sizing at a fixed
+// efficiency handles that on its own: a bigger O means fewer shards, each
+// doing more work, which is the correct response. A fixed wall target could
+// not express it, because the same number meant two different things per lane.
+//
+// Refitted from run 32713377568 as mean(shard wall) - work/shards. The mean is
+// exact whatever the split quality was, because the shards partition the work.
+//   Core     6 shards, mean 16.32 min, work 68.3 min -> 4.93
+//   CorePOE  3 shards, mean  6.67 min, work  6.0 min -> 4.67
+//   Temporal 6 shards, mean 12.17 min, work 54.8 min -> 3.03
+// Temporal was previously the highest of the three and is in fact the lowest,
+// which is what left it under-sharded relative to Core.
 const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
-    Core: 4 * 60,
-    CorePOE: 4 * 60,
-    Temporal: 6 * 60,
+    Core: 295,
+    CorePOE: 280,
+    Temporal: 182,
 }
-const DJANGO_TARGET_WALL_SECONDS = 20 * 60
-const DJANGO_SAFETY_FACTOR = 1.3
 const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
 
@@ -697,12 +703,26 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
+// A shard's wall is overhead + work/shards, so overhead sets a floor no shard
+// count beats, and each added shard buys less than the one before it. Sizing at
+// 50% parallel efficiency puts a shard's test time equal to its overhead, which
+// reduces to ceil(work / overhead). Half of a runner's life does useful work.
+//
+// This replaces a fixed wall target. A target named an outcome that depends on
+// overhead, so it meant different things per lane and could not be met on
+// master at all. An efficiency is a ratio, so it holds in both lanes and the
+// shard count moves on its own when overhead does.
+//
+// Measured against run 32713377568 this lands Core 14, CorePOE 3, Temporal 19
+// against 19/3/15 today: near the same total, rebalanced between segments.
+// It also removes the old safety factor, which existed only to stop the sizer
+// overshooting the target it no longer has.
+//
 // minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
 // (test-selection) run may legitimately fit one shard.
 function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
-    const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
-    if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
-    const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
+    if (overheadSeconds <= 0) {return DJANGO_MAX_SHARDS}
+    const shards = Math.ceil(totalWorkSeconds / overheadSeconds)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
@@ -713,10 +733,7 @@ function buildDjangoShards(durations, ranNodeIds = {}) {
         const ran = ranNodeIds[segment] || null
         const duration = getSegmentDuration(segment, durations, ran)
         const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
-        // calculateShards applies DJANGO_SAFETY_FACTOR — mirror it in the
-        // wall estimate so the diagnostic matches the budget the shard count
-        // actually targets (was previously under-reporting by ~30%).
-        const wall = overhead + (duration * DJANGO_SAFETY_FACTOR) / shards
+        const wall = overhead + duration / shards
         result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
         const source = durations ? (ran ? 'auto, junit-scoped' : 'auto, union') : 'fallback'
         console.error(
