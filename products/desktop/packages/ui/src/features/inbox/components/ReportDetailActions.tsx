@@ -1,6 +1,7 @@
 import {
   ArrowSquareOutIcon,
   ChatCircleIcon,
+  ClockIcon,
   CopyIcon,
   DotsThreeIcon,
   ReceiptIcon,
@@ -18,50 +19,51 @@ import {
   PopoverTrigger,
   Spinner,
   Textarea,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
+import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { useCallback, useState } from "react";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useCallback, useMemo, useState } from "react";
 
 interface ReportDetailActionsProps {
   report: SignalReport;
-  /** Implementation PR URL, when there is one; enables "Open in GitHub". */
+  /** Explicit PR URL (the PR-tab detail passes its own); falls back to the report's. */
   prUrl?: string | null;
+  placement?: "standalone" | "header";
 }
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+const HEADER_ACTION_CLASS = "h-7 gap-1.5 px-2.5 text-[12px]";
 
-/**
- * The report header's action cluster: Discuss and Canvas stay visible, and
- * everything occasional (GitHub, copy link, refund) folds into an overflow
- * menu. Discuss opens the report's chat dock rather than navigating away;
- * starting or continuing implementation work lives in the verdict banner
- * above the summary (ReportVerdictBanner / PrDecisionBlock), not here.
- */
+/** Report actions split between page-level housekeeping and conversation work. */
 export function ReportDetailActions({
   report,
-  prUrl,
+  prUrl: prUrlProp,
+  placement = "standalone",
 }: ReportDetailActionsProps) {
+  // The report's own PR (open or merged) backs the GitHub item, so a merged
+  // fix stays reachable from the page even after the banner demotes it to
+  // history.
+  const prUrl = prUrlProp ?? report.implementation_pr_url ?? null;
   // Resolved reports are terminal (their PR already merged), so the work actions
   // drop out; only the read-only overflow menu (copy link, PR link) stays.
   const isResolved = report.status === "resolved";
 
   const fireAction = useReportActionTracker(report);
-  const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
-
-  const handleToggleChat = useCallback(() => {
-    if (!chatOpen) fireAction("discuss", { has_question: false });
-    setChatOpen(!chatOpen);
-  }, [chatOpen, setChatOpen, fireAction]);
+  const chatOpen = useReportChatPanelStore((s) => s.open);
 
   // Canvases started from a report file into the report's space, or #general
   // when the report has none — a task without a channel shows in no space's
@@ -73,11 +75,22 @@ export function ReportDetailActions({
   const awaitingChannel = taskChannelId === null && channelsLoading;
 
   const canvasActionEnabled = useChannelReportsEnabled();
+  const rememberStartedTask = useReportChatPanelStore(
+    (s) => s.rememberStartedTask,
+  );
+  const handleCanvasTaskCreated = useCallback(
+    (task: { id: string }) => {
+      rememberStartedTask(report.id, task.id);
+      setChatOpen(true);
+    },
+    [rememberStartedTask, report.id, setChatOpen],
+  );
   const { createCanvasReport, isCreatingCanvas } = useCreateCanvasReport({
     reportId: report.id,
     reportTitle: report.title ?? null,
     channelId: taskChannelId,
     cloudRepository: null,
+    onTaskCreated: handleCanvasTaskCreated,
   });
 
   // implementation_pr_url comes from raw task-run output; only a verified
@@ -85,6 +98,16 @@ export function ReportDetailActions({
   const safePrUrl = prUrl && parsePrUrl(prUrl) ? prUrl : null;
   const refund = useRefundReport(report);
   const [refundOpen, setRefundOpen] = useState(false);
+  const reportsForBulk = useMemo(() => [report], [report]);
+  const bulkActions = useInboxBulkActions(
+    reportsForBulk,
+    report.id,
+    "detail_pane",
+  );
+  const canDefer =
+    report.status === "ready" ||
+    report.status === "failed" ||
+    report.status === "pending_input";
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -115,12 +138,16 @@ export function ReportDetailActions({
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-        {safePrUrl && (
+        {canDefer && (
           <DropdownMenuItem
-            onClick={() => window.open(safePrUrl, "_blank", "noopener")}
+            disabled={
+              bulkActions.snoozeDisabledReason !== null ||
+              bulkActions.isSnoozing
+            }
+            onClick={() => void bulkActions.snoozeSelected()}
           >
-            <ArrowSquareOutIcon size={13} />
-            Open in GitHub
+            <ClockIcon size={13} />
+            Defer
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
@@ -139,26 +166,150 @@ export function ReportDetailActions({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+  const githubButton = safePrUrl ? (
+    placement === "header" ? (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className={HEADER_ACTION_CLASS}
+        onClick={() => openExternalUrl(safePrUrl)}
+      >
+        <ArrowSquareOutIcon size={14} />
+        Open PR in GitHub
+      </Button>
+    ) : (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className={HEADER_ACTION_CLASS}
+        onClick={() => openExternalUrl(safePrUrl)}
+      >
+        <ArrowSquareOutIcon size={16} />
+        Open PR in GitHub
+      </Button>
+    )
+  ) : null;
 
-  // A terminal report keeps only the read-only overflow menu.
+  if (placement === "header") {
+    return (
+      <>
+        {githubButton}
+        {!chatOpen && (
+          <Button
+            type="button"
+            variant="primary"
+            size="xs"
+            className={HEADER_ACTION_CLASS}
+            onClick={() => setChatOpen(true)}
+          >
+            <ChatCircleIcon size={14} />
+            Chat with this report
+          </Button>
+        )}
+        {canDefer && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  className="h-7 w-7"
+                  aria-label="Defer"
+                  loading={bulkActions.isSnoozing}
+                  disabled={bulkActions.snoozeDisabledReason !== null}
+                  onClick={() => void bulkActions.snoozeSelected()}
+                />
+              }
+            >
+              <ClockIcon size={13} />
+            </TooltipTrigger>
+            <TooltipContent>
+              {bulkActions.snoozeDisabledReason ?? "Defer"}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                className="h-7 w-7"
+                aria-label="Copy link"
+                onClick={() => copyInboxReportLink(report)}
+              />
+            }
+          >
+            <CopyIcon size={13} />
+          </TooltipTrigger>
+          <TooltipContent>Copy link</TooltipContent>
+        </Tooltip>
+        {refund.canRefund && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label="More report actions"
+                      >
+                        <DotsThreeIcon size={13} weight="bold" />
+                      </Button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>More report actions</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+              <DropdownMenuItem
+                disabled={refund.disabledReason !== null}
+                onClick={() => setRefundOpen(true)}
+              >
+                <ReceiptIcon size={13} />
+                Refund…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {refund.canRefund && (
+          <RefundReportDialog
+            open={refundOpen}
+            onOpenChange={setRefundOpen}
+            report={report}
+            isSubmitting={refund.mutation.isPending}
+            onConfirm={(input) =>
+              refund.mutation.mutate(input, {
+                onSuccess: () => setRefundOpen(false),
+              })
+            }
+          />
+        )}
+      </>
+    );
+  }
+
+  // A terminal report keeps its read-only GitHub and overflow actions.
   if (isResolved) {
-    return overflowMenu;
+    return (
+      <>
+        {githubButton}
+        {overflowMenu}
+      </>
+    );
   }
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-pressed={chatOpen}
-        className="gap-1"
-        onClick={handleToggleChat}
-        title="Chat with the agent about this report"
-      >
-        <ChatCircleIcon size={12} />
-        Chat with this report
-      </Button>
+      {githubButton}
 
       {canvasActionEnabled && (
         <Popover
@@ -173,13 +324,13 @@ export function ReportDetailActions({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="xs"
                 disabled={isCreatingCanvas || awaitingChannel}
-                className="gap-1"
+                className={HEADER_ACTION_CLASS}
                 title="Have the agent build a canvas from this report"
               >
-                {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={12} />}
-                Create canvas…
+                {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={16} />}
+                Visualize on a canvas
               </Button>
             }
           />
@@ -189,7 +340,7 @@ export function ReportDetailActions({
             sideOffset={6}
             className="flex w-[420px] flex-col gap-2 p-3"
           >
-            <span className="text-[12px] text-gray-11">
+            <span className="text-[13px] text-gray-11">
               What should the canvas focus on? The agent builds it from this
               report's evidence and live data.
             </span>
@@ -208,7 +359,7 @@ export function ReportDetailActions({
               }}
             />
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-gray-10">
+              <span className="text-[12px] text-gray-10">
                 {isMac ? "⌘↵" : "Ctrl+↵"} to create
               </span>
               <Button
@@ -225,24 +376,9 @@ export function ReportDetailActions({
         </Popover>
       )}
 
-      {/* An overflow menu earns its click only with something to hide; when
-          Copy link is the lone occasional action, it shows directly. */}
-      {!prUrl && !refund.canRefund ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label="Copy link to this report"
-          title="Copy link to this report"
-          onClick={() => copyInboxReportLink(report)}
-        >
-          <CopyIcon size={13} />
-        </Button>
-      ) : (
-        overflowMenu
-      )}
+      {placement === "standalone" && overflowMenu}
 
-      {refund.canRefund && (
+      {placement === "standalone" && refund.canRefund && (
         <RefundReportDialog
           open={refundOpen}
           onOpenChange={setRefundOpen}

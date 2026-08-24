@@ -32,7 +32,9 @@ function makeTask(
         status: run.status ?? "in_progress",
         log_url: "",
         error_message: null,
-        output,
+        output: run.prUrl
+          ? { pr_url: run.prUrl, ...(run.prMerged ? { pr_merged: true } : {}) }
+          : null,
         state: {},
         created_at: "2026-06-24T10:00:00Z",
         updated_at: "2026-06-24T10:00:00Z",
@@ -117,31 +119,28 @@ describe("findContinuableImplementationTask", () => {
     ).toBe(running);
   });
 
-  it.each<[string, { prMerged?: boolean; prState?: string }]>([
-    ["pr_state merged", { prState: "merged" }],
-    ["legacy pr_merged flag", { prMerged: true }],
-  ])(
-    "treats a task whose PR already merged (%s) as not continuable",
-    (_label, merge) => {
-      const merged = makeTask("impl", {
-        status: "completed",
-        prUrl: "https://gh/pr/9",
-        ...merge,
-      });
-      expect(findContinuableImplementationTask([entry(merged)])).toBeNull();
-    },
-  );
-
-  it("prefers a still-running task over one whose PR already merged", () => {
+  it("treats a merged PR as history, not continuable work", () => {
     const merged = makeTask("merged", {
       status: "completed",
       prUrl: "https://gh/pr/9",
-      prState: "merged",
+      prMerged: true,
     });
-    const running = makeTask("running", { status: "in_progress" });
+    expect(findContinuableImplementationTask([entry(merged)])).toBeNull();
+  });
+
+  it("continues a still-open PR and skips a merged one", () => {
+    const merged = makeTask("merged", {
+      status: "completed",
+      prUrl: "https://gh/pr/1",
+      prMerged: true,
+    });
+    const open = makeTask("open", {
+      status: "completed",
+      prUrl: "https://gh/pr/2",
+    });
     expect(
-      findContinuableImplementationTask([entry(merged), entry(running)]),
-    ).toBe(running);
+      findContinuableImplementationTask([entry(merged), entry(open)]),
+    ).toBe(open);
   });
 });
 
