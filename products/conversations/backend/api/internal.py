@@ -9,7 +9,7 @@ not expose, so the route is unreachable from the public internet.
 """
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -71,7 +71,7 @@ def _check_ticket_access(request: Request, ticket_id: uuid.UUID) -> tuple[Team, 
     The worker mints each token for one specific ticket, so a token replayed against a
     different ticket URL is refused even within its own team. Missing claim fails closed.
     """
-    claims: dict[str, Any] = request.auth if isinstance(request.auth, dict) else {}
+    claims = cast(dict[str, Any], request.auth or {})
     if str(claims.get("ticket_id")) != str(ticket_id):
         return None, Response(
             {"error": "Service token does not grant access to this ticket"}, status=status.HTTP_403_FORBIDDEN
