@@ -620,10 +620,20 @@ jobs:
               # carry the marker this step never fires and can be removed.
               shell: bash
               run: |
-                  if ! grep -q '"products/.junit-scaled"' .test_durations 2>/dev/null \
-                      && git show HEAD:.test_durations 2>/dev/null | grep -q '"products/.junit-scaled"'; then
-                      git checkout -- .test_durations
-                      echo "Using the junit-scaled committed .test_durations over an unscaled cache copy"
+                  # git show on a blob:none checkout is unreliable here; git checkout --
+                  # restores from the index, whose blob the original checkout already
+                  # materialized. Keep the cache copy when the committed file is not
+                  # scaled either, so the newer cache still wins outside the transition.
+                  if ! grep -q '"products/.junit-scaled"' .test_durations 2>/dev/null; then
+                      cp .test_durations /tmp/union-from-cache
+                      if git checkout -- .test_durations 2>/dev/null && grep -q '"products/.junit-scaled"' .test_durations; then
+                          echo "Using the junit-scaled committed .test_durations over an unscaled cache copy"
+                      else
+                          mv /tmp/union-from-cache .test_durations
+                          echo "Neither the cache nor the committed union is junit-scaled — keeping the cache copy"
+                      fi
+                  else
+                      echo "Restored union already junit-scaled"
                   fi
             - name: Discover products to test
               id: discover
@@ -2328,9 +2338,9 @@ jobs:
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
-                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
-                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
-                      fi
+                      # Plan path disabled while the cached plan predates the temporal
+                      # routing move — see the .github workflow for the full note.
+                      :
                   fi
                   # Depot-only quarantine: the data-modeling materialize path (get_s3_client) 403s on
                   # MinIO on Depot-native CI only — MinIO itself is reachable with the standard test creds
