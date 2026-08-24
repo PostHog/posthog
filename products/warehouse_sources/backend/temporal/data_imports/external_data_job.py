@@ -97,10 +97,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.probe_source_changes import (
-    ProbeSourceChangesActivityInputs,
-    probe_source_changes_activity,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
     maybe_repartition_table_activity,
@@ -581,6 +577,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = False
                 statistics_needed = False
                 person_property_sync_enabled = False
+                fast_return_eligible = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -591,6 +588,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
+                fast_return_eligible = create_job_result.fast_return_eligible
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -608,29 +606,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
-
-            # A schema that tracks a cursor, is past its initial sync, and owes no repair work can
-            # ask the source whether anything changed for far less than a sync costs. Eligibility
-            # comes from recorded activity output (absent on old histories, so they replay the full
-            # sequence) and patched() keeps in-flight pre-patch executions on it too. The probe
-            # answers True for anything it cannot prove, so only a definite "nothing new" returns
-            # here — with the job row, COMPLETED status and last_synced_at all written as usual.
-            if create_job_result.fast_return_eligible and workflow.patched("dwh-fast-return-2026-08"):
-                source_has_new_data = await workflow.execute_activity(
-                    probe_source_changes_activity,
-                    ProbeSourceChangesActivityInputs(
-                        team_id=inputs.team_id,
-                        schema_id=inputs.external_data_schema_id,
-                        source_id=inputs.external_data_source_id,
-                        run_id=str(job_id),
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-                if not source_has_new_data:
-                    get_fast_returned_run_metric(source_type=source_type).add(1)
-                    update_inputs.status = ExternalDataJob.Status.COMPLETED
-                    return
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
@@ -661,6 +636,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
+                fast_return_eligible=fast_return_eligible,
             )
 
             is_resumable_source = False
@@ -709,6 +685,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
+
+            # A fast-returned run completed on a negative source probe, before any extraction.
+            # Its skip_post_import_activities=True does the actual skipping below; the job row,
+            # COMPLETED status and last_synced_at are all written as usual.
+            if pipeline_result.get("fast_returned", False):
+                get_fast_returned_run_metric(source_type=source_type).add(1)
 
             # The load-dependent post-import steps have one home: `data-import-post-import`
             # (post_import_job.py). V3 with batches: the load consumer starts it after the final

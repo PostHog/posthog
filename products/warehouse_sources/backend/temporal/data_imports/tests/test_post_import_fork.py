@@ -48,9 +48,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.probe_source_changes import (
-    ProbeSourceChangesActivityInputs,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
 )
@@ -102,11 +99,6 @@ def _stub_activities(
         executed.append("check_billing_limits_activity")
         return False
 
-    @activity.defn(name="probe_source_changes_activity")
-    async def probe_source_changes(inputs: ProbeSourceChangesActivityInputs) -> bool:
-        executed.append("probe_source_changes_activity")
-        return source_has_new_data
-
     @activity.defn(name="maybe_repartition_table_activity")
     async def maybe_repartition(inputs: RepartitionActivityInputs) -> None:
         executed.append("maybe_repartition_table_activity")
@@ -114,6 +106,12 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
+        if inputs.fast_return_eligible and not source_has_new_data:
+            return PipelineResult(
+                should_trigger_cdp_producer=False,
+                skip_post_import_activities=True,
+                fast_returned=True,
+            )
         return PipelineResult(
             should_trigger_cdp_producer=False,
             consumer_manages_job_status=consumer_manages_job_status,
@@ -138,7 +136,6 @@ def _stub_activities(
         release_lock,
         create_job,
         check_billing,
-        probe_source_changes,
         maybe_repartition,
         import_data,
         create_templates,
@@ -265,15 +262,15 @@ async def test_post_import_fork(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "fast_return_eligible,source_has_new_data,expect_import",
+    "fast_return_eligible,source_has_new_data,expect_fast_return",
     [
-        pytest.param(True, False, False, id="eligible_and_source_unchanged_returns_early"),
-        pytest.param(True, True, True, id="eligible_but_source_changed_syncs"),
-        pytest.param(False, False, True, id="not_eligible_never_probes"),
+        pytest.param(True, False, True, id="eligible_and_source_unchanged_fast_returns"),
+        pytest.param(True, True, False, id="eligible_but_source_changed_syncs"),
+        pytest.param(False, False, False, id="not_eligible_runs_the_full_path"),
     ],
 )
-async def test_fast_return_skips_the_sync_only_when_the_source_is_unchanged(
-    fast_return_eligible: bool, source_has_new_data: bool, expect_import: bool
+async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
+    fast_return_eligible: bool, source_has_new_data: bool, expect_fast_return: bool
 ):
     executed, child_ids = await _run_workflow(
         is_v3=False,
@@ -282,13 +279,13 @@ async def test_fast_return_skips_the_sync_only_when_the_source_is_unchanged(
         source_has_new_data=source_has_new_data,
     )
 
-    assert ("import_data_activity_sync" in executed) is expect_import
-    assert ("probe_source_changes_activity" in executed) is fast_return_eligible
+    assert "import_data_activity_sync" in executed
     assert "update_external_data_job_model" in executed
-    if not expect_import:
-        assert "maybe_repartition_table_activity" not in executed
+    if expect_fast_return:
         assert "create_source_templates" not in executed
         assert child_ids == []
+    else:
+        assert "create_source_templates" in executed
 
 
 @pytest.mark.asyncio

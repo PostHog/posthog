@@ -31,9 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.probe_source_changes import (
-    probe_source_changes_activity,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     maybe_repartition_table_activity,
 )
@@ -68,7 +65,6 @@ ACTIVITIES = [
     check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
-    probe_source_changes_activity,
     maybe_repartition_table_activity,
     resolve_post_import_context_activity,
 ]
