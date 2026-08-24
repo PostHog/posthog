@@ -1,6 +1,6 @@
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { wrapError } from '@/lib/errors'
+import { findPostHogPermissionError, wrapError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
@@ -148,6 +148,9 @@ export class RequestContext {
         }
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
+            if (findPostHogPermissionError(userResult.error) && this.props.userHash) {
+                return this.props.userHash
+            }
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
         const distinctId = userResult.data.distinct_id as string

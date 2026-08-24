@@ -72,6 +72,33 @@ describe('formatPermissionErrorMessage', () => {
         expect(text).toContain('GET https://us.posthog.com/api/users/@me/')
     })
 
+    it.each([
+        {
+            name: 'tells an OAuth client to reconnect',
+            authMethod: 'oauth' as const,
+            expected: 'reconnect PostHog in your MCP client',
+            notExpected: 'personal API key',
+        },
+        {
+            name: 'tells a personal API key holder to edit the key',
+            authMethod: 'personal_api_key' as const,
+            expected: 'Settings → Personal API keys',
+            notExpected: 'reconnect PostHog in your MCP client',
+        },
+    ])('$name', ({ authMethod, expected, notExpected }) => {
+        const error = new PostHogPermissionError({
+            detail: "API key missing required scope 'user:read'",
+            missingScope: 'user:read',
+            url: 'https://us.posthog.com/api/users/@me/',
+            method: 'GET',
+        })
+
+        const text = formatPermissionErrorMessage(error, authMethod)
+
+        expect(text).toContain(expected)
+        expect(text).not.toContain(notExpected)
+    })
+
     it('falls back to generic remediation when no scope is parsed', () => {
         const error = new PostHogPermissionError({
             detail: 'team access denied',

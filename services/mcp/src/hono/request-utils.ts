@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import { classifyAuthMethod } from '@/lib/auth-method'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -113,7 +114,7 @@ export async function authenticateAndParse(
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
     console.error('[handleCatchError]', error)
-    const authResponse = mapErrorToAuthResponse(error)
+    const authResponse = mapErrorToAuthResponse(error, classifyAuthMethod(props.apiToken))
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
         authFailuresTotal.inc({ reason })

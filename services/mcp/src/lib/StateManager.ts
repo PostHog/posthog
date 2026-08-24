@@ -4,6 +4,7 @@ import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
+    findPostHogPermissionError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -11,7 +12,7 @@ import {
 } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { hash, sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
@@ -113,7 +114,16 @@ export class StateManager {
         let _distinctId = await this._cache.get('distinctId')
 
         if (!_distinctId) {
-            const user = await this.getUser()
+            const user = await this.getUser().catch((error: unknown) => {
+                if (findPostHogPermissionError(error)) {
+                    return null
+                }
+                throw error
+            })
+
+            if (!user) {
+                return hash(this._api.config.apiToken)
+            }
 
             await this._cache.set('distinctId', user.distinct_id)
             _distinctId = user.distinct_id
@@ -136,8 +146,12 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
-        const { organization: activeOrganization, team: activeTeam } = user
+        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([
+            this.getApiKey(),
+            this.getUser().catch(() => null),
+        ])
+        const activeOrganization = user?.organization ?? null
+        const activeTeam = user?.team ?? null
 
         // Team-scoped key: prefer the active team if the scope allows it,
         // otherwise pick the first scoped team deterministically. The org is
