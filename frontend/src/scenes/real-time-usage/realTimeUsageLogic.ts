@@ -1,15 +1,17 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { ApiRequest } from 'lib/api'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
-import { dayjs } from 'lib/dayjs'
+import { type Dayjs, dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { OrganizationType } from '~/types'
 
-export type UsageGranularity = 'hour' | 'day'
+export type UsageGranularity = '5m' | 'hour' | 'day'
 export type UsageRange = '1d' | '7d' | '30d'
 
 export type RealTimeUsageRow = { producerId: string; usageKey: string; unit: string; quantity: number }
@@ -25,23 +27,61 @@ const RANGE_INTERVALS: Record<UsageRange, string> = {
     '30d': '30 DAY',
 }
 
-function bucketLabels(range: UsageRange, granularity: UsageGranularity): string[] {
-    const start = dayjs()
-        .subtract(range === '1d' ? 24 : Number.parseInt(range, 10), range === '1d' ? 'hour' : 'day')
-        .startOf(granularity)
-    const count =
-        granularity === 'hour'
-            ? range === '1d'
-                ? 25
-                : Number.parseInt(range, 10) * 24 + 1
-            : Number.parseInt(range, 10) + 1
+const RANGE_STEPS: Record<UsageRange, { amount: number; unit: 'hour' | 'day' }> = {
+    '1d': { amount: 24, unit: 'hour' },
+    '7d': { amount: 7, unit: 'day' },
+    '30d': { amount: 30, unit: 'day' },
+}
 
-    return Array.from({ length: count }, (_, index) => start.add(index, granularity).format('YYYY-MM-DD HH:mm'))
+const UNIT_MINUTES = { minute: 1, hour: 60, day: 24 * 60 } as const
+
+const GRANULARITIES: Record<UsageGranularity, { bucket: string; amount: number; unit: keyof typeof UNIT_MINUTES }> = {
+    '5m': { bucket: 'toStartOfFiveMinutes(recorded_at)', amount: 5, unit: 'minute' },
+    hour: { bucket: "dateTrunc('hour', recorded_at)", amount: 1, unit: 'hour' },
+    day: { bucket: "dateTrunc('day', recorded_at)", amount: 1, unit: 'day' },
+}
+
+// 289 points over 24 hours stays readable. The same buckets over 7 days would plot 2,017.
+export function isGranularityAvailable(granularity: UsageGranularity, range: UsageRange): boolean {
+    return granularity !== '5m' || range === '1d'
+}
+
+export type UsageFilters = { range: UsageRange; granularity: UsageGranularity }
+
+// A shared or reloaded URL can carry anything, so fall back rather than query on a bad value.
+export function filtersFromParams(searchParams: Record<string, any>): UsageFilters {
+    const range: UsageRange =
+        searchParams.range === '7d' || searchParams.range === '30d' || searchParams.range === '1d'
+            ? searchParams.range
+            : '1d'
+    const granularity: UsageGranularity =
+        searchParams.granularity === '5m' || searchParams.granularity === 'day' || searchParams.granularity === 'hour'
+            ? searchParams.granularity
+            : 'hour'
+    return { range, granularity }
+}
+
+// dayjs has no five-minute unit, so floor the minutes by hand to match toStartOfFiveMinutes.
+function startOfBucket(time: Dayjs, granularity: UsageGranularity): Dayjs {
+    if (granularity === '5m') {
+        const minute = time.startOf('minute')
+        return minute.subtract(minute.minute() % GRANULARITIES['5m'].amount, 'minute')
+    }
+    return time.startOf(granularity)
+}
+
+function bucketLabels(range: UsageRange, granularity: UsageGranularity): string[] {
+    const { amount, unit } = GRANULARITIES[granularity]
+    const rangeStep = RANGE_STEPS[range]
+    const count = (rangeStep.amount * UNIT_MINUTES[rangeStep.unit]) / (amount * UNIT_MINUTES[unit]) + 1
+    const start = startOfBucket(dayjs().subtract(rangeStep.amount, rangeStep.unit), granularity)
+
+    return Array.from({ length: count }, (_, index) => start.add(index * amount, unit).format('YYYY-MM-DD HH:mm'))
 }
 
 function usageQuery(range: UsageRange, granularity: UsageGranularity, timeSeries: boolean): string {
     const interval = RANGE_INTERVALS[range]
-    const bucket = `dateTrunc('${granularity}', recorded_at)`
+    const bucket = GRANULARITIES[granularity].bucket
     // Grouped by the table's sorting key so un-merged duplicates of one record collapse instead
     // of summing. HogQL rejects FINAL, and timestamp is monotonic per resend, so argMax on it
     // picks the same row a merge would keep.
@@ -126,8 +166,7 @@ export interface realTimeUsageLogicActions {
         payload?: { value: true }
     }
     loadUsageDataFailure: (error: string, errorObject?: Error) => { error: string; errorObject?: Error }
-    setUsageGranularity: (usageGranularity: UsageGranularity) => { usageGranularity: UsageGranularity }
-    setUsageRange: (usageRange: UsageRange) => { usageRange: UsageRange }
+    setUsageFilters: (filters: UsageFilters) => { filters: UsageFilters }
 }
 export type realTimeUsageLogicType = MakeLogicType<realTimeUsageLogicValues, realTimeUsageLogicActions>
 
@@ -135,8 +174,13 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
     path(['scenes', 'real-time-usage', 'realTimeUsageLogic']),
     connect(() => ({ values: [organizationLogic, ['currentOrganization']] })),
     actions({
-        setUsageGranularity: (usageGranularity: UsageGranularity) => ({ usageGranularity }),
-        setUsageRange: (usageRange: UsageRange) => ({ usageRange }),
+        // Normalized here so every caller, including a hand-edited URL, lands on a valid pair.
+        setUsageFilters: (filters: UsageFilters) => ({
+            filters: {
+                ...filters,
+                granularity: isGranularityAvailable(filters.granularity, filters.range) ? filters.granularity : 'hour',
+            },
+        }),
     }),
     loaders(({ values }) => ({
         usageData: [
@@ -164,15 +208,28 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
                 loadUsageDataFailure: (_, { error }) => error,
             },
         ],
-        usageGranularity: [
-            'hour' as UsageGranularity,
-            { setUsageGranularity: (_, { usageGranularity }) => usageGranularity },
-        ],
-        usageRange: ['1d' as UsageRange, { setUsageRange: (_, { usageRange }) => usageRange }],
+        usageGranularity: ['hour' as UsageGranularity, { setUsageFilters: (_, { filters }) => filters.granularity }],
+        usageRange: ['1d' as UsageRange, { setUsageFilters: (_, { filters }) => filters.range }],
     }),
     listeners(({ actions }) => ({
-        setUsageGranularity: () => actions.loadUsageData(),
-        setUsageRange: () => actions.loadUsageData(),
+        setUsageFilters: () => actions.loadUsageData(),
     })),
-    afterMount(({ actions }) => actions.loadUsageData()),
+    actionToUrl(({ values }) => ({
+        setUsageFilters: () => [
+            router.values.location.pathname,
+            { range: values.usageRange, granularity: values.usageGranularity },
+            router.values.hashParams,
+            { replace: true },
+        ],
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.organizationBillingRealTimeUsage()]: (_, searchParams) => {
+            const filters = filtersFromParams(searchParams)
+            if (filters.range !== values.usageRange || filters.granularity !== values.usageGranularity) {
+                actions.setUsageFilters(filters)
+            }
+        },
+    })),
+    // One action covers both filters, so the mount reads the URL and loads exactly once.
+    afterMount(({ actions }) => actions.setUsageFilters(filtersFromParams(router.values.searchParams))),
 ])
