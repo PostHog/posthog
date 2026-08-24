@@ -1937,9 +1937,9 @@ snapshots:
     components-slack-channel-picker--recently-subscribed-first--light:
         hash: v1.k794b7964.54bc88c73e7d32bbab8a32b91162eab1fb1ba78215aa188aa748b65b9fb531b8.YkOXS4kFGcgECAArUGil25uNoJVbhGKe_zYYmpzzu44
     components-sparkline--bar-chart--dark:
-        hash: v1.k794b7964.cb1d1d3239f78521823c1278cadb102e136422579a910c3a691c2b6b17ebb962.aj9xFX3wR7NQKuqnk4Tgypbsd2Ase4rHeCGuKjORB3w
+        hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.zeJ6dGjiWJ_9biIrGypyok73SsFJJ-NLmGNHZJDCJ-w
     components-sparkline--bar-chart--light:
-        hash: v1.k794b7964.31239811ce1a1008b0f7ce278672dea78cc73785762735c6dc75437b165e6546.6_LSwYHJwrSsIBtnEhFwPCl3X6531Z_0iJaYpOj5sIU
+        hash: v1.k794b7964.6eb3adde804dad4d1679afdac8ba0885d492ce67b8b9e6165a8c249f44ecdd15.WmlBW3Ty9XLHt-AeaJBxjzmnlYaDXpGa28EO2xhdVvo
     components-sparkline--bar-chart-quill--dark:
         hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.4h71v2aMuCoUCk73AbsUPFhaiOPh4OZNrsDfJF_hB8g
     components-sparkline--bar-chart-quill--light:
@@ -6020,6 +6020,18 @@ snapshots:
         hash: v1.k794b7964.7b105d74e4bd6c48e6ffee982e294557b0230d3c43769a252c753745f0d8ec0a.j2wHTrpAU0iVskR8PYJPk9KNhWUYrGDbwyxM0h9015M
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
+    scenes-app-customer-analytics-track-rules--configured--dark:
+        hash: v1.k794b7964.92413e6fb8d66612327d784c9271dd19b7a8cb0b7b3d7107f6dd78f4136fade5.bpIJQ9Olj4PCyxgWtgIiVDmzh8pQhIyKAKoO9z_UABE
+    scenes-app-customer-analytics-track-rules--configured--light:
+        hash: v1.k794b7964.de5a3e9672100bbd083b4608693261a0e5624693afd5de70b0014a9adfa13b3e.k9pAMbCur-xOSs_utBsXvuCXde14rcNor-R-C89EedA
+    scenes-app-customer-analytics-track-rules--feature-gate-off--dark:
+        hash: v1.k794b7964.68dfb562def4db8fb8b8082b864115e315caf6662c6be713af5572a9f263bc57.z9X01dYMXIIFZXt9s1TM1GrALc0HZlSgEzRxu85W9Kg
+    scenes-app-customer-analytics-track-rules--feature-gate-off--light:
+        hash: v1.k794b7964.365fcdc6fae12bf1f704d0bc3a6d8992b7fea05cb5d48eb78bfc1f2f24fac929.ad9HX_I4T-esxuMW3YamDdHs0pZbTQRDjBRsSvX8ReA
+    scenes-app-customer-analytics-track-rules--preview--dark:
+        hash: v1.k794b7964.4d60ac636f3d4b309108ff038058f81c38dfd65d4badfb9dcf780b2dedf88c25.ZUVE6wN40QhrIaL0iR-shEMXZja7utjNvptDYTLVxPY
+    scenes-app-customer-analytics-track-rules--preview--light:
+        hash: v1.k794b7964.f3e9732eec6742b719985abae4f9cc65b75c83ede8dbd6747d5de837683b8535.dIq1nmuGMZsPilVhqTSflVsNnWIqT2tCutG50_HjX7I
     scenes-app-data-management--data-warehouse-managed-viewsets--dark:
         hash: v1.k794b7964.c8b8c112665a993ec00602d6f00602775548a3aa782ae541e4738e879b5a1107.KTg2KYEs4UHmHOuVj0Py_3WERNbAjQ1UQHf5n6yxhSc
     scenes-app-data-management--data-warehouse-managed-viewsets--light:
@@ -6229,9 +6241,9 @@ snapshots:
     scenes-app-discussions--threads--light:
         hash: v1.k794b7964.28ac830bf83be5cbb6d7a397d67c9b9c61711904a822de38402b82220b0f7a49.7wENY7hvo1-qAJwq5fcsvKGJsfRAF_vDkpnM8iqFZcc
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
-        hash: v1.k794b7964.ea0cac6dc4e88af4e62d1bec32c9abfb613c44f74713205c1990fa44d467190a._Jn8n4C9-F5naZmW4FU1Utu9_wVDapw2ekc7qSlbgvc
+        hash: v1.k794b7964.8e6b4034168c2ae8907ac92efb3941209867a95ef8388505b9bcb7a57830c243._1Y9xmZSpOpt_qzloETiebDiX0ROe1GBE2c00TKYaDM
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
-        hash: v1.k794b7964.646864073ca10e6cd01f9523215da333ea50b674caede591e12c8e241f4f1590.h76KD47dx5rmRHXFYEen7HjjKJDRtqHIn8vcJ2g1Azk
+        hash: v1.k794b7964.4a0774ee6bc116b4fa7a71bcb3ede68edc930a93231ade9fbf72f16a5b9eba1c.OII3xJtYXX1Udah76yG4WxQE6d5Am0PRCSBrCfGDGcM
     scenes-app-engineering-analytics-run-activity-chart--default--dark:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
@@ -6289,9 +6301,9 @@ snapshots:
     scenes-app-errortracking--group-page-with-self-driving--light:
         hash: v1.k794b7964.8ea5cfbc986b02d616a31e797de8ba06f84f8d2bf6dc3cb1a1b1a1a7ed82bfa3.jCMsWupoerRB1Or40oe4e7O9h_4e3sjE93kMQl2ieWk
     scenes-app-errortracking--list-page--dark:
-        hash: v1.k794b7964.f474d0d6caf49e7b9a4cfd469546ab9de031039030fb9da704293bc40d87e69a.WxsvGwytEdwdnq8_Ywy_dgGBBYoSYCX9hX72AB42bgs
+        hash: v1.k794b7964.bf71e48e3e45dfaa4b8dba589284194ec379469eaac4cd1275ed58b98ef96df4.krIuwVdI78fbvMxEiwXLJnm-YK6AdQRt38pUxaauMg0
     scenes-app-errortracking--list-page--light:
-        hash: v1.k794b7964.ad6d0860ada2d1b6cbc4e90d860ca13fff5c180a2bd92d54854f218bce0dfcea.CPjj6CCtZT3ksfs5hOnAfq01VQ4xG-vNX4B1AY-CahQ
+        hash: v1.k794b7964.4ef6b63ad25b170e4a2dfba319b532eba1a29569557778383cd2591fe9db493e.KYjQJmu6DoiCPBpblwCBMxP3RJnw_zKHRjXMEiTxuS4
     scenes-app-errortracking--list-page-with-ingestion-warning--dark:
         hash: v1.k794b7964.d0cc1ad39fb4d2101a7a5ee733f369f3edfba581b6e1644061beefa170622731.eS38wQuq5nOMAkMEskk-x6F5fup7EQTlXqsZJN5cP0w
     scenes-app-errortracking--list-page-with-ingestion-warning--light:
@@ -6340,8 +6352,12 @@ snapshots:
         hash: v1.k794b7964.a38909c8222409c5fa2174c283833ab419c75a0ed5420da095a9aded11bf6532.5EK4l32txmbHcS11UWiwesynVVHf7FKe98dPAeWsjkw
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.ec64583fd2debf87822296f1c9fc10e73c1c6b7e31fe55f0ca974d3920f8bd14.Ch64gBgjo0wR0Ypvkhap6047UPjXBaWSQCNoKDOiNHc
+    scenes-app-experiments--experiment-replay-scanner-backlink--dark:
+        hash: v1.k794b7964.e04ec522e5f690078c89c21f4e160d067f13c755e65988852d89dbc624e4c74b.DbWktEPnIBX15xGlIGLocMuFHo7CzbH-yVTgowQMnck
+    scenes-app-experiments--experiment-replay-scanner-backlink--light:
+        hash: v1.k794b7964.c6573bba587cbabd798e942c29bd722fea308624f4cffda71303fb2b110dd7e0.j-wHlxQDewiAsZ_lDoIuGozhNEb_FEGu0tT0I_UXkMY
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
-        hash: v1.k794b7964.37e8127d5a33175889cf1da00e80998b1858fd3713fe5c0c1ec42ff0bb1da220.oIA6fAIpYfvfCAh_6TQs-uqDeMEONwTb3luZF1rzBs4
+        hash: v1.k794b7964.e347bbe9e217d7cbd915b09b362a9d995285c1f6492229235ce3dcef74e49f30.5xV99CaEDXp-xFACHoS4M9vQ6zFGOjestb-iW79F5Q4
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
         hash: v1.k794b7964.793a4b6109b2c0ab65b07d9eaefd1c8862f12bfc7f33b2f452ad20044396b2a7.6B0Meq7yO75vBEoBmuP2dNl2oKTugzzr_IKTcJHhEi0
     scenes-app-experiments--experiment-with-funnel-metric--dark:
@@ -6672,6 +6688,14 @@ snapshots:
         hash: v1.k794b7964.6d107a93e2402c7b631a8b08a499cf66cf263d5824b8ea00d41bc71aad2e2180._kYZFhSpSDrjEmz582Sc82o8G6xkdE1zsWpLRmIQHVQ
     scenes-app-inbox-detail--run-ready--light:
         hash: v1.k794b7964.fab9d3eb3072c04885cc093ae23b521cd78a483e1cb2c0c2729a5fae92ab486a.Jb-sfHDLzAMhlMxN-hfCQPegjhow5ztQwsHHU4knVys
+    scenes-app-inbox-discussreportbutton--with-suggestions--dark:
+        hash: v1.k794b7964.19c4966106770c2bc0ef734bc3b21cdda4b51d825be2f1432b578ca41ddf1cd2.GYWPYaEs1UjFAXx40U0cHj9p8q91lJEth_6Fx1su_Jk
+    scenes-app-inbox-discussreportbutton--with-suggestions--light:
+        hash: v1.k794b7964.db0939a15d2e490f05bbb35809579a56ffe9b32c42c733ad23f31f9c57c139d5.y-yh4iZmB1mKdbO303_yp3h9rIqEEm2bIL6SP0jIDlc
+    scenes-app-inbox-discussreportbutton--without-suggestions--dark:
+        hash: v1.k794b7964.99146d997bb569f68e6cfb667b5883c2ca975f2f04fe062d9ab922a0fe680900.KybBPR_SeSkhcH5889w_sa11YO8EL2uiiGf_Am6JNME
+    scenes-app-inbox-discussreportbutton--without-suggestions--light:
+        hash: v1.k794b7964.6654dee1d413ac50eb29fcbab3b3dde06541b4a0fc4a4607ae1b2796328d07c5.eqPPN2GQdz-wrK9qf6vtxES7ViLETcCGwBRUmvhZVy8
     scenes-app-inbox-pullrequestdiffview--default--dark:
         hash: v1.k794b7964.564cd678d9da50089c918c63d37c816257091c6c9d7d2f957dc9c96f596d34dc.8ICzP4d5gRBF0h4CT87lZgk82tCHyXIOsszi6P3JQ-M
     scenes-app-inbox-pullrequestdiffview--default--light:

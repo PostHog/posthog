@@ -79,7 +79,14 @@ import {
   usePendingTaskPrompt,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export function getNewAttachments(
   previousIds: ReadonlySet<string>,
@@ -118,6 +125,8 @@ interface SessionViewProps {
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
   hideInput?: boolean;
+  /** Contextual actions shown between the thread and its composer. */
+  threadActions?: ReactNode;
 }
 
 const DEFAULT_ERROR_MESSAGE =
@@ -152,6 +161,7 @@ export function SessionView({
   compact = false,
   isActiveSession = true,
   hideInput = false,
+  threadActions,
 }: SessionViewProps) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   useSessionEventsResidency(taskId);
@@ -663,6 +673,8 @@ export function SessionView({
                 />
 
                 <PlanStatusBar plan={latestPlan} />
+
+                {threadActions}
 
                 {hasError && !showInlineBanner ? (
                   <Flex

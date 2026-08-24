@@ -79,11 +79,37 @@ const BASE_INSTRUCTIONS =
   DATA_HANDLING +
   SHELL_EFFICIENCY;
 
+/** Shell-word shaped, so nothing else in the variable reaches the prompt. */
+const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+const MAX_IMAGE_TOOLS = 40;
+
+/**
+ * Formats tool metadata from a server-owned image manifest. Never read the
+ * sandbox environment here: image specs and environment variables are user-authored.
+ */
+export function imageToolsInstruction(value: string | undefined): string {
+  const tools = [
+    ...new Set(
+      (value ?? "").split(/[\s,]+/).filter((word) => TOOL_NAME_RE.test(word)),
+    ),
+  ].slice(0, MAX_IMAGE_TOOLS);
+  if (tools.length === 0) return "";
+  return `
+# Tools On This Machine
+
+This sandbox image was built with these on PATH: ${tools.join(", ")}.
+
+Use them instead of the slower defaults they replace, and never spend a turn installing them.
+`;
+}
+
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;
   contextWikiPath?: string;
+  /** Tool metadata from a server-owned image manifest. */
+  imageTools?: string;
 }): string {
-  let instructions = BASE_INSTRUCTIONS;
+  let instructions = BASE_INSTRUCTIONS + imageToolsInstruction(opts.imageTools);
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }
