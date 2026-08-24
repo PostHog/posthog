@@ -4617,13 +4617,13 @@ snapshots:
     lemon-ui-visual-image-diff-viewer--small-image--light:
         hash: v1.k794b7964.ed31587820d0216f2281ec8e610da8cb9fe8cb45f9c13e0280f17771cf84994a.spusB2C8AKwu5Tv0KOr8pkjDxgEZw5jcOlEikYAzKWI
     logs-logsfiltervolumesparkline--volume-by-service--dark:
-        hash: v1.k794b7964.9de4772380eede6743de0cbfd9fb0524d06b482c250f3478ce8127ae554a3d43.CpTFDgzrePy9ruUfB5AV03R_oPC8bRwwqJmfYH1WtHo
+        hash: v1.k794b7964.e1872546be635b378270c73689340083b3af5a318a302372c8db68edfaf232df.T7cwZzY2SaTMk7nKYYhotxV3cmnDaQ1-Cy5dm3fUH2c
     logs-logsfiltervolumesparkline--volume-by-service--light:
-        hash: v1.k794b7964.fa33b6bde224fca3e9d6ba6fc8af7e6251077d2267601929f1ab8ec544631b08.-5XEDDzODc_6_eOA0Bd1joQtVUKmkzvGK_uMaoii31o
+        hash: v1.k794b7964.c6c485dd8017de3e49b707f531b9de3f4a231357d40d3637fea3b9c518ea26d2.amVC8vlIwFdYeEvtxSR8TxSDrp6AXXDr6P_1tpWLPyU
     logs-logsfiltervolumesparkline--with-rate-limit-threshold--dark:
-        hash: v1.k794b7964.5d57be3139c0a4ca2111da6bb58f7f131423f606f25ce74f68dc9870cf189694.VJ4tEAyQQKPSLyBU0q1-LMAnblXnxhUMOFYyqCgOSA8
+        hash: v1.k794b7964.1d690c0916c6cb0e1cd9682b2c2ceaf072907faf864eb9c60708f20b54491d01.CSbDUiLNw1wFHNsYIjr6gY5pqrWGWK_ka7wav_H_zwo
     logs-logsfiltervolumesparkline--with-rate-limit-threshold--light:
-        hash: v1.k794b7964.4ef95018edf4c6be68087ce57ce4e9ff9db18c1ac50cd383762a7fa101a8701e.N5vxgIQh0XfB10UB6iVl57Kw0-Apdc2jWarg47VH3Gk
+        hash: v1.k794b7964.90511b5879e111bf4d4b3f7b31f5d24159de7590de35e110bc4d510f763cfa1a.l4VDaP9QZZgd9RbT-nWeHb00FGgojPia3OHP-Bq-pfU
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.780ee2787e03d18e28952f15ba1063d3561bf506c3f27370e111aa00b6840480.kyd4ZfOZOnVnvs4zzuHttn7iaRk1OSRVc4UGm-myJEA
     mcp-apps-actions--multi-step--light:
@@ -7823,7 +7823,7 @@ snapshots:
     scenes-app-settings-user--settings-user-navigation--dark:
         hash: v1.k794b7964.7c5a5bdb7736062bcb70e36f20fc683eb9c014a0409dddb546a345fba91894b5.lMpgtqpaZZZsixseHxd_CxR4u_ZR5SnnrrOixJUvesM
     scenes-app-settings-user--settings-user-navigation--light:
-        hash: v1.k794b7964.3acb8296dccbd1585e16658aea21430558340a74ec07c6b0bfc27f5d6e424187.r_cJHvPzf4G4BmOgDkZwZJDuDTdBGFPlbdxO_xNYNHI
+        hash: v1.k794b7964.384ac6e1638edb3f361ff8d137589816bfcd3309e9861eba95a83ff6fbe57809.xxyxmKQQ4llOtJ1zB86Vos3B_NTYd4mNvlLeexQlz4U
     scenes-app-settings-user--settings-user-notifications--dark:
         hash: v1.k794b7964.a09a57f1c0bbcebf82942edebeba7772b2f684ba235bcef3a816aec2beb4cbce.AtQZhdZeeMVvpcmyBhPvprSMZawliTZaIFE5G8M_MVg
     scenes-app-settings-user--settings-user-notifications--light:
