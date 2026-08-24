@@ -425,7 +425,7 @@ export class WorkerIngestServer {
     async stop(): Promise<void> {
         this.draining = true
         this.drainAbort.abort()
-        // A poisoned pipeline never settles — skip straight to teardown.
+        // A poisoned pipeline never settles, so skip straight to teardown.
         const deadline = this.fatalError ? 0 : Date.now() + this.drainTimeoutMs
         while (this.totalInFlight() > 0 && Date.now() < deadline) {
             await sleep(10)
@@ -441,7 +441,7 @@ export class WorkerIngestServer {
         }
         this.wake()
         // http2's close() waits for every session to end and consumers hold
-        // theirs open — send a graceful GOAWAY instead of waiting.
+        // theirs open, so send a graceful GOAWAY instead of waiting.
         for (const session of this.sessions) {
             session.close()
         }
@@ -571,6 +571,15 @@ export class WorkerIngestServer {
         }
     }
 
+    /** Stop reading without failing the stream; pending acks still flush. */
+    private finishReader(stream: StreamState, unfedSeq?: number): void {
+        if (unfedSeq !== undefined) {
+            stream.inFlight.delete(unfedSeq)
+        }
+        stream.readerDone = true
+        this.maybeFinish(stream)
+    }
+
     /**
      * A pipeline failure poisons the shared pipeline (same contract as the
      * HTTP handler's fatal path): fail every stream so consumers tear down
@@ -615,16 +624,13 @@ export class WorkerIngestServer {
         this.streams.set(stream.id, stream)
         grpcStreams.inc()
 
-        // Send the ready frame before anything else. connect-node defers
-        // response headers until the first response message, and the
-        // consumer's stream-open awaits those headers before it sends any
-        // sub-batch — without this frame the two sides deadlock at open.
+        // connect-node defers response headers until the first response
+        // message and the consumer's stream-open awaits them, so greet first.
         stream.acks.push(readyFrame())
 
         const reader = this.runReader(stream, requests, signal)
-        // The generator surfaces reader failures through the ack queue; this
-        // handler keeps the rejection from becoming an unhandled one.
-        reader.catch(() => {})
+        // Reader failures surface through the ack queue.
+        swallowRejection(reader)
 
         try {
             for await (const ack of stream.acks) {
@@ -651,8 +657,7 @@ export class WorkerIngestServer {
         try {
             for await (const request of requests) {
                 if (this.draining) {
-                    stream.readerDone = true
-                    this.maybeFinish(stream)
+                    this.finishReader(stream)
                     return
                 }
                 if (request.msg.case === 'hello') {
@@ -696,22 +701,17 @@ export class WorkerIngestServer {
                     subBatch.replay
                 )
 
-                // Await acceptance before reading the next frame — this is the
-                // point where stream order becomes feed order. While the
-                // pipeline is at capacity the read loop stalls, and HTTP/2
-                // flow control backpressures the consumer.
+                // Await admission before reading the next frame: stream order
+                // becomes feed order, and the stalled read backpressures the
+                // consumer via HTTP/2 flow control. Slots are granted in FIFO
+                // order because a retry race here let busy streams starve
+                // quiet ones, wedging whole consumers.
                 stream.inFlight.add(seq)
-                // FIFO admission: block here (stalling this stream's reads —
-                // that's the backpressure) until a batch slot is granted in
-                // arrival order. A retry race here instead of a queue let busy
-                // streams starve quiet ones, wedging whole consumers.
                 try {
                     await this.slots.acquire(admissionSignal)
                 } catch (error) {
                     if (error instanceof SlotAcquisitionAborted) {
-                        stream.inFlight.delete(seq)
-                        stream.readerDone = true
-                        this.maybeFinish(stream)
+                        this.finishReader(stream, seq)
                         return
                     }
                     throw error
@@ -726,9 +726,7 @@ export class WorkerIngestServer {
                 try {
                     while (true) {
                         if (this.draining) {
-                            stream.inFlight.delete(seq)
-                            stream.readerDone = true
-                            this.maybeFinish(stream)
+                            this.finishReader(stream, seq)
                             return
                         }
                         const result = await this.feedGuarded(stream, seq, serialized)
@@ -758,8 +756,7 @@ export class WorkerIngestServer {
                 }
                 this.wake()
             }
-            stream.readerDone = true
-            this.maybeFinish(stream)
+            this.finishReader(stream)
         } catch (error) {
             stream.readerDone = true
             const connectError = error instanceof ConnectError ? error : new ConnectError(String(error), Code.Internal)
@@ -791,4 +788,9 @@ export class WorkerIngestServer {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** For promises whose failure is reported elsewhere; an unobserved rejection would crash the process. */
+function swallowRejection(promise: Promise<unknown>): void {
+    promise.catch(() => {})
 }
