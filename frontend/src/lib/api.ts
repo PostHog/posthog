@@ -7494,8 +7494,10 @@ function isBrowserFetchFailure(error: unknown): boolean {
     if (candidate?.name === 'TypeError') {
         return true
     }
-    const message = candidate?.message
-    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+    // A rejection can also arrive as a bare string, or carry its fetch-failure text in `message`
+    // (a stringified `TypeError`, or a `fetch` replaced by an extension). Match the text in either.
+    const text = typeof error === 'string' ? error : typeof candidate?.message === 'string' ? candidate.message : ''
+    return BROWSER_FETCH_FAILURE_MESSAGES.some((known) => text.includes(known))
 }
 
 function classifyNetworkFailure(): NetworkFailureReason {
@@ -7564,7 +7566,12 @@ async function handleFetch(
             })
             throw new NetworkError(reason, error)
         }
-        throw new ApiError(error as any, response?.status)
+        // Anything left is a genuine fault in the request path. Pass a string message so a thrown
+        // object is never coerced into `ApiError`'s `message`: that coercion files the failure as a
+        // nameless `Error` whose text is the object's stringified form, with no status for the
+        // downstream filters to key on, so it re-fingerprints into a fresh issue on every deploy.
+        const message = typeof error === 'string' ? error : error instanceof Error ? error.message : undefined
+        throw new ApiError(message, response?.status)
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

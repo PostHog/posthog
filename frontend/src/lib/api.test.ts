@@ -435,6 +435,17 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(NetworkError)
         })
 
+        it('classifies a fetch failure that rejects with a bare string', async () => {
+            // A `fetch` replaced by a browser extension can reject with a string rather than an Error.
+            // Without matching the string it falls through to a nameless per-endpoint `ApiError` whose
+            // message is the stringified value, which is never dropped and re-fingerprints on deploys.
+            fakeFetch.mockRejectedValue('TypeError: Failed to fetch')
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
         it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
             // A real fault in the request path must not be relabelled as connectivity, or
             // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
@@ -444,6 +455,8 @@ describe('API helper', () => {
 
             expect(error).toBeInstanceOf(ApiError)
             expect(error).not.toBeInstanceOf(NetworkError)
+            // The thrown Error's own message reaches `ApiError`, not its stringified `Error: ...` form.
+            expect(error.message).toBe('the fetcher itself broke')
         })
     })
 
