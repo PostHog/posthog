@@ -80,6 +80,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -1976,6 +1977,49 @@ class TestEnsureSessionAssetActivity:
         ctx = asset.export_context or {}
         assert ctx["render_fingerprint"] == "abcdef"
         assert ctx["content_location"] == "s3://prior/video.mp4"
+
+
+class TestTrackActivityDecorator:
+    @pytest.mark.asyncio
+    async def test_async_wrapper_closes_stale_connections_before_body(self) -> None:
+        # Async activities reuse the worker thread's Postgres connection, so the decorator must
+        # close a stale one before the body queries, the same as the sync path.
+        order: list[str] = []
+
+        with patch(
+            "products.replay_vision.backend.temporal.decorators.close_stale_db_connections",
+            side_effect=lambda: order.append("close"),
+        ) as mock_close:
+
+            @track_activity()
+            async def body() -> str:
+                order.append("body")
+                return "ok"
+
+            result = await body()
+
+        assert result == "ok"
+        mock_close.assert_called_once()
+        assert order == ["close", "body"]
+
+    def test_sync_wrapper_closes_stale_connections_before_body(self) -> None:
+        order: list[str] = []
+
+        with patch(
+            "products.replay_vision.backend.temporal.decorators.close_stale_db_connections",
+            side_effect=lambda: order.append("close"),
+        ) as mock_close:
+
+            @track_activity()
+            def body() -> str:
+                order.append("body")
+                return "ok"
+
+            result = body()
+
+        assert result == "ok"
+        mock_close.assert_called_once()
+        assert order == ["close", "body"]
 
 
 class TestCleanupGeminiFileActivity:
