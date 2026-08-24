@@ -13,9 +13,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workos.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import (
     WorkOSPaginator,
     WorkOSResumeConfig,
+    create_webhook,
+    delete_webhook,
     get_resource,
+    get_webhook_info,
+    sync_webhook_events,
     validate_credentials,
     workos_source,
+)
+
+WORKOS_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos.make_tracked_session"
 )
 
 
@@ -261,3 +269,116 @@ class TestWorkOSValidateCredentials:
         cfg = WorkOSResumeConfig(after="org_1500")
         reconstituted = WorkOSResumeConfig(**json.loads(json.dumps(dataclasses.asdict(cfg))))
         assert reconstituted == cfg
+
+
+WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog_1"
+
+
+def _webhook_page(webhooks: list[dict[str, Any]], after: str | None) -> Response:
+    return _make_http_response({"object": "list", "data": webhooks, "list_metadata": {"before": None, "after": after}})
+
+
+class TestWorkOSWebhookManagement:
+    @patch(WORKOS_SESSION_PATCH)
+    def test_lookup_pages_past_the_first_page(self, MockSession: MagicMock) -> None:
+        # WorkOS lists 10 endpoints per page by default, so an account with more than that would
+        # report ours as missing — prompting a duplicate create, and a delete that removes nothing.
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _webhook_page([{"id": "we_1", "endpoint_url": "https://other.example"}], after="we_1"),
+            _webhook_page(
+                [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"], "status": "enabled"}],
+                after=None,
+            ),
+        ]
+
+        info = get_webhook_info("sk_test_123", WEBHOOK_URL)
+
+        assert info.exists is True
+        assert info.enabled_events == ["user.created"]
+        assert session.get.call_args_list[0].kwargs["params"] == {"limit": 100}
+        assert session.get.call_args_list[1].kwargs["params"] == {"limit": 100, "after": "we_1"}
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_lookup_reports_absence(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.get.return_value = _webhook_page([], after=None)
+        assert get_webhook_info("sk_test_123", WEBHOOK_URL).exists is False
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_persists_the_one_time_secret(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1", "secret": "whsec_abc"})
+
+        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+
+        assert result.success is True
+        assert result.extra_inputs == {"signing_secret": "whsec_abc"}
+        assert MockSession.return_value.post.call_args.kwargs["json"] == {
+            "endpoint_url": WEBHOOK_URL,
+            "events": ["user.created"],
+        }
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_without_a_secret_asks_for_manual_entry(self, MockSession: MagicMock) -> None:
+        # Without the secret the hog function rejects every delivery, so success would be a lie.
+        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1"})
+
+        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+
+        assert result.success is False
+        assert result.pending_inputs == ["signing_secret"]
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_failure_is_reported_not_raised(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.post.side_effect = Exception("boom")
+        assert create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"]).success is False
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_sync_merges_missing_events_and_keeps_manual_ones(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created", "invoice.paid"]}], after=None
+        )
+        session.patch.return_value = _make_http_response({})
+
+        result = sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created", "user.deleted"])
+
+        assert result.success is True
+        assert session.patch.call_args.args[0].endswith("/webhook_endpoints/we_2")
+        assert session.patch.call_args.kwargs["json"] == {"events": ["invoice.paid", "user.created", "user.deleted"]}
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_sync_skips_the_write_when_events_already_match(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"]}], after=None
+        )
+
+        assert sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created"]).success is True
+        session.patch.assert_not_called()
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_delete_removes_only_the_matching_endpoint(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [
+                {"id": "we_1", "endpoint_url": "https://other.example"},
+                {"id": "we_2", "endpoint_url": WEBHOOK_URL},
+            ],
+            after=None,
+        )
+        session.delete.return_value = _make_http_response({})
+
+        result = delete_webhook("sk_test_123", WEBHOOK_URL)
+
+        assert result.success is True
+        assert [call.args[0] for call in session.delete.call_args_list] == [
+            "https://api.workos.com/webhook_endpoints/we_2"
+        ]
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_delete_surfaces_a_rejected_removal(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page([{"id": "we_2", "endpoint_url": WEBHOOK_URL}], after=None)
+        session.delete.return_value = _make_http_response({"message": "forbidden"}, status_code=403)
+
+        assert delete_webhook("sk_test_123", WEBHOOK_URL).success is False

@@ -50,6 +50,8 @@ if (not inputs.bypass_signature_check) {
 }
 
 let eventType := request.body.event
+// Several event types feed one warehouse table, so the event is collapsed to a resource key
+// before the schema lookup. Keep in sync with WEBHOOK_EVENTS_BY_SCHEMA in settings.py.
 let resourceByEvent := {
   'user.created': 'users', 'user.updated': 'users', 'user.deleted': 'users',
   'organization.created': 'organizations', 'organization.updated': 'organizations', 'organization.deleted': 'organizations',

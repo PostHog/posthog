@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
 import orjson
@@ -12,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -30,6 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workos.set
 
 BASE_URL = "https://api.workos.com"
 WEBHOOK_ENDPOINTS_PATH = "/webhook_endpoints"
+# WorkOS lists 10 endpoints per page by default, so an account with more than that can hide
+# ours behind the first page. 100 is the documented maximum.
+WEBHOOK_ENDPOINTS_PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
@@ -197,14 +202,33 @@ def _webhook_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
+def _iterate_webhook_endpoints(api_key: str) -> Iterator[dict[str, Any]]:
+    """Walk every registered webhook endpoint through WorkOS's `after` cursor."""
+    session = make_tracked_session()
+    after: Optional[str] = None
+    while True:
+        params: dict[str, Any] = {"limit": WEBHOOK_ENDPOINTS_PAGE_SIZE}
+        if after:
+            params["after"] = after
+
+        response = session.get(
+            f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}", headers=_webhook_headers(api_key), params=params, timeout=10
+        )
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict):
+            return
+
+        yield from (webhook for webhook in body.get("data") or [] if isinstance(webhook, dict))
+
+        metadata = body.get("list_metadata")
+        after = metadata.get("after") if isinstance(metadata, dict) else None
+        if not after:
+            return
+
+
 def _matching_webhooks(api_key: str, webhook_url: str) -> list[dict[str, Any]]:
-    response = make_tracked_session().get(
-        f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}", headers=_webhook_headers(api_key), timeout=10
-    )
-    response.raise_for_status()
-    body = response.json()
-    webhooks = body.get("data", []) if isinstance(body, dict) else []
-    return [webhook for webhook in webhooks if webhook.get("endpoint_url") == webhook_url]
+    return [webhook for webhook in _iterate_webhook_endpoints(api_key) if webhook.get("endpoint_url") == webhook_url]
 
 
 def get_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhookInfo:
@@ -221,6 +245,40 @@ def get_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhookInfo:
         )
     except Exception as e:
         return ExternalWebhookInfo(exists=False, error=str(e))
+
+
+def sync_webhook_events(api_key: str, webhook_url: str, desired_events: list[str]) -> WebhookSyncResult:
+    """Add any missing `desired_events` to the endpoints pointing at `webhook_url`.
+
+    Events are merged, never removed, so an endpoint a user broadened by hand keeps its extras.
+    """
+    if not desired_events:
+        return WebhookSyncResult(success=True)
+
+    try:
+        session = make_tracked_session()
+        for webhook in _matching_webhooks(api_key, webhook_url):
+            current = webhook.get("events") or []
+            merged = sorted(set(current) | set(desired_events))
+            if merged == sorted(current):
+                continue
+
+            response = session.patch(
+                f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}/{webhook.get('id')}",
+                headers=_webhook_headers(api_key),
+                json={"events": merged},
+                timeout=10,
+            )
+            response.raise_for_status()
+        return WebhookSyncResult(success=True)
+    except Exception as e:
+        return WebhookSyncResult(
+            success=False,
+            error=(
+                f"Failed to update the WorkOS webhook events: {e}. "
+                f"Please add these events manually in WorkOS: {', '.join(desired_events)}"
+            ),
+        )
 
 
 def delete_webhook(api_key: str, webhook_url: str) -> WebhookDeletionResult:

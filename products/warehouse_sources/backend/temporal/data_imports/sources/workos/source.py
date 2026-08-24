@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workos.wor
     create_webhook as create_workos_webhook,
     delete_webhook as delete_workos_webhook,
     get_webhook_info as get_workos_webhook_info,
+    sync_webhook_events as sync_workos_webhook_events,
     validate_credentials as validate_workos_credentials,
     workos_source,
 )
@@ -187,6 +189,17 @@ The key starts with `sk_`.
         self, config: WorkOSSourceConfig, eligible_schema_names: list[str]
     ) -> list[str] | None:
         return list(ALL_WEBHOOK_EVENTS)
+
+    def sync_webhook_events(
+        self,
+        config: WorkOSSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+        api_version: str | None = None,
+    ) -> WebhookSyncResult:
+        desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
+        return sync_workos_webhook_events(config.api_key, webhook_url, desired_events)
 
     def get_external_webhook_info(
         self, config: WorkOSSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None

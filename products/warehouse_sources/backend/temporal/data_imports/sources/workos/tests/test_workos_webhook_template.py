@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import WEBHOOK_EVENT_TO_SCHEMA
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.webhook_template import template
 
 
@@ -33,16 +34,7 @@ class TestWorkOSWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             }
         }
 
-    @parameterized.expand(
-        [
-            ("user.created", "users"),
-            ("organization.deleted", "organizations"),
-            ("connection.deactivated", "connections"),
-            ("dsync.deleted", "directories"),
-            ("dsync.user.updated", "directory_users"),
-            ("dsync.group.user_added", "directory_groups"),
-        ]
-    )
+    @parameterized.expand(sorted(WEBHOOK_EVENT_TO_SCHEMA.items()))
     def test_routes_supported_events(self, event_type: str, resource: str) -> None:
         body = {"id": "event_1", "event": event_type, "data": {"id": "resource_1"}}
         globals = self._request("secret", body)
@@ -55,6 +47,37 @@ class TestWorkOSWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             globals=globals,
         )
         self.mock_produce_to_warehouse_webhooks.assert_called_once_with(body, "schema_1")
+
+    @parameterized.expand(
+        [
+            ("unhandled_event", "invoice.created", {"users": "schema_1"}, "Unhandled event type"),
+            ("unmapped_resource", "user.created", {}, "No schema mapping"),
+        ]
+    )
+    def test_acknowledges_events_it_does_not_store(
+        self, _label: str, event_type: str, schema_mapping: dict, expected_body: str
+    ) -> None:
+        # A non-200 here makes WorkOS retry, then disable the endpoint, for events the user
+        # never asked to sync.
+        globals = self._request("secret", {"event": event_type, "data": {"id": "resource_1"}})
+        result = self.run_function(
+            {"signing_secret": "secret", "bypass_signature_check": False, "schema_mapping": schema_mapping},
+            globals=globals,
+        )
+
+        assert result.result["httpResponse"]["status"] == 200
+        assert expected_body in result.result["httpResponse"]["body"]
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_rejects_delivery_without_a_signature_header(self) -> None:
+        body = {"event": "user.created", "data": {"id": "user_1"}}
+        result = self.run_function(
+            {"signing_secret": "secret", "bypass_signature_check": False, "schema_mapping": {"users": "schema_1"}},
+            globals={"request": {"method": "POST", "headers": {}, "body": body, "stringBody": json.dumps(body)}},
+        )
+
+        assert result.result == {"httpResponse": {"status": 400, "body": "Missing signature"}}
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_rejects_invalid_signature(self) -> None:
         globals = self._request("wrong", {"event": "user.created", "data": {"id": "user_1"}})
