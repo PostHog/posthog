@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     BackfillRefusalReason,
+    BackfillRunAttempt,
     attempt_backfill_run_for_cohort,
     attempt_person_backfill_run_for_cohort,
     create_backfill_run_for_cohort,
@@ -137,7 +139,7 @@ class TestBackfillRuns(BaseTest):
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
-    def test_attempt_names_the_occupied_slot_and_an_ineligible_cohort(self) -> None:
+    def test_attempt_names_active_participation_and_a_missing_cohort(self) -> None:
         cohort = self._cohort()
         created = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
         self.assertIsNotNone(created.run)
@@ -149,6 +151,25 @@ class TestBackfillRuns(BaseTest):
 
         missing = attempt_backfill_run_for_cohort(self.team.id, cohort.id + 10_000, "cohort_edited")
         self.assertEqual(missing.reason, BackfillRefusalReason.COHORT_MISSING)
+
+    @parameterized.expand(
+        [
+            ("behavioral", attempt_backfill_run_for_cohort),
+            ("person_property", attempt_person_backfill_run_for_cohort),
+        ]
+    )
+    def test_attempt_names_a_team_outside_the_realtime_allowlist(
+        self, _name: str, attempt: Callable[[int, int, str], BackfillRunAttempt]
+    ) -> None:
+        # A team dropping out of the allowlist is the first gate either creator hits. Unlabelled it
+        # lands in the flat `refused` bucket, which reads as an unclassified refusal.
+        cohort = self._cohort()
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            self.assertEqual(
+                attempt(self.team.id, cohort.id, "cohort_created").reason,
+                BackfillRefusalReason.TEAM_NOT_REALTIME,
+            )
 
     def test_failed_run_frees_the_per_cohort_slot(self) -> None:
         # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the

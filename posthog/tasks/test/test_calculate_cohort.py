@@ -1211,6 +1211,11 @@ class TestCohortCalculationTasks(APIBaseTest):
         # A reason with no mapping entry falls back to the flat `refused`, which reads as an
         # unclassified refusal rather than an omission. Catch the drift here instead.
         self.assertEqual(set(COHORT_BACKFILL_REFUSAL_OUTCOMES), set(BackfillRefusalReason))
+        # The alert rules match these literals, so a rename has to break a test, not a dashboard.
+        self.assertEqual(
+            set(COHORT_BACKFILL_REFUSAL_OUTCOMES.values()),
+            {"refused_over_budget", "refused_slot_occupied", "refused_ineligible", "refused_transient"},
+        )
 
     def test_trigger_backfill_run_task_rechecks_the_allowlist_at_execution_time(self) -> None:
         # Tasks sit in the queue for the debounce countdown, so an operator shrinking the allowlist

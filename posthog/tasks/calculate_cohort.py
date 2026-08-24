@@ -902,10 +902,14 @@ COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
 )
 
 # Refusals grouped by the operator response they call for, not one label per reason: a budget
-# refusal means raise the budget or wait for in-flight runs, an occupied slot means go find the run
-# that is wedged, and the rest are the cohort simply not being a candidate. Collapsing them into a
-# single `refused`, as this used to, made the first two indistinguishable. The full reason stays on
-# the log line, so cardinality does not have to carry it.
+# refusal means raise the budget or wait for in-flight runs, an occupied slot means an active run
+# already covers the cohort, and the rest are the cohort not being a candidate for this trigger.
+# Collapsing them into a single `refused`, as this used to, made the first two indistinguishable.
+# The full reason stays on the log line, so cardinality does not have to carry it.
+#
+# An occupied slot is the expected outcome of an ordinary backfill, not a wedge: a team-enablement
+# run covers every cohort on the team, and each cohort saved during one refuses this way. Read
+# `posthog_cohort_backfill_oldest_active_run_age_seconds` to tell a stuck run from normal progress.
 COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     BackfillRefusalReason.OVER_BUDGET: "refused_over_budget",
     BackfillRefusalReason.RUN_SLOT_OCCUPIED: "refused_slot_occupied",
@@ -916,7 +920,9 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     BackfillRefusalReason.COHORT_INELIGIBLE: "refused_ineligible",
     BackfillRefusalReason.INVALID_HORIZON: "refused_ineligible",
     BackfillRefusalReason.PINNING_CAP_EXCEEDED: "refused_ineligible",
-    BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_transient",
+    # Not transient: the sizing scan's read cap is deterministic, so a cohort that trips it trips it
+    # again on every later trigger until someone raises the limit. Nothing clears on its own.
+    BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
 }
 
@@ -1020,9 +1026,9 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
 def publish_cohort_backfill_run_gauges() -> None:
     """Publish backfill run/chunk state for alerting.
 
-    Ungated on purpose, unlike ``finalize_cohort_backfill_runs``: the seeder's own metrics are not
-    scraped, so these gauges are the only signal that a run stalled or a chunk exhausted its
-    retries, and they have to work while the finalizer is still dark.
+    Ungated on purpose, unlike ``finalize_cohort_backfill_runs``: a stalled run has to be alertable
+    while the finalizer is still dark, and the seeder's own metrics cannot see the transitions
+    Django owns.
     """
     publish_backfill_run_gauges()
 

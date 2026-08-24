@@ -704,19 +704,26 @@ pub struct ExhaustedRun {
     /// stable (lowest id) — the point is a concrete row to go read, not a complete list.
     pub chunk_id: String,
     /// That same chunk's error, never another one's: an operator handed chunk A with chunk B's
-    /// failure text reads the wrong row.
+    /// failure text reads the wrong row. [`NO_ERROR_RECORDED`] when the chunk recorded none.
     pub last_error: String,
 }
+
+/// Stands in for an empty `last_error` so the operator-facing message never ends in a bare colon.
+/// A capped chunk normally carries one, but `attempts` can reach the cap without a persisted error.
+pub const NO_ERROR_RECORDED: &str = "no error recorded";
 
 impl From<ExhaustedRunRow> for ExhaustedRun {
     fn from(row: ExhaustedRunRow) -> Self {
         Self {
             run_id: row.run_id,
-            // `count(*)` over a `GROUP BY` is ≥ 1 and bounded by the run's chunk count, so the cast
-            // cannot lose information.
+            // `count(*) OVER (PARTITION BY run_id)` is ≥ 1 and bounded by the run's chunk count, so
+            // the cast cannot lose information.
             exhausted: row.exhausted.max(0) as u64,
             chunk_id: row.chunk_id.unwrap_or_default(),
-            last_error: row.last_error.unwrap_or_default(),
+            last_error: row
+                .last_error
+                .filter(|error| !error.is_empty())
+                .unwrap_or_else(|| NO_ERROR_RECORDED.to_owned()),
         }
     }
 }

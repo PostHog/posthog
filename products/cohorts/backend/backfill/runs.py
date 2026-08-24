@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -11,6 +10,7 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import (
@@ -201,7 +201,7 @@ class BackfillRefusalReason(StrEnum):
     DEFINITION_CHANGED = "definition_changed"
 
 
-@dataclass(frozen=True)
+@frozen
 class BackfillRunAttempt:
     """A creator's outcome: the run, or the reason there isn't one. Exactly one is set."""
 
@@ -218,15 +218,17 @@ class BackfillRunAttempt:
 
 
 def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> CohortBackfillRun | None:
-    """The plain creator contract, for callers that only need the run.
-
-    Callers that report *why* a creation was refused (the signal path's metric) should call
-    ``attempt_backfill_run_for_cohort`` instead.
-    """
+    """The run, or ``None``, for callers that assert on the run and never on why one was refused."""
     return attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind).run
 
 
 def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> BackfillRunAttempt:
+    """Create one cohort's behavioral run, reporting the refusal reason rather than raising.
+
+    Every conflict check is re-run under a row lock, so a cohort edited again, deleted, or made
+    static in the meantime refuses instead of creating a second run for the same slot. The reason
+    comes back on the attempt so the signal path can label its metric with it.
+    """
     if not is_realtime_cohort_team(team_id):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
@@ -279,7 +281,7 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
             return BackfillRunAttempt.created(run)
     except IntegrityError:
         # A writer this transaction could not see won the unique-constraint race after the conflict
-        # checks passed. Refusing is this creator's contract, so return None rather than raise.
+        # checks passed. Refusing is this creator's contract, so report the race rather than raise.
         logger.warning(
             "cohort_backfill_run_conflict_race",
             team_id=team_id,
@@ -382,19 +384,7 @@ def create_person_backfill_run_for_cohort(
     *,
     person_horizon_days: int | None = None,
 ) -> CohortBackfillRun | None:
-    """Create one cohort's person-property run, on the signal path's contract.
-
-    Unlike ``create_person_team_backfill_run`` this refuses quietly where the team creator raises:
-    it is the target of ``cohort_person_shape_changed_backfill``, where a refusal must warn and
-    return rather than fail the Celery task. That is also why the horizon defaults from settings
-    here but is required on the operator-driven team creator. The one exception is a transient
-    sizing failure (a ClickHouse timeout or transport error), which propagates so the task's retry
-    machinery re-runs it; the scan's own deterministic read cap still refuses quietly, since
-    retrying it would only repeat the capped scan.
-
-    Callers that report *why* a creation was refused should call
-    ``attempt_person_backfill_run_for_cohort`` instead.
-    """
+    """The run, or ``None``, for callers that assert on the run and never on why one was refused."""
     return attempt_person_backfill_run_for_cohort(
         team_id, cohort_id, trigger_kind, person_horizon_days=person_horizon_days
     ).run
@@ -407,6 +397,19 @@ def attempt_person_backfill_run_for_cohort(
     *,
     person_horizon_days: int | None = None,
 ) -> BackfillRunAttempt:
+    """Create one cohort's person-property run, on the signal path's contract.
+
+    Unlike ``create_person_team_backfill_run`` this refuses quietly where the team creator raises:
+    it is the target of ``cohort_person_shape_changed_backfill``, where a refusal must warn and
+    return rather than fail the Celery task. That is also why the horizon defaults from settings
+    here but is required on the operator-driven team creator. The one exception is a transient
+    sizing failure (a ClickHouse timeout or transport error), which propagates so the task's retry
+    machinery re-runs it; the scan's own deterministic read cap still refuses quietly, since
+    retrying it would only repeat the capped scan.
+
+    The reason for a refusal comes back on the attempt, so the signal path can label its metric
+    with it.
+    """
     if not is_realtime_cohort_team(team_id):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
@@ -561,7 +564,7 @@ def attempt_person_backfill_run_for_cohort(
             return BackfillRunAttempt.created(run)
     except IntegrityError:
         # A writer this transaction could not see won the unique-constraint race after the conflict
-        # checks passed. Refusing is this creator's contract, so return None rather than raise.
+        # checks passed. Refusing is this creator's contract, so report the race rather than raise.
         logger.warning(
             "cohort_backfill_run_conflict_race",
             team_id=team_id,

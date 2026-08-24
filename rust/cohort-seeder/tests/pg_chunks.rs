@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
 use cohort_core::filters::{CohortId, TeamId};
+use cohort_seeder::app::fail_exhausted_runs_of_kind;
 use cohort_seeder::app::reconcile_dispatch::{
     prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
     RegisterBackfillConfirmation,
@@ -19,7 +20,7 @@ use cohort_seeder::app::reconcile_dispatch::{
 use cohort_seeder::domain::{
     tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, ScopeKind,
 };
-use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
+use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome, NO_ERROR_RECORDED};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
     discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
@@ -891,6 +892,17 @@ async fn exhausted_chunk_and_error_are_read_off_the_same_row() -> Result<()> {
         ensure!(exhausted[0].exhausted == 2, "both capped chunks counted");
         ensure!(exhausted[0].chunk_id == chunk_ids[0].to_string());
         ensure!(exhausted[0].last_error == "zzz lowest id");
+
+        // A capped chunk with no persisted error still has to render as something: the run error
+        // interpolates this text, and an empty one leaves the operator a trailing colon.
+        sqlx::query("UPDATE cohort_backfill_chunks SET last_error = '' WHERE id = $1")
+            .bind(chunk_ids[0])
+            .execute(&pool)
+            .await?;
+        let exhausted = store
+            .runs_with_exhausted_chunks(&[seeding_run], attempts5)
+            .await?;
+        ensure!(exhausted[0].last_error == NO_ERROR_RECORDED);
         Ok(())
     })
     .await
@@ -933,17 +945,19 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
         .execute(&pool)
         .await?;
 
-        let exhausted = store.runs_with_exhausted_chunks(&run_ids, attempts5).await?;
-        ensure!(exhausted.len() == 1);
-        fail_run(
-            &pool,
-            seeding_run,
-            &RenderedError::from_message(format!(
-                "{} chunk(s) exhausted the 5 attempt retry budget; chunk {}: {}",
-                exhausted[0].exhausted, exhausted[0].chunk_id, exhausted[0].last_error,
-            )),
-        )
-        .await?;
+        // Through the seeder's own pass, not a hand-rolled equivalent: the scan, the error text and
+        // the attempt-cap interpolation are what an operator ends up reading.
+        ensure!(
+            fail_exhausted_runs_of_kind(
+                &pool,
+                &store,
+                &run_ids,
+                RunKind::Behavioral,
+                attempts5
+            )
+            .await
+                == 1
+        );
 
         let (status, error, finished): (String, String, bool) = sqlx::query_as(
             "SELECT status, error, finished_at IS NOT NULL FROM cohort_backfill_runs WHERE id = $1",
@@ -952,7 +966,8 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
         .fetch_one(&pool)
         .await?;
         ensure!(status == "failed");
-        ensure!(error.contains("exhausted the"));
+        ensure!(error.contains("1 chunk(s) exhausted the 5 attempt retry budget"));
+        ensure!(error.contains(&capped_id.to_string()));
         ensure!(error.contains("scan blew up"));
         ensure!(finished);
 
@@ -975,7 +990,19 @@ async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> 
         ensure_lease_lost(test_support::heartbeat(&store, live_lease, &claimant, lease60).await)?;
         drop(claimed);
 
-        // Idempotent: a later pass re-reads the same exhausted chunks and must not re-fail the run.
+        // Idempotent: a later pass re-reads the same exhausted chunks, and the already-terminal run
+        // must not be counted again.
+        ensure!(
+            fail_exhausted_runs_of_kind(
+                &pool,
+                &store,
+                &run_ids,
+                RunKind::Behavioral,
+                attempts5
+            )
+            .await
+                == 0
+        );
         ensure!(matches!(
             fail_run(&pool, seeding_run, &RenderedError::from_message("again")).await,
             Err(RunError::NotActive(_))
