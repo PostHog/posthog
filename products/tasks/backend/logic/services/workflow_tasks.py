@@ -154,7 +154,12 @@ def create_workflow_task(
 
 def _task_dto(task: Task, *, created: bool) -> contracts.WorkflowTaskDTO:
     run = task.latest_run
-    return contracts.WorkflowTaskDTO(task_id=task.id, run_id=run.id if run is not None else None, created=created)
+    return contracts.WorkflowTaskDTO(
+        task_id=task.id,
+        run_id=run.id if run is not None else None,
+        run_status=run.status if run is not None else None,
+        created=created,
+    )
 
 
 def _find_replayed_task(

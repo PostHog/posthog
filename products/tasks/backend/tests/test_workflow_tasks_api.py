@@ -15,6 +15,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.tasks.backend.logic.services.workflow_tasks import create_workflow_task
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
@@ -260,6 +261,36 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.json()["id"] == first.json()["id"]
         assert replay.json()["run_id"] == first.json()["run_id"]
         assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 1
+
+    def test_run_status_reflects_the_created_runs_status(self) -> None:
+        result = create_workflow_task(
+            team=self.team, hog_flow_id=self.hog_flow.id, owner_id=self.user.id, prompt="look into the alert"
+        )
+
+        run = TaskRun.objects.get(id=result.run_id)
+        assert result.run_status == run.status == TaskRun.Status.QUEUED
+
+    def test_run_status_is_none_for_a_replay_whose_run_was_since_deleted(self) -> None:
+        first = create_workflow_task(
+            team=self.team,
+            hog_flow_id=self.hog_flow.id,
+            owner_id=self.user.id,
+            prompt="look into the alert",
+            origin_key="invocation-1",
+        )
+        TaskRun.objects.filter(id=first.run_id).delete()
+
+        replay = create_workflow_task(
+            team=self.team,
+            hog_flow_id=self.hog_flow.id,
+            owner_id=self.user.id,
+            prompt="look into the alert",
+            origin_key="invocation-1",
+        )
+
+        assert replay.created is False
+        assert replay.run_id is None
+        assert replay.run_status is None
 
     @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
     def test_a_replay_succeeds_even_after_connectors_and_the_limit_would_reject_it(

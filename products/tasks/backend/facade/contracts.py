@@ -645,13 +645,17 @@ class CreatedTaskDTO:
 class WorkflowTaskDTO:
     """Outcome of a workflow's "Create AI task" action.
 
-    ``created`` is False when the request replayed an already-used idempotency key and the
-    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
-    task whose run has since been deleted.
+    The stable shape the workflows product reads off the tasks facade: today for the
+    action's own response, and going forward for a per-workflow Tasks tab that lists
+    the runs a workflow has started. ``created`` is False when the request replayed an
+    already-used idempotency key and the ids belong to the previously created task.
+    ``run_id`` and ``run_status`` are ``None`` only for a replayed task whose run has
+    since been deleted. ``run_status`` mirrors ``TaskRun.Status``.
     """
 
     task_id: UUID
     run_id: UUID | None
+    run_status: str | None
     created: bool
 
 
