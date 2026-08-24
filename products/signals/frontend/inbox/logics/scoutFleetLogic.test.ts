@@ -287,7 +287,7 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('reports roster filtering without leaking the search term', async () => {
+    it('reports roster filtering with the search length, not the term', async () => {
         jest.useFakeTimers()
         try {
             const capture = posthog.capture as jest.Mock
@@ -337,6 +337,8 @@ describe('scoutFleetLogic', () => {
     it('writes non-default roster filters to the URL and keeps the bare view clean', async () => {
         jest.useFakeTimers()
         try {
+            // The URL only carries tags the fleet still uses, so the roster needs a scout wearing one.
+            logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, tags: ['revenue'] }])
             logic.actions.setScoutEnabledFilter('disabled')
             logic.actions.setScoutTagFilter(['revenue'])
             logic.actions.setScoutSearch('rev')
@@ -458,6 +460,36 @@ describe('scoutFleetLogic', () => {
 
         // Riding along here would leave the URL filtered once the Back resets the controls.
         expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+    })
+
+    it('restores a search that the router parsed as a number', async () => {
+        // Opening the link parses the query string, and kea-router turns `scoutSearch=123` into the
+        // number 123, which a string-only read drops.
+        router.actions.push(`${urls.inbox('scouts')}?scoutSearch=123`)
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutSearch).toEqual('123')
+    })
+
+    it('drops a tag from the URL once no scout uses it', async () => {
+        jest.useFakeTimers()
+        try {
+            const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
+            logic.actions.loadScoutConfigsSuccess([revenueScout])
+            logic.actions.setScoutTagFilter(['revenue'])
+            expect(router.values.searchParams.scoutTags).toEqual('revenue')
+
+            // Retagging the last scout empties the tag control, so the roster is visibly unfiltered.
+            // A URL that still carries the tag would re-filter on refresh if the tag came back.
+            logic.actions.patchScoutConfigLocally(revenueScout.id, { tags: [] })
+            logic.actions.setScoutSearch('rev')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(logic.values.activeScoutTags).toEqual([])
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('resets the in-flight chat type when the kickoff fails', async () => {

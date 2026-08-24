@@ -134,17 +134,39 @@ function rosterFilterSearchParams(base: Record<string, any>, filters: RosterFilt
     return params
 }
 
+// kea-router parses `?scoutSearch=123` into a number and `?scoutSearch=true` into a boolean, so a
+// string-only check would drop searches and tags that a person can type. Read a scalar back as the
+// text it came from, and reject the array and object forms, which no roster param ever takes.
+function readTextParam(value: unknown): string {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    return ''
+}
+
 function parseRosterFilterSearchParams(searchParams: Record<string, any>): RosterFilterState {
+    const tags = readTextParam(searchParams.scoutTags)
     return {
-        scoutSearch: typeof searchParams.scoutSearch === 'string' ? searchParams.scoutSearch : '',
+        scoutSearch: readTextParam(searchParams.scoutSearch),
         scoutEnabledFilter:
             searchParams.scoutEnabled === 'enabled' || searchParams.scoutEnabled === 'disabled'
                 ? searchParams.scoutEnabled
                 : 'all',
-        selectedScoutTags:
-            typeof searchParams.scoutTags === 'string' && searchParams.scoutTags
-                ? searchParams.scoutTags.split(',').filter(Boolean)
-                : [],
+        selectedScoutTags: tags ? tags.split(',').filter(Boolean) : [],
+    }
+}
+
+// The URL mirrors what the tag control shows, and that control only lists tags the fleet still uses.
+// Until the configs load there is nothing to check a selection against, so the raw selection stands
+// and a shared link keeps its tags.
+function rosterFilterUrlState(values: scoutFleetLogicValues): RosterFilterState {
+    return {
+        scoutSearch: values.scoutSearch,
+        scoutEnabledFilter: values.scoutEnabledFilter,
+        selectedScoutTags: values.scoutConfigs === null ? values.selectedScoutTags : values.activeScoutTags,
     }
 }
 
@@ -855,8 +877,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         },
         // Debounced so a burst of keystrokes settles once, on pause. The URL is rewritten through
         // `replace`, so Back does not step through every partial query. Analytics ride the same pause:
-        // a typed query reports once, clearing reports nothing. The term itself is not sent — it can
-        // name a customer's own scouts — only its length.
+        // a typed query reports once, clearing reports nothing. The event payload carries only the
+        // length, not the term. That is no longer a privacy boundary: the term is in the URL, so
+        // `$current_url` carries it on this event and on every later one from the same page.
         setScoutSearch: async ({ search }, breakpoint) => {
             const searchedPathname = router.values.location.pathname
             await breakpoint(ROSTER_SEARCH_DEBOUNCE_MS)
@@ -873,7 +896,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             if (router.values.location.pathname === searchedPathname) {
                 router.actions.replace(
                     router.values.location.pathname,
-                    rosterFilterSearchParams(router.values.searchParams, values),
+                    rosterFilterSearchParams(router.values.searchParams, rosterFilterUrlState(values)),
                     router.values.hashParams
                 )
             }
@@ -1129,7 +1152,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actionToUrl(({ values }) => {
         const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             router.values.location.pathname,
-            rosterFilterSearchParams(router.values.searchParams, values),
+            rosterFilterSearchParams(router.values.searchParams, rosterFilterUrlState(values)),
             router.values.hashParams,
             { replace: false },
         ]
@@ -1170,7 +1193,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 if (method !== 'PUSH') {
                     return
                 }
-                const desired = rosterFilterSearchParams({}, values)
+                const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))
                 if (Object.keys(desired).length > 0) {
                     router.actions.replace(
                         router.values.location.pathname,
