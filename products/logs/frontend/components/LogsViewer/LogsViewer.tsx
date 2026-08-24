@@ -223,10 +223,10 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {

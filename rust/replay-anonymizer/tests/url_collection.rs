@@ -1,9 +1,9 @@
 //! The URL-collection lane, end to end through a real Kafka payload.
 //!
 //! The unit tests in `url_collect` pin canonicalization and the collector in isolation. These pin
-//! the parts only the whole pipeline can show: that a remote `src` comes out as a ref rather than
-//! the placeholder, that the original URL reaches `meta.urls`, that the scrubbed copy is still
-//! stashed alongside, and that a caller who does not opt in sees exactly what it saw before.
+//! the parts only the whole pipeline can show: that a remote `src` stays on the placeholder, that
+//! the ref is stashed separately, that the original URL reaches `meta.urls`, and that the scrubbed
+//! copy is still stashed alongside.
 
 use posthog_replay_anonymizer::{
     anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, ImagePolicy, UrlCollection,
@@ -162,7 +162,7 @@ fn attrs_of(line: &Value) -> &Value {
 }
 
 #[test]
-fn a_remote_src_becomes_a_ref_and_its_url_reaches_meta() {
+fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
     for (engine, result) in run(
         json!({ "src": "https://cdn.example.com/hero.png?w=200" }),
         true,
@@ -170,8 +170,15 @@ fn a_remote_src_becomes_a_ref_and_its_url_reaches_meta() {
         let (line, meta) = (&result[0], &result[1]);
         let src = attrs_of(line)["src"].as_str().expect("src is a string");
         assert!(
-            src.starts_with(&format!("imageurl:{PSEUDO_TEAM}:")),
-            "{engine}: expected a url ref, got {src}"
+            src.starts_with("data:image/svg+xml"),
+            "{engine}: expected the placeholder, got {src}"
+        );
+        let url_ref = attrs_of(line)["data-anon-image-ref-src"]
+            .as_str()
+            .expect("the URL ref is stashed");
+        assert!(
+            url_ref.starts_with(&format!("imageurl:{PSEUDO_TEAM}:")),
+            "{engine}: expected a URL ref, got {url_ref}"
         );
 
         let urls = meta["urls"].as_array().expect("meta.urls present");
@@ -179,12 +186,10 @@ fn a_remote_src_becomes_a_ref_and_its_url_reaches_meta() {
         assert_eq!(urls[0]["url"], "https://cdn.example.com/hero.png?w=200");
         assert_eq!(urls[0]["host"], "cdn.example.com");
         assert!(
-            src.ends_with(urls[0]["hash"].as_str().expect("hash is a string")),
+            url_ref.ends_with(urls[0]["hash"].as_str().expect("hash is a string")),
             "{engine}: the ref must carry the hash meta reports"
         );
 
-        // The scrubbed copy still rides along, so a reader that never resolves the ref keeps what
-        // it has today.
         assert!(
             attrs_of(line)["data-anon-original-src"].is_string(),
             "{engine}: the scrubbed original should still be stashed"
@@ -205,6 +210,10 @@ fn without_a_collection_a_remote_src_is_still_the_placeholder() {
             meta.get("urls").is_none(),
             "{engine}: meta.urls should be absent when nothing was collected"
         );
+        assert!(
+            attrs_of(line).get("data-anon-image-ref-src").is_none(),
+            "{engine}: no ref should be stashed when nothing was collected"
+        );
     }
 }
 
@@ -215,10 +224,9 @@ fn an_inlined_image_is_untouched_by_the_url_lane() {
     let inlined = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     for (engine, result) in run(json!({ "src": inlined }), true) {
         let (line, meta) = (&result[0], &result[1]);
-        let src = attrs_of(line)["src"].as_str().expect("src is a string");
         assert!(
-            !src.starts_with("imageurl:"),
-            "{engine}: an inlined image must not take the URL lane, got {src}"
+            attrs_of(line).get("data-anon-image-ref-src").is_none(),
+            "{engine}: an inlined image must not take the URL lane"
         );
         assert!(meta.get("urls").is_none(), "{engine}");
     }
@@ -233,6 +241,7 @@ fn a_non_fetchable_scheme_keeps_the_placeholder() {
             src.starts_with("data:image/svg+xml"),
             "{engine}: expected the placeholder, got {src}"
         );
+        assert!(attrs_of(line).get("data-anon-image-ref-src").is_none());
         assert!(meta.get("urls").is_none(), "{engine}");
     }
 }
@@ -252,6 +261,10 @@ fn srcset_stays_out_of_scope_and_keeps_the_placeholder() {
         assert!(
             srcset.starts_with("data:image/svg+xml"),
             "{engine}: expected the placeholder, got {srcset}"
+        );
+        assert!(
+            attrs_of(line).get("data-anon-image-ref-srcset").is_none(),
+            "{engine}"
         );
         assert!(meta.get("urls").is_none(), "{engine}");
     }

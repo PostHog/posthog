@@ -1,1 +1,1 @@
-0090_alter_origin_product_signals_chat
+0104_desktop_beta_terms_acceptance

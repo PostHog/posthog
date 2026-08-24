@@ -14,6 +14,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     AccountsTableAccountField,
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountFieldFilter,
+    AccountsTableAccountFieldOperator,
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
     AccountsTableAggregation,
@@ -54,6 +56,7 @@ from products.customer_analytics.backend.hogql_queries.accounts_table_query_runn
     AccountsTableQueryRunner,
 )
 from products.customer_analytics.backend.models import (
+    Account,
     AccountRelationship,
     AccountRelationshipDefinition,
     CustomPropertyValue,
@@ -80,6 +83,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             name="Acme",
             external_id="acme-1",
             churned_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+            ignored_at=datetime(2026, 1, 2, 10, 0, tzinfo=UTC),
             _properties={"stripe_customer_id": "cus_123"},
         )
 
@@ -134,6 +138,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 columns=[
                     AccountsTableAccountFieldColumn(field=AccountsTableAccountField.STRIPE_CUSTOMER_ID),
                     AccountsTableAccountFieldColumn(field=AccountsTableAccountField.CHURNED_AT),
+                    AccountsTableAccountFieldColumn(field=AccountsTableAccountField.IGNORED_AT),
                     AccountsTableTagsColumn(),
                     AccountsTableNoteCountColumn(),
                     AccountsTableRelationshipColumn(definitionId=str(relationship_definition.id)),
@@ -146,6 +151,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 ],
                 filters=[],
                 includeChurned=True,
+                includeIgnored=True,
             )
         )
 
@@ -154,6 +160,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert full_row.accountFields == {
             "stripe_customer_id": "cus_123",
             "churned_at": "2026-01-01T10:00:00+00:00",
+            "ignored_at": "2026-01-02T10:00:00+00:00",
         }
         assert full_row.tags == ["enterprise", "priority"]
         assert full_row.noteCount == 1
@@ -165,7 +172,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [point.value for point in full_row.customPropertyHistory[str(numeric_definition.id)]] == [10.0, 20.0]
 
         empty_row = rows[str(empty_account.id)]
-        assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None}
+        assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None, "ignored_at": None}
         assert empty_row.tags == []
         assert empty_row.noteCount == 0
         assert empty_row.relationships == {str(relationship_definition.id): []}
@@ -194,6 +201,31 @@ class TestAccountsTableQueryRunner(BaseTest):
                 filters=[],
                 metrics=[AccountsTableCountMetric()],
                 includeChurned=include_churned,
+            )
+        ).metricsResults
+
+        assert sorted(row.name for row in rows) == expected_names
+        assert metrics == [expected_count]
+
+    @parameterized.expand(
+        [
+            ("default", False, ["Tracked"], 1),
+            ("include_ignored", True, ["Ignored", "Tracked"], 2),
+        ]
+    )
+    def test_ignored_account_visibility(
+        self, _name: str, include_ignored: bool, expected_names: list[str], expected_count: int
+    ) -> None:
+        create_account(team_id=self.team.id, name="Tracked")
+        create_account(team_id=self.team.id, name="Ignored", ignored_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+        rows = self._run(AccountsTableQuery(columns=[], filters=[], includeIgnored=include_ignored)).results
+        metrics = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[AccountsTableCountMetric()],
+                includeIgnored=include_ignored,
             )
         ).metricsResults
 
@@ -410,6 +442,184 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert [row.id for row in unassigned_response.results] == [str(unassigned_account.id)]
         assert [row.id for row in account_response.results] == [str(assigned_account.id)]
+
+    @parameterized.expand(
+        [
+            (
+                "name_contains",
+                AccountsTableAccountField.NAME,
+                AccountsTableAccountFieldOperator.ICONTAINS,
+                ["ter"],
+                {"Enterprise"},
+            ),
+            (
+                "connection_id_exact",
+                AccountsTableAccountField.STRIPE_CUSTOMER_ID,
+                AccountsTableAccountFieldOperator.EXACT,
+                ["cus_123"],
+                {"Enterprise"},
+            ),
+            (
+                "negative_includes_unset",
+                AccountsTableAccountField.STRIPE_CUSTOMER_ID,
+                AccountsTableAccountFieldOperator.IS_NOT,
+                ["cus_123"],
+                {"Basic"},
+            ),
+            (
+                "created_exact",
+                AccountsTableAccountField.CREATED_AT,
+                AccountsTableAccountFieldOperator.IS_DATE_EXACT,
+                ["2026-01-01"],
+                {"Enterprise"},
+            ),
+            (
+                "created_before",
+                AccountsTableAccountField.CREATED_AT,
+                AccountsTableAccountFieldOperator.IS_DATE_BEFORE,
+                ["2026-01-15"],
+                {"Enterprise"},
+            ),
+            (
+                "created_after",
+                AccountsTableAccountField.CREATED_AT,
+                AccountsTableAccountFieldOperator.IS_DATE_AFTER,
+                ["2026-01-15"],
+                {"Basic"},
+            ),
+            (
+                "ignored_is_set",
+                AccountsTableAccountField.IGNORED_AT,
+                AccountsTableAccountFieldOperator.IS_SET,
+                [],
+                {"Enterprise"},
+            ),
+            (
+                "ignored_is_not_set",
+                AccountsTableAccountField.IGNORED_AT,
+                AccountsTableAccountFieldOperator.IS_NOT_SET,
+                [],
+                {"Basic"},
+            ),
+        ]
+    )
+    def test_filters_native_account_fields(
+        self,
+        _name: str,
+        field: AccountsTableAccountField,
+        operator: AccountsTableAccountFieldOperator,
+        values: list[str],
+        expected_names: set[str],
+    ) -> None:
+        enterprise = create_account(
+            team_id=self.team.id,
+            name="Enterprise",
+            ignored_at=(datetime(2026, 1, 5, tzinfo=UTC) if field == AccountsTableAccountField.IGNORED_AT else None),
+            _properties={"stripe_customer_id": "cus_123"},
+        )
+        basic = create_account(team_id=self.team.id, name="Basic")
+        Account.objects.unscoped().filter(id=enterprise.id).update(created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        Account.objects.unscoped().filter(id=basic.id).update(created_at=datetime(2026, 2, 1, tzinfo=UTC))
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[AccountsTableAccountFieldFilter(field=field, operator=operator, values=values)],
+            )
+        )
+
+        assert {row.name for row in response.results} == expected_names
+
+    @parameterized.expand(
+        [
+            (
+                "ignored",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.IGNORED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_SET,
+                    )
+                ],
+                {"Active ignored"},
+            ),
+            (
+                "churned",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.CHURNED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_SET,
+                    )
+                ],
+                {"Churned tracked"},
+            ),
+            (
+                "churned_and_ignored",
+                [
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.CHURNED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_SET,
+                    ),
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.IGNORED_AT,
+                        operator=AccountsTableAccountFieldOperator.IS_SET,
+                    ),
+                ],
+                {"Churned ignored"},
+            ),
+        ]
+    )
+    def test_lifecycle_filters_include_the_requested_state_for_rows_and_metrics(
+        self,
+        _name: str,
+        filters: list[AccountsTableAccountFieldFilter],
+        expected_names: set[str],
+    ) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        create_account(team_id=self.team.id, name="Active tracked")
+        create_account(team_id=self.team.id, name="Active ignored", ignored_at=timestamp)
+        create_account(team_id=self.team.id, name="Churned tracked", churned_at=timestamp)
+        create_account(team_id=self.team.id, name="Churned ignored", churned_at=timestamp, ignored_at=timestamp)
+
+        rows = self._run(AccountsTableQuery(columns=[], filters=filters)).results
+        metrics = self._run(
+            AccountsTableQuery(columns=[], filters=filters, metrics=[AccountsTableCountMetric()])
+        ).metricsResults
+
+        assert {row.name for row in rows} == expected_names
+        assert metrics == [len(expected_names)]
+
+    @parameterized.expand(
+        [
+            (
+                "date_on_text",
+                AccountsTableAccountField.NAME,
+                AccountsTableAccountFieldOperator.IS_DATE_AFTER,
+                ["2026-01-01"],
+            ),
+            (
+                "contains_on_date",
+                AccountsTableAccountField.CREATED_AT,
+                AccountsTableAccountFieldOperator.ICONTAINS,
+                ["2026"],
+            ),
+        ]
+    )
+    def test_rejects_account_field_operator_for_wrong_type(
+        self,
+        _name: str,
+        field: AccountsTableAccountField,
+        operator: AccountsTableAccountFieldOperator,
+        values: list[str],
+    ) -> None:
+        create_account(team_id=self.team.id, name="Account")
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    filters=[AccountsTableAccountFieldFilter(field=field, operator=operator, values=values)],
+                )
+            )
 
     @parameterized.expand(
         [

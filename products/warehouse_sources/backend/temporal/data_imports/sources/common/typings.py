@@ -2,6 +2,7 @@
 # module is reachable from warehouse_sources models at django.setup().
 from __future__ import annotations
 
+import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
@@ -79,7 +80,9 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-@dataclasses.dataclass
+# Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
+# reads it and that migration is its own change to make and verify.
+@dataclasses.dataclass(frozen=False)
 class SourceInputs:
     """Contextual info required by a source to actually run"""
 
@@ -95,6 +98,12 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
+    # before it are overlap the table already holds rather than new ground.
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None
+    # Resolved from the schema for a source that declares a `history_lookback`; `None` means
+    # unbounded. See `sources/common/history_window.py`.
+    history_start: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.

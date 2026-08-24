@@ -329,13 +329,7 @@ function usePiSubmit(
       );
       void controller
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then((result) => {
-          if (result === "steer") {
-            toast.info("Steering waits for a safe boundary", {
-              description:
-                "Pi will apply it at the next safe boundary. The run stays active until then.",
-            });
-          }
+        .then(() => {
           onSuccess(action);
         })
         .catch((error) => {
@@ -747,7 +741,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
         ) : (
           <PromptInput
             sessionId={taskId}
-            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            toolbarEndSlot={
+              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+            }
             taskId={taskId}
             repoPath={repoPath}
             placeholder="Type a message..."

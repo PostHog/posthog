@@ -334,8 +334,8 @@ function Expansion({
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-secondary">
                         {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
-                            ? 'Steering rules are on for this source.'
-                            : 'Tell this source what matters and what to skip.'}
+                            ? 'Guidance is set for this source.'
+                            : 'Tell the agent what matters and what to skip.'}
                     </span>
                     <LemonButton
                         type="secondary"
@@ -345,8 +345,8 @@ function Expansion({
                         data-attr="signal-source-steering-open"
                     >
                         {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
-                            ? 'Edit steering rules'
-                            : 'Add steering rules'}
+                            ? 'Edit guidance'
+                            : 'Add guidance'}
                     </LemonButton>
                 </div>
             )}

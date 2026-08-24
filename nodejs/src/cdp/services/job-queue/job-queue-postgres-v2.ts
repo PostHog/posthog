@@ -47,6 +47,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED'
         >
     ) {
         this.sanitizer = createInvocationSanitizer(config)
@@ -92,6 +93,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            priorityDequeue: this.config.CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED,
         })
 
         await this.worker.connect(async (jobs) => {
@@ -209,6 +211,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
+                } else if (result.canceled) {
+                    await job.cancel()
                 } else if (result.finished) {
                     await job.ack()
                 } else {
@@ -220,6 +224,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
+                        // Persisted only across email-queue transitions: entering carries the
+                        // class routeEmailToQueue assigned, leaving restores the origin
+                        // priority. Elsewhere the row keeps its insert-time priority, so the
+                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        priority:
+                            result.invocation.queue === 'email' || job.queueName === 'email'
+                                ? result.invocation.queuePriority
+                                : undefined,
                     })
                 }
             })
@@ -233,18 +245,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 if (job) {
                     this.pendingJobs.delete(inv.id)
                     await job.fail()
-                }
-            })
-        )
-    }
-
-    public async cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
-        await Promise.all(
-            invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
-                if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.cancel()
                 }
             })
         )
@@ -366,6 +366,10 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
 
     if (job.parentRunId) {
         invocation.parentRunId = job.parentRunId
+    }
+
+    if (job.cancelRequestedAt) {
+        invocation.cancelRequestedAt = job.cancelRequestedAt
     }
 
     return invocation

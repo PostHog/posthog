@@ -3,15 +3,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
-import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSceneLogic'
-
-export const STEP_LABELS: Record<ScannerEditorStep, string> = {
-    template: 'Template',
-    details: 'Details',
-    configure: 'Configure',
-    triggers: 'Recordings',
-    budget: 'Budget',
-}
+import { SCANNER_EDITOR_STEP_ORDER, STEP_LABELS, ScannerEditorStep } from './scannerEditorSceneLogic'
 
 interface ScannerEditorStepperProps {
     currentStep: ScannerEditorStep

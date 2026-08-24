@@ -1,5 +1,8 @@
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
+
+from django.db.models import Model
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -11,14 +14,15 @@ from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
-    RESOURCE_INHERITANCE_MAP,
-    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessSource,
+    ResolvedAccess,
     UserAccessControl,
     default_access_level,
+    fallback_parent_object,
     highest_access_level,
     minimum_access_level,
     ordered_access_levels,
@@ -31,6 +35,26 @@ if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
+    """A human name for the parent object an inherited level comes through, so the UI can say
+    which one. Only object-scoped sources have one, and the parent is always the object's own
+    fallback relation (that's where the walk got its id), so it is read off the object — cached
+    by Django, free when already loaded — never refetched by id. The name field comes from the
+    same registry the settings UI names objects with, so a new fallback parent needs no code here."""
+    from ee.api.rbac.access_control_settings import (
+        _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
+    )
+
+    if access.source != "parent_object":
+        return None
+    parent = fallback_parent_object(obj, access.source_resource)
+    display = _display_model(access.source_resource)
+    if parent is None or display is None:
+        return None
+    name = getattr(parent, display.name_field, None)
+    return str(name) if name else None
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -46,6 +70,46 @@ class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
             ),
         )
         super().__init__(**kwargs)
+
+
+class ResolvedAccessSerializer(serializers.Serializer):
+    """A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`."""
+
+    access_level = serializers.CharField(help_text="The access level that applies.")
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=[
+            "object",
+            "parent_object",
+            "resource",
+            "parent_resource",
+            "system_default",
+            "org_admin",
+            "creator",
+            "org_membership",
+        ],
+        help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
+        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+    )
+    source_subject = serializers.ChoiceField(
+        choices=["member", "role", "default"],
+        allow_null=True,
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+    )
+    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource_id = serializers.CharField(
+        allow_null=True,
+        help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
+    )
+
+
+class InheritedAccessSerializer(ResolvedAccessSerializer):
+    """The level an object falls back to without its own override, plus a display name for the parent it
+    comes through when there is one."""
+
+    source_display_name = serializers.CharField(
+        allow_null=True,
+        help_text="A human name for the parent object the level comes through (e.g. a table's source type).",
+    )
 
 
 class UserAccessInfoSerializer(serializers.Serializer):
@@ -340,32 +404,23 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if not is_resource_level:
             # The level this object falls back to when it carries no default of its own, so the UI
-            # can spell out what removing the override means. Follows RESOURCE_INHERITANCE_MAP
-            # because that's the resource the runtime check consults — a warehouse view is gated by
-            # the warehouse_objects rules, not by its own.
+            # can spell out what removing the override means. Resolved by the access walker itself
+            # (the object's own rows masked out, everyone perspective), so the shown level cannot
+            # disagree with how access is actually enforced — a re-derivation here would miss the
+            # fallback-parent tier (a table gated by its source).
             #
             # None for a project is load-bearing: it is what stops the UI offering "No override" on
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited_resource = (
-                None
-                if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
-                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
+            inherited = SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
+            payload["inherited_access"] = (
+                InheritedAccessSerializer(
+                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}
+                ).data
+                if inherited
+                else None
             )
-            payload["inherited_resource"] = inherited_resource
-            payload["inherited_access_level"] = None
-            if inherited_resource:
-                everyone_rule = AccessControl.objects.filter(
-                    team=team,
-                    resource=inherited_resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role=None,
-                ).first()
-                payload["inherited_access_level"] = (
-                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
-                )
 
         return Response(payload)
 

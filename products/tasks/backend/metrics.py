@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 
 import structlog
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +69,32 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
         "prewarmed",
         "phase",
     ],
+)
+
+WORKFLOW_DISPATCH_CREATED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_created_total", "Workflow dispatch rows created", labelnames=["kind"]
+)
+WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_attempt_total",
+    "Workflow dispatch attempt outcomes",
+    labelnames=["kind", "outcome"],
+)
+WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
+)
+WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
+WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
+    "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
+)
+WORKFLOW_DISPATCH_CLAIMED = Gauge("posthog_tasks_workflow_dispatch_claimed", "Claimed workflow dispatches")
+WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_lease_expired_total", "Expired workflow dispatch leases reclaimed"
+)
+WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_dead_total", "Dead workflow dispatches", labelnames=["kind", "reason"]
+)
+WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
 
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
@@ -249,6 +275,53 @@ COMPUTE_QUOTA_CHECK_TOTAL = Counter(
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+# analytics_event: pr_created | pr_merged | pr_closed | pr_reviewed (bounded, code-defined).
+# reason: unresolved_installation (no Integration matched the delivery's installation id) or
+#         capture_exception (posthoganalytics.capture raised). Both paths were silent before,
+#         so a webhook-side event loss only showed up as a capture-rate dip in analytics.
+GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL = Counter(
+    "posthog_tasks_github_webhook_pr_event_dropped_total",
+    "GitHub PR webhook events that never reached PostHog capture, labeled by event and drop reason",
+    labelnames=["analytics_event", "reason"],
+)
+
+# outcome: resolved | unresolved | timeout | error. timeout means the bounded org-member
+# lookup hit statement_timeout and was skipped so the delivery survives without attribution.
+GITHUB_WEBHOOK_ATTRIBUTION_TOTAL = Counter(
+    "posthog_tasks_github_webhook_attribution_total",
+    "Outcome of the org-member lookup that attributes a GitHub login on the pr_merged/pr_reviewed webhook path",
+    labelnames=["outcome"],
+)
+
+# scoped: "true" when the delivery's installation resolved to at least one team, so the
+# TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
+# unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
+# shrink in production before considering anything stricter.
+GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_run_lookup_total",
+    "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
+    labelnames=["scoped"],
+)
+
+GitHubWebhookAnalyticsEvent = Literal["pr_created", "pr_merged", "pr_closed", "pr_reviewed"]
+GitHubWebhookDropReason = Literal["unresolved_installation", "capture_exception"]
+GitHubWebhookAttributionOutcome = Literal["resolved", "unresolved", "timeout", "error"]
+
+
+def observe_github_webhook_pr_event_dropped(
+    *, analytics_event: GitHubWebhookAnalyticsEvent, reason: GitHubWebhookDropReason
+) -> None:
+    GITHUB_WEBHOOK_PR_EVENT_DROPPED_TOTAL.labels(analytics_event=analytics_event, reason=reason).inc()
+
+
+def observe_github_webhook_attribution(*, outcome: GitHubWebhookAttributionOutcome) -> None:
+    GITHUB_WEBHOOK_ATTRIBUTION_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
+    GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
 def _metric_label(value: object | None) -> str:
