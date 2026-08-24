@@ -4,12 +4,12 @@ import {
   parseFeedQuery,
   type TypeValue,
 } from "@posthog/core/tasks/feedQuery";
-import { formatRelativeTimeShort } from "@posthog/shared";
 import { useFeedQuerySuggestions } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+import { sessionSubtitle } from "@posthog/ui/features/command/sessionSubtitle";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import type {
   Command,
@@ -214,7 +214,9 @@ export function useFeedQueryCommands({
             detail: feed.query,
             detailPrefix: "",
             keywords: `${query} ${searchText} ${feed.name}`,
-            icon: <ArrowRightIcon size={12} className="text-gray-11" />,
+            icon: (
+              <ArrowRightIcon size={12} className="text-muted-foreground" />
+            ),
             action: "open-feed",
             onRun: () => {
               closeSettings();
@@ -232,14 +234,11 @@ export function useFeedQueryCommands({
     const shown = runsQuery ? results.tasks.slice(0, limit) : [];
     if (shown.length > 0) {
       const items = shown.map((task): Command => {
-        const space = task.channel ? channelNames.get(task.channel) : undefined;
-        const subtitle = [
-          task.repository ?? undefined,
-          space ? `#${space}` : undefined,
-          formatRelativeTimeShort(task.created_at),
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        const subtitle = sessionSubtitle({
+          space: task.channel ? channelNames.get(task.channel) : undefined,
+          repository: task.repository,
+          createdAt: task.created_at,
+        });
         return {
           id: `feed-query-task-${task.id}`,
           label: task.title,
@@ -261,7 +260,9 @@ export function useFeedQueryCommands({
         items.push({
           id: "feed-query-show-all",
           label: `Show all ${matchCount} matches`,
-          icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
+          icon: (
+            <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+          ),
           action: "show-all-matches",
           keepOpen: true,
           onRun: onShowAll,
@@ -285,7 +286,9 @@ export function useFeedQueryCommands({
           label,
           detail: `${count} ${count === 1 ? "task" : "tasks"}`,
           detailPrefix: "",
-          icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
+          icon: (
+            <MagnifyingGlassIcon size={12} className="text-muted-foreground" />
+          ),
           action: "repair-query",
           keepOpen: true,
           onRun: () => onApply(`${next} `, next.length + 1),
