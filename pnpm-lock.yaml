@@ -2470,9 +2470,6 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
-      chartjs-plugin-annotation:
-        specifier: '*'
-        version: 3.1.0(chart.js@4.5.1)
       fast-equals:
         specifier: 'catalog:'
         version: 6.0.1
