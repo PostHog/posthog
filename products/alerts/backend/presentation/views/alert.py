@@ -268,6 +268,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "created_at",
             "calculated_value",
             "state",
+            "error",
             "targets_notified",
             "anomaly_scores",
             "triggered_points",

@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
@@ -37,6 +37,26 @@ export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Elemen
         case AlertState.NOT_FIRING:
             return <LemonTag type="success">Not firing</LemonTag>
     }
+}
+
+export function AlertErrorBanner({ alert }: { alert: AlertType }): JSX.Element | null {
+    if (alert.state !== AlertState.ERRORED) {
+        return null
+    }
+
+    const message = alert.checks?.find((check) => check.error?.message)?.error?.message
+    if (!message) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="error" data-attr="alert-error-banner">
+            <strong>Alert disabled.</strong> {message}{' '}
+            <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
+                Fix email settings
+            </Link>
+        </LemonBanner>
+    )
 }
 
 interface AlertNextEvaluationStatusProps {

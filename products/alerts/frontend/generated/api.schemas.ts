@@ -185,6 +185,7 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
+    readonly error: Record<string, unknown> | null
     readonly targets_notified: boolean
     readonly anomaly_scores: unknown
     readonly triggered_points: unknown
