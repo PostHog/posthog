@@ -396,7 +396,13 @@ def list_settings() -> None:
 
 
 def read_emails(positional: list[str], emails_file: Optional[str]) -> list[str]:
-    """Collect emails from positional args and/or a file, de-duplicated case-insensitively.
+    """Collect emails from positional args and/or a file, de-duplicated by exact value.
+
+    Case-variant addresses (`Test@example.com` vs `test@example.com`) are separate rows under the
+    case-sensitive unique constraint on `User.email`, so they must survive as distinct inputs.
+    Lowercasing to dedupe would collapse two real accounts into one and silently drop the second
+    with no unresolved record. `plan_changes` then keys planned changes by resolved UUID, so a
+    variant and its stored form still resolve to one write rather than two.
 
     File format is one email per line; blank lines and `#` comments are skipped.
     """
@@ -414,9 +420,8 @@ def read_emails(positional: list[str], emails_file: Optional[str]) -> list[str]:
     seen: set[str] = set()
     emails: list[str] = []
     for email in collected:
-        lowered = email.lower()
-        if lowered not in seen:
-            seen.add(lowered)
+        if email not in seen:
+            seen.add(email)
             emails.append(email)
     return emails
 
@@ -543,21 +548,30 @@ def plan_changes(
     scope: Optional[str],
     desired: Any,
 ) -> tuple[list[PlannedChange], list[str]]:
-    """Resolve every email to a user and compute its before/after. Returns (planned, unresolved)."""
+    """Resolve every email to a user and compute its before/after. Returns (planned, unresolved).
+
+    Inputs that resolve to the same user - a case variant and its stored address both mapping to one
+    account - are planned once, keyed by resolved UUID, so a duplicate spelling never writes twice.
+    """
     planned: list[PlannedChange] = []
     unresolved: list[str] = []
+    seen_uuids: set[str] = set()
     for email in emails:
         try:
             row = resolve_user(session, host, email)
         except PostHogScriptError as err:
             unresolved.append(f"{email}: {err}")
             continue
+        uuid = str(row["uuid"])
+        if uuid in seen_uuids:
+            continue
+        seen_uuids.add(uuid)
         settings = row.get("notification_settings") or {}
         current = current_value(settings, setting, scope)
         planned.append(
             PlannedChange(
                 email=str(row.get("email") or email),
-                uuid=str(row["uuid"]),
+                uuid=uuid,
                 current=current,
                 desired=desired,
                 clears_auto_select=setting.key in AUTO_SELECT_KEYS and current is None,
