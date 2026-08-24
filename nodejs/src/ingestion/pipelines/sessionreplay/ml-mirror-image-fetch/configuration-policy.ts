@@ -8,6 +8,7 @@ import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configura
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
+import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
 const BOT_NAME = 'PostHogImageFetcherBot'
 const USER_AGENT = `${BOT_NAME}/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -518,7 +519,7 @@ function tdmrepRefuses(parsed: unknown, url: URL): boolean {
         if (!isObject(rule) || typeof rule.location !== 'string') {
             continue
         }
-        if (tdmLocationMatches(rule.location, url.pathname)) {
+        if (wildcardPatternMatchesPathname(rule.location, url.pathname)) {
             return rule['tdm-reservation'] === 1
         }
     }
@@ -563,89 +564,6 @@ function configurationRevision(item: ConfigurationCacheItem): string {
     return `${item.key}\0${item.fetchedAtMs}`
 }
 
-function tdmLocationMatches(pattern: string, pathname: string): boolean {
-    const decodedPattern = decodeUnreserved(pattern)
-    const endAnchored = decodedPattern.endsWith('$')
-    const matchPattern = endAnchored ? decodedPattern.slice(0, -1) : decodedPattern
-    const decodedPathname = decodeUnreserved(pathname)
-
-    if (!matchPattern.includes('*')) {
-        return endAnchored ? decodedPathname === matchPattern : decodedPathname.startsWith(matchPattern)
-    }
-
-    const literalSegments = matchPattern.split('*').filter((segment) => segment.length > 0)
-    if (literalSegments.length === 0) {
-        return true
-    }
-
-    let nextSearchIndex = 0
-    let nextSegmentIndex = 0
-    if (!matchPattern.startsWith('*')) {
-        const firstSegment = literalSegments[0]
-        if (!decodedPathname.startsWith(firstSegment)) {
-            return false
-        }
-        nextSearchIndex = firstSegment.length
-        nextSegmentIndex = 1
-    }
-
-    let segmentSearchEnd = literalSegments.length
-    let pathnameSearchEnd = decodedPathname.length
-    if (endAnchored && !matchPattern.endsWith('*')) {
-        const finalSegmentIndex = literalSegments.length - 1
-        const finalSegment = literalSegments[finalSegmentIndex]
-        if (!decodedPathname.endsWith(finalSegment)) {
-            return false
-        }
-        segmentSearchEnd = finalSegmentIndex
-        pathnameSearchEnd = decodedPathname.length - finalSegment.length
-    }
-
-    for (; nextSegmentIndex < segmentSearchEnd; nextSegmentIndex++) {
-        const segment = literalSegments[nextSegmentIndex]
-        const matchIndex = findLiteralSegment(decodedPathname, segment, nextSearchIndex, pathnameSearchEnd)
-        if (matchIndex === -1) {
-            return false
-        }
-        nextSearchIndex = matchIndex + segment.length
-    }
-
-    return nextSearchIndex <= pathnameSearchEnd
-}
-
-function findLiteralSegment(value: string, segment: string, startIndex: number, endIndex: number): number {
-    const prefixLengths = Array<number>(segment.length).fill(0)
-    for (let index = 1, matchedLength = 0; index < segment.length; index++) {
-        while (matchedLength > 0 && segment[index] !== segment[matchedLength]) {
-            matchedLength = prefixLengths[matchedLength - 1]
-        }
-        if (segment[index] === segment[matchedLength]) {
-            matchedLength++
-        }
-        prefixLengths[index] = matchedLength
-    }
-
-    for (let index = startIndex, matchedLength = 0; index < endIndex; index++) {
-        while (matchedLength > 0 && value[index] !== segment[matchedLength]) {
-            matchedLength = prefixLengths[matchedLength - 1]
-        }
-        if (value[index] === segment[matchedLength]) {
-            matchedLength++
-        }
-        if (matchedLength === segment.length) {
-            return index - segment.length + 1
-        }
-    }
-    return -1
-}
-
-function decodeUnreserved(value: string): string {
-    return value.replace(/%[0-9A-Fa-f]{2}/g, (encoded) => {
-        const character = String.fromCharCode(Number.parseInt(encoded.slice(1), 16))
-        return /^[A-Za-z0-9._~-]$/.test(character) ? character : encoded.toUpperCase()
-    })
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -667,7 +585,7 @@ function contentUsageRefuses(values: string[]): boolean {
 function contentSignalRefuses(value: string, url: string): boolean {
     const trimmed = value.trim()
     const pathEnd = trimmed.startsWith('/') ? trimmed.search(/\s/) : -1
-    if (pathEnd > 0 && !tdmLocationMatches(trimmed.slice(0, pathEnd), new URL(url).pathname)) {
+    if (pathEnd > 0 && !wildcardPatternMatchesPathname(trimmed.slice(0, pathEnd), new URL(url).pathname)) {
         return false
     }
     const preferences = (pathEnd > 0 ? trimmed.slice(pathEnd) : trimmed)

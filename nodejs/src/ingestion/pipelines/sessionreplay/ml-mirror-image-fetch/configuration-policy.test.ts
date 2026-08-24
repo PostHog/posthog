@@ -254,56 +254,6 @@ describe('ConfigurationPolicyService', () => {
         })
     })
 
-    it.each([
-        ['a middle wildcard', '/images/*/preview$', '/images/v1/preview', true],
-        ['an anchored suffix mismatch', '/images/*/preview$', '/images/v1/preview/more', false],
-        ['a leading wildcard', '*/private/*', '/v1/private/image.png', true],
-        ['literal regular expression characters', '/literal.+(item)$', '/literal.+(item)', true],
-        ['an unreserved percent encoding', '/asset%7Ename$', '/asset~name', true],
-        ['consecutive wildcards', '/asset/**/preview$', '/asset//preview', true],
-        ['overlapping anchored segments', '*a*a$', '/aaa', true],
-    ])('matches TDMRep locations with %s', async (_name, location, pathname, tdmrepReservation) => {
-        const { policy } = service()
-        const cache = new Map([
-            [configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')],
-            [
-                configurationCacheKey(ORIGIN, 'tdmrep'),
-                cached('tdmrep', 'available', JSON.stringify([{ location, 'tdm-reservation': 1 }])),
-            ],
-        ])
-
-        await expect(policy.check(`${ORIGIN}${pathname}`, cache, NOW_MS)).resolves.toMatchObject({
-            allowed: true,
-            tdmrepReservation,
-        })
-    })
-
-    it('matches wildcard-heavy TDMRep locations without compiling a regular expression', async () => {
-        const regexpConstructor = jest.spyOn(globalThis, 'RegExp').mockReturnValue(/$a/)
-        const { policy } = service()
-        const cache = new Map([
-            [configurationCacheKey(ORIGIN, 'robots'), cached('robots', 'absent')],
-            [
-                configurationCacheKey(ORIGIN, 'tdmrep'),
-                cached(
-                    'tdmrep',
-                    'available',
-                    JSON.stringify([{ location: `${'*a'.repeat(64)}*b$`, 'tdm-reservation': 1 }])
-                ),
-            ],
-        ])
-
-        try {
-            await expect(policy.check(`${ORIGIN}/${'a'.repeat(128)}c`, cache, NOW_MS)).resolves.toMatchObject({
-                allowed: true,
-                tdmrepReservation: false,
-            })
-            expect(regexpConstructor).not.toHaveBeenCalled()
-        } finally {
-            regexpConstructor.mockRestore()
-        }
-    })
-
     it('keeps a previous usable file when its refresh is unreachable', async () => {
         const { policy } = service({ robots: { outcome: 'unreachable' } })
         const previous = { ...cached('robots', 'absent'), refreshAtMs: NOW_MS - 1 }
