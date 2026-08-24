@@ -2085,9 +2085,9 @@ snapshots:
     errortracking-contextdisplay--context-display-with-stacktrace--light:
         hash: v1.k794b7964.4647fc443f0df7cf2451a05f28fb95592b4c40e98d59ae289a5a3a2d54dba14f.y3p3Lw9_WVMCUVwR_8JJwjdkKaYBWgrJNzCa3e3Mu2I
     errortracking-exceptioncard--exception-card-all-events--dark:
-        hash: v1.k794b7964.d8eeeb2edea49238f843906636f535de9d9bb972dfdb7b0a7d4996e2c90b8a09.x8dkCzh5Nu2XxKwjMs6ab8KHxvQaP9toxjiu3Cd0dNs
+        hash: v1.k794b7964.1ecdd072724548b5b1479b571c4e71d939c63eec086577ca404887e1a847d77e.sDYzU0ZZuvsAFJHS8-T1Kw9lrA-Pi64kJtUX8oILYu0
     errortracking-exceptioncard--exception-card-all-events--light:
-        hash: v1.k794b7964.c83f4ab40ac186ee8872b9e051f8eb74be9fe70a1f257d853bbbb8372f2d6db2.my2kxuXPuZRq6U3hYpzKMZOQiYOVGgYTFrYo97sltlo
+        hash: v1.k794b7964.1f130e815e8ad575ae002b76862cb638dd37f70c7cc5171f917026e4fde7c04e.2aVA113FgaOPAEfpNsaCysOoMkbGQGlpdryxOIaDfbk
     errortracking-exceptioncard--exception-card-base--dark:
         hash: v1.k794b7964.3c350c23790195a5fc0dfb048f81f0a62dee7d84dab927e4b0fe318adce3443c.uWybQFWQBqnNXQnYT_PSKs0VNv5dVHNtDFIkDAa1Toc
     errortracking-exceptioncard--exception-card-base--light:
