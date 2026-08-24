@@ -134,6 +134,60 @@ const ENG = {
   starred: false,
 };
 
+function setPendingTabSwitch({
+  href,
+  viewState,
+  channelId,
+}: {
+  href: string;
+  viewState: { listOpen: boolean; spaceId: string | null };
+  channelId: string | null;
+}): void {
+  mocks.historyTabId = "target-tab";
+  browserTabsStore.getState().setSnapshot({
+    windows: [
+      {
+        id: "window-1",
+        isPrimary: true,
+        bounds: null,
+        activeTabId: "channel-tab",
+      },
+    ],
+    tabs: [
+      {
+        id: "channel-tab",
+        windowId: "window-1",
+        href: `/spaces/${ENG.id}`,
+        viewState: { listOpen: false, spaceId: ENG.id },
+        dashboardId: null,
+        taskId: null,
+        channelId: ENG.id,
+        channelSection: null,
+        appView: null,
+        position: 1_000,
+        scrollState: null,
+        createdAt: 1,
+        lastActiveAt: 1,
+      },
+      {
+        id: "target-tab",
+        windowId: "window-1",
+        href,
+        viewState,
+        dashboardId: null,
+        taskId: null,
+        channelId,
+        channelSection: null,
+        appView: null,
+        position: 2_000,
+        scrollState: null,
+        createdAt: 2,
+        lastActiveAt: 2,
+      },
+    ],
+  });
+}
+
 describe("ChannelsSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -205,54 +259,30 @@ describe("ChannelsSidebar", () => {
 
     it("shows an in-flight tab's list before its route settles", () => {
       mocks.routeChannelId = ENG.id;
-      mocks.historyTabId = "root-tab";
-      browserTabsStore.getState().setSnapshot({
-        windows: [
-          {
-            id: "window-1",
-            isPrimary: true,
-            bounds: null,
-            activeTabId: "channel-tab",
-          },
-        ],
-        tabs: [
-          {
-            id: "channel-tab",
-            windowId: "window-1",
-            href: `/spaces/${ENG.id}`,
-            viewState: { listOpen: false, spaceId: ENG.id },
-            dashboardId: null,
-            taskId: null,
-            channelId: ENG.id,
-            channelSection: null,
-            appView: null,
-            position: 1_000,
-            scrollState: null,
-            createdAt: 1,
-            lastActiveAt: 1,
-          },
-          {
-            id: "root-tab",
-            windowId: "window-1",
-            href: "/spaces",
-            viewState: { listOpen: true, spaceId: ENG.id },
-            dashboardId: null,
-            taskId: null,
-            channelId: null,
-            channelSection: null,
-            appView: null,
-            position: 2_000,
-            scrollState: null,
-            createdAt: 2,
-            lastActiveAt: 2,
-          },
-        ],
+      setPendingTabSwitch({
+        href: "/spaces",
+        viewState: { listOpen: true, spaceId: ENG.id },
+        channelId: null,
       });
 
       renderSidebar();
 
       expect(listIsInteractive()).toBe(true);
       expect(useChannelPaneStore.getState().pane).toBe("channel");
+    });
+
+    it("does not mark an in-flight tab's channel seen", () => {
+      mocks.routeChannelId = ENG.id;
+      setPendingTabSwitch({
+        href: `/spaces/${ME.id}`,
+        viewState: { listOpen: false, spaceId: ME.id },
+        channelId: ME.id,
+      });
+
+      renderSidebar();
+
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
     });
 
     it("marks a channel seen only while its pane is visible", () => {

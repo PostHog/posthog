@@ -67,17 +67,21 @@ function ChannelPanes({
   channelId,
   showList,
   sidebarVisible,
+  pendingTabSwitch,
 }: {
   channelId: string | null;
   showList: boolean;
   sidebarVisible: boolean;
+  pendingTabSwitch: boolean;
 }) {
   // Mark the channel seen only while a reader can see its pane: this pane is
   // the one showing (not the list) and the sidebar is on screen. A collapsed
   // sidebar keeps both panes mounted, so without the visibility gate a mention
   // landing behind it would clear the unread emphasis nobody saw.
   const visibleChannelId =
-    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
+    !pendingTabSwitch && !showList && sidebarVisible
+      ? (channelId ?? undefined)
+      : undefined;
   useMarkChannelSeen(visibleChannelId);
   const animateTransition = useChannelPaneStore(
     (state) => state.animateTransition,
@@ -200,7 +204,8 @@ export function ChannelsSidebar() {
   const selectedActivityId = useActivitySelection()?.id;
   const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
-  const pendingTabViewState = usePendingTabViewState();
+  const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
+    usePendingTabViewState();
   const presentedChannelId =
     pendingTabViewState?.spaceId !== undefined
       ? pendingTabViewState.spaceId
@@ -259,6 +264,7 @@ export function ChannelsSidebar() {
                 channelId={presentedChannelId}
                 showList={showList}
                 sidebarVisible={open || peek}
+                pendingTabSwitch={pendingTabSwitch}
               />
             )
           ) : bodyChannelsWorld ? (
