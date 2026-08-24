@@ -76,6 +76,8 @@ describe('issueQueryOptionsLogic', () => {
         { type: 'user', id: '7' },
         { type: 'user', id: 1.5 },
         { type: 'role', id: 7 },
+        { type: 'role', id: 'not-a-uuid' },
+        { type: 'role', id: '  ' },
         { type: 'team', id: 7 },
         { id: 7 },
         ['role:01978cae-04b5-0000-17fb-0405fcb791be'],
@@ -89,7 +91,7 @@ describe('issueQueryOptionsLogic', () => {
 
     it.each([
         { type: 'user', id: 7 },
-        { type: 'role', id: '018f-a-role-uuid' },
+        { type: 'role', id: '01978cae-04b5-0000-17fb-0405fcb791be' },
     ] as const)('applies the valid assignee %p', (assignee) => {
         const logic = mountLogic()
         logic.actions.setAssignee(assignee)

@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { isUUIDLike } from 'lib/utils/guards'
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
@@ -51,7 +52,7 @@ export function sanitizeAssignee(assignee: unknown): ErrorTrackingIssueAssignee 
     if (type === 'user' && typeof id === 'number' && Number.isInteger(id)) {
         return { id, type }
     }
-    if (type === 'role' && typeof id === 'string' && id.length > 0) {
+    if (type === 'role' && typeof id === 'string' && isUUIDLike(id)) {
         return { id, type }
     }
     return DEFAULT_ASSIGNEE
