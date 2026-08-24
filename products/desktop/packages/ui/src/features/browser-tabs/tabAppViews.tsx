@@ -1,8 +1,8 @@
 import {
   ArchiveIcon,
+  BellIcon,
   BookOpenTextIcon,
   BrainIcon,
-  ClockCounterClockwiseIcon,
   GearIcon,
   PlugsConnectedIcon,
   RepeatIcon,
@@ -34,7 +34,7 @@ export const TAB_APP_VIEW_META: Record<
 > = {
   activity: {
     label: "Activity",
-    icon: <ClockCounterClockwiseIcon size={14} />,
+    icon: <BellIcon size={14} />,
   },
   home: { label: "Home", icon: <SquaresFourIcon size={14} /> },
   inbox: { label: "Inbox", icon: <TrayIcon size={14} /> },
