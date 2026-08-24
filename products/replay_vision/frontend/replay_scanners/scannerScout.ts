@@ -82,6 +82,9 @@ interface ScoutFocus {
     quiet: string
     priority: string
     skip: string
+    /** Replaces the default quiet-window verdict. A watcher's quiet run is a one-line "nothing
+     * crossed the bar"; a digest has no bar to clear, so that line contradicts its own shape. */
+    quietVerdict?: string
     /** Replaces the default report shape. A watcher reports an exception, so its default is a
      * takeaway and at most three bullets; a digest summarizes the window whether or not anything
      * crossed a bar, and that does not fit in three bullets. */
@@ -92,6 +95,9 @@ interface ScoutFocus {
  * observation text — and differs only in what it reads and what it considers report-worthy. The
  * scanner id is the sole baked-in context; the scanner's name, type, and prompt are read live via
  * `vision-scanners-get`, so editing the scanner never requires touching the scout. */
+const DEFAULT_QUIET_VERDICT =
+    'When nothing clears the bar, still file the report, with the verdict `Nothing notable` and a short coverage line ("42 observations across 30 sessions, distributions steady").'
+
 const DEFAULT_REPORT_SHAPE = `- Open with the takeaway in one line, then at most three bullets ordered by impact.
 - Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.`
 
@@ -137,7 +143,7 @@ ${focus.skip}
 Every successful run leaves exactly one report for the date, and it is the digest: never one report per finding, and never a run that files nothing.
 
 Title it \`<your scout name>: YYYY-MM-DD\`, dating it with the run's date in the project timezone. Your scout name is your own \`skill_name\` with the \`signals-scout-\` prefix dropped, dashes turned into spaces, and the first letter capitalized: \`signals-scout-checkout-trend-watch\` titles as \`Checkout trend watch: 2026-01-31\`. It already carries the scanner, so nothing else has to, and it is what keeps two scouts from writing the same title, which matters because of the next line.
-Before writing, find your own report by pointer, never by title: \`scout-scratchpad-search\` for \`${scannerId}:report:<today>\` and \`inbox-reports-retrieve\` the id it holds. Edit that report if it exists; otherwise \`scout-emit-report\` and stash the new id under \`${scannerId}:report:<today>\`. A title match is not proof the report is yours — several scouts watch this scanner, and more than one of them titles its report after the scanner, so matching on title edits another scout's report and leaves yours unwritten. Never two reports for the same date from you, and never a second emit later in the same run — each one delivers again.
+Before writing, find your own report by pointer, never by title: \`scout-scratchpad-search\` for \`${scannerId}:report:<your skill_name>:<today>\` and \`inbox-reports-retrieve\` the id it holds. Edit that report if it exists; otherwise \`scout-emit-report\` and stash the new id under \`${scannerId}:report:<your skill_name>:<today>\`. A title match is not proof the report is yours — several scouts watch this scanner, and more than one of them titles its report after the scanner, so matching on title edits another scout's report and leaves yours unwritten. Never two reports for the same date from you, and never a second emit later in the same run — each one delivers again.
 
 Write the report so it stands alone for a reader with no prior context:
 
@@ -146,8 +152,8 @@ ${focus.shape ?? DEFAULT_REPORT_SHAPE}
 - Link what another scout already reported rather than restating it: \`[already documented](/project/<project_id>/inbox/<report_id>)\`, taking the id from \`inbox-reports-list\`. Several scouts watch this scanner and read the same window, so without the link one finding gets filed three times.
 - Close with what you checked, and name anything you could not cover and why.
 
-When nothing clears the bar, still file the report, with the verdict \`Nothing notable\` and a short coverage line ("42 observations across 30 sessions, distributions steady"). ${focus.priority}
-These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, stash the report id under \`${scannerId}:report:<today>\` — that pointer, not the title, is how the next run finds this report.
+${focus.quietVerdict ?? DEFAULT_QUIET_VERDICT} ${focus.priority}
+These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, stash the report id under \`${scannerId}:report:<your skill_name>:<today>\` — that pointer, not the title, is how the next run finds this report.
 
 ## Charts, when the shape is the point
 
@@ -248,6 +254,8 @@ Lead the summary with whatever the window is actually about, and lean on:
                 quiet: 'A window where nothing changed still has content: what users did, which themes dominated, and how the distribution sat against prior weeks. Say plainly that nothing stood out, then summarize the window anyway. `Nothing notable` on its own is not a digest.',
                 skip: `- Anything the scanner's own per-session signals already pushed to the inbox.
 - Observations whose own signals contradict the claim (a session marked \`friction: none\` is never evidence of an error).`,
+                quietVerdict:
+                    'A digest has no bar to clear, so it never files a bare verdict. Say in the opening line that nothing stood out, then summarize the window as below.',
                 shape: `- Open with a two or three sentence read on the window: what users were doing, and what stood out.
 - Then a short section per theme, each a heading and two to four bullets. Order them by how much of the window they cover, and say roughly how many sessions each rests on.
 - A theme resting on one or two observations is worth a sentence, not a section: say how thin it is rather than inflating it or dropping it.
