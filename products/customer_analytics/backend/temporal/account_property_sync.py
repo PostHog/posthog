@@ -14,6 +14,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from products.customer_analytics.backend.facade.temporal_contracts import (
     AccountPropertySyncInput,
     DispatchAccountPropertySyncInput,
+    StageAccountPropertySyncInput,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -32,9 +33,11 @@ with workflow.unsafe.imports_passed_through():
         run_account_property_segment_sync,
     )
     from products.warehouse_sources.backend.facade.hooks import saved_query_binding
+    from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink
 
 logger = structlog.get_logger(__name__)
 
+ACCOUNT_PROPERTY_STAGING_WORKFLOW_NAME = "stage-warehouse-account-properties"
 ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME = "sync-warehouse-account-properties"
 
 ACCOUNT_PROPERTY_SYNC_TOTAL = Counter(
@@ -49,6 +52,34 @@ ACCOUNT_PROPERTY_SYNC_DURATION_SECONDS = Histogram(
     labelnames=["segment"],
     buckets=(0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
 )
+
+
+@activity.defn(name="stage-warehouse-account-property-files")
+async def stage_warehouse_account_property_files_activity(input: StageAccountPropertySyncInput) -> bool:
+    log = logger.bind(
+        team_id=input.team_id,
+        saved_query_id=input.saved_query_id,
+        job_id=input.job_id,
+        delta_version=input.delta_version,
+    )
+    sink = AccountPropertyRowSink(
+        team_id=input.team_id,
+        binding=saved_query_binding(input.saved_query_id),
+        job_id=input.job_id,
+        logger=log,
+    )
+    try:
+        async with Heartbeater():
+            staged = await sink.stage_delta_snapshot(input.table_uri, input.delta_version)
+    except Exception as error:
+        log.exception("Account-property staging failed")
+        capture_exception(error)
+        raise
+    if staged:
+        log.info("Account-property staging completed")
+    else:
+        log.info("Account-property staging skipped because no enabled sources remain")
+    return staged
 
 
 @activity.defn(name="dispatch-warehouse-account-property-sync")
@@ -113,6 +144,35 @@ async def sync_warehouse_account_properties_activity(input: AccountPropertySyncI
     return result
 
 
+@workflow.defn(name=ACCOUNT_PROPERTY_STAGING_WORKFLOW_NAME)
+class StageWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> StageAccountPropertySyncInput:
+        return StageAccountPropertySyncInput(**json.loads(inputs[0]))
+
+    @workflow.run
+    async def run(self, input: StageAccountPropertySyncInput) -> None:
+        staged = await workflow.execute_activity(
+            stage_warehouse_account_property_files_activity,
+            input,
+            start_to_close_timeout=timedelta(hours=6),
+            heartbeat_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=30)),
+        )
+        if not staged:
+            return
+        await workflow.execute_activity(
+            dispatch_warehouse_account_property_sync_activity,
+            DispatchAccountPropertySyncInput(
+                team_id=input.team_id,
+                saved_query_id=input.saved_query_id,
+                job_id=input.job_id,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
+
+
 @workflow.defn(name=ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME)
 class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
     @staticmethod
@@ -130,8 +190,12 @@ class SyncWarehouseAccountPropertiesWorkflow(PostHogWorkflow):
         )
 
 
-ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [SyncWarehouseAccountPropertiesWorkflow]
+ACCOUNT_PROPERTY_SYNC_WORKFLOWS = [
+    StageWarehouseAccountPropertiesWorkflow,
+    SyncWarehouseAccountPropertiesWorkflow,
+]
 ACCOUNT_PROPERTY_SYNC_ACTIVITIES = [
+    stage_warehouse_account_property_files_activity,
     dispatch_warehouse_account_property_sync_activity,
     sync_warehouse_account_properties_activity,
 ]

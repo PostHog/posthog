@@ -1,4 +1,3 @@
-import time
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -6,8 +5,9 @@ from typing import Any
 from django.conf import settings
 
 import pyarrow as pa
+import deltalake
 import pyarrow.fs as pa_fs
-from pyarrow.parquet import write_table
+from pyarrow.parquet import ParquetFile, write_table
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
@@ -22,30 +22,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
     binding_staged_prefix,
     job_staged_prefix,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
 # never ran, or gave up retrying) and is swept. Anything younger may belong to a consumer that is
 # merely lagging behind the sync schedule and must survive — deleting it would silently drop that
 # sync's staged delta, which an incremental sync never re-stages until the rows change again.
 ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
+_PARQUET_BATCH_SIZE = 50_000
 
 
 class AccountPropertyRowSink:
-    """Stages a projection of each written chunk to S3 for the account-property upsert job.
-
-    Mirrors ``CDPProducer``: gated on a hook so a table with no account-target source stages
-    nothing, and only the columns the sources actually need (key + mapped columns) leave the
-    pipeline. A source is staged only when its key (account external identifier) column is present in the
-    chunk, so a staged file always carries an identifier to attach its properties to. A post-run
-    job reads these files and upserts account properties, then clears them.
-
-    Data-modeling materializations build this sink and pass it each written batch. Multiple job
-    prefixes can coexist under a binding while the consumer lags, so the consumer must apply
-    prefixes in job order (or last-write-wins per account key) — a lagged older job
-    applied after a newer one would regress properties to stale values. Within one job, staged
-    files from a retried attempt sort after the failed attempt's (attempt-timestamped names), so
-    per-account last-write-wins inside the job holds too.
-    """
+    """Projects a committed materialized-view Delta snapshot into job-scoped Parquet files."""
 
     def __init__(
         self,
@@ -53,19 +41,11 @@ class AccountPropertyRowSink:
         binding: WarehouseBinding,
         job_id: str,
         logger: FilteringBoundLogger,
-        *,
-        is_incremental: bool,
     ) -> None:
         self.team_id = team_id
         self.binding = binding
         self.job_id = job_id
         self.logger = logger
-        self._is_incremental = is_incremental
-        # Per-attempt token baked into staged filenames. An incremental retry resumes past the
-        # already-committed cursor, so its chunk indices restart at 0 while the earlier attempt's
-        # rows are never re-extracted — reusing plain `chunk_{n}` names would overwrite (and lose)
-        # them. Seconds-since-epoch keeps names lexicographically ordered across attempts.
-        self._attempt_token = str(int(time.time()))
         self._projection: list[AccountPropertySourceProjection] | None = None
         self._projection_resolved = False
         self._fs_cache: pa_fs.S3FileSystem | None = None
@@ -91,7 +71,7 @@ class AccountPropertyRowSink:
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
         else:
-            self._fs_cache = pa_fs.S3FileSystem()
+            self._fs_cache = pa_fs.S3FileSystem(region=settings.DATA_WAREHOUSE_S3_REGION)
 
         return self._fs_cache
 
@@ -136,41 +116,47 @@ class AccountPropertyRowSink:
         await asyncio.to_thread(
             write_table,
             projected,
-            f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet",
+            f"{self._get_path_prefix()}/chunk_{chunk:06d}.parquet",
             filesystem=self._get_fs(),
             compression="zstd",
             use_dictionary=True,
         )
 
+    async def stage_delta_snapshot(self, table_uri: str, delta_version: int) -> bool:
+        projection = await self._get_projection()
+        if not projection:
+            return False
+
+        await self.clear()
+        delta_table = await asyncio.to_thread(
+            deltalake.DeltaTable,
+            table_uri,
+            version=delta_version,
+            storage_options=delta_storage_options(),
+        )
+        chunk = 0
+        for file_uri in sorted(delta_table.file_uris()):
+            input_file = await asyncio.to_thread(self._get_fs().open_input_file, file_uri.removeprefix("s3://"))
+            try:
+                parquet_file = await asyncio.to_thread(ParquetFile, input_file)
+                batches = await asyncio.to_thread(parquet_file.iter_batches, batch_size=_PARQUET_BATCH_SIZE)
+                while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+                    await self.stage_chunk(chunk, pa.Table.from_batches([batch]))
+                    chunk += 1
+            finally:
+                await asyncio.to_thread(input_file.close)
+        return True
+
     async def clear(self) -> None:
-        """Drop this job's own staged files (full refresh only), plus sibling job prefixes
-        abandoned long enough.
-
-        Own-prefix clearing stops a retried job from leaving stale files behind, but it is only
-        safe when the retry re-extracts everything — i.e. a full refresh. An incremental retry
-        resumes past the cursor the failed attempt already committed, so its earlier staged files
-        are that data's only record and must survive; duplicates a full re-window would produce
-        are deduped downstream anyway (snapshot diff + last-write-wins).
-
-        Sibling prefixes are NOT cleared wholesale: the downstream upsert job deletes them as it
-        consumes them, and a recent sibling may simply belong to a consumer that is lagging —
-        wiping it would lose that sync's delta. Only prefixes older than
-        ``ABANDONED_STAGED_PREFIX_TTL`` are swept, as the backstop against a consumer that never
-        ran.
-
-        The two clears are independent backstops, so a failure in one (e.g. a permissions error
-        deleting the own prefix) must not skip the other — the sweep always runs, and any
-        own-prefix error is re-raised only afterward.
-        """
+        """Drop this job's prior attempt and sweep abandoned sibling jobs."""
         async with aget_s3_client() as s3_client:
             own_prefix_error: Exception | None = None
-            if not self._is_incremental:
-                try:
-                    await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
-                except FileNotFoundError:
-                    pass
-                except Exception as e:
-                    own_prefix_error = e
+            try:
+                await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                own_prefix_error = e
             await self._sweep_abandoned_sibling_prefixes(s3_client)
             if own_prefix_error is not None:
                 raise own_prefix_error
