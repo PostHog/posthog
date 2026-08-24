@@ -14,7 +14,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.temporal.subscriptions.delivery_common import deliver_webhook
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_webhook, recipient_label
 from products.exports.backend.temporal.subscriptions.types import RecipientResult
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -51,6 +51,13 @@ def _destination_responds(status: int) -> Iterator[MagicMock]:
         request = pinned_session.return_value.__enter__.return_value.request
         request.return_value = MagicMock(status_code=status)
         yield request
+
+
+@pytest.mark.parametrize("target_value", ["https://[::1", "", "not a url"])
+async def test_a_target_value_with_no_parseable_host_still_gets_a_label(target_value) -> None:
+    # The label is what every delivery receipt and log line names the destination by, so a stored
+    # value that no longer parses has to degrade to a placeholder rather than raise mid-delivery.
+    assert recipient_label(_unsaved_teams_subscription(target_value)) == "webhook"
 
 
 @override_settings(DEBUG=False)

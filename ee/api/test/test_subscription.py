@@ -45,6 +45,8 @@ from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
+VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+
 
 class TestSubscriptionTemporal(APILicensedTest):
     subscription: Subscription = None  # type: ignore
@@ -708,12 +710,19 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert "require a Slack integration" in response.json()["detail"]
 
     def test_can_create_teams_subscription_with_a_webhook_url(self):
-        response = self._create_subscription(
-            target_type="teams",
-            target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
-        )
+        response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["target_type"] == "teams"
+
+    def test_patching_an_unrelated_field_keeps_a_teams_subscription_saveable(self):
+        # target_value is absent from the PATCH body, so the webhook check falls back to the stored
+        # URL. Validating an empty string instead would make every edit of a Teams subscription 400.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Renamed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
 
     def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
         response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
