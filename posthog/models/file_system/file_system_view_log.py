@@ -91,15 +91,18 @@ def log_file_system_view(
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
-
-    if updated:
-        return
-
+    # One upsert instead of UPDATE-then-INSERT. Two near-simultaneous views of the same item
+    # each take one short lock on posthog_fsvl_unique_user_item, so the second view no longer
+    # waits on the first transaction and can no longer outlive statement_timeout into a 500.
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
+        FileSystemViewLog.objects.bulk_create(
+            [FileSystemViewLog(viewed_at=now, surface=surface, **update_kwargs)],
+            update_conflicts=True,
+            unique_fields=["team", "user", "type", "ref"],
+            update_fields=["viewed_at", "surface"],
+        )
     except IntegrityError:
-        # Another request may have created the row after our update attempt.
+        # Backstop for the narrow window an upsert still cannot cover.
         FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
 
 
