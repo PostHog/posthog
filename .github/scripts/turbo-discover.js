@@ -136,8 +136,11 @@ function packageToProduct(pkg) {
 // keeps this reader and the Trunk lane reader on one definition.
 function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
     const products = contractTasks.map((t) => packageToProduct(t.package))
-    const surfaces = loadContractSurfaces(repoRoot, products)
-    return new Set(products.filter((product) => surfaces.has(product)))
+    // Package names use dashes, product directories use underscores; the surface
+    // reader resolves products/<dir>/turbo.json, so look up the directory form.
+    const toDir = (product) => product.replace(/-/g, '_')
+    const surfaces = loadContractSurfaces(repoRoot, products.map(toDir))
+    return new Set(products.filter((product) => surfaces.has(toDir(product))))
 }
 
 function getAffectedTaskProducts(tasks) {

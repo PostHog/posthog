@@ -184,12 +184,15 @@ test('isolation needs both the contract-check script and narrowed contract input
     declare('empty-inputs', { tasks: { 'backend:contract-check': { inputs: [] } } })
     declare('other-task', { tasks: { 'backend:test': { inputs: ['backend/**'] } } })
     declare('no-turbo-json', null)
+    // Directory uses underscores while the package name uses dashes — the lookup
+    // must bridge the two or every multiword product reads as non-isolated.
+    declare('multi_word', { tasks: { 'backend:contract-check': { inputs: ['backend/facade/**'] } } })
 
     // Every task here comes from `turbo run backend:contract-check`, so each of
     // these products already declares the script.
-    const tasks = ['declared', 'empty-inputs', 'other-task', 'no-turbo-json'].map((product) => ({
+    const tasks = ['declared', 'empty-inputs', 'other-task', 'no-turbo-json', 'multi-word'].map((product) => ({
         package: `@posthog/products-${product}`,
     }))
 
-    assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)], ['declared'])
+    assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
 })
