@@ -49,4 +49,15 @@ describe('sdksLogic', () => {
 
         expect(logic.values.selectedSDK?.docsLink).toBe('https://posthog.com/docs/libraries/convex')
     })
+
+    it('treats a failed snippet-events check as no events yet, without a failure', async () => {
+        jest.spyOn(api, 'queryHogQL').mockRejectedValue(new Error('A server error occurred.'))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSnippetEvents()
+        })
+            .toDispatchActions(['loadSnippetEvents', 'loadSnippetEventsSuccess'])
+            .toNotHaveDispatchedActions(['loadSnippetEventsFailure'])
+            .toMatchValues({ hasSnippetEvents: false })
+    })
 })

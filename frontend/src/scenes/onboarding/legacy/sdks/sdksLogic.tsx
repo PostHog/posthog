@@ -310,7 +310,7 @@ export const sdksLogic = kea<sdksLogicType>([
                             concat(
                                 concat({protocol}, '//'),
                                 properties.$host
-                            ) AS full_host,
+                            ) AS full_host
                         FROM events
                         WHERE timestamp >= now() - INTERVAL 3 DAY
                         AND timestamp <= now()
@@ -321,23 +321,30 @@ export const sdksLogic = kea<sdksLogicType>([
                         ORDER BY latest_timestamp DESC
                         LIMIT 7`
 
-                    const res = await api.queryHogQL(
-                        query,
-                        { scene: 'Onboarding', productKey: 'platform_and_support' },
-                        {
-                            queryParams: {
-                                values: {
-                                    protocol: window.location.protocol,
+                    try {
+                        const res = await api.queryHogQL(
+                            query,
+                            { scene: 'Onboarding', productKey: 'platform_and_support' },
+                            {
+                                queryParams: {
+                                    values: {
+                                        protocol: window.location.protocol,
+                                    },
                                 },
-                            },
+                            }
+                        )
+                        const hasEvents = !!((res.results?.length ?? 0) > 0)
+                        const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
+                        if (hasEvents) {
+                            actions.setSnippetHosts(snippetHosts)
                         }
-                    )
-                    const hasEvents = !!((res.results?.length ?? 0) > 0)
-                    const snippetHosts = res.results?.map((result) => result[1]).filter((val) => !!val) ?? []
-                    if (hasEvents) {
-                        actions.setSnippetHosts(snippetHosts)
+                        return hasEvents
+                    } catch {
+                        // The check can fail on a new project before events flow in. Treat a failed
+                        // check as "no events yet" so the install step keeps working and retries,
+                        // instead of dead-ending the user with a generic error toast.
+                        return false
                     }
-                    return hasEvents
                 },
             },
         ],
