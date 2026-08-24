@@ -11,7 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.team.team import Team
 
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationConfig,
     AlertDestinationData,
     DestinationType,
@@ -19,11 +19,11 @@ from products.alerts.backend.destination_configs import (
     build_alert_destination_config,
 )
 from products.alerts.backend.destinations import (
-    _TEMPLATE_ID_TO_DESTINATION_TYPE,
+    SPEC_BY_TEMPLATE_ID,
     AlertDelivery,
     AlertDestinationGroupKey,
     AlertDestinationRow,
-    _raise_if_alert_already_has_this_destination_config,
+    _raise_if_alert_already_has_these_destination_configs,
     alert_destination_group_key,
     alert_internal_event_delivered,
     group_alert_destination_rows,
@@ -160,10 +160,8 @@ class TestAlertDestinationGroupKey:
         }
 
     def test_template_ids_and_destination_types_name_each_other_one_to_one(self) -> None:
-        assert set(_TEMPLATE_ID_TO_DESTINATION_TYPE) == set(DESTINATION_TEMPLATE_IDS.values())
-        assert set(_TEMPLATE_ID_TO_DESTINATION_TYPE.values()) == {
-            destination_type.value for destination_type in DestinationType
-        }
+        assert set(SPEC_BY_TEMPLATE_ID) == {spec.template_id for spec in DESTINATION_SPECS.values()}
+        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(DestinationType)
 
 
 class TestGroupAlertDestinationRows:
@@ -218,31 +216,33 @@ class TestGroupAlertDestinationRows:
         ]
 
 
-class TestRaiseIfAlertAlreadyHasThisDestinationConfig(AlertDestinationTestCase):
-    def _raise_if_exists(self, *, template_id: str, inputs: dict[str, Any], alert_id: str = "alert-1") -> None:
-        _raise_if_alert_already_has_this_destination_config(
+class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase):
+    def _raise_if_exists(self, *, configs: list[tuple[str, dict[str, Any]]], alert_id: str = "alert-1") -> None:
+        _raise_if_alert_already_has_these_destination_configs(
             team_id=self.team.id,
             alert_id=alert_id,
             allowed_event_ids=ALLOWED_EVENT_IDS,
-            template_id=template_id,
-            inputs=inputs,
+            configs=[
+                AlertDestinationConfig(team=self.team, payload={"template_id": template_id, "inputs": inputs})
+                for template_id, inputs in configs
+            ],
         )
 
     def test_rejects_a_destination_whose_config_already_exists(self) -> None:
         self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
 
         with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
-            self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+            self._raise_if_exists(configs=[("template-webhook", webhook_inputs("https://a"))])
 
     def test_allows_a_second_destination_with_a_different_config(self) -> None:
         self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
 
-        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://b"))
+        self._raise_if_exists(configs=[("template-webhook", webhook_inputs("https://b"))])
 
     def test_allows_a_config_that_only_matches_another_alerts_destination(self) -> None:
         self._make_group(template_id="template-webhook", alert_id="alert-2", inputs=webhook_inputs("https://a"))
 
-        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+        self._raise_if_exists(configs=[("template-webhook", webhook_inputs("https://a"))])
 
     def test_allows_a_config_whose_only_match_is_deleted(self) -> None:
         destinations = self._make_group(
@@ -250,25 +250,36 @@ class TestRaiseIfAlertAlreadyHasThisDestinationConfig(AlertDestinationTestCase):
         )
         HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(deleted=True)
 
-        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+        self._raise_if_exists(configs=[("template-webhook", webhook_inputs("https://a"))])
 
     def test_rejects_a_duplicate_of_a_disabled_destination(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
         HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(enabled=False)
 
         with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
-            self._raise_if_exists(template_id="template-slack", inputs=slack_inputs("C-ENG"))
+            self._raise_if_exists(configs=[("template-slack", slack_inputs("C-ENG"))])
 
     def test_allows_a_destination_whose_config_cannot_be_read(self) -> None:
         self._make_group(template_id="template-slack", alert_id="alert-1", inputs={})
 
-        self._raise_if_exists(template_id="template-slack", inputs={})
+        self._raise_if_exists(configs=[("template-slack", {})])
+
+    def test_rejects_a_duplicate_that_is_not_the_first_config_in_the_call(self) -> None:
+        self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
+
+        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+            self._raise_if_exists(
+                configs=[
+                    ("template-slack", slack_inputs("C-NEW")),
+                    ("template-webhook", webhook_inputs("https://a")),
+                ]
+            )
 
     def test_allows_a_config_that_matches_another_templates_destination(self) -> None:
         webhook_url = {"webhookUrl": {"value": "https://hooks.example.com/x"}}
         self._make_group(template_id="template-microsoft-teams", alert_id="alert-1", inputs=webhook_url)
 
-        self._raise_if_exists(template_id="template-discord", inputs=webhook_url)
+        self._raise_if_exists(configs=[("template-discord", webhook_url)])
 
 
 class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
@@ -474,8 +485,8 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         self._assert_intact([orphan])
 
     @patch("products.alerts.backend.destinations.logger")
-    @patch("products.alerts.backend.destinations.ALERT_DESTINATION_UNREADABLE_CONFIGS")
-    def test_unreadable_config_is_counted_and_logged(self, unreadable_configs, logger) -> None:
+    @patch("products.alerts.backend.destinations.posthoganalytics.capture")
+    def test_unreadable_config_is_captured_and_logged(self, capture, logger) -> None:
         self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         webhooks = self._make_group(template_id="template-webhook", alert_id="alert-1")
 
@@ -486,8 +497,17 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
             hog_function_ids=[destination.id for destination in webhooks],
         )
 
-        unreadable_configs.labels.assert_called_once_with(template_id="template-slack")
-        unreadable_configs.labels.return_value.inc.assert_called_once_with(1)
+        capture.assert_called_once_with(
+            distinct_id=f"team_{self.team.id}",
+            event="alert destination config unreadable",
+            properties={
+                "alert_id": "alert-1",
+                "feature": "alerts",
+                "row_count": 1,
+                "team_id": self.team.id,
+                "template_id": "template-slack",
+            },
+        )
         assert logger.warning.call_args.args == ("Alert destination config could not be read",)
         assert logger.warning.call_args.kwargs["row_counts_by_template"] == {"template-slack": 1}
 

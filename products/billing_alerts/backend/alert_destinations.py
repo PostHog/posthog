@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Final, Literal
 
 from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
-from products.alerts.backend.facade.api import DESTINATION_TEMPLATE_IDS, owned_alert_destinations_qs
+from products.alerts.backend.facade.api import DESTINATION_SPECS, owned_alert_destinations_qs
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 
 BILLING_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
 
 DESTINATION_TYPE_BY_TEMPLATE_ID = {
-    DESTINATION_TEMPLATE_IDS[destination_type]: destination_type for destination_type in BILLING_DESTINATION_TYPES
+    DESTINATION_SPECS[destination_type].template_id: destination_type for destination_type in BILLING_DESTINATION_TYPES
 }
 
 _PRODUCT_LABEL = "billing alert"
@@ -124,11 +124,15 @@ def destination_groups_for_alerts(
     if not team_ids or not alert_ids:
         return {}
 
-    rows = (
-        owned_alert_destinations_qs(team_ids=team_ids, alert_ids=alert_ids, allowed_event_ids=BILLING_ALERT_EVENT_IDS)
+    rows = [
+        row
+        for team_id in team_ids
+        for row in owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=alert_ids, allowed_event_ids=BILLING_ALERT_EVENT_IDS
+        )
         .filter(enabled=True, template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID))
         .values_list("id", "template_id", "filters")
-    )
+    ]
 
     groups: dict[str, dict[str, dict[str, str]]] = {}
     for hog_function_id, template_id, filters in rows:

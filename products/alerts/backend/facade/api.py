@@ -17,7 +17,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
@@ -204,7 +204,7 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
-    "DESTINATION_TEMPLATE_IDS",
+    "DESTINATION_SPECS",
     "AlertDestinationData",
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",

@@ -30,7 +30,7 @@ from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.api import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertScheduleRestriction,
@@ -386,7 +386,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
         configured_template_ids = set(
             owned_alert_destinations_qs(
-                team_ids=[obj.team_id],
+                team_id=obj.team_id,
                 alert_ids=[str(obj.id)],
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
@@ -396,7 +396,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
-            if DESTINATION_TEMPLATE_IDS[destination_type] in configured_template_ids
+            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
         )
 
     @extend_schema_field(serializers.CharField(allow_null=True))

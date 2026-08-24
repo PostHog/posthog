@@ -6,7 +6,7 @@ import re
 from collections.abc import Collection, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -14,27 +14,24 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
-from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    SPEC_BY_TEMPLATE_ID,
     AlertDestinationConfig,
-    DestinationType,
-    read_alert_destination_data,
+    AlertDestinationData,
 )
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
-
-_otel = OtelInstrumentFactory("alerts")
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10.0
 
@@ -42,12 +39,6 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
-)
-
-ALERT_DESTINATION_UNREADABLE_CONFIGS = Counter(
-    "posthog_alert_destination_unreadable_configs_total",
-    "Live alert destination HogFunctions whose config could not be read while grouping a delete",
-    labelnames=["template_id"],
 )
 
 
@@ -75,11 +66,6 @@ class ActiveAlertDestination:
     destination_type: str | None
 
 
-_TEMPLATE_ID_TO_DESTINATION_TYPE = {
-    template_id: destination_type.value for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
-}
-
-
 class AlertDestinationGroupKey(NamedTuple):
     template_id: str
     config: tuple[tuple[str, Any], ...] | None
@@ -98,15 +84,15 @@ class AlertDestinationRow(NamedTuple):
 @dataclass(frozen=True, kw_only=True)
 class AlertDestinationGroup:
     hog_function_ids: tuple[UUID, ...]
-    data: dict[str, Any]
+    data: AlertDestinationData
     fully_enabled: bool
 
 
 def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
-    destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id)
-    if destination_type_value is None:
+    spec = SPEC_BY_TEMPLATE_ID.get(template_id)
+    if spec is None:
         return AlertDestinationGroupKey(template_id, None)
-    data = read_alert_destination_data(destination_type=DestinationType(destination_type_value), inputs=inputs or {})
+    data = spec.read(inputs or {})
     config = {key: value for key, value in data.items() if key != "type"}
     return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
 
@@ -133,7 +119,7 @@ def list_alert_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
     raw_rows = list(
-        owned_alert_destinations_qs(team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
         .order_by("created_at", "id")
         .values_list("id", "template_id", "inputs", "enabled")
     )
@@ -143,12 +129,10 @@ def list_alert_destination_groups(
 
     groups: list[AlertDestinationGroup] = []
     for key, ids in grouped_ids.items():
-        destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(key.template_id)
-        if destination_type_value is None:
+        spec = SPEC_BY_TEMPLATE_ID.get(key.template_id)
+        if spec is None:
             continue
-        data = {"type": DestinationType(destination_type_value)}
-        if key.config is not None:
-            data.update(dict(key.config))
+        data = cast(AlertDestinationData, {"type": spec.type, **dict(key.config or ())})
         groups.append(
             AlertDestinationGroup(
                 hog_function_ids=tuple(sorted(ids)),
@@ -160,7 +144,7 @@ def list_alert_destination_groups(
 
 
 def owned_alert_destinations_qs(
-    *, team_ids: Collection[int], alert_ids: Collection[str], allowed_event_ids: Collection[str]
+    *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
     alert_id_filter = Q(pk__in=[])
     for alert_id in alert_ids:
@@ -168,9 +152,9 @@ def owned_alert_destinations_qs(
     return HogFunction.objects.filter(
         alert_id_filter,
         _allowed_event_filter(allowed_event_ids),
-        team_id__in=team_ids,
+        team_id=team_id,
         deleted=False,
-        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+        template_id__in=SPEC_BY_TEMPLATE_ID,
     )
 
 
@@ -178,29 +162,33 @@ def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
     return owned_alert_destinations_qs(
-        team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
     ).filter(enabled=True)
 
 
-def _raise_if_alert_already_has_this_destination_config(
+def _raise_if_alert_already_has_these_destination_configs(
     *,
     team_id: int,
     alert_id: str,
     allowed_event_ids: Collection[str],
-    template_id: str,
-    inputs: dict[str, Any],
+    configs: Collection[AlertDestinationConfig],
 ) -> None:
-    config_key = alert_destination_group_key(template_id=template_id, inputs=inputs)
-    if not config_key.is_config_readable:
+    wanted_keys = {
+        alert_destination_group_key(template_id=config.payload["template_id"], inputs=config.payload["inputs"])
+        for config in configs
+    }
+    # An unreadable config can't be compared, so it can't be proven a duplicate.
+    readable_keys = {key for key in wanted_keys if key.is_config_readable}
+    if not readable_keys:
         return
-    same_template_inputs = (
-        owned_alert_destinations_qs(team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
-        .filter(template_id=template_id)
-        .values_list("inputs", flat=True)
+    stored_rows = (
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .filter(template_id__in={key.template_id for key in readable_keys})
+        .values_list("template_id", "inputs")
     )
     if any(
-        alert_destination_group_key(template_id=template_id, inputs=row_inputs) == config_key
-        for row_inputs in same_template_inputs
+        alert_destination_group_key(template_id=template_id or "", inputs=inputs) in readable_keys
+        for template_id, inputs in stored_rows
     ):
         raise ValidationError("This destination is already configured for this alert.")
 
@@ -213,13 +201,11 @@ def create_alert_destination_hog_functions(
     created: list[HogFunction] = []
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
     with transaction.atomic():
-        any_event_kind_config = configs[0]
-        _raise_if_alert_already_has_this_destination_config(
-            team_id=any_event_kind_config.team.id,
+        _raise_if_alert_already_has_these_destination_configs(
+            team_id=configs[0].team.id,
             alert_id=alert_id,
             allowed_event_ids=allowed_event_ids,
-            template_id=any_event_kind_config.payload["template_id"],
-            inputs=any_event_kind_config.payload["inputs"],
+            configs=configs,
         )
         for config in configs:
             team = config.team
@@ -250,8 +236,17 @@ def _report_unreadable_destination_configs(
         if not alert_destination_group_key(template_id=template_id, inputs=row.inputs).is_config_readable:
             row_counts_by_template[template_id] = row_counts_by_template.get(template_id, 0) + 1
     for template_id, count in row_counts_by_template.items():
-        ALERT_DESTINATION_UNREADABLE_CONFIGS.labels(template_id=template_id).inc(count)
-        _otel.record_counter_twin(ALERT_DESTINATION_UNREADABLE_CONFIGS, count, {"template_id": template_id})
+        posthoganalytics.capture(
+            distinct_id=f"team_{team_id}",
+            event="alert destination config unreadable",
+            properties={
+                "alert_id": alert_id,
+                "feature": "alerts",
+                "row_count": count,
+                "team_id": team_id,
+                "template_id": template_id,
+            },
+        )
     if row_counts_by_template:
         logger.warning(
             "Alert destination config could not be read",
@@ -274,7 +269,7 @@ def soft_delete_alert_destinations(
         owned_rows = [
             AlertDestinationRow(*row)
             for row in owned_alert_destinations_qs(
-                team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+                team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
             )
             .select_for_update()
             .values_list("id", "template_id", "inputs")
@@ -319,7 +314,7 @@ def soft_delete_alert_destinations_for_alerts(
     """Soft-delete alert-owned destinations in bulk."""
     with transaction.atomic():
         destination_ids = set(
-            owned_alert_destinations_qs(team_ids=[team_id], alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
+            owned_alert_destinations_qs(team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
             .select_for_update()
             .values_list("id", flat=True)
         )
@@ -371,12 +366,12 @@ def list_active_alert_destinations(
     ).values_list("id", "name", "template_id")
     destinations = []
     for hog_function_id, name, template_id in rows:
-        destination_type = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+        spec = SPEC_BY_TEMPLATE_ID.get(template_id) if template_id else None
         destinations.append(
             ActiveAlertDestination(
                 id=str(hog_function_id),
                 name=_destination_display_name(name) if name else "Destination",
-                destination_type=destination_type,
+                destination_type=spec.type.value if spec else None,
             )
         )
     return destinations

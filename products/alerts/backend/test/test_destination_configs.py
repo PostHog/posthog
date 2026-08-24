@@ -5,13 +5,12 @@ import pytest
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationAction,
     AlertDestinationData,
     DestinationType,
     EventKindSpec,
     build_alert_destination_config,
-    read_alert_destination_data,
     slack_blocks,
     teams_text,
 )
@@ -74,14 +73,9 @@ class TestSpecVocabularyRendering:
 
 _TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
 
-_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-webhook"}
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
 
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
-    DestinationType.SLACK: {
-        "type": DestinationType.SLACK,
-        "slack_workspace_id": 42,
-        "slack_channel_id": "C123",
-    },
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
 }
@@ -92,8 +86,8 @@ def _inputs_a_hog_function_would_keep(template: Any, inputs: dict[str, Any]) -> 
 
 
 class TestDestinationTemplateContract:
-    def test_only_the_webhook_template_is_defined_outside_python(self) -> None:
-        unreachable = set(DESTINATION_TEMPLATE_IDS.values()) - set(_TEMPLATES_BY_ID)
+    def test_the_templates_defined_outside_python_are_the_ones_we_expect(self) -> None:
+        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - set(_TEMPLATES_BY_ID)
 
         assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
 
@@ -101,7 +95,7 @@ class TestDestinationTemplateContract:
     def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
         self, destination_type: DestinationType
     ) -> None:
-        template = _TEMPLATES_BY_ID[DESTINATION_TEMPLATE_IDS[destination_type]]
+        template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
         data = _DESTINATION_DATA[destination_type]
         config = build_alert_destination_config(
             team=None,
@@ -114,7 +108,7 @@ class TestDestinationTemplateContract:
 
         stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
 
-        assert read_alert_destination_data(destination_type=destination_type, inputs=stored_inputs) == data
+        assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
 
     def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
         data: AlertDestinationData = {
@@ -133,7 +127,7 @@ class TestDestinationTemplateContract:
         )
 
         assert config.payload["name"].endswith("Slack #eng")
-        assert read_alert_destination_data(destination_type=DestinationType.SLACK, inputs=config.payload["inputs"]) == {
+        assert DESTINATION_SPECS[DestinationType.SLACK].read(config.payload["inputs"]) == {
             "type": DestinationType.SLACK,
             "slack_workspace_id": 42,
             "slack_channel_id": "C123",
