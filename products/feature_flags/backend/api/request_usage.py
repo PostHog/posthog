@@ -177,6 +177,7 @@ def get_feature_flag_request_usage(
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "feature_flag"
+    requires_resource_level_access = True
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
     @validated_request(
