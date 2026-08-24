@@ -46,6 +46,12 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 
+## Account Track Rules schedule
+
+- **The nightly run starts at 06:00 UTC.** Temporal creates the global schedule paused. Operators unpause it after controlled tests and pause it to roll back. Schedule updates preserve the current pause state.
+- **The run does not wait for account custom property syncs.** Those syncs follow each saved query's schedule and finish as independent tracked and ignored workflows. A property sync that finishes after 06:00 UTC is applied by the next nightly Track Rules run. A source change can therefore take almost 48 hours to affect account tracking.
+- **The first rollout measures this lag instead of coordinating workflows.** Operators can alert on failed runs and enabled teams without a successful run in 36 hours. If late property syncs cause meaningful stale account state, trigger one deduplicated Track Rules run after both property-sync segments finish and keep the nightly run as a safety net.
+
 ## Account relationships — leftover JSON role keys in stored rows
 
 The relationship tables are the only source of truth for account roles; the JSON role keys
