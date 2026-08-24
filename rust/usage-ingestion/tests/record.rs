@@ -12,7 +12,7 @@ fn record() -> BillingUsageRecord {
         mode: BillingUsageMode::Delta as i32,
         unit: "request".to_string(),
         quantity: 2,
-        event_timestamp_ms: 1_700_000_000_000,
+        timestamp_ms: 1_700_000_000_000,
         dimensions: Default::default(),
     }
 }
@@ -25,26 +25,26 @@ fn converts_a_valid_record_to_clickhouse_json_shape() {
 
     assert_eq!(result.organization_id, organization_id);
     assert_eq!(result.mode, "delta");
-    assert_eq!(result.event_timestamp, "2023-11-14T22:13:20.000Z");
+    assert_eq!(result.timestamp, "2023-11-14T22:13:20.000Z");
 }
 
 /// A producer sending microseconds or nanoseconds would otherwise serialize a year
 /// ClickHouse cannot parse, stalling the Kafka engine table on that row.
 #[test]
 fn rejects_timestamps_outside_the_clickhouse_range() {
-    for event_timestamp_ms in [
+    for timestamp_ms in [
         1_700_000_000_000_000,     // microseconds
         1_700_000_000_000_000_000, // nanoseconds
         -2_208_988_800_001,        // just before 1900
         10_413_792_000_000,        // 2300
     ] {
         let mut invalid = record();
-        invalid.event_timestamp_ms = event_timestamp_ms;
+        invalid.timestamp_ms = timestamp_ms;
 
         assert_eq!(
             KafkaBillingUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
             ValidationError::InvalidTimestamp,
-            "{event_timestamp_ms} should be rejected"
+            "{timestamp_ms} should be rejected"
         );
     }
 }
