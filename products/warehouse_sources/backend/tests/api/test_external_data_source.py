@@ -9744,6 +9744,73 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
 
+    def test_destroy_source_does_not_delete_table_shared_with_another_active_source_schema(self):
+        source1 = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        source2 = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_456"},
+        )
+
+        shared_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="shared_source_table",
+            external_data_source_id=source1.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/shared_source",
+        )
+
+        schema1 = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source1.pk,
+            table=shared_table,
+        )
+        schema2 = ExternalDataSchema.objects.create(
+            name="orders_backup",
+            team_id=self.team.pk,
+            source_id=source2.pk,
+            table=shared_table,
+        )
+
+        # Deleting source1 must NOT delete shared_table since source2's schema2 is still active
+        response1 = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source1.pk}")
+        assert response1.status_code == 204
+
+        source1.refresh_from_db()
+        schema1.refresh_from_db()
+        schema2.refresh_from_db()
+        shared_table.refresh_from_db()
+
+        assert source1.deleted is True
+        assert schema1.deleted is True
+        assert schema2.deleted is False
+        assert shared_table.deleted is False
+
+        # Deleting source2 now deletes shared_table since no other active schema remains
+        response2 = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source2.pk}")
+        assert response2.status_code == 204
+
+        source2.refresh_from_db()
+        schema2.refresh_from_db()
+        shared_table.refresh_from_db()
+
+        assert source2.deleted is True
+        assert schema2.deleted is True
+        assert shared_table.deleted is True
+
 
 class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
     @parameterized.expand(

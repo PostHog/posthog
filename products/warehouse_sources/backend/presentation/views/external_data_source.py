@@ -3023,8 +3023,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
+            schema_ids = [schema.id for schema in schemas]
+            table_ids = {schema.table_id for schema in schemas if schema.table_id is not None}
+            other_active_table_ids = (
+                set(
+                    ExternalDataSchema.objects.filter(
+                        table_id__in=table_ids,
+                        deleted=False,
+                    )
+                    .exclude(id__in=schema_ids)
+                    .values_list("table_id", flat=True)
+                )
+                if table_ids
+                else set()
+            )
+
             for schema in schemas:
-                if schema.table:
+                if schema.table and schema.table_id not in other_active_table_ids and not schema.table.deleted:
                     schema.table.soft_delete()
 
             # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
