@@ -1,19 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import {
-    columnsFromResponse,
-    deriveDefaultAxes,
-    getAutoVisualizationType,
-} from '~/queries/nodes/DataVisualization/columnUtils'
+import { columnsFromResponse, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
 import {
     getTableDisplayOptions,
     renderDisplayTypeLabel,
 } from '~/queries/nodes/DataVisualization/Components/tableDisplayOptions'
-import { Column } from '~/queries/nodes/DataVisualization/types'
 import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { cardVisualizationDisabledReason, withAxes } from './cardVisualizationSupport'
 
 export interface SqlVisualizationPickerProps {
     query: DataVisualizationNode
@@ -23,46 +20,6 @@ export interface SqlVisualizationPickerProps {
     types?: string[][] | null
     result?: unknown
     persistDisplayOptions: (node: Node) => void
-}
-
-// Only these plot columns against axes. The rest ignore chartSettings, so picking one should not
-// write axes into the saved insight.
-const AXIS_PLOTTING_TYPES = [
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsAreaGraph,
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsStackedBar,
-    ChartDisplayType.ActionsPie,
-]
-
-// A chart reads its columns out of chartSettings, and loading the saved query resets the axes to
-// whatever it carries. So a query saved as a table has to gain axes here, or the chart draws empty.
-// Auto counts: it resolves to a real chart, so it needs axes like the type it resolves to.
-function withAxes(
-    query: DataVisualizationNode,
-    columns: Column[],
-    autoVisualizationType: ChartDisplayType
-): DataVisualizationNode {
-    const drawnAs = query.display === ChartDisplayType.Auto ? autoVisualizationType : query.display
-    if (!drawnAs || !AXIS_PLOTTING_TYPES.includes(drawnAs)) {
-        return query
-    }
-
-    const { xAxis, yAxis } = deriveDefaultAxes(columns)
-    // Fill only the side the query is missing, so axes the user chose stay untouched.
-    const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
-    const nextYAxis = query.chartSettings?.yAxis?.length
-        ? query.chartSettings.yAxis
-        : yAxis.map((column) => ({ column }))
-
-    if (!nextXAxis || nextYAxis.length === 0) {
-        return query
-    }
-
-    return {
-        ...query,
-        chartSettings: { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis },
-    }
 }
 
 // A dashboard card renders its query read-only, which drops the setQuery that dataVisualizationLogic
@@ -81,15 +38,14 @@ export function SqlVisualizationPicker({
     const columns = useMemo(() => columnsFromResponse(response), [response])
     const numericalColumns = useMemo(() => columns.filter((column) => column.type.isNumerical), [columns])
     const autoVisualizationType = useMemo(() => getAutoVisualizationType(columns, response), [columns, response])
+
+    const disabledReasonFor = useCallback(
+        (displayType: ChartDisplayType) => cardVisualizationDisabledReason(displayType, columns, autoVisualizationType),
+        [columns, autoVisualizationType]
+    )
     const options = useMemo(
-        () =>
-            getTableDisplayOptions(
-                columns,
-                numericalColumns,
-                autoVisualizationType,
-                'Pick this in the insight, so you can choose which column goes on each axis'
-            ),
-        [columns, numericalColumns, autoVisualizationType]
+        () => getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, disabledReasonFor),
+        [columns, numericalColumns, autoVisualizationType, disabledReasonFor]
     )
 
     // The save is debounced and then round trips, so show the pick straight away rather than leaving
