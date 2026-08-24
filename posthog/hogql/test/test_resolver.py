@@ -665,9 +665,21 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
+        # `properties` has no table to resolve against inside the CTE, so the query stays invalid.
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+        self.assertIn("Unable to resolve field: properties", str(e.exception))
+
+    def test_ctes_field_in_first_cte_resolves_against_scope(self):
+        # A field in the first CTE must find the query scope. The scope is pushed before the CTE
+        # loop, so a global field like `globalVar` resolves instead of raising "No scope or CTE
+        # available".
+        context = HogQLContext(
+            team_id=self.team.pk, database=self.database, globals={"globalVar": 1}, enable_select_queries=True
+        )
+        node = self._select("with globalVar as cte select cte from events")
+        node = cast(ast.SelectQuery, resolve_types(node, context, dialect="clickhouse"))
+        self.assertEqual(print_prepared_ast(node, context, "hogql"), "WITH 1 AS cte SELECT cte FROM events LIMIT 50000")
 
     def test_ctes_subqueries(self):
         self.assertEqual(
@@ -939,10 +951,26 @@ class TestResolver(BaseTest):
             "SELECT d.period_end FROM date_info d CROSS JOIN events e"
         )
 
-    def test_ctes_table_subquery_as_scalar_error(self):
-        with self.assertRaises(QueryError) as e:
-            self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
-        self.assertIn("Cannot use table CTE", str(e.exception))
+    @parameterized.expand(
+        [
+            (
+                "in_predicate",
+                "WITH paid_people AS (SELECT person_id FROM events WHERE event = 'paid') "
+                "SELECT person_id FROM events WHERE person_id IN paid_people",
+                "WITH paid_people AS (SELECT person_id FROM events WHERE equals(event, 'paid')) "
+                "SELECT person_id FROM events WHERE in(person_id, paid_people) LIMIT 50000",
+            ),
+            (
+                "select_value",
+                "WITH x AS (SELECT 1) SELECT x FROM events",
+                "WITH x AS (SELECT 1) SELECT x FROM events LIMIT 50000",
+            ),
+        ],
+    )
+    def test_ctes_table_cte_in_value_position(self, _name: str, query: str, expected: str):
+        # A table CTE can appear in a value position such as `WHERE person_id IN paid_people`.
+        # The resolver passes the name through and lets ClickHouse resolve it.
+        self.assertEqual(self._print_hogql(query), expected)
 
     def test_ctes_in_subquery_for_clickhouse(self):
         # Test that CTEs defined in a subquery remain with that subquery for ClickHouse
