@@ -811,7 +811,7 @@ function readFieldErrors(error: ApiRequestError): string {
   }
   const record = error.body as Record<string, unknown>;
   if (typeof record.detail === "string") return record.detail;
-  const parts = Object.entries(record).flatMap(([field, messages]) =>
+  const parts = Object.values(record).flatMap((messages) =>
     Array.isArray(messages) ? messages.map(String) : [],
   );
   return parts.length > 0 ? parts.join(" ") : error.message;

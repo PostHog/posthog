@@ -200,13 +200,16 @@ describe("environmentSetup", () => {
     },
   );
 
-  it.each(["NODE_OPTIONS", "BASH_ENV", "LD_PRELOAD", "DYLD_PRINT_LIBRARIES", "GIT_DIR"])(
-    "rejects the blocked key %s before submit",
-    (key) => {
-      const rows = [{ id: "a", key, value: "x" }];
-      expect(envVarError(rows[0], rows)).toContain("not allowed");
-    },
-  );
+  it.each([
+    "NODE_OPTIONS",
+    "BASH_ENV",
+    "LD_PRELOAD",
+    "DYLD_PRINT_LIBRARIES",
+    "GIT_DIR",
+  ])("rejects the blocked key %s before submit", (key) => {
+    const rows = [{ id: "a", key, value: "x" }];
+    expect(envVarError(rows[0], rows)).toContain("not allowed");
+  });
 });
 
 describe("validateDomains", () => {
