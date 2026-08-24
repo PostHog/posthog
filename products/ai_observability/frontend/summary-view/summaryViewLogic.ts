@@ -277,6 +277,16 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
 
                 const data = await llmAnalyticsSummarizationCreate(String(teamId), request, {
                     signal: abortController.signal,
+                }).catch((error: unknown) => {
+                    // The request that replaced this one owns the outcome now. kea-loaders keeps
+                    // one loading flag per loader, so settling this invocation as a failure would
+                    // clear the flag the replacement just set, and the panel would fall back to its
+                    // empty state for the rest of the model call. The breakpoint drops this
+                    // invocation instead of reporting it.
+                    if (isAbortError(error)) {
+                        breakpoint()
+                    }
+                    throw error
                 })
                 // Discard a response the user has already moved past.
                 breakpoint()

@@ -47,6 +47,31 @@ describe('summaryViewLogic', () => {
         return createSpy.mock.calls.filter(([url]) => url.includes(SUMMARIZATION_PATH)).map((call) => call[2])
     }
 
+    /**
+     * A summarization request that settles only when its own signal aborts, the way `handleFetch`
+     * rejects an aborted fetch. A shared promise that ignores the signal would let a cancellation
+     * test pass without any invocation ever settling.
+     */
+    function summarizationPendingUntilAborted(): void {
+        createSpy.mockImplementation((url: string, _data: unknown, options?: { signal?: AbortSignal }) => {
+            if (!url.includes(SUMMARIZATION_PATH)) {
+                return Promise.resolve({})
+            }
+            return new Promise((_resolve, reject) => {
+                options?.signal?.addEventListener('abort', () => {
+                    reject(options.signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+                })
+            })
+        })
+    }
+
+    /** Let a rejected request propagate through kea-loaders without waiting on a timer. */
+    async function flushMicrotasks(): Promise<void> {
+        for (let i = 0; i < 10; i++) {
+            await Promise.resolve()
+        }
+    }
+
     async function generateSummary(): Promise<void> {
         logic = summaryViewLogic({ trace, tree: [] })
         logic.mount()
@@ -129,29 +154,33 @@ describe('summaryViewLogic', () => {
         expect(reported.message).toBe(NETWORK_ERROR_MESSAGES.offline)
     })
 
-    it('cancels the request a newer summary replaces, without showing an error', async () => {
-        mockSummarization(new Promise(() => {}))
+    it('keeps the panel loading when a newer summary replaces an in-flight one', async () => {
+        summarizationPendingUntilAborted()
         logic = summaryViewLogic({ trace, tree: [] })
         logic.mount()
 
         logic.actions.generateSummary({ mode: 'minimal' })
-        await Promise.resolve()
+        await flushMicrotasks()
         logic.actions.generateSummary({ mode: 'detailed' })
-        await Promise.resolve()
+        await flushMicrotasks()
 
         // Mounting already asks for a cached summary, so compare the last two requests.
         const [previous, latest] = summarizationOptions().slice(-2)
         expect(previous.signal.aborted).toBe(true)
         expect(latest.signal.aborted).toBe(false)
+        // The cancelled request must not settle the loader. SummaryViewDisplay shows its empty
+        // state on `!summaryData && !summaryDataLoading && !summaryError`, so a cleared flag
+        // replaces the running summary with "Generate an AI-powered summary of this trace".
+        expect(logic.values.summaryDataLoading).toBe(true)
         expect(logic.values.summaryError).toBeNull()
     })
 
     it('cancels an in-flight request when the trace view closes', async () => {
-        mockSummarization(new Promise(() => {}))
+        summarizationPendingUntilAborted()
         logic = summaryViewLogic({ trace, tree: [] })
         logic.mount()
         logic.actions.generateSummary({ mode: 'minimal' })
-        await Promise.resolve()
+        await flushMicrotasks()
 
         logic.unmount()
 
