@@ -1,10 +1,10 @@
 """Where destination writers are looked up by type.
 
 The external destinations (Redshift, Snowflake, BigQuery, ...) are implemented on top of
-batch exports' destination clients and transformers, which warehouse_sources must not import
-— so batch_exports registers its factories at app-ready time and this module resolves them by
-type string, the same inversion `external_product_hooks` uses for signals and revenue
-analytics. The PostHog warehouse writer lives in warehouse_sources and registers itself.
+batch exports' destination clients and transformers, which warehouse_sources depends on
+directly (see tach.toml). Writers are still resolved by type string rather than imported at
+the call site, so the processor never names a destination type and a driver only loads when
+a destination of that type is actually written to.
 
 An unregistered type raises rather than degrading to a no-op: silently writing nothing to a
 destination a customer configured, and billing it, is worse than failing the batch.

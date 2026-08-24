@@ -18,8 +18,8 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
     class Type(models.TextChoices):
         POSTHOG_WAREHOUSE = "PostHogWarehouse", "PostHog warehouse"
         # Values match `BatchExportDestination.Destination` so a destination type resolves to
-        # the same writer vocabulary in both products. warehouse_sources cannot import
-        # batch_exports (see tach.toml), hence the duplicated literals.
+        # the same writer vocabulary in both products. Spelled out rather than imported to
+        # keep a model migration from depending on another product's enum.
         REDSHIFT = "Redshift", "Redshift"
         SNOWFLAKE = "Snowflake", "Snowflake"
         BIGQUERY = "BigQuery", "BigQuery"

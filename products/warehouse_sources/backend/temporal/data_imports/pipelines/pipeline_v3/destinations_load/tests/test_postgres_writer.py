@@ -221,3 +221,85 @@ class TestIncremental:
             assert rows == [(1, None), (2, "kept")]
         finally:
             _drop(dsn, table_name)
+
+
+class TestValueFidelity:
+    async def test_values_holding_csv_control_characters_survive_the_copy(self, dsn, table_name) -> None:
+        # The bulk load is a COPY in CSV format, where a tab ends a field and a newline ends a
+        # row unless the value is quoted.
+        awkward = ["a\tb", "line\nbreak", 'say "hi"', "back\\slash", "", "  padded  "]
+        ctx = _ctx(table_name, "full_refresh")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            batch = pa.RecordBatch.from_pydict(
+                {"id": list(range(len(awkward) + 1)), "name": [*awkward, None]},
+            )
+            await writer.write_batch(
+                _batches(batch),
+                DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True),
+            )
+            await writer.finalize_run(ctx)
+
+            assert _read(dsn, table_name) == [*enumerate(awkward), (len(awkward), None)]
+        finally:
+            _drop(dsn, table_name, staging_table_name(ctx))
+
+    async def test_nested_values_land_in_their_json_columns(self, dsn, table_name) -> None:
+        # Lists, structs and maps all map onto JSONB, which rejects both a Postgres array
+        # literal and a Python repr.
+        ctx = _ctx(table_name, "full_refresh")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            batch = pa.RecordBatch.from_arrays(
+                [
+                    pa.array([1, 2], type=pa.int64()),
+                    pa.array([["a", "b"], None], type=pa.list_(pa.string())),
+                    pa.array([{"k": "v", "n": 3}, None], type=pa.struct([("k", pa.string()), ("n", pa.int64())])),
+                    pa.array([[("x", 1)], None], type=pa.map_(pa.string(), pa.int64())),
+                ],
+                names=["id", "tags", "meta", "labels"],
+            )
+            await writer.write_batch(
+                _batches(batch),
+                DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True),
+            )
+            await writer.finalize_run(ctx)
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                rows = conn.execute(f'SELECT id, tags, meta, labels FROM public."{table_name}" ORDER BY id').fetchall()
+
+            assert rows == [
+                (1, ["a", "b"], {"k": "v", "n": 3}, {"x": 1}),
+                (2, None, None, None),
+            ]
+        finally:
+            _drop(dsn, table_name, staging_table_name(ctx))
+
+    async def test_a_nested_value_holding_a_delimiter_still_parses_as_json(self, dsn, table_name) -> None:
+        # The JSON text goes through the same CSV writer, so a tab or a quote inside a struct
+        # has to be quoted on the way out and parsed as JSON on the way in.
+        ctx = _ctx(table_name, "full_refresh")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            batch = pa.RecordBatch.from_arrays(
+                [
+                    pa.array([1], type=pa.int64()),
+                    pa.array(
+                        [{"note": 'has\ta tab, a "quote" and a\nnewline'}],
+                        type=pa.struct([("note", pa.string())]),
+                    ),
+                ],
+                names=["id", "meta"],
+            )
+            await writer.write_batch(
+                _batches(batch),
+                DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True),
+            )
+            await writer.finalize_run(ctx)
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                rows = conn.execute(f'SELECT meta FROM public."{table_name}"').fetchall()
+
+            assert rows == [({"note": 'has\ta tab, a "quote" and a\nnewline'},)]
+        finally:
+            _drop(dsn, table_name, staging_table_name(ctx))

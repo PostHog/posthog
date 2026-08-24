@@ -1,15 +1,18 @@
 """Delivering a run's batches to Snowflake.
 
-Connection handling, authentication, async query polling and the retry on a suspended
-warehouse all come from batch exports' `SnowflakeClient`. Rows load through `PUT` into the
-table's internal stage followed by `COPY INTO`, which is the path Snowflake is built for.
+Connection handling, authentication, async query polling, the `PUT` into the table's internal
+stage and the `COPY INTO` that follows all come from batch exports' `SnowflakeClient`. The copy
+helper is what checks that every file it loaded reported `LOADED`, retries a suspended
+warehouse, and turns a server-side timeout, an incompatible schema and a missing privilege into
+their own typed errors.
 
 Two pieces of batch exports are deliberately not reused:
 
-- `SnowflakeTable` and `SnowflakeField`. Their type vocabulary has no `DATE`, `TIME` or
-  `NUMBER(p, s)`, which is fine for events and persons but would silently turn a source date
-  column into a timestamp and a decimal into a float. The DDL here keeps those types, so the
-  statements that reference the stage are written out rather than taken from the table helper.
+- The Arrow to Snowflake type mapping behind `SnowflakeField.from_arrow_field`. Its vocabulary
+  has no `DATE`, `TIME` or `NUMBER(p, s)` and it raises on anything else, which is fine for
+  events and persons but would silently turn a source date column into a timestamp and a
+  decimal into a float. The DDL here keeps those types. The table handed to the shared stage
+  helpers carries the Arrow types instead, which is all those helpers read.
 - `merge_into_final_from_stage`, which needs a version key to decide what to update. A synced
   source table has no monotonic column, so the merge below matches on primary keys alone.
 
@@ -26,11 +29,16 @@ from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from asgiref.sync import sync_to_async
 
-from posthog.models.integration.snowflake import SnowflakeIntegration
-
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import NamedBytesIO, SnowflakeClient
+from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
+    NamedBytesIO,
+    SnowflakeClient,
+    SnowflakeField,
+    SnowflakeTable,
+    SnowflakeType,
+    _get_snowflake_integration,
+    load_private_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -63,21 +71,30 @@ _SNOWFLAKE_BY_ARROW = {
 
 BATCH_INDEX_COLUMN = "_ph_batch_index"
 
+# batch exports' `SnowflakeClient` writes the stage path and the COPY INTO column list by
+# interpolating the names it is handed with no escaping of its own: a raw double-quoted
+# identifier, inside a single-quoted path. Batch exports only ever passes it names it derived
+# internally, so that was never reachable with input a user controls. Here the table name
+# carries the destination's configured prefix and the column names come from the source's Arrow
+# schema, both of which a team member (or, through a shared source, its schema) controls, so
+# anything that could break out of either quoting context is rejected before it reaches the
+# shared client. Statements this module writes itself still quote and escape through
+# `quote_identifier`.
+_UNSAFE_IDENTIFIER_CHARS = ('"', "'", "\\", "\n", "\r", "\x00")
 
-def _stage_reference(table: str) -> str:
-    """A table's internal stage (`@%"table"`), safe to embed in a single-quoted path literal.
 
-    `table` carries the destination's configured table prefix, so `quote_identifier` handles
-    the embedded double-quote context Snowflake's stage path syntax needs, and any single quote
-    left over is escaped for the single-quoted literal this is embedded in, the same way SQL
-    string literals always escape a quote: by doubling it.
-    """
-    return f"@%{quote_identifier(table)}".replace("'", "''")
+def _assert_safe_identifier(value: str, what: str) -> str:
+    if not value or any(ch in value for ch in _UNSAFE_IDENTIFIER_CHARS):
+        raise ValueError(f"Unsafe Snowflake {what}: {value!r}")
+    return value
 
 
 # Snowflake polls asynchronously, so these bound how long one statement may take.
 COPY_TIMEOUT_SECONDS = 60 * 30
 MERGE_TIMEOUT_SECONDS = 60 * 30
+
+# `SnowflakeField` asks for a Snowflake type that the stage helpers never read, see `_stage_table`.
+_UNREAD_SNOWFLAKE_TYPE = SnowflakeType(name="STRING", repeated=False)
 
 
 def snowflake_type_for(arrow_type: pa.DataType) -> str:
@@ -102,6 +119,28 @@ def snowflake_type_for(arrow_type: pa.DataType) -> str:
     return "VARCHAR"
 
 
+def _stage_table(table: str, schema: pa.Schema, stage_prefix: str) -> SnowflakeTable:
+    """The table as batch exports' stage helpers want to see it.
+
+    `remove_internal_stage_files`, `put_file_to_snowflake_table_stage` and
+    `copy_loaded_files_to_snowflake_table` read a table's name, its stage prefix, and each
+    field's name and Arrow type. They never read the Snowflake type, which is why the column
+    types this writer maps (`DATE`, `TIME`, `NUMBER(p, s)`) can stay out of a vocabulary that
+    has no room for them, and why the placeholder passed in their place is safe.
+    """
+    _assert_safe_identifier(table, "table name")
+    fields = [
+        SnowflakeField(
+            _assert_safe_identifier(field.name, "column name"),
+            _UNREAD_SNOWFLAKE_TYPE,
+            field.type,
+            field.nullable,
+        )
+        for field in schema
+    ]
+    return SnowflakeTable(name=table, fields=fields, stage_prefix=stage_prefix)
+
+
 def _rows_of(result) -> list:
     """`execute_async_query` returns (rows, metadata), or None when nothing was fetched."""
     if not result:
@@ -112,15 +151,6 @@ def _rows_of(result) -> list:
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
     return f"{ctx.table_name}__PH_STAGE_{ctx.run_uuid.replace('-', '')[:12]}"
-
-
-def _load_integration(integration_id: int, team_id: int):
-    from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
-
-    return Integration.objects.get(id=integration_id, team_id=team_id)
-
-
-_aload_integration = sync_to_async(_load_integration, thread_sensitive=False)
 
 
 class SnowflakeDestinationWriter:
@@ -141,16 +171,11 @@ class SnowflakeDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        integration = await _aload_integration(self._ctx.integration_id, self._ctx.team_id)
-        creds = SnowflakeIntegration(integration)
+        creds = await _get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
 
         private_key: bytes | None = None
         password: str | None = None
         if creds.authentication_type == "keypair":
-            from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (  # noqa: PLC0415 — keeps the key loader off the import path
-                load_private_key,
-            )
-
             if creds.private_key is None:
                 raise ValueError(
                     f"Destination {self._ctx.destination_name} has keypair authentication but no private key"
@@ -256,42 +281,28 @@ class SnowflakeDestinationWriter:
         return BatchWriteOutcome(rows_written=rows_written)
 
     def _parquet_file(self, batch: pa.RecordBatch, name: str) -> NamedBytesIO:
+        # PUT compresses whatever it does not recognize as already compressed, so a plain
+        # `.parquet` name would arrive gzipped. Writing zstd under a `.zst` name is the same
+        # shape batch exports uploads through this stage.
         buffer = io.BytesIO()
-        pq.write_table(pa.Table.from_batches([batch]), buffer)
+        pq.write_table(pa.Table.from_batches([batch]), buffer, compression="zstd")
         return NamedBytesIO(buffer.getvalue(), name)
-
-    async def _put(self, client: SnowflakeClient, table: str, batch: pa.RecordBatch, prefix: str) -> None:
-        """PUT one record batch into the table's internal stage as parquet."""
-        file = self._parquet_file(batch, f"{prefix}.parquet")
-        await sync_to_async(self._put_blocking, thread_sensitive=False)(client, table, file, prefix)
-
-    def _put_blocking(self, client: SnowflakeClient, table: str, file: NamedBytesIO, prefix: str) -> None:
-        # Snowflake's async execution does not support PUT, so this runs off the event loop.
-        file.seek(0)
-        client.connection.cursor().execute(
-            f"PUT file://{file.name} '{_stage_reference(table)}/{prefix}' AUTO_COMPRESS = FALSE",
-            file_stream=file,
-        )
-
-    def _select_from_stage(self, table: str, columns: list[str], prefix: str) -> str:
-        # Column names come from the source's Arrow schema, so they are quoted (and any
-        # embedded quote escaped) rather than interpolated raw into the path expression.
-        fields = ", ".join(f"$1:{quote_identifier(c)}" for c in columns)
-        return f"SELECT {fields} FROM '{_stage_reference(table)}/{prefix}'"
 
     async def _copy_chunk(
         self, client: SnowflakeClient, target: str, batch: pa.RecordBatch, batch_index: int, chunk: int
     ) -> None:
         prefix = f"ph_{batch_index}_{chunk}"
-        columns = list(batch.schema.names)
+        table = _stage_table(target, batch.schema, prefix)
 
-        await self._put(client, target, batch, prefix)
-        await client.execute_async_query(
-            f"COPY INTO {self._qualified(target)} ({', '.join(quote_identifier(c) for c in columns)}) "
-            f"FROM ({self._select_from_stage(target, columns, prefix)}) "
-            f"FILE_FORMAT = (TYPE = 'PARQUET') PURGE = TRUE",
-            timeout=COPY_TIMEOUT_SECONDS,
+        # The stage path is derived from the batch index, so a retry of this chunk lands on the
+        # path its previous attempt used. PUT does not overwrite, so without this the upload
+        # would be skipped and COPY INTO would load the file the earlier attempt left behind.
+        await client.remove_internal_stage_files(table)
+        await client.put_file_to_snowflake_table_stage(
+            file=self._parquet_file(batch, f"{prefix}.parquet.zst"),
+            table=table,
         )
+        await client.copy_loaded_files_to_snowflake_table(table, COPY_TIMEOUT_SECONDS)
 
     async def _merge_chunk(
         self,

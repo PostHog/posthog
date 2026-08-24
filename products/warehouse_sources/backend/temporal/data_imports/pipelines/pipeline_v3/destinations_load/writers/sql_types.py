@@ -33,6 +33,16 @@ _POSTGRES_BY_ARROW_ID = {
 }
 
 
+def is_nested_type(arrow_type: pa.DataType) -> bool:
+    """Whether an Arrow type holds a nested value, which every dialect here stores as JSON."""
+    return (
+        pa.types.is_list(arrow_type)
+        or pa.types.is_large_list(arrow_type)
+        or pa.types.is_struct(arrow_type)
+        or pa.types.is_map(arrow_type)
+    )
+
+
 def postgres_type_for(arrow_type: pa.DataType) -> str:
     """The Postgres column type for an Arrow type."""
     mapped = _POSTGRES_BY_ARROW_ID.get(arrow_type)
@@ -47,12 +57,7 @@ def postgres_type_for(arrow_type: pa.DataType) -> str:
         return f"NUMERIC({arrow_type.precision}, {arrow_type.scale})"
     if pa.types.is_duration(arrow_type):
         return "INTERVAL"
-    if (
-        pa.types.is_list(arrow_type)
-        or pa.types.is_large_list(arrow_type)
-        or pa.types.is_struct(arrow_type)
-        or pa.types.is_map(arrow_type)
-    ):
+    if is_nested_type(arrow_type):
         return "JSONB"
 
     # An unrecognized type is stored as text rather than failing the sync. The value survives,

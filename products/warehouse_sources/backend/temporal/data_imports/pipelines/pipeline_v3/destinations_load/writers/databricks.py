@@ -1,32 +1,43 @@
 """Delivering a run's batches to Databricks.
 
 Connection handling, OAuth for the service principal, the reachability preflight, the retrying
-connect and the statement timeouts all come from batch exports' `DatabricksClient`. Rows load
-by putting a parquet file into a Databricks volume and running `COPY INTO`, which is the path
-Databricks is built for, rather than binding rows one at a time.
+connect, the statement timeouts, table creation and deletion, and the volume load all come from
+batch exports' `DatabricksClient`. Rows load by putting a parquet file into a Databricks volume
+and running `COPY INTO`, which is the path Databricks is built for, rather than binding rows one
+at a time. Every statement written here goes through the same `handle_common_errors` the client
+uses, so a stopped warehouse or a missing privilege is reported as itself rather than as a raw
+driver error.
 
 `DatabricksField` is just `(name, type)`, so the client's `acopy_into_table_from_volume` takes
 the column types worked out here without going through a table abstraction.
 
 The merge stays local: batch exports decides what to update from a version key, and a synced
-source table has no monotonic column, so this matches on primary keys alone.
+source table has no monotonic column, so this matches on primary keys alone. That also means
+`amerge_tables` cannot supply the schema evolution its `WITH SCHEMA EVOLUTION` would, so the
+final table gains new source columns through `_evolve_table` instead.
 """
 
 from __future__ import annotations
 
 import io
+import json
 from collections.abc import AsyncIterator
 from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from asgiref.sync import sync_to_async
 
+from posthog.models.integration import Integration
 from posthog.models.integration.databricks import DatabricksIntegration
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+    FIVE_MINUTES,
+    ONE_HOUR,
+    ONE_MINUTE,
     DatabricksClient,
     DatabricksField,
+    DatabricksIntegrationNotFoundError,
+    handle_common_errors,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
@@ -57,6 +68,11 @@ _DATABRICKS_BY_ARROW = {
 
 BATCH_INDEX_COLUMN = "_ph_batch_index"
 
+# Server-side backstop. Every statement below is bounded client-side well within this, so it
+# only catches a query the client-side timeout cannot reach, such as one whose connection went
+# away, rather than letting it run on the customer's warehouse until something else notices.
+STATEMENT_TIMEOUT_SECONDS = ONE_HOUR + ONE_MINUTE
+
 
 def databricks_type_for(arrow_type: pa.DataType) -> str:
     mapped = _DATABRICKS_BY_ARROW.get(arrow_type)
@@ -66,16 +82,37 @@ def databricks_type_for(arrow_type: pa.DataType) -> str:
         return "TIMESTAMP"
     if pa.types.is_decimal(arrow_type):
         return f"DECIMAL({arrow_type.precision}, {arrow_type.scale})"
-    if (
-        pa.types.is_list(arrow_type)
-        or pa.types.is_large_list(arrow_type)
-        or pa.types.is_struct(arrow_type)
-        or pa.types.is_map(arrow_type)
-    ):
+    if pa.types.is_nested(arrow_type):
         # Stored as JSON text rather than a typed STRUCT: a nested shape that grows a field
-        # would otherwise need a schema change on every source change.
+        # would otherwise need a schema change on every source change. `json_encode_nested`
+        # is what turns the values into that text before they reach parquet.
         return "STRING"
     return "STRING"
+
+
+def json_encode_nested(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Render nested columns as the JSON text `databricks_type_for` maps them to.
+
+    Parquet carries a list or a struct in its own shape, so without this the file holds an
+    array where the column it is copied into holds a string.
+    """
+    if not any(pa.types.is_nested(field.type) for field in batch.schema):
+        return batch
+
+    columns: list[pa.Array] = []
+    fields: list[pa.Field] = []
+    for index, field in enumerate(batch.schema):
+        column = batch.column(index)
+        if pa.types.is_nested(field.type):
+            column = pa.array(
+                [None if value is None else json.dumps(value, default=str) for value in column.to_pylist()],
+                type=pa.string(),
+            )
+            field = pa.field(field.name, pa.string(), field.nullable)
+        columns.append(column)
+        fields.append(field)
+
+    return pa.RecordBatch.from_arrays(columns, schema=pa.schema(fields))
 
 
 def backtick(name: str) -> str:
@@ -91,7 +128,7 @@ def backtick(name: str) -> str:
 # come from the source's Arrow schema, both of which a team member (or, through a shared
 # source, its schema) controls. Reject anything that could break out of either quoting
 # context rather than teach the shared client to escape a case it was never built for.
-_UNSAFE_IDENTIFIER_CHARS = ('`', "'", '"', "\\", "\n", "\r", "\x00")
+_UNSAFE_IDENTIFIER_CHARS = ("`", "'", '"', "\\", "\n", "\r", "\x00")
 
 
 def _assert_safe_identifier(value: str, what: str) -> str:
@@ -115,13 +152,16 @@ def fields_for(schema: pa.Schema, *, with_batch_index: bool) -> list[DatabricksF
     return fields
 
 
-def _load_integration(integration_id: int, team_id: int):
-    from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
-
-    return Integration.objects.get(id=integration_id, team_id=team_id)
-
-
-_aload_integration = sync_to_async(_load_integration, thread_sensitive=False)
+async def _load_integration(integration_id: int, team_id: int) -> DatabricksIntegration:
+    try:
+        integration = await Integration.objects.aget(
+            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.DATABRICKS
+        )
+    except Integration.DoesNotExist:
+        raise DatabricksIntegrationNotFoundError(
+            f"Databricks integration with ID '{integration_id}' not found for team '{team_id}'"
+        )
+    return DatabricksIntegration(integration)
 
 
 class DatabricksDestinationWriter:
@@ -142,8 +182,7 @@ class DatabricksDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        integration = await _aload_integration(self._ctx.integration_id, self._ctx.team_id)
-        creds = DatabricksIntegration(integration)
+        creds = await _load_integration(self._ctx.integration_id, self._ctx.team_id)
 
         return DatabricksClient(
             server_hostname=creds.server_hostname,
@@ -152,6 +191,7 @@ class DatabricksDestinationWriter:
             client_secret=creds.client_secret,
             catalog=self._catalog,
             schema=self._schema,
+            statement_timeout_seconds=STATEMENT_TIMEOUT_SECONDS,
         )
 
     # --- statements -------------------------------------------------------------------
@@ -162,9 +202,29 @@ class DatabricksDestinationWriter:
     def _volume_path(self) -> str:
         return f"/Volumes/{self._catalog}/{self._schema}/{self._volume}"
 
-    async def _ensure_table(self, client: DatabricksClient, table: str, fields: list[DatabricksField]) -> None:
-        columns = ", ".join(f"{backtick(name)} {type_name}" for name, type_name in fields)
-        await client.execute_query(f"CREATE TABLE IF NOT EXISTS {self._qualified(table)} ({columns}) USING DELTA")
+    async def _evolve_table(self, client: DatabricksClient, table: str, fields: list[DatabricksField]) -> None:
+        """Add columns the source has grown. Additive only, same as the other SQL writers.
+
+        `COPY INTO` evolves the table it loads into, but the merge path loads into a scratch
+        table, so on that path this is the only thing that carries a new source column through
+        to the final table.
+        """
+        existing = {name.lower() for name in await client.aget_table_columns(table)}
+        if not existing:
+            # No columns means no table, and the caller has just created it.
+            return
+
+        missing = [(name, type_name) for name, type_name in fields if name.lower() not in existing]
+        if not missing:
+            return
+
+        additions = ", ".join(f"{backtick(name)} {type_name}" for name, type_name in missing)
+        async with handle_common_errors(f"ALTER TABLE {table} ADD COLUMNS", FIVE_MINUTES):
+            await client.execute_query(
+                f"ALTER TABLE {self._qualified(table)} ADD COLUMNS ({additions})",
+                fetch_results=False,
+                timeout=FIVE_MINUTES,
+            )
 
     # --- writer protocol ----------------------------------------------------------------
 
@@ -176,50 +236,58 @@ class DatabricksDestinationWriter:
     ) -> BatchWriteOutcome:
         run = ctx.run
         full_refresh = run.is_full_refresh
-        target = _assert_safe_identifier(
-            staging_table_name(run) if full_refresh else run.table_name, "table name"
-        )
+        target = _assert_safe_identifier(staging_table_name(run) if full_refresh else run.table_name, "table name")
 
         client = await self._make_client()
         rows_written = 0
 
         async with client.connect():
-            async with client.managed_volume(self._volume):
-                first = True
-                chunk = 0
-                async for batch in batches:
-                    if batch.num_rows == 0:
-                        continue
+            # The volume is named by the destination's own config, so it may well be one the
+            # user already had and holds files this run knows nothing about. It is created if
+            # missing and never dropped. Batch exports can drop its volume because it invents a
+            # private per-attempt name; a shared, stable one would be pulled out from under
+            # another schema's in-flight upload.
+            await client.acreate_volume(self._volume)
 
-                    stamped = (
-                        batch.append_column(
-                            BATCH_INDEX_COLUMN,
-                            pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
-                        )
-                        if full_refresh
-                        else batch
+            first = True
+            chunk = 0
+            async for batch in batches:
+                if batch.num_rows == 0:
+                    continue
+
+                stamped = (
+                    batch.append_column(
+                        BATCH_INDEX_COLUMN,
+                        pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
                     )
-                    fields = fields_for(batch.schema, with_batch_index=full_refresh)
+                    if full_refresh
+                    else batch
+                )
+                fields = fields_for(batch.schema, with_batch_index=full_refresh)
 
-                    if first:
-                        await self._ensure_table(client, target, fields)
-                        if full_refresh:
-                            # This batch may be a re-apply, so clear what its previous attempt wrote.
+                if first:
+                    await client.acreate_table(table_name=target, fields=fields)
+                    await self._evolve_table(client, target, fields)
+                    if full_refresh:
+                        # This batch may be a re-apply, so clear what its previous attempt wrote.
+                        async with handle_common_errors(f"DELETE FROM {target}", FIVE_MINUTES):
                             await client.execute_query(
                                 f"DELETE FROM {self._qualified(target)} "
-                                f"WHERE {backtick(BATCH_INDEX_COLUMN)} = {int(ctx.batch_index)}"
+                                f"WHERE {backtick(BATCH_INDEX_COLUMN)} = {int(ctx.batch_index)}",
+                                fetch_results=False,
+                                timeout=FIVE_MINUTES,
                             )
-                        first = False
+                    first = False
 
-                    if run.is_incremental and run.primary_keys and not full_refresh:
-                        await self._merge_chunk(
-                            client, target, stamped, fields, list(run.primary_keys), ctx.batch_index, chunk
-                        )
-                    else:
-                        await self._copy_chunk(client, target, stamped, fields, ctx.batch_index, chunk)
+                if run.is_incremental and run.primary_keys and not full_refresh:
+                    await self._merge_chunk(
+                        client, target, stamped, fields, list(run.primary_keys), ctx.batch_index, chunk
+                    )
+                else:
+                    await self._copy_chunk(client, target, stamped, fields, ctx.batch_index, chunk)
 
-                    rows_written += batch.num_rows
-                    chunk += 1
+                rows_written += batch.num_rows
+                chunk += 1
 
         return BatchWriteOutcome(rows_written=rows_written)
 
@@ -234,7 +302,7 @@ class DatabricksDestinationWriter:
     ) -> None:
         """PUT one record batch into the volume as parquet, then COPY INTO the table."""
         buffer = io.BytesIO()
-        pq.write_table(pa.Table.from_batches([batch]), buffer)
+        pq.write_table(pa.Table.from_batches([json_encode_nested(batch)]), buffer)
         buffer.seek(0)
 
         file_name = f"ph_{batch_index}_{chunk}.parquet"
@@ -247,6 +315,19 @@ class DatabricksDestinationWriter:
             fields,
             with_schema_evolution=True,
         )
+        await self._remove_staged_file(client, f"{volume_path}/{file_name}")
+
+    async def _remove_staged_file(self, client: DatabricksClient, path: str) -> None:
+        """Drop a file whose rows have landed.
+
+        Nothing else clears them: the volume outlives the run. A file left behind costs the
+        user storage and nothing else, so a failure here must not fail a batch that loaded.
+        """
+        try:
+            async with handle_common_errors(f"REMOVE '{path}'", ONE_MINUTE):
+                await client.execute_query(f"REMOVE '{path}'", fetch_results=False, timeout=ONE_MINUTE)
+        except Exception as err:
+            client.logger.warning("Could not remove staged file '%s': %s", path, err)
 
     async def _merge_chunk(
         self,
@@ -262,8 +343,7 @@ class DatabricksDestinationWriter:
         columns = list(batch.schema.names)
         stage_table = f"{target}__ph_merge_{batch_index}_{chunk}"
 
-        await self._ensure_table(client, stage_table, fields)
-        try:
+        async with client.managed_table(stage_table, fields, delete=True):
             await self._copy_chunk(client, stage_table, batch, fields, batch_index, chunk)
 
             on_clause = " AND ".join(f"target.{backtick(k)} = source.{backtick(k)}" for k in primary_keys)
@@ -273,14 +353,15 @@ class DatabricksDestinationWriter:
             insert_vals = ", ".join(f"source.{backtick(c)}" for c in columns)
 
             matched = f"WHEN MATCHED THEN UPDATE SET {set_clause} " if updates else ""
-            await client.execute_query(
-                f"MERGE INTO {self._qualified(target)} AS target "
-                f"USING {self._qualified(stage_table)} AS source ON {on_clause} "
-                f"{matched}"
-                f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})"
-            )
-        finally:
-            await client.adelete_table(stage_table)
+            async with handle_common_errors(f"MERGE INTO {target}", ONE_HOUR):
+                await client.execute_query(
+                    f"MERGE INTO {self._qualified(target)} AS target "
+                    f"USING {self._qualified(stage_table)} AS source ON {on_clause} "
+                    f"{matched}"
+                    f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})",
+                    fetch_results=False,
+                    timeout=ONE_HOUR,
+                )
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
@@ -292,22 +373,24 @@ class DatabricksDestinationWriter:
         client = await self._make_client()
 
         async with client.connect():
-            # `LIKE` takes a string literal, not an identifier, so `staging` is validated
-            # above rather than backtick-escaped here.
-            rows = await client.execute_query(
-                f"SHOW TABLES IN {backtick(self._catalog)}.{backtick(self._schema)} LIKE '{staging}'",
-            )
-            if not rows:
-                # Already swapped by an earlier attempt at this same final batch.
+            if not await client.aget_table_columns(staging):
+                # No columns means no table: already swapped by an earlier attempt at this
+                # same final batch.
                 return
 
-            await client.execute_query(
-                f"ALTER TABLE {self._qualified(staging)} DROP COLUMN IF EXISTS {backtick(BATCH_INDEX_COLUMN)}"
-            )
-            await client.execute_query(f"DROP TABLE IF EXISTS {self._qualified(ctx.table_name)}")
-            await client.execute_query(
-                f"ALTER TABLE {self._qualified(staging)} RENAME TO {self._qualified(ctx.table_name)}"
-            )
+            async with handle_common_errors(f"ALTER TABLE {staging} DROP COLUMN", FIVE_MINUTES):
+                await client.execute_query(
+                    f"ALTER TABLE {self._qualified(staging)} DROP COLUMN IF EXISTS {backtick(BATCH_INDEX_COLUMN)}",
+                    fetch_results=False,
+                    timeout=FIVE_MINUTES,
+                )
+            await client.adelete_table(ctx.table_name)
+            async with handle_common_errors(f"ALTER TABLE {staging} RENAME TO {ctx.table_name}", FIVE_MINUTES):
+                await client.execute_query(
+                    f"ALTER TABLE {self._qualified(staging)} RENAME TO {self._qualified(ctx.table_name)}",
+                    fetch_results=False,
+                    timeout=FIVE_MINUTES,
+                )
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
