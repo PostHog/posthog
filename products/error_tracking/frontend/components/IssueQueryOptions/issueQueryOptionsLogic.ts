@@ -48,8 +48,13 @@ export function sanitizeAssignee(assignee: unknown): ErrorTrackingIssueAssignee 
         return DEFAULT_ASSIGNEE
     }
     const { id, type } = assignee as Partial<ErrorTrackingIssueAssignee>
-    const hasValidId = typeof id === 'number' || (typeof id === 'string' && id.length > 0)
-    return hasValidId && (type === 'user' || type === 'role') ? { id, type } : DEFAULT_ASSIGNEE
+    if (type === 'user' && typeof id === 'number' && Number.isInteger(id)) {
+        return { id, type }
+    }
+    if (type === 'role' && typeof id === 'string' && id.length > 0) {
+        return { id, type }
+    }
+    return DEFAULT_ASSIGNEE
 }
 
 // The statuses the filter accepts: the query's status union minus archived/pending_release,

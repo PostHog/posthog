@@ -73,8 +73,12 @@ describe('issueQueryOptionsLogic', () => {
         { type: 'user' },
         { type: 'user', id: null },
         { type: 'user', id: '' },
+        { type: 'user', id: '7' },
+        { type: 'user', id: 1.5 },
+        { type: 'role', id: 7 },
         { type: 'team', id: 7 },
         { id: 7 },
+        ['role:01978cae-04b5-0000-17fb-0405fcb791be'],
     ]
 
     it.each(MALFORMED_ASSIGNEES)('falls back to no assignee when setAssignee receives %p', (assignee) => {
