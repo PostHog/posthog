@@ -14,7 +14,12 @@ from temporalio.exceptions import ApplicationError
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.temporal.subscriptions.delivery_common import deliver_webhook, recipient_label
+from products.exports.backend.temporal.subscriptions.delivery_common import (
+    _WEBHOOK_TIMEOUT_SECONDS,
+    deliver_webhook,
+    recipient_label,
+)
+from products.exports.backend.temporal.subscriptions.retry_policy import SUBSCRIPTION_DELIVER_START_TO_CLOSE_TIMEOUT
 from products.exports.backend.temporal.subscriptions.types import RecipientResult
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -51,6 +56,12 @@ def _destination_responds(status: int) -> Iterator[MagicMock]:
         request = pinned_session.return_value.__enter__.return_value.request
         request.return_value = MagicMock(status_code=status)
         yield request
+
+
+async def test_a_stuck_send_times_out_before_temporal_abandons_the_activity() -> None:
+    # Past the activity timeout Temporal retries a send it can no longer observe, and the channel
+    # gets the card twice. Neither value can drift into that order without failing here.
+    assert sum(_WEBHOOK_TIMEOUT_SECONDS) < SUBSCRIPTION_DELIVER_START_TO_CLOSE_TIMEOUT.total_seconds()
 
 
 @pytest.mark.parametrize("target_value", ["https://[::1", "", "not a url"])

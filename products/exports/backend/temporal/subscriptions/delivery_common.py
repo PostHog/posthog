@@ -41,7 +41,13 @@ LOGGER = get_logger(__name__)
 _MAX_ERROR_DETAIL_RESULTS = 50
 
 # Connect and read timeouts for a webhook POST. Power Automate acknowledges quickly, so a read
-# that runs long means the flow is stuck rather than slow.
+# that runs long means the flow is stuck rather than slow. Their sum stays far below
+# SUBSCRIPTION_DELIVER_START_TO_CLOSE_TIMEOUT so a stuck send fails inside the activity, before
+# Temporal gives up on the await and retries an activity whose send may still deliver. That bound
+# covers a destination that stalls, not one that trickles bytes: `requests` restarts the read
+# timeout on every socket read, so such a destination can still outlive the activity and have its
+# card posted twice. A Teams webhook accepts no idempotency key, so nothing downstream can collapse
+# that duplicate.
 _WEBHOOK_TIMEOUT_SECONDS = (5.0, 30.0)
 # What a deleted or revoked Power Automate flow answers with. Retrying cannot recover any of them.
 _PERMANENT_WEBHOOK_STATUSES = frozenset({403, 404, 410})
