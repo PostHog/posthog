@@ -4,11 +4,12 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS, WORKOS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import (
     WorkOSPaginator,
@@ -140,6 +141,12 @@ def _page(ids: list[str], after: str | None) -> dict[str, Any]:
     return {"data": [{"id": i} for i in ids], "list_metadata": {"before": None, "after": after}}
 
 
+def _webhook_manager(enabled: bool) -> MagicMock:
+    manager = MagicMock(spec=WebhookSourceManager)
+    manager.webhook_enabled = AsyncMock(return_value=enabled)
+    return manager
+
+
 class TestWorkOSEndpoints:
     def test_all_endpoints_registered(self) -> None:
         assert set(ENDPOINTS) == set(WORKOS_ENDPOINTS)
@@ -167,6 +174,7 @@ class TestWorkOSEndpoints:
             team_id=123,
             job_id="job_1",
             resumable_source_manager=manager,
+            webhook_source_manager=_webhook_manager(enabled=False),
         )
 
         assert response.name == endpoint
@@ -174,11 +182,38 @@ class TestWorkOSEndpoints:
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
 
+    @pytest.mark.parametrize("webhook_enabled", [True, False])
+    def test_items_come_from_the_webhook_manager_only_once_webhooks_are_live(self, webhook_enabled: bool) -> None:
+        # Reading webhook files before the backfill finishes leaves the table seeded with only
+        # the rows a webhook happened to deliver; polling after it finishes never sees deletes.
+        resumable = MagicMock(spec=ResumableSourceManager)
+        resumable.can_resume.return_value = False
+        webhook_manager = _webhook_manager(enabled=webhook_enabled)
+        webhook_items = object()
+        webhook_manager.get_items.return_value = webhook_items
+
+        response = workos_source(
+            api_key="sk_test_123",
+            endpoint="users",
+            team_id=123,
+            job_id="job_1",
+            resumable_source_manager=resumable,
+            webhook_source_manager=webhook_manager,
+        )
+
+        if webhook_enabled:
+            assert response.items() is webhook_items
+        else:
+            assert response.items() is not webhook_items
+            webhook_manager.get_items.assert_not_called()
+
 
 class TestWorkOSSourceResumeBehavior:
     """End-to-end resume behaviour through the shared ``rest_api_resource`` path."""
 
-    def _drive(self, manager: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    def _drive(
+        self, manager: MagicMock, responses: list[Response], endpoint: str = "organizations"
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
@@ -196,13 +231,14 @@ class TestWorkOSSourceResumeBehavior:
 
             source_response = workos_source(
                 api_key="sk_test_123",
-                endpoint="organizations",
+                endpoint=endpoint,
                 team_id=123,
                 job_id="job_1",
                 resumable_source_manager=manager,
+                webhook_source_manager=_webhook_manager(enabled=False),
             )
-            list(cast(Iterable[Any], source_response.items()))
-            return sent_params
+            pages = list(cast(Iterable[Any], source_response.items()))
+            return sent_params, [row for page in pages for row in page]
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -213,7 +249,7 @@ class TestWorkOSSourceResumeBehavior:
             _make_http_response(_page(["org_3", "org_4"], after="org_4")),
             _make_http_response(_page(["org_5"], after=None)),
         ]
-        sent_params = self._drive(manager, responses)
+        sent_params, _ = self._drive(manager, responses)
 
         # First request omits the cursor (fresh run); subsequent requests carry it.
         assert [p.get("after") for p in sent_params] == [None, "org_2", "org_4"]
@@ -229,9 +265,9 @@ class TestWorkOSSourceResumeBehavior:
         responses = [
             _make_http_response(_page(["org_5"], after=None)),
         ]
-        sent_params = self._drive(manager, responses)
+        sent_params, _ = self._drive(manager, responses)
 
-        # First request goes out at the resumed cursor — no re-fetch of synced pages.
+        # First request goes out at the resumed cursor, so synced pages are not re-fetched.
         assert [p.get("after") for p in sent_params] == ["org_4"]
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
@@ -244,6 +280,27 @@ class TestWorkOSSourceResumeBehavior:
         self._drive(manager, responses)
 
         manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_row"),
+        [
+            ("organizations", {"id": "org_1", "workos_deleted": False, "workos_deleted_at": None}),
+            ("connections", {"id": "org_1"}),
+        ],
+    )
+    def test_polled_rows_carry_a_tombstone_only_where_webhooks_can_set_one(
+        self, endpoint: str, expected_row: dict[str, Any]
+    ) -> None:
+        # A webhook delete merges a tombstone onto a row the backfill wrote, so the backfill has
+        # to write the same columns. Without this they read NULL for every backfilled row, and
+        # `where not workos_deleted` drops the rows no webhook has touched. Tables that never
+        # sync by webhook get no tombstone column, because nothing can ever set it.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        _, rows = self._drive(manager, [_make_http_response(_page(["org_1"], after=None))], endpoint=endpoint)
+
+        assert rows == [expected_row]
 
 
 class TestWorkOSValidateCredentials:

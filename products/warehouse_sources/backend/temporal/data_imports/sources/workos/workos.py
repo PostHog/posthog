@@ -28,13 +28,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import WORKOS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import (
+    WEBHOOK_SCHEMA_NAMES,
+    WORKOS_ENDPOINTS,
+)
 
 BASE_URL = "https://api.workos.com"
 WEBHOOK_ENDPOINTS_PATH = "/webhook_endpoints"
 # WorkOS lists 10 endpoints per page by default, so an account with more than that can hide
 # ours behind the first page. 100 is the documented maximum.
 WEBHOOK_ENDPOINTS_PAGE_SIZE = 100
+
+# Delete events carry a soft tombstone because a webhook sync merges on `id` and can never
+# remove a row. On the tables that can switch to webhook sync, the polled backfill writes these
+# columns too, so a query that filters on `workos_deleted` covers every row in the table rather
+# than only the rows a webhook has touched.
+DELETED_COLUMN = "workos_deleted"
+DELETED_AT_COLUMN = "workos_deleted_at"
 
 
 @dataclasses.dataclass
@@ -150,9 +160,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         if response.status_code == 200:
             return True, None
 
-        # A valid key that lacks the Organizations scope still proves the key is
-        # genuine — accept it at source-create so users can sync only the
-        # endpoints they granted. Sync-time 403s are handled by
+        # A 403 still proves the key is genuine, because WorkOS rejects an invalid key with a
+        # 401. Accept it at source-create so an account that cannot reach Organizations can
+        # still sync the endpoints it does have. Sync-time 403s are handled by
         # get_non_retryable_errors().
         if response.status_code == 403:
             return True, None
@@ -304,26 +314,23 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     rows = table.to_pylist()
     for event in rows:
         event_type = event.get("event")
-        data = event.get("data")
-        if isinstance(data, str):
+        resource = event.get("data")
+        if isinstance(resource, str):
             try:
-                data = orjson.loads(data)
+                resource = orjson.loads(resource)
             except orjson.JSONDecodeError:
                 continue
-        if not isinstance(event_type, str) or not isinstance(data, dict):
+        if not isinstance(event_type, str) or not isinstance(resource, dict) or not resource.get("id"):
             continue
 
-        # Membership events wrap the complete group beside the affected user.
-        resource = data.get("group") if event_type in {"dsync.group.user_added", "dsync.group.user_removed"} else data
-        if not isinstance(resource, dict) or not resource.get("id"):
-            continue
-
-        resource = dict(resource)
         deleted = event_type.endswith(".deleted")
-        resource["_ph_deleted"] = deleted
-        resource["_ph_deleted_at"] = event.get("created_at") if deleted else None
         raw_created_at = event.get("created_at")
         created_at = raw_created_at if isinstance(raw_created_at, str) else ""
+        resource = {
+            **resource,
+            DELETED_COLUMN: deleted,
+            DELETED_AT_COLUMN: raw_created_at if deleted else None,
+        }
         current = rows_by_id.get(str(resource["id"]))
         if current is None or created_at >= current[0]:
             rows_by_id[str(resource["id"])] = (created_at, resource)
@@ -337,7 +344,7 @@ def workos_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WorkOSResumeConfig],
-    webhook_source_manager: Optional[WebhookSourceManager] = None,
+    webhook_source_manager: WebhookSourceManager,
 ) -> SourceResponse:
     endpoint_config = WORKOS_ENDPOINTS[endpoint]
 
@@ -371,9 +378,7 @@ def workos_source(
         if state and state.get("after"):
             resumable_source_manager.save_state(WorkOSResumeConfig(after=str(state["after"])))
 
-    webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)() if webhook_source_manager is not None else False
-    )
+    webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
     resource = rest_api_resource(
         config,
@@ -383,12 +388,14 @@ def workos_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint in WEBHOOK_SCHEMA_NAMES:
+        resource = resource.add_map(lambda row: {**row, DELETED_COLUMN: False, DELETED_AT_COLUMN: None})
 
     return SourceResponse(
         name=endpoint,
         items=lambda: (
             webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-            if webhook_enabled and webhook_source_manager is not None
+            if webhook_enabled
             else resource
         ),
         primary_keys=["id"],

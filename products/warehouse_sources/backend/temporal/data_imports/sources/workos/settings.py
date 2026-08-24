@@ -12,8 +12,9 @@ class WorkOSEndpointConfig:
 
 # WorkOS list endpoints share one cursor-paginated envelope
 # ({"data": [...], "list_metadata": {"before": ..., "after": ...}}) and expose no
-# server-side timestamp filter, so every endpoint is full-refresh only. Incremental
+# server-side timestamp filter, so a polled sync is always a full refresh. Incremental
 # sync on WorkOS is only possible through the /events API, which is not modeled here.
+# WEBHOOK_EVENTS_BY_SCHEMA below lists the tables that leave polling behind.
 WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
     "organizations": WorkOSEndpointConfig(name="organizations", path="/organizations"),
     "users": WorkOSEndpointConfig(name="users", path="/user_management/users"),
@@ -25,19 +26,15 @@ WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
 
 ENDPOINTS = tuple(WORKOS_ENDPOINTS.keys())
 
+# Webhook sync replaces polling, so a table only qualifies when its events cover the whole
+# create, update, and delete cycle. WorkOS publishes no `connection.updated` or `dsync.updated`
+# event, which is why `connections` and `directories` stay on full refresh: under webhook sync a
+# directory rename or a SAML certificate renewal would never reach the table.
 WEBHOOK_EVENTS_BY_SCHEMA: dict[str, tuple[str, ...]] = {
     "users": ("user.created", "user.updated", "user.deleted"),
     "organizations": ("organization.created", "organization.updated", "organization.deleted"),
-    "connections": ("connection.activated", "connection.deactivated", "connection.deleted"),
-    "directories": ("dsync.activated", "dsync.deleted"),
     "directory_users": ("dsync.user.created", "dsync.user.updated", "dsync.user.deleted"),
-    "directory_groups": (
-        "dsync.group.created",
-        "dsync.group.updated",
-        "dsync.group.deleted",
-        "dsync.group.user_added",
-        "dsync.group.user_removed",
-    ),
+    "directory_groups": ("dsync.group.created", "dsync.group.updated", "dsync.group.deleted"),
 }
 
 WEBHOOK_EVENT_TO_SCHEMA = {event: schema for schema, events in WEBHOOK_EVENTS_BY_SCHEMA.items() for event in events}

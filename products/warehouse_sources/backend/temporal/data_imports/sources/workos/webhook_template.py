@@ -55,11 +55,8 @@ let eventType := request.body.event
 let resourceByEvent := {
   'user.created': 'users', 'user.updated': 'users', 'user.deleted': 'users',
   'organization.created': 'organizations', 'organization.updated': 'organizations', 'organization.deleted': 'organizations',
-  'connection.activated': 'connections', 'connection.deactivated': 'connections', 'connection.deleted': 'connections',
-  'dsync.activated': 'directories', 'dsync.deleted': 'directories',
   'dsync.user.created': 'directory_users', 'dsync.user.updated': 'directory_users', 'dsync.user.deleted': 'directory_users',
   'dsync.group.created': 'directory_groups', 'dsync.group.updated': 'directory_groups', 'dsync.group.deleted': 'directory_groups',
-  'dsync.group.user_added': 'directory_groups', 'dsync.group.user_removed': 'directory_groups',
 }
 let resource := resourceByEvent?.[eventType]
 if (empty(resource)) {

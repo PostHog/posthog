@@ -137,7 +137,9 @@ The key starts with `sk_`.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # WorkOS list endpoints seed the table once; webhook mode handles later changes.
+        # WorkOS list endpoints expose no server-side timestamp filter, so a polled sync is
+        # always a full refresh. The tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync
+        # after the initial backfill.
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -158,7 +160,10 @@ The key starts with `sk_`.
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.workos.com": "Your WorkOS API key is invalid or has been revoked. Please update the key in your WorkOS dashboard and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.workos.com": "Your WorkOS API key does not have permission to access this endpoint. Please check the key's scopes in your WorkOS dashboard.",
+            # A WorkOS API key can make any request in its own environment, so a 403 is about the
+            # account rather than the key's access: the key belongs to another environment, or the
+            # product behind the endpoint is not enabled.
+            "403 Client Error: Forbidden for url: https://api.workos.com": "WorkOS refused access to one of the endpoints being synced. Check that the API key comes from the WorkOS environment that holds this data, and that the product behind the table is enabled for your account. Then reconnect the source.",
             # WorkOS returns 422 for a syntactically valid list request it can't fulfil for this
             # account — e.g. the Directory Sync endpoints (directory_users/directory_groups) when
             # Directory Sync isn't provisioned. It's deterministic, so retrying never resolves it.

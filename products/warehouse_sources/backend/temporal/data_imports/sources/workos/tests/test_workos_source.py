@@ -55,7 +55,6 @@ class TestWorkOSSource:
         assert schema_names == set(ENDPOINTS)
         assert all(not schema.supports_incremental for schema in schemas)
         assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.supports_webhooks for schema in schemas)
 
     def test_get_schemas_filtered_by_names(self):
         first_endpoint = next(iter(ENDPOINTS))
@@ -88,7 +87,7 @@ class TestWorkOSSource:
             {
                 "id": "user_1",
                 "email": "old@example.com",
-                "_ph_deleted": True,
-                "_ph_deleted_at": "2026-01-02T00:00:00Z",
+                "workos_deleted": True,
+                "workos_deleted_at": "2026-01-02T00:00:00Z",
             }
         ]
