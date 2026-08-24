@@ -4616,6 +4616,10 @@ snapshots:
         hash: v1.k794b7964.ff05bda7e439902c963d4cee0889351a3cace04ef2e149494544b1bc60794347.JKw0gsl8CIiVdeLk4DndxZFLr2oZ7kYNBIxNotCuVCQ
     lemon-ui-visual-image-diff-viewer--small-image--light:
         hash: v1.k794b7964.ed31587820d0216f2281ec8e610da8cb9fe8cb45f9c13e0280f17771cf84994a.spusB2C8AKwu5Tv0KOr8pkjDxgEZw5jcOlEikYAzKWI
+    logs-anomalybandchart--observed-vs-expected--dark:
+        hash: v1.k794b7964.1c836e86ad8a54b69f37f78d9e18495500c5833ba27c298f8388adbea6da717d.UqfZ7Ar68xRSa97H71uy9HNMBFW_2Iy-_8fT0oLb4jw
+    logs-anomalybandchart--observed-vs-expected--light:
+        hash: v1.k794b7964.e43d3161f7310bd2dea0b1750791bdd13f03df5a7c1f03e72181b40a4e14eb5f._e8vPOX93NKaP89p7WgrZW73BWtfCtBPcVGA0g6Vfw8
     logs-logsfiltervolumesparkline--volume-by-service--dark:
         hash: v1.k794b7964.e1872546be635b378270c73689340083b3af5a318a302372c8db68edfaf232df.T7cwZzY2SaTMk7nKYYhotxV3cmnDaQ1-Cy5dm3fUH2c
     logs-logsfiltervolumesparkline--volume-by-service--light:
