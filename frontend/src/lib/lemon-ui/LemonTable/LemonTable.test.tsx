@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -117,5 +117,23 @@ describe('LemonTable', () => {
         const groupingRow = document.querySelector('tr.LemonTable__row--grouping')!
         const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
         expect(spannedColumns).toBe(3)
+    })
+
+    it('sortable headers are keyboard operable and expose aria-sort state (#30826)', () => {
+        render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} useURLForSorting={false} />)
+
+        const sortHeaderContent = screen.getByRole('button', { name: 'Value' })
+
+        // Reachable by keyboard, and not marked as sorted yet
+        expect(sortHeaderContent).toHaveAttribute('tabindex', '0')
+        expect(sortHeaderContent.closest('th')).not.toHaveAttribute('aria-sort')
+
+        // Enter sorts ascending
+        fireEvent.keyDown(sortHeaderContent, { key: 'Enter' })
+        expect(sortHeaderContent.closest('th')).toHaveAttribute('aria-sort', 'ascending')
+
+        // Space cycles to descending
+        fireEvent.keyDown(sortHeaderContent, { key: ' ' })
+        expect(sortHeaderContent.closest('th')).toHaveAttribute('aria-sort', 'descending')
     })
 })
