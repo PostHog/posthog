@@ -328,6 +328,22 @@ async fn insert_symbol_set_record(db: &PgPool, team_id: i32, chunk_id: &str) {
     record.save(db).await.expect("Failed to insert record");
 }
 
+async fn insert_severity_rule(db: &PgPool, severity: &str, bytecode: JsonValue) {
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_errortrackingseverityrule
+            (id, team_id, filters, bytecode, severity, order_key, created_at, updated_at)
+        VALUES ($1, 1, '{}'::jsonb, $2, $3, 0, NOW(), NOW())
+        "#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(bytecode)
+    .bind(severity)
+    .execute(db)
+    .await
+    .expect("Severity rule should be inserted");
+}
+
 // Helper to extract exception list from response
 fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
     let event = response.first_event();
@@ -420,6 +436,63 @@ async fn new_issue_only_infers_confident_severity_without_overwriting_existing_s
             .await
             .expect("Issue should keep severity");
     assert_eq!(severity.as_deref(), Some("low"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn severity_rule_overrides_inference_only_for_new_issue(db: PgPool) {
+    let harness = TestHarness::new(db);
+    insert_severity_rule(&harness.db, "critical", json!(["_H", 1, 29, 38])).await;
+    let mut input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("severity-rule"),
+        Some(false),
+    );
+    input.properties["$exception_level"] = json!("error");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let issue_id = body.take_properties().issue_id();
+    let initial_severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(initial_severity.as_deref(), Some("critical"));
+
+    sqlx::query("UPDATE posthog_errortrackingissue SET severity = 'low' WHERE id = $1")
+        .bind(issue_id)
+        .execute(&harness.db)
+        .await
+        .unwrap();
+    let (status, _): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let existing_severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(existing_severity.as_deref(), Some("low"));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn unmatched_severity_rule_preserves_inference(db: PgPool) {
+    let harness = TestHarness::new(db);
+    insert_severity_rule(&harness.db, "low", json!(["_H", 1, 30, 38])).await;
+    let mut input = make_event(vec![make_exception("TypeError", "cannot read property")]);
+    input.properties["$exception_level"] = json!("fatal");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+    let issue_id = body.take_properties().issue_id();
+    let severity: Option<String> =
+        sqlx::query_scalar("SELECT severity FROM posthog_errortrackingissue WHERE id = $1")
+            .bind(issue_id)
+            .fetch_one(&harness.db)
+            .await
+            .unwrap();
+    assert_eq!(severity.as_deref(), Some("critical"));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

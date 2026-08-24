@@ -295,8 +295,6 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
-    target_scope: str | None = None
-    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -384,6 +382,10 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
 @dataclass(frozen=True)
@@ -677,6 +679,11 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
+
+
+@dataclass(frozen=True)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)

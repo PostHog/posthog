@@ -9,6 +9,7 @@ import {
   SquaresFourIcon,
   StopCircle,
   TrashIcon,
+  UserSwitchIcon,
 } from "@phosphor-icons/react";
 import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
@@ -43,10 +44,9 @@ import { type ComponentType, type ReactNode, useMemo, useState } from "react";
  * ones its list already has (pin, archive, delete, rename inline); only filing —
  * which needs the channel list and a mutation — belongs to the menu.
  *
- * Canvases share this menu but not all of it: they can be pinned and deleted,
- * and they can't be filed to a space or given a command-centre cell, both of
- * which are task-shaped. `kind` is what decides, so a canvas gets a menu of the
- * actions it has rather than a full one with half its items dead.
+ * Canvases share this menu but not all of it: they can be added to the command
+ * centre, pinned, and deleted, but they can't be filed to another space.
+ * `kind` decides which remaining actions apply.
  */
 export interface TaskRowMenuProps {
   kind: "task" | "canvas";
@@ -64,6 +64,8 @@ export interface TaskRowMenuProps {
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
+  /** Owner-only: handing a task to a colleague needs a confirm dialog. */
+  onHandoff?: () => void;
 }
 
 // The two menus differ only in which primitives draw them, so the item list is
@@ -144,15 +146,13 @@ function TaskRowMenuItems({
           Stop task
         </Item>
       )}
-      {isTask && (
-        <Item
-          disabled={!menu.onAddToCommandCenter}
-          onClick={menu.onAddToCommandCenter}
-        >
-          <SquaresFourIcon size={14} />
-          Add to Command Center
-        </Item>
-      )}
+      <Item
+        disabled={!menu.onAddToCommandCenter}
+        onClick={menu.onAddToCommandCenter}
+      >
+        <SquaresFourIcon size={14} />
+        Add to Command Center…
+      </Item>
       {isTask && channelItems.length > 0 && (
         <Sub>
           <SubTrigger>
@@ -170,6 +170,12 @@ function TaskRowMenuItems({
             />
           </MenuSubFlyout>
         </Sub>
+      )}
+      {isTask && menu.onHandoff && (
+        <Item onClick={menu.onHandoff}>
+          <UserSwitchIcon size={14} />
+          Hand off…
+        </Item>
       )}
       {menu.onArchive && (
         <Item onClick={menu.onArchive}>

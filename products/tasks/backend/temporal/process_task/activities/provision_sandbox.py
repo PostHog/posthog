@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -65,11 +66,13 @@ from products.tasks.backend.logic.services.sandbox_usage import (
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
+    increment_resume_mode,
     increment_snapshot_restore,
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
     record_sandbox_created,
+    resume_mode_label,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
@@ -502,6 +505,13 @@ def _build_environment_variables(
     if ctx.wizard_config is not None:
         environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
 
+    # The flag was evaluated once in get_task_processing_context; presence of
+    # the mount-path env var is what gates the materialize activity in the workflow.
+    if ctx.context_layer_enabled:
+        environment_variables.update(
+            context_layer_facade.sandbox_environment_variables(ctx.organization_id, ctx.team_id)
+        )
+
     return environment_variables
 
 
@@ -619,10 +629,19 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        activity.logger.info(
+        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        resume_mode = resume_mode_label(
+            handoff_resumed=run_state.handoff_resumed,
+            using_modal_snapshot=resume_snapshot_external_id is not None,
+        )
+        resume_decision_log = (
+            activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
+        )
+        resume_decision_log(
             "resume_decision",
             extra={
                 "run_id": ctx.run_id,
+                "resume_mode": resume_mode,
                 "state_snapshot_external_id": run_state.snapshot_external_id,
                 "state_snapshot_kind": run_state.snapshot_kind,
                 "effective_snapshot_external_id": resume_snapshot_external_id,
@@ -634,7 +653,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "used_snapshot": used_snapshot,
             },
         )
-        if run_state.handoff_resumed or run_state.resume_from_run_id:
+        if is_resume:
             emit_agent_log(
                 ctx.run_id,
                 "debug",
@@ -642,6 +661,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
+            increment_resume_mode(resume_mode, origin_product=ctx.origin_product)
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(

@@ -76,6 +76,7 @@ from products.tasks.backend.facade.access import (
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.contracts import TaskAnalysisError
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -124,6 +125,9 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
+    TaskRunAnalysisInsightRequestSerializer,
+    TaskRunAnalysisInsightResponseSerializer,
+    TaskRunAnalyzeResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
@@ -153,6 +157,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPeerMessageRequestSerializer,
     TaskRunPeerMessageResponseSerializer,
     TaskRunPeersResponseSerializer,
+    TaskRunPostHogReferencesRequestSerializer,
+    TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -574,6 +580,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self._report_task_cap_response(error.detail)
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _one_shot_analysis_response(self, task_id: str) -> Response | None:
+        """Refuse to add runs to a server-created analysis task; see the facade reader."""
+        if not tasks_facade.task_is_one_shot_analysis(task_id, self.team_id):
+            return None
+        return Response(
+            {"error": "An analysis task runs once. Start a new analysis instead."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     def _report_task_cap_response(self, detail: str) -> Response:
         """429 for a report that has spent its task allowance, on both create and run.
@@ -998,6 +1013,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
+        if one_shot_response := self._one_shot_analysis_response(str(pk)):
+            return one_shot_response
         if tasks_facade.task_runtime(
             pk, self.team_id, self._user_id(), for_control=True
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
@@ -1184,6 +1201,10 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
     return _sandbox_bound_task_id(request) == UUID(task_id)
 
 
+# Command methods that inject caller-authored content and drive a new model turn.
+_HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
+
+
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1237,6 +1258,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_download",
         "artifacts_download_by_id",
     )
+
+    def _one_shot_analysis_response(self, task_id: str) -> Response | None:
+        """Refuse to add runs to a server-created analysis task; see the facade reader."""
+        if not tasks_facade.task_is_one_shot_analysis(task_id, self.team_id):
+            return None
+        return Response(
+            {"error": "An analysis task runs once. Start a new analysis instead."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""
@@ -1401,6 +1431,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
+        if one_shot_response := self._one_shot_analysis_response(task_id):
+            return one_shot_response
         outcome, started_task_id = tasks_facade.start_task_run(
             pk, task_id, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
         )
@@ -1800,6 +1832,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
     @validated_request(
+        request_serializer=TaskRunPostHogReferencesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPostHogReferencesResponseSerializer,
+                description="Run with updated reference artifacts",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Register PostHog object references for a task run",
+        description="Attach live PostHog object references to the run artifact manifest without uploading files.",
+        strict_request_validation=True,
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="artifacts/references",
+        required_scopes=["task:write"],
+    )
+    def artifacts_references(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        manifest = tasks_facade.register_task_run_posthog_references(
+            pk,
+            task_id,
+            self.team_id,
+            references=request.validated_data["references"],
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
+            acting_user_id=self._user_id(),
+        )
+        if manifest is None:
+            raise NotFound()
+        serializer = TaskRunPostHogReferencesResponseSerializer({"artifacts": manifest})
+        return Response(serializer.data)
+
+    @validated_request(
         request_serializer=TaskRunArtifactsPrepareUploadRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -2138,6 +2204,98 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
 
     @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunAnalyzeResponseSerializer,
+                description="An analysis task already exists for this run",
+            ),
+            201: OpenApiResponse(
+                response=TaskRunAnalyzeResponseSerializer,
+                description="Analysis task created",
+            ),
+            400: OpenApiResponse(description="The run cannot be analyzed (for example, it has no log yet)"),
+            403: OpenApiResponse(description="AI data processing is not approved for this organization"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Analyze this run",
+        description=(
+            "Create a PostHog-funded analysis task that reviews this run's transcript for "
+            "inefficiencies and reports findings. Idempotent per run: if an analysis task already "
+            "exists for this run, it is returned instead of creating another. The analysis is not "
+            "billed to the customer."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="analyze", required_scopes=["task:write"])
+    def analyze(self, request, pk=None, **kwargs):
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            return Response(
+                {"error": "Enable AI data processing for this organization to analyze runs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        task_id = self._ensure_task_accessible()
+        if not tasks_facade.task_analysis_enabled(self.team, cast(User, request.user)):
+            return Response(
+                {"error": "Run analysis is not enabled for this organization."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if self._is_sandbox_agent_request(task_id):
+            return Response(
+                {"error": "An agent run cannot start an analysis."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            result = tasks_facade.analyze_task_run(pk, task_id, self.team_id, user_id=request.user.id)
+        except TaskAnalysisError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if result is None:
+            raise NotFound()
+        analysis_task_id, created = result
+        return Response(
+            TaskRunAnalyzeResponseSerializer({"analysis_task_id": analysis_task_id, "created": created}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=TaskRunAnalysisInsightRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=TaskRunAnalysisInsightResponseSerializer,
+                description="Finding stored on the run",
+            ),
+            400: OpenApiResponse(description="The finding is invalid, or the run already holds the maximum"),
+            403: OpenApiResponse(description="Only the run's own analysis sandbox may report findings"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Report an analysis finding",
+        description=(
+            "Store one verified inefficiency finding on a task-analysis run. Only the run's own "
+            "task-bound sandbox agent may call it, and only on a task-analysis run. The findings "
+            "list is server-owned: it is not writable through the run update endpoint."
+        ),
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="analysis-insight", required_scopes=["task:write"])
+    def analysis_insight(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        if not self._is_sandbox_agent_request(task_id):
+            return Response(
+                {"error": "Only the run's own analysis agent can report findings."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            index = tasks_facade.report_task_analysis_insight(
+                pk, task_id, self.team_id, insight=dict(request.validated_data)
+            )
+        except TaskAnalysisError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if index is None:
+            raise NotFound()
+        return Response(
+            TaskRunAnalysisInsightResponseSerializer({"insight_index": index}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @validated_request(
         request_serializer=TaskRunPeerMessageRequestSerializer,
         responses={
             200: OpenApiResponse(
@@ -2305,7 +2463,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.",
+        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.",
         strict_request_validation=True,
     )
     @action(
@@ -2317,6 +2475,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        # Steering an analysis run spends model tokens on a task whose generations are excluded
+        # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
+        # and the agent's own operations stay open.
+        if method in _HUMAN_STEERING_COMMAND_METHODS and (
+            one_shot_response := self._one_shot_analysis_response(task_id)
+        ):
+            return one_shot_response
         task_runtime = tasks_facade.task_runtime(task_id, self.team_id, self._user_id(), for_control=True)
         if (
             method.startswith("pi/") or method in {"queue_get", "queue_clear"}
@@ -2338,6 +2503,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
+        # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
+        # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
+        if method == "side_question":
+            if access_response := code_access_required_response(request.user):
+                return access_response
+            if limit_response := usage_limit_response(request.user, self.team_id):
+                return limit_response
 
         if method == "user_message":
             # The Inbox starts interactive runs and drops the user straight into this composer,
@@ -2472,6 +2645,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
             )
             if agent_response.ok:
+                tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(agent_response.json())
 
             try:
@@ -2725,6 +2899,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
+        if one_shot_response := self._one_shot_analysis_response(task_id):
+            return one_shot_response
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()

@@ -70,7 +70,7 @@ const config: Configuration = {
   mac: {
     target: ["dmg", "zip"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-mac.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-mac.${ext}",
     icon: "build/app-icon.icns",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
@@ -103,7 +103,7 @@ const config: Configuration = {
   win: {
     target: ["nsis"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-win.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-win.${ext}",
     // electron-builder generates the multi-size .ico from this 1024px PNG; a real
     // .ico must be >=256px and the committed app-icon.ico is only 32px.
     icon: "build/app-icon.png",
@@ -117,7 +117,7 @@ const config: Configuration = {
   linux: {
     target: ["AppImage", "deb", "rpm"],
     // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder interpolation tokens, not JS template literals
-    artifactName: "PostHog-Code-${version}-${arch}-linux.${ext}",
+    artifactName: "PostHog-Desktop-${version}-${arch}-linux.${ext}",
     icon: "build/app-icon.png",
     category: "Development",
     mimeTypes: ["x-scheme-handler/posthog-code"],

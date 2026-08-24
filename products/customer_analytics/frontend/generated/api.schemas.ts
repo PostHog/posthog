@@ -476,6 +476,50 @@ export interface PatchedAccountApi {
     readonly updated_at?: string | null
 }
 
+export interface ConversationMessageSenderApi {
+    /** Display name of the message sender. */
+    readonly name: string
+    /**
+     * Email address of the message sender, when available.
+     * @nullable
+     */
+    readonly email: string | null
+    /**
+     * UUID of the matched PostHog person, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+    /**
+     * Distinct ID of the sender, when available.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+}
+
+/**
+ * * `inbound` - Inbound
+ * * `outbound` - Outbound
+ */
+export type EmailThreadMessageDirectionEnumApi =
+    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
+
+export const EmailThreadMessageDirectionEnumApi = {
+    Inbound: 'inbound',
+    Outbound: 'outbound',
+} as const
+
+export interface ConversationMessageSummaryApi {
+    /** Sender of the message. */
+    readonly sender: ConversationMessageSenderApi
+    /** Timestamp from the message source. */
+    readonly sent_at: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+}
+
 /**
  * * `internal` - Internal
  * * `customer` - Customer
@@ -498,6 +542,11 @@ export interface AccountEmailThreadParticipantApi {
      * * `internal` - Internal
      * * `customer` - Customer */
     readonly kind: EmailThreadParticipantKindEnumApi
+    /**
+     * UUID of the matched PostHog person for a customer participant, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
 }
 
 export interface AccountEmailThreadApi {
@@ -512,11 +561,15 @@ export interface AccountEmailThreadApi {
      * @nullable
      */
     readonly first_message_at: string | null
+    /** Sender, timestamp, and direction of the first captured message, when available. */
+    readonly first_message: ConversationMessageSummaryApi | null
     /**
      * Source timestamp of the latest captured message.
      * @nullable
      */
     readonly last_message_at: string | null
+    /** Sender, timestamp, and direction of the latest captured message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Number of captured messages in the thread. */
     readonly message_count: number
     /** Participants included in the email thread. */
@@ -538,18 +591,6 @@ export interface AccountEmailThreadAddressApi {
     /** Email address from the email header. */
     readonly email: string
 }
-
-/**
- * * `inbound` - Inbound
- * * `outbound` - Outbound
- */
-export type EmailThreadMessageDirectionEnumApi =
-    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
-
-export const EmailThreadMessageDirectionEnumApi = {
-    Inbound: 'inbound',
-    Outbound: 'outbound',
-} as const
 
 export interface AccountEmailThreadMessageApi {
     /** UUID of the captured email message. */
@@ -702,8 +743,43 @@ export interface SupportTicketApi {
      * @nullable
      */
     readonly last_message_text: string | null
+    /** Sender, timestamp, and direction of the latest public message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Absolute URL to open this ticket in the app. */
     readonly deep_link: string
+    /** When the ticket conversation started. */
+    readonly created_at: string
+    /** Display name of the customer who started the ticket. */
+    readonly started_by: string
+    /** Distinct ID of the customer who started the ticket. */
+    readonly distinct_id: string
+}
+
+export interface AccountSupportTicketMessageApi {
+    /** UUID of the support ticket message. */
+    readonly id: string
+    /** Plain-text message content. */
+    readonly content: string
+    /** Display name of the message author. */
+    readonly author_name: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Whether the message is an internal note hidden from the customer. */
+    readonly is_private: boolean
+    /** When the message was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedAccountSupportTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountSupportTicketMessageApi[]
 }
 
 /**
@@ -1606,6 +1682,8 @@ export interface FeatureRequestEvidenceApi {
      * @nullable
      */
     readonly requested_on: string | null
+    /** Uploaded image IDs attached to this evidence item, in display order. */
+    readonly image_ids: readonly string[]
     /**
      * ID of the user who added the evidence.
      * @nullable
@@ -1714,6 +1792,30 @@ export interface PaginatedFeatureRequestListApi {
     results: FeatureRequestApi[]
 }
 
+export interface FeatureRequestEvidencePayloadApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+}
+
 export interface FeatureRequestCreateApi {
     /**
      * Required customer-facing request title.
@@ -1728,6 +1830,8 @@ export interface FeatureRequestCreateApi {
     product_area_ids: string[]
     /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
     idempotency_key: string
+    /** Optional first evidence item to create for the selected account. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
 }
 
 export interface FeatureRequestUpdateApi {
@@ -1800,28 +1904,6 @@ export interface PatchedFeatureRequestUpdateApi {
     request_priority?: RequestPriorityEnumApi | null
 }
 
-export interface FeatureRequestEvidencePayloadApi {
-    /** Internal summary of this account's request evidence. */
-    summary?: string
-    /** Customer quote kept with this evidence item. */
-    customer_quote?: string
-    /**
-     * Free-form name of the source where this evidence was recorded.
-     * @maxLength 200
-     */
-    evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
-    source_url?: string
-    /**
-     * Date the account made the request, or null when unknown.
-     * @nullable
-     */
-    requested_on?: string | null
-}
-
 export interface FeatureRequestAddAccountApi {
     /**
      * Request version loaded by the editor. Stale versions return 409 Conflict.
@@ -1854,6 +1936,8 @@ export interface FeatureRequestEvidenceCreateApi {
      * @nullable
      */
     requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
     /**
      * Request version loaded by the editor. Stale versions return 409 Conflict.
      * @minimum 1
@@ -1916,6 +2000,7 @@ export type FeatureRequestHistoryChangeApiBefore =
           source_url: string
           /** @nullable */
           requested_on: string | null
+          image_ids?: string[]
       }
     | null
 
@@ -1945,6 +2030,7 @@ export type FeatureRequestHistoryChangeApiAfter =
           source_url: string
           /** @nullable */
           requested_on: string | null
+          image_ids?: string[]
       }
     | null
 
@@ -2065,6 +2151,8 @@ export interface FeatureRequestEvidenceUpdateApi {
      * @nullable
      */
     requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
     /**
      * Request version loaded by the editor. Stale versions return 409 Conflict.
      * @minimum 1
@@ -2378,6 +2466,17 @@ export type AccountsSummariesListParams = {
     offset?: number
 }
 
+export type AccountsSupportTicketMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
@@ -2476,6 +2575,11 @@ export type FeatureRequestsListParams = {
      * @minLength 1
      */
     archive_state?: FeatureRequestsListArchiveState
+    /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[]
     /**
      * Number of results to return per page.
      */

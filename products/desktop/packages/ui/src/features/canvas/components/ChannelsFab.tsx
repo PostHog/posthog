@@ -27,7 +27,6 @@ import { isContentEmpty } from "@posthog/ui/features/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 
 /**
@@ -44,11 +43,6 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
   const hasDraft = useDraftStore(
     (s) => !isContentEmpty(s.drafts["task-input"]),
   );
-  // New task has no /website mirror yet, so it jumps back to Code unless we're
-  // already in the Channels space — same rule as the nav's New task row.
-  const inChannels = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
-  });
 
   const newTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -62,7 +56,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       openTaskInput({ channelId });
       return;
     }
-    openTaskInput(inChannels ? { space: "website" } : undefined);
+    openTaskInput();
   };
 
   const newChannelItem = (
