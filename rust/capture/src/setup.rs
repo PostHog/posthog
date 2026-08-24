@@ -14,7 +14,7 @@ use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
-use crate::emergency_kafka_fallback::{report_fallback_gauge, EmergencyKafkaFallback};
+use crate::config_resolution::Resolved;
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::prometheus::setup_metrics_recorder;
@@ -134,8 +134,7 @@ pub struct CaptureComponents {
 }
 
 pub async fn build_components(
-    mut config: Config,
-    sink_env: HashMap<String, String>,
+    resolved: Resolved,
     handles: LifecycleHandles,
 ) -> CaptureComponents {
     let LifecycleHandles {
@@ -151,23 +150,15 @@ pub async fn build_components(
 
     // Must come first: metrics emitted before the global recorder exists are
     // silently dropped, and its `role`/`capture_mode` labels are fixed here.
-    let recorder_handle = config.export_prometheus.then(|| {
+    let recorder_handle = resolved.config().export_prometheus.then(|| {
         setup_metrics_recorder(
-            config.otel_service_name.clone(),
-            config.capture_mode.as_tag(),
+            resolved.config().otel_service_name.clone(),
+            resolved.config().capture_mode.as_tag(),
         )
     });
 
-    // Before anything reads a broker address: the switch rewrites the hosts and
-    // TLS of every event destination, so it has to land while they are still
-    // plain config.
-    let emergency_kafka_fallback = EmergencyKafkaFallback::from_env(&sink_env)
-        .unwrap_or_else(|e| panic!("invalid configuration: {e:#}"));
-    if let Some(fallback) = &emergency_kafka_fallback {
-        fallback.apply(&mut config);
-        fallback.log_active();
-    }
-    report_fallback_gauge(emergency_kafka_fallback.is_some());
+    resolved.report_emergency_fallback();
+    let (config, v1_sinks) = resolved.into_parts();
 
     let redis_client = Arc::new(
         RedisClient::with_config(
@@ -380,19 +371,10 @@ pub async fn build_components(
         )
     });
 
-    let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
-        Some(
-            create_v1_sink_router(
-                &config,
-                &sink_env,
-                v1_sink_handles,
-                emergency_kafka_fallback.as_ref(),
-            )
-            .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
-        )
-    } else {
-        None
-    };
+    let v1_sink_router = v1_sinks.map(|sinks| {
+        create_v1_sink_router(sinks, config.capture_mode, v1_sink_handles)
+            .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}"))
+    });
 
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
@@ -427,7 +409,10 @@ pub async fn build_components(
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
-        config.ai_gateway_signing_secret.clone(),
+        config
+            .ai_gateway_signing_secret
+            .as_ref()
+            .map(|secret| secret.expose().to_string()),
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
@@ -524,36 +509,15 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
     }
 }
 
-/// Builds the v1 sink router. The dedicated AI topics are
-/// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
-/// so they are injected into every sink config here; the overwrite is
-/// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
-/// cannot diverge from the shared policy.
+/// Builds the v1 sink router from configs `config_resolution::resolve` has
+/// already finished: parsing, the emergency Kafka fallback, the
+/// deployment-level AI topics, and validation all happened there.
 fn create_v1_sink_router(
-    config: &Config,
-    sink_env: &HashMap<String, String>,
+    sinks_cfg: crate::v1::sinks::Sinks,
+    capture_mode: CaptureMode,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
-    emergency_kafka_fallback: Option<&EmergencyKafkaFallback>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
-    let mut sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
-        .context("failed to parse CAPTURE_V1_SINKS")?;
-    // Ahead of validation, so the checks run against the cluster the sinks will
-    // actually produce to.
-    if let Some(fallback) = emergency_kafka_fallback {
-        fallback.apply_to_v1_sinks(&mut sinks_cfg);
-    }
-    sinks_cfg
-        .validate()
-        .context("v1 sink config validation failed")?;
-
-    for cfg in sinks_cfg.configs.values_mut() {
-        cfg.kafka.topic_ai = config.kafka.capture_analytics_ai_events_topic.clone();
-        cfg.kafka.topic_ai_overflow = config
-            .kafka
-            .capture_analytics_ai_events_overflow_topic
-            .clone();
-    }
-
+    let default_sink = sinks_cfg.default;
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =
         HashMap::new();
 
@@ -567,7 +531,7 @@ fn create_v1_sink_router(
             name,
             &cfg.kafka,
             handle.clone(),
-            config.capture_mode.as_tag(),
+            capture_mode.as_tag(),
         )
         .with_context(|| format!("failed to create v1 kafka producer for sink '{name}'"))?;
 
@@ -575,17 +539,15 @@ fn create_v1_sink_router(
             name,
             Arc::new(producer),
             cfg,
-            config.capture_mode,
+            capture_mode,
             handle,
         );
         sink_map.insert(name, Box::new(kafka_sink));
     }
 
-    let router = crate::v1::sinks::Router::new(sinks_cfg.default, sink_map);
-    info!(
-        sinks = config.capture_v1_sinks.as_str(),
-        "V1 sink router initialized"
-    );
+    let sinks: Vec<&str> = sink_map.keys().map(|name| name.as_str()).collect();
+    let router = crate::v1::sinks::Router::new(default_sink, sink_map);
+    info!(?sinks, "V1 sink router initialized");
     Ok(Arc::new(router))
 }
 
@@ -1037,46 +999,6 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn create_v1_sink_router_fails_on_invalid_config() {
-        let cfg_env: HashMap<String, String> = [
-            ("REDIS_URL", "redis://localhost:6379/"),
-            ("CAPTURE_MODE", "events"),
-            ("KAFKA_HOSTS", "localhost:9092"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
-            ("CAPTURE_V1_SINKS", "msk"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-        let config: Config =
-            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
-
-        let mut manager = lifecycle::Manager::builder("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .build();
-        let handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
-            crate::v1::sinks::parse_sink_names(&config.capture_v1_sinks)
-                .unwrap()
-                .into_iter()
-                .map(|name| {
-                    (
-                        name,
-                        manager.register(name.lifecycle_tag(), lifecycle::ComponentOptions::new()),
-                    )
-                })
-                .collect();
-
-        let err = create_v1_sink_router(&config, &HashMap::new(), handles, None)
-            .err()
-            .expect("should fail with invalid config");
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("msk"),
-            "error should name the failing sink: {msg}"
-        );
-    }
 
     #[test]
     fn warnings_kafka_config_is_isolated_from_main_producer_tuning() {

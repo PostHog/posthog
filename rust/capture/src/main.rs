@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use envconfig::Envconfig;
 use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
@@ -12,7 +11,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use capture::config::Config;
+use capture::config_resolution;
 use capture::server::serve;
 use capture::setup;
 
@@ -45,7 +44,9 @@ fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer
 
 #[tokio::main]
 async fn main() {
-    let config = Config::init_from_env().expect("Invalid configuration:");
+    let resolved = config_resolution::resolve(&std::env::vars().collect())
+        .unwrap_or_else(|e| panic!("Invalid configuration: {e:#}"));
+    let config = resolved.config();
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     // Fails gracefully - logs error but doesn't prevent service from starting
@@ -122,7 +123,7 @@ async fn main() {
         .with_health_poll_interval(Duration::from_secs(2))
         .build();
 
-    let handles = setup::register_components(&mut manager, &config);
+    let handles = setup::register_components(&mut manager, config);
     let guard = manager.monitor_background();
 
     let listener = tokio::net::TcpListener::bind(config.address)
@@ -130,7 +131,7 @@ async fn main() {
         .expect("could not bind port");
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
 
-    let components = setup::build_components(config, std::env::vars().collect(), handles).await;
+    let components = setup::build_components(resolved, handles).await;
 
     serve(listener, components).await;
 
