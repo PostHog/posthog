@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid5
@@ -10,6 +11,8 @@ import httpx
 import structlog
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -204,8 +207,14 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
     return None
 
 
-def resolve_ai_gateway_config() -> tuple[str, str] | None:
-    """Return the validated (url, api_key) for the internal Go ai-gateway, or None.
+@frozen
+class AIGatewayConfig:
+    url: str
+    api_key: str = field(repr=False)
+
+
+def resolve_ai_gateway_config() -> AIGatewayConfig | None:
+    """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
 
     None when neither env var is set (the caller uses its normal path), and ALSO when the config
     is half-applied or the URL is malformed: that logs a warning and returns None so the caller
@@ -219,7 +228,7 @@ def resolve_ai_gateway_config() -> tuple[str, str] | None:
     if misconfig:
         logger.warning("ai_gateway_misconfigured_falling_back", reason=misconfig)
         return None
-    return url, api_key
+    return AIGatewayConfig(url=url, api_key=api_key)
 
 
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
@@ -330,10 +339,9 @@ def build_openai_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return OpenAI(
-            api_key=api_key,
-            base_url=url,
+            api_key=gateway.api_key,
+            base_url=gateway.url,
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=trace_id,
@@ -358,10 +366,9 @@ def build_async_openai_client(
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return AsyncOpenAI(
-            api_key=api_key,
-            base_url=url,
+            api_key=gateway.api_key,
+            base_url=gateway.url,
             default_headers=ai_gateway_headers(
                 ai_product=ai_product,
                 trace_id=trace_id,
@@ -402,7 +409,6 @@ def build_async_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         default_headers = {
             **(
                 _ai_property_headers(
@@ -415,8 +421,8 @@ def build_async_anthropic_client(
             **_ai_trace_headers(team_id),
         }
         return AsyncAnthropic(
-            api_key=api_key,
-            base_url=_anthropic_gateway_base_url(url),
+            api_key=gateway.api_key,
+            base_url=_anthropic_gateway_base_url(gateway.url),
             default_headers=default_headers or None,
             http_client=httpx.AsyncClient(trust_env=False),
         )

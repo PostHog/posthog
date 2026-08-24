@@ -3,20 +3,18 @@
 
 {% block extrahead %}
     {{ block.super }}
+    {{ deactivation_reason_presets|json_script:"organization-deactivation-reason-presets" }}
     <script nonce="{{ request.csp_nonce }}">
         document.addEventListener("DOMContentLoaded", () => {
             const isActiveCheckbox = document.getElementById("id_is_active")
             const reasonField = document.getElementById("id_is_not_active_reason")
+            const presetsElement = document.getElementById("organization-deactivation-reason-presets")
 
-            if (!isActiveCheckbox || !reasonField) {
+            if (!isActiveCheckbox || !reasonField || !presetsElement || !presetsElement.textContent) {
                 return
             }
 
-            const presets = [
-                "Access revoked due to unpaid balance.",
-                "Access disabled for compliance review.",
-                "Access revoked due to terms of service violation.",
-            ]
+            const presets = JSON.parse(presetsElement.textContent)
 
             const reasonFieldRow = reasonField.closest(".form-row")
             if (!reasonFieldRow) {
@@ -99,4 +97,4 @@
 
 {% block submit_buttons_bottom %}
     {{ block.super }}
-{% endblock %} 
+{% endblock %}

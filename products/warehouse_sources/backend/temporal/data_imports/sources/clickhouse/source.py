@@ -354,6 +354,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
             # Temporal's activity retry provides that backoff and reopens a fresh connection.
             "Read timed out",
+            # The source server rejected the client-construction probe because it was already
+            # at its concurrent-query limit (Code: 202, TOO_MANY_SIMULTANEOUS_QUERIES).
+            # `_get_client` already backs off and retries this in-process like a 429; this
+            # entry covers the case where the server stays saturated past all in-process
+            # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
+            "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
+            # in clickhouse.py); this entry covers the case where our own egress proxy stays
+            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
+            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager

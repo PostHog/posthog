@@ -22,10 +22,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         else:  # Day
             unit, count = "hour", 24
 
-        has_data_warehouse_series = (
-            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
-        )
-        if has_data_warehouse_series:
+        if self.has_data_warehouse_series:
             return self._build_base_query_data_warehouse(
                 unit, count, start_interval_index_filter, selected_breakdown_value
             )
@@ -256,11 +253,11 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return_table_name = self.return_event.table_name if return_is_dwh else "events"
         assert return_table_name
         return_ts_field = self.entity_timestamp_field(self.return_event)
-        return_actor_column = self.entity_actor_id_column(self.return_event)
+        return_actor_expr = self.coerce_actor_id_expr(self.entity_actor_id_expr(self.return_event))
 
         return ast.SelectQuery(
             select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=[return_table_name, return_actor_column])),
+                ast.Alias(alias="actor_id", expr=return_actor_expr),
                 ast.Alias(alias="timestamp", expr=return_ts_field),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
@@ -277,8 +274,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_ts_field = self.entity_timestamp_field(self.start_event)
         start_table_name = self.start_event.table_name if start_is_dwh else "events"
         assert start_table_name
-        start_actor_column = self.entity_actor_id_column(self.start_event)
-        actor_id_expr = ast.Field(chain=[start_table_name, start_actor_column])
+        actor_id_expr = self.coerce_actor_id_expr(self.entity_actor_id_expr(self.start_event))
 
         where: ast.Expr | None
         having: ast.Expr | None

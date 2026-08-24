@@ -38,10 +38,13 @@ jest.mock('~/common/utils/logger')
 // and one with them all on, keeping CI cost flat while both modes stay fully
 // covered. Batched group updates default to on, so the off arm pins them off
 // to keep the individual CAS flush path (still the fallback) e2e-covered.
+// Merge-source tombstoning rides the on arm, so both the hard-delete and the
+// tombstone delete run the full suite.
 describe.each([
     {
         PERSONS_PREFETCH_ENABLED: true,
         PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
         GROUPS_PREFETCH_ENABLED: false,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
@@ -49,6 +52,7 @@ describe.each([
     {
         PERSONS_PREFETCH_ENABLED: true,
         PERSON_MERGE_FOLD_ENABLED: true,
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '*',
         GROUPS_PREFETCH_ENABLED: true,
         GROUP_BATCH_WRITING_USE_BATCH_CREATES: true,
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,

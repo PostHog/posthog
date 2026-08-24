@@ -57,7 +57,7 @@ We want to achieve a state of full schema of each env and cluster to be represen
 End state: we have 5 environments schemas as HCL, a golden per cluster, something like:
 
 - local-single (in PostHog/posthog)
-  - schema.hcl
+  - all.hcl (one node hosts every role, so one golden)
 - local-multi (in PostHog/posthog):
   - ops.hcl
   - posthog.hcl
@@ -144,10 +144,12 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 ## Deployment
 
 1. local and schema changes to base are done in PostHog/posthog, this is also what all tests run against
-2. PR in PostHog/posthog shall trigger a run of a check in posthog-cloud-infra that validates that changes could be merged with the prod layer
+2. a PR in PostHog/posthog triggers a compose check in posthog-cloud-infra validating the changes still compose under the prod overrides — the `cloud-compose-gate` job in `ci-clickhouse-hcl-schema.yml` dispatches cloud-infra's `ci-clickhouse-hcl-compose-gate.yaml` against the PR head; it asserts composability, not cloud goldens
 3. the cloud schema is composed as base + customizations in posthog-cloud-infra
-4. when a PR is merged in PostHog/posthog it shall trigger a job and create PR in posthog-cloud-infra to bump pinned version of base; it shall generate a full ordered list of SQL queries that will be executed as part of migration
+4. when a PR is merged in PostHog/posthog, a base-ref bump PR in posthog-cloud-infra advances the pinned base sha, regenerates the cloud goldens, and generates the full ordered list of SQL queries that will be executed as part of migration (creation of that PR is to be automated)
 5. after approval, the PR is merged and a migrator executes a migration
+
+The change recipes (add a table, column, index; env variants) live in [README.md](README.md), "Making a change".
 
 ## Repos
 
@@ -156,5 +158,5 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 - PostHog/chschema - hclexp, github repo is PostHog/chschema
   - all needed tooling is on main (per-object comparison #139, locate + -duplicates #145); pin >= sha-5756e98
 - PostHog/posthog-cloud-infra - a repository with ansible and machine configurations
-  - notable branch: pawel/chore/clickhouse-hcl-data-goldens — the compose harness (vendored base + overrides + data goldens with mat\_ columns), to be merged first
+  - `clickhouse/hcl/` holds the compose harness (vendored base pinned by sha + `overrides/` + data goldens with mat\_ columns) and the compose-gate workflow
 - PostHog/charts - kubernetes config and apps deployment scripts, an old / current clickhouse migration mechanism is run here as job in django web app deployemnt

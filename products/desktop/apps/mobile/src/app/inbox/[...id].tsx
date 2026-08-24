@@ -1,9 +1,13 @@
 import { Text } from "@components/text";
+import { computeRefundEligibility } from "@posthog/core/inbox/refundEligibility";
 import {
   formatSignalReportSummaryMarkdown,
   inboxStatusLabel,
 } from "@posthog/core/inbox/reportPresentation";
-import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
+import {
+  DISMISSAL_REASON_OPTIONS,
+  SIGNALS_PR_REFUNDS_FLAG,
+} from "@posthog/shared";
 import type {
   ActionabilityJudgmentContent,
   SignalFindingContent,
@@ -21,13 +25,15 @@ import {
   Lightning,
   Play,
   Plus,
+  Receipt,
   ThumbsDown,
   Warning,
 } from "phosphor-react-native";
-import { usePostHog } from "posthog-react-native";
+import { useFeatureFlag, usePostHog } from "posthog-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Pressable,
@@ -45,6 +51,7 @@ import {
   type DismissReportResult,
   DismissReportSheet,
 } from "@/features/inbox/components/DismissReportSheet";
+import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
@@ -150,12 +157,14 @@ export default function ReportDetailScreen() {
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
   const posthog = usePostHog();
+  const refundFlagEnabled = !!useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
   const [reportRepo, setReportRepo] = useState<string | null>(null);
   const [dismissOpen, setDismissOpen] = useState(false);
   const [discussOpen, setDiscussOpen] = useState(false);
   const [createPrFeedbackOpen, setCreatePrFeedbackOpen] = useState(false);
+  const [refundOpen, setRefundOpen] = useState(false);
   const [signalsExpanded, setSignalsExpanded] = useState(false);
 
   const artefactsQuery = useInboxReportArtefacts(reportId ?? null);
@@ -353,6 +362,11 @@ export default function ReportDetailScreen() {
     [router, report, tracker],
   );
 
+  const handleRefunded = useCallback(() => {
+    setRefundOpen(false);
+    if (router.canGoBack()) router.back();
+  }, [router]);
+
   const handleDiscussSubmit = useCallback(
     ({ prompt, question }: { prompt: string; question: string }) => {
       setDiscussOpen(false);
@@ -433,6 +447,9 @@ export default function ReportDetailScreen() {
   const primaryActionLabel = isAwaitingInput
     ? "Implement as new task"
     : "Start task";
+
+  const { canRefund: canRefundPr, disabledReason: refundDisabledReason } =
+    computeRefundEligibility(report, refundFlagEnabled);
 
   return (
     <>
@@ -609,6 +626,29 @@ export default function ReportDetailScreen() {
           </Text>
         </Pressable>
 
+        {canRefundPr && (
+          <Pressable
+            onPress={() => {
+              if (refundDisabledReason) {
+                Alert.alert("Can't refund this PR", refundDisabledReason);
+                return;
+              }
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setRefundOpen(true);
+            }}
+            accessibilityLabel="Refund PR"
+            accessibilityState={{ disabled: refundDisabledReason !== null }}
+            className={`flex-row items-center gap-2 rounded-full border border-gray-6 bg-background px-4 py-3.5 shadow-lg active:opacity-80 ${
+              refundDisabledReason ? "opacity-50" : ""
+            }`}
+          >
+            <Receipt size={16} color={themeColors.gray[11]} weight="fill" />
+            <Text className="font-semibold text-[15px] text-gray-11">
+              Refund
+            </Text>
+          </Pressable>
+        )}
+
         {canStartTask && (
           <View className="flex-row items-center overflow-hidden rounded-full bg-accent-9 shadow-lg">
             <Pressable
@@ -660,6 +700,14 @@ export default function ReportDetailScreen() {
         isAwaitingInput={isAwaitingInput}
         onClose={() => setCreatePrFeedbackOpen(false)}
         onSubmit={handleStartTask}
+      />
+
+      <RefundReportSheet
+        visible={refundOpen}
+        reportId={report.id}
+        reportTitle={report.title?.trim() || "Untitled report"}
+        onClose={() => setRefundOpen(false)}
+        onRefunded={handleRefunded}
       />
     </>
   );

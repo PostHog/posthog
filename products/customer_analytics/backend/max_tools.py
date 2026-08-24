@@ -335,7 +335,12 @@ class UpsertAccountTool(MaxTool):
         for name, user_id in assignments.items():
             definition = definitions[name]
             if user_id is None:
-                relationships_logic.end_active(team_id=self._team.id, account=account, definition=definition)
+                relationships_logic.end_active(
+                    team_id=self._team.id,
+                    account=account,
+                    definition=definition,
+                    actor=self._user,
+                )
                 continue
             relationships_logic.assign(
                 team_id=self._team.id,

@@ -557,7 +557,6 @@ function testDependencyEnv(): NodeJS.ProcessEnv {
         PERSONS_DATABASE_URL: `${POSTGRES_URL}/test_persons`,
         PERSONS_READONLY_DATABASE_URL: `${POSTGRES_URL}/test_persons`,
         BEHAVIORAL_COHORTS_DATABASE_URL: `${POSTGRES_URL}/test_behavioral_cohorts`,
-        CYCLOTRON_DATABASE_URL: `${POSTGRES_URL}/test_cyclotron`,
         CYCLOTRON_NODE_DATABASE_URL: `${POSTGRES_URL}/test_cyclotron_node`,
         KAFKA_HOSTS: 'localhost:9092',
         KAFKA_PRODUCER_METADATA_BROKER_LIST: 'localhost:9092',

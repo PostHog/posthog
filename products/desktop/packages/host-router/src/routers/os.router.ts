@@ -9,6 +9,7 @@ import {
   checkWriteAccessInput,
   claudePermissionsOutput,
   downscaleImageFileInput,
+  hostInfoOutput,
   openExternalInput,
   readFileAsDataUrlInput,
   saveClipboardFileInput,
@@ -83,6 +84,10 @@ export const osRouter = router({
   getAppVersion: publicProcedure.query(({ ctx }) =>
     ctx.container.get<OsService>(OS_SERVICE).getAppVersion(),
   ),
+
+  getHostInfo: publicProcedure
+    .output(hostInfoOutput)
+    .query(({ ctx }) => ctx.container.get<OsService>(OS_SERVICE).getHostInfo()),
 
   getWorktreeLocation: publicProcedure.query(({ ctx }) =>
     ctx.container.get<OsService>(OS_SERVICE).getWorktreeLocation(),

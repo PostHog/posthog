@@ -4,14 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.impact import ImpactResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
@@ -19,33 +14,11 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
     inputs.schema_name = schema_name
     inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
     inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-01T00:00:00")
+    inputs.api_version = overrides.get("api_version", None)
     return inputs
 
 
 class TestImpactSourceClass:
-    def test_source_type(self) -> None:
-        assert ImpactSource().source_type == ExternalDataSourceType.IMPACT
-
-    def test_get_source_config_fields(self) -> None:
-        config = ImpactSource().get_source_config
-        assert config.name.value == "Impact"
-        assert len(config.fields) == 2
-
-        account_sid, auth_token = config.fields
-        assert isinstance(account_sid, SourceFieldInputConfig)
-        assert account_sid.name == "account_sid"
-        assert account_sid.type == SourceFieldInputConfigType.TEXT
-        assert account_sid.required is True
-        assert account_sid.secret is False
-
-        assert isinstance(auth_token, SourceFieldInputConfig)
-        assert auth_token.name == "auth_token"
-        assert auth_token.type == SourceFieldInputConfigType.PASSWORD
-        assert auth_token.required is True
-        assert auth_token.secret is True
-
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/impact"
-
     def test_no_unreleased_flag(self) -> None:
         # A finished source ships visible; unreleasedSource must not be set.
         assert ImpactSource().get_source_config.unreleasedSource is not True
@@ -56,14 +29,27 @@ class TestImpactSourceClass:
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = ImpactSource().get_schemas(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         names = {s.name for s in schemas}
-        assert names == {"Campaigns", "MediaPartners", "Invoices", "Actions"}
+        assert names == {
+            "Campaigns",
+            "MediaPartners",
+            "Invoices",
+            "Actions",
+            "ActionUpdates",
+            "Contracts",
+            "InvoiceLineItems",
+            "InvoiceDetailedLineItems",
+        }
 
     @parameterized.expand(
         [
             ("Actions", True),
             ("MediaPartners", True),
+            ("ActionUpdates", True),
             ("Campaigns", False),
             ("Invoices", False),
+            ("Contracts", False),
+            ("InvoiceLineItems", False),
+            ("InvoiceDetailedLineItems", False),
         ]
     )
     def test_supports_incremental_per_endpoint(self, endpoint: str, expected: bool) -> None:
@@ -83,7 +69,16 @@ class TestImpactSourceClass:
     def test_documented_tables_render_without_credentials(self) -> None:
         tables = ImpactSource().get_documented_tables()
         names = {t["name"] for t in tables}
-        assert names == {"Campaigns", "MediaPartners", "Invoices", "Actions"}
+        assert names == {
+            "Campaigns",
+            "MediaPartners",
+            "Invoices",
+            "Actions",
+            "ActionUpdates",
+            "Contracts",
+            "InvoiceLineItems",
+            "InvoiceDetailedLineItems",
+        }
 
     @parameterized.expand(
         [
@@ -95,16 +90,6 @@ class TestImpactSourceClass:
         with patch.object(source_module, "validate_impact_credentials", return_value=api_result):
             result = ImpactSource().validate_credentials(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         assert result == (ok, err)
-
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = ImpactSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_data_class(self) -> None:
-        manager = ImpactSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ImpactResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         manager = MagicMock()
@@ -126,3 +111,35 @@ class TestImpactSourceClass:
             ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
 
         assert mock_impact_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    def test_default_version_is_14(self) -> None:
+        assert ImpactSource.default_version == "14"
+        assert ImpactSource.supported_versions == ("v1", "14")
+
+    @parameterized.expand(
+        [
+            ("unpinned_resolves_to_default", None, "14"),
+            ("legacy_pin_honored", "v1", "v1"),
+            ("dated_pin_honored", "14", "14"),
+        ]
+    )
+    def test_source_for_pipeline_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
+        manager = MagicMock()
+        inputs = _inputs(schema_name="Actions", api_version=pin)
+        with patch.object(source_module, "impact_source") as mock_impact_source:
+            ImpactSource().source_for_pipeline(ImpactSourceConfig(account_sid="s", auth_token="t"), manager, inputs)
+
+        assert mock_impact_source.call_args.kwargs["api_version"] == expected
+
+    @parameterized.expand(
+        [
+            ("unpinned_resolves_to_default", None, "14"),
+            ("legacy_pin_honored", "v1", "v1"),
+        ]
+    )
+    def test_validate_credentials_passes_resolved_version(self, _name: str, pin: Optional[str], expected: str) -> None:
+        with patch.object(source_module, "validate_impact_credentials", return_value=True) as mock_validate:
+            ImpactSource().validate_credentials(
+                ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1, api_version=pin
+            )
+        assert mock_validate.call_args.args[2] == expected

@@ -31,6 +31,10 @@ def _capture_idp_config_event(
 
 
 class IdentityProviderConfigSerializer(serializers.ModelSerializer):
+    saml_relay_state = serializers.CharField(
+        read_only=True,
+        help_text="Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration.",
+    )
     scim_bearer_token = serializers.SerializerMethodField(
         help_text="Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise."
     )
@@ -56,6 +60,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "has_saml",
+            "saml_relay_state",
             "saml_entity_id",
             "saml_acs_url",
             "saml_x509_cert",
@@ -214,6 +219,19 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         res = super().update(request, *args, **kwargs)
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        config = cast(IdentityProviderConfig, self.get_object())
+        # Deleting a config takes every SCIM provisioning record with it, and with them the IdP's
+        # immutable-id mapping for those users — the next sync provisions everyone again. Make that
+        # reachable only after the domain is explicitly unlinked, so it can't ride along on a
+        # misdirected request against a live configuration.
+        if config.domains.exists():
+            raise exceptions.ValidationError(
+                "This configuration is linked to a domain. Unlink it from the domain before deleting it.",
+                code="linked_to_domain",
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=SCIMTokenResponseSerializer)
     @action(methods=["POST"], detail=True, url_path="scim/token")

@@ -76,7 +76,7 @@ export abstract class BaseAcpAgent implements Agent {
   protected abstract interrupt(): Promise<void>;
 
   async cancel(params: CancelNotification): Promise<void> {
-    if (this.sessionId !== params.sessionId) {
+    if (!this.hasSession(params.sessionId)) {
       throw new Error("Session ID mismatch");
     }
     this.session.cancelled = true;
@@ -104,6 +104,8 @@ export abstract class BaseAcpAgent implements Agent {
     }
   }
 
+  /** Adapters may widen this to accept alternate ids for the live session
+   *  (e.g. the Claude adapter's post-/clear SDK session id). */
   hasSession(sessionId: string): boolean {
     return this.sessionId === sessionId;
   }
@@ -112,7 +114,7 @@ export abstract class BaseAcpAgent implements Agent {
     sessionId: string,
     notification: SessionNotification,
   ): void {
-    if (this.sessionId === sessionId) {
+    if (this.hasSession(sessionId)) {
       this.session.notificationHistory.push(notification);
     }
   }
@@ -143,6 +145,7 @@ export abstract class BaseAcpAgent implements Agent {
     currentModelOverride?: string,
     gatewayUrl?: string,
     gatewayAuthToken?: string,
+    projectId?: number,
   ): Promise<{
     currentModelId: string;
     options: SessionConfigSelectOption[];
@@ -150,7 +153,9 @@ export abstract class BaseAcpAgent implements Agent {
     // Authenticated so the gateway can mark plan-restricted models —
     // anonymous fetches see everything allowed.
     this.gatewayModels = await fetchGatewayModels(
-      gatewayUrl ? { gatewayUrl, authToken: gatewayAuthToken } : undefined,
+      gatewayUrl
+        ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
+        : undefined,
     );
 
     const adapterModels = this.gatewayModels

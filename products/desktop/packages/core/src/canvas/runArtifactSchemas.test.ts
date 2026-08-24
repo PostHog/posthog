@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
   parseRunArtifacts,
@@ -36,6 +37,8 @@ describe("parseRunArtifacts", () => {
       size: 16861,
       content_type: "text/markdown",
       uploaded_at: "2026-07-27T08:27:26.896719+00:00",
+      uploaded_by: "user" as const,
+      uploaded_by_user_id: 42,
     };
     expect(parseRunArtifacts([artifact], OUTPUT_ARTIFACT_TYPES)).toEqual([
       artifact,
@@ -68,6 +71,29 @@ describe("parseRunArtifacts", () => {
     expect(
       parseRunArtifacts([{ id: "a", name: "mystery" }], OUTPUT_ARTIFACT_TYPES),
     ).toEqual([]);
+  });
+});
+
+describe("getPostHogObjectArtifactMetadata", () => {
+  it("accepts PostHog references without file storage fields", () => {
+    expect(
+      getPostHogObjectArtifactMetadata({
+        type: "reference",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1"],
+          occurrence_count: 1,
+        },
+      }),
+    ).toEqual({
+      reference_type: "posthog_object",
+      object_kind: "insight",
+      object_id: "9pQx3",
+      source_message_ids: ["turn-1"],
+      occurrence_count: 1,
+    });
   });
 });
 

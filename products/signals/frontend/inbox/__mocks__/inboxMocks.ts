@@ -508,16 +508,6 @@ index 9c8b7a6..2f3e4d5 100644
 export const mockSourceConfigs = {
     results: [
         {
-            id: 'sc-1',
-            source_product: 'session_replay',
-            source_type: 'session_analysis_cluster',
-            enabled: true,
-            config: {},
-            created_at: BASE_DATE,
-            updated_at: BASE_DATE,
-            status: 'completed',
-        },
-        {
             id: 'sc-2',
             source_product: 'error_tracking',
             source_type: 'issue_created',

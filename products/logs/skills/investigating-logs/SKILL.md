@@ -115,3 +115,8 @@ Lead with the verdict, then the evidence:
 - **What was checked and what wasn't**: services covered, windows, and any sampling or baseline caveats that limit confidence.
 
 The user should be able to act on the verdict without re-running the investigation.
+
+## Related skills
+
+- **`authoring-log-alerts`** — turn the check behind a verdict into a continuous, low-noise alert
+- **`exploring-apm-traces`** — follow a suspicious log line into the request traces around it

@@ -33,10 +33,6 @@ from products.replay_vision.backend.api.delivery import archive_delivery, provis
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.digest import digest_name_for_scanner, unique_digest_name
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionActionsEnabledPermission,
-    ReplayVisionEnabledPermission,
-)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
@@ -154,6 +150,15 @@ class AlertConfigSerializer(serializers.Serializer):
         help_text=(
             "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. "
             "every_match ignores it (each check covers what's new since the previous one)."
+        ),
+    )
+    include_reasoning = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, each example line in the alert message includes the scanner's full reasoning "
+            "for that observation, not just its verdict/score/tags. Useful when piping the message "
+            "somewhere else to read or act on. Defaults to false."
         ),
     )
 
@@ -497,7 +502,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if name is None:
             return
         # A brand-new digest whose name is exactly the auto-derived one came from the one-click
-        # "Turn on daily digest" button, so create() makes it collision-safe instead of 400-ing.
+        # "Turn on featured digest" button, so create() makes it collision-safe instead of 400-ing.
         # A user-typed name (even on a digest) still gets the explicit duplicate error below.
         if self.instance is None and attrs.get("is_scanner_digest") and self._has_derived_digest_name(attrs):
             return
@@ -585,7 +590,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
         if "vision_action_unique_scanner_digest" in str(error):
-            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a featured digest."})
         raise error
 
 
@@ -645,7 +650,6 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "vision_action"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionAction.objects.unscoped()
@@ -970,7 +974,6 @@ class VisionActionRunViewSet(
     scope_object = "vision_action"
     # Runs surface recording-derived summaries, so reading them requires session_recording read too.
     required_scopes = ["vision_action:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionActionsEnabledPermission]
     serializer_class = VisionActionRunSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionActionRun.objects.unscoped()

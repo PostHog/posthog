@@ -19,10 +19,8 @@ export interface QuotaProjection {
     status: QuotaStatus
     exhausted: boolean
     capReachDate: dayjs.Dayjs | null
-    /** Projected period-end spend as a rounded percentage of the limit; exceeds 100 on overshoot. */
-    percentLabel: number
     resetsOn: string | null
-    /** Actual spend as a percentage of the limit; `QuotaMeterBar` clamps for display. */
+    /** Actual spend as a percentage of the limit; `QuotaMeterBar` rescales past 100 for display. */
     usedPct: number
     /** The slice of `usedPct` covered by non-billable credits, so the meter can shade it separately. */
     usedFreePct: number
@@ -34,7 +32,6 @@ const EMPTY: QuotaProjection = {
     status: 'safe',
     exhausted: false,
     capReachDate: null,
-    percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
     usedFreePct: 0,
@@ -92,7 +89,6 @@ export function projectQuota(
             ...EMPTY,
             status: 'danger',
             exhausted: quota.exhausted,
-            percentLabel: 100,
             usedPct: 100,
             resetsOn: quota.period_end ? dayjs(quota.period_end).format('MMMM D') : null,
         }
@@ -124,7 +120,6 @@ export function projectQuota(
         status,
         exhausted: quota.exhausted,
         capReachDate,
-        percentLabel: Math.round(projectedPeriodEndRatio * 100),
         resetsOn,
         usedPct: (used / cap) * 100,
         usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
@@ -139,18 +134,6 @@ export function daysUntilCapReached(projection: QuotaProjection): number | null 
     }
     const days = Math.max(projection.capReachDate.diff(dayjs(), 'day', true), 0)
     return days <= IMMINENT_CAP_DAYS ? days : null
-}
-
-/** Apportion a projected percentage between this scanner and the rest of the fleet by monthly credit volume. */
-export function splitProjectedPct(
-    projectedPct: number,
-    thisScannerMonthly: number,
-    othersMonthly: number
-): { thisScannerPct: number; othersPct: number } {
-    const combined = thisScannerMonthly + othersMonthly
-    const thisScannerPct = combined > 0 ? (projectedPct * thisScannerMonthly) / combined : 0
-    // Exact complement so the two segments always sum to the full projection.
-    return { thisScannerPct, othersPct: projectedPct - thisScannerPct }
 }
 
 /**

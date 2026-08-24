@@ -20,6 +20,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
@@ -33,7 +34,12 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
@@ -56,9 +62,17 @@ class ErrorTrackingIssue(UUIDTModel):
         PENDING_RELEASE = "pending_release", "Pending release"
         SUPPRESSED = "suppressed", "Suppressed"
 
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    state_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
+    severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -66,6 +80,13 @@ class ErrorTrackingIssue(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingissue"
+        indexes = [
+            models.Index(
+                fields=["team", "-state_updated_at"],
+                name="et_issue_team_state_idx",
+                condition=models.Q(state_updated_at__isnull=False),
+            )
+        ]
 
     def merge(
         self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
@@ -410,6 +431,20 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    severity = models.TextField(choices=ErrorTrackingIssue.Severity)
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingseverityrule"
+
+
 # A custom grouping rule works as follows:
 # - Events are run against the filter code
 # - If an event matches, the fingerprint of the event is set as "custom-rule:<rule_id>"
@@ -719,6 +754,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
                 "issue_name": issue.name,
                 "issue_description": issue.description,
                 "issue_status": _clickhouse_status(issue.status),
+                "issue_severity": issue.severity,
                 "assigned_user_id": assigned_user_id,
                 "assigned_role_id": assigned_role_id,
                 "first_seen": first_seen,

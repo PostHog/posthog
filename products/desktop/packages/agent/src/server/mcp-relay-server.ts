@@ -49,7 +49,7 @@ export interface McpRelayServerConfig {
 
 /**
  * Loopback HTTP MCP endpoints that relay JSON-RPC to the user's desktop app
- * over the durable event stream (docs/cloud-mcp-relay.md). Each designated
+ * over the durable event stream (docs/CLOUD-MCP-RELAY.md). Each designated
  * server gets `http://127.0.0.1:<port>/relay/<name>`, registered in the
  * session's mcpServers list as a plain streamable-HTTP server — the adapters
  * need no relay awareness. Requests correlate to `mcp_response` commands by

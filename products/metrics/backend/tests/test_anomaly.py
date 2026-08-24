@@ -7,10 +7,8 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-
 from products.metrics.backend.facade.api import characterize_metric_anomaly
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
 class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
@@ -18,7 +16,7 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         # 20-minute window: minutes 0-9 baseline (steady ~10), minutes 10-19
         # anomaly (jumps to ~100 from minute 12).
         self.start = (timezone.now() - dt.timedelta(hours=1)).replace(second=0, microsecond=0)

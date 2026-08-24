@@ -17,9 +17,13 @@
 //! The leader never reclaims a fence on its own, and deliberately so.
 //! personhog-identity owns lifecycle correctness: every op is driven to a
 //! terminal state (lease steal, sweeper resumption), so a `ReleaseFence`
-//! always eventually arrives. An entry that outlives a crashed saga is
-//! not stale — the mark is still live, the op really is unfinished, and
-//! the person really should stay frozen. For that guarantee to hold, a
+//! always eventually arrives, with one exception: an op whose committed
+//! release this leader definitively refused (a semantic refusal) is
+//! parked by the saga engine and stops retrying, so its fences hold
+//! until an operator re-drives it. The person stays frozen rather than
+//! half-destroyed. An entry that outlives a crashed saga is not stale —
+//! the mark is still live, the op really is unfinished, and the person
+//! really should stay frozen. For that guarantee to hold, a
 //! release must never *vacuously* succeed: both fence RPCs verify this
 //! pod serves the partition, so a misrouted call fails and identity's
 //! retry reaches the pod whose map actually gates the writes.
@@ -66,6 +70,15 @@ pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
 pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 /// Metadata key carrying the fencing operation's id on rejections.
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
+
+/// A definitive FAILED_PRECONDITION the router passes through to the
+/// caller instead of bouncing. Bare FAILED_PRECONDITION classifies as a
+/// routing-race bounce and exhausts into retriable UNAVAILABLE, which
+/// would turn a fail-closed verification refusal into an infinite saga
+/// retry loop; the marker (see
+/// `personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY`) makes the
+/// refusal survive the trip.
+pub use personhog_common::grpc::semantic_refusal;
 
 /// The typed rejection for a write to a fenced person: PERSON_DELETING /
 /// PERSON_MERGING per the RFC, encoded as FAILED_PRECONDITION plus
@@ -314,6 +327,32 @@ pub async fn mark_status(
     sqlx::query_scalar(
         "SELECT status FROM lifecycle_op_person \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
+    )
+    .bind(op_id)
+    .bind(team_id as i32)
+    .bind(person_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// The fold's check: the status of the op's mark row claiming this person
+/// as its merge target. `None` when the op never claimed the person as
+/// target — including when it holds the person under another role, which
+/// would make a fold into it a saga bug. A fold must find a live mark here
+/// before it may write. The check is read-time only: a fold already past
+/// it when the op settles can still land (the window spans the fold
+/// computation and the produce), so it closes late re-drives, not the
+/// full race — the same at-least-once residual the op_id proto comment
+/// states.
+pub async fn target_mark_status(
+    pool: &PgPool,
+    op_id: Uuid,
+    team_id: i64,
+    person_id: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT status FROM lifecycle_op_person \
+         WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",
     )
     .bind(op_id)
     .bind(team_id as i32)

@@ -171,6 +171,8 @@ class TestInsightModel(BaseTest):
                     },
                     "filterTestAccounts": None,
                     "properties": None,
+                    "interval": None,
+                    "breakdownFilter": None,
                 },
             ),
             (
@@ -187,6 +189,8 @@ class TestInsightModel(BaseTest):
                     },
                     "filterTestAccounts": None,
                     "properties": None,
+                    "interval": None,
+                    "breakdownFilter": None,
                 },
             ),
             (
@@ -203,6 +207,8 @@ class TestInsightModel(BaseTest):
                     },
                     "filterTestAccounts": None,
                     "properties": None,
+                    "interval": None,
+                    "breakdownFilter": None,
                 },
             ),
             (
@@ -227,6 +233,8 @@ class TestInsightModel(BaseTest):
                     "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
+                    "interval": None,
+                    "breakdownFilter": None,
                 },
             ),
             (
@@ -237,6 +245,8 @@ class TestInsightModel(BaseTest):
                     "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
+                    "interval": None,
+                    "breakdownFilter": None,
                 },
             ),
         ]

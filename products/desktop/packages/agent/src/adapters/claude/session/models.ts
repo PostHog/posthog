@@ -80,6 +80,7 @@ const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
   "claude-sonnet-5": EXTENDED_EFFORT_LEVELS,
   "claude-fable-5": EXTENDED_EFFORT_LEVELS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
+  "zai-org/glm-5.3": ["high", "max"],
 };
 
 export function supportsEffort(modelId: string): boolean {

@@ -116,24 +116,6 @@ docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml down
 hogli start
 ```
 
-## Cargo build lock contention on startup
-
-**Symptoms:** Multiple Node processes show `Blocking waiting for file lock on package cache`
-or `Blocking waiting for file lock on build directory` in their phrocs output.
-Startup is very slow (5+ minutes) but eventually resolves.
-
-**Cause:** The `bin/posthog-node` script runs `pnpm build:cyclotron:dev` which triggers
-`cargo build`. When multiple Node processes start simultaneously (ingestion, ingestion-sessionreplay,
-recording-api, nodejs), they all contend on Cargo's file lock.
-
-**Fix:** This is expected on first start or after a Rust code change.
-Wait for the first process to finish building — subsequent ones will be fast (cached).
-If it persists, pre-build cyclotron before starting phrocs:
-
-```bash
-cd rust/cyclotron-node && cargo build
-```
-
 ## Recorder script build failure
 
 **Symptoms:** Browser console shows one or both of:

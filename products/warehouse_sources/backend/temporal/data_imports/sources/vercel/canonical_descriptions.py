@@ -85,6 +85,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deploymentId": "Identifier of the deployment the alias points to.",
         },
     },
+    "check_runs": {
+        "description": "A Vercel check run: one pass/fail gate (a build check or CI integration) that ran against a deployment. Where a deployment's state only reports that it failed, check runs report which gate failed.",
+        "docs_url": "https://vercel.com/docs/rest-api/reference/endpoints/checks-v2/list-check-runs-for-a-deployment",
+        "columns": {
+            "id": "Unique identifier for the check run.",
+            "deploymentId": "Identifier of the deployment the check run ran against.",
+            "name": "Display name of the check run.",
+            "ownerId": "Identifier of the user or team that owns the check run.",
+            "source": "Where the check run originated, such as the integration or Vercel CI that produced it.",
+            "status": "Lifecycle state of the check run: registered, running, or completed.",
+            "checkId": "Identifier of the project-level check definition this run belongs to. Absent for Vercel CI runs that have no parent check.",
+            "timeout": "Time in milliseconds after which the check run is considered timed out.",
+            "createdAt": "Time the check run was created, as a Unix timestamp in milliseconds.",
+            "updatedAt": "Time the check run was last updated, as a Unix timestamp in milliseconds.",
+        },
+    },
     # Column keys are the normalized (snake_case) names the columns land under in the warehouse, not
     # the PascalCase FOCUS field names from the API.
     "billing_charges": {

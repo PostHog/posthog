@@ -27,6 +27,7 @@ from posthog.schema import (
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -36,11 +37,26 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models.utils import uuid7
+from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+    ErrorTrackingBreakdownsQueryRunner,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+    ErrorTrackingIssueCorrelationQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
+from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
+    ErrorTrackingSimilarIssuesQueryRunner,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -50,6 +66,7 @@ from products.error_tracking.backend.models import (
     update_error_tracking_issue_fingerprints,
 )
 
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 
@@ -131,6 +148,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
         self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
+
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.DISABLED,),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,),
+        ]
+    )
+    def test_user_aggregation_does_not_resolve_person_overrides(self, persons_on_events_mode):
+        self.team.modifiers = {"personsOnEventsMode": persons_on_events_mode}
+
+        response = self._calculate(withAggregations=True)
+
+        self.assertIn("e.event_person_id", response["hogql"])
+        self.assertNotIn("person_distinct_id_overrides", response["hogql"])
 
     def setUp(self):
         super().setUp()
@@ -230,6 +263,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -247,6 +281,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -268,6 +303,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -286,6 +322,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -691,6 +728,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
+            ("exact", PropertyOperator.EXACT, ErrorTrackingIssue.Severity.HIGH, (issue_id_one,)),
+            ("is_set", PropertyOperator.IS_SET, True, (issue_id_one,)),
+            ("is_not_set", PropertyOperator.IS_NOT_SET, True, (issue_id_two, issue_id_three)),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_issue_severity_filter(self, _name, operator, value, expected_ids):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(severity=ErrorTrackingIssue.Severity.HIGH)
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[ErrorTrackingIssueFilter(key="severity", value=value, operator=operator)],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual({result["id"] for result in results}, set(expected_ids))
+        for result in results:
+            expected_severity = ErrorTrackingIssue.Severity.HIGH if result["id"] == self.issue_id_one else None
+            self.assertEqual(result["severity"], expected_severity)
+
+    @parameterized.expand(
+        [
             (
                 "or_returns_union",
                 FilterLogicalOperator.OR_,
@@ -1033,6 +1099,34 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
+    def test_requires_error_tracking_viewer_access(self):
+        for runner_class in (
+            ErrorTrackingQueryRunner,
+            ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingFingerprintProjectionQueryRunner,
+            ErrorTrackingIssueCorrelationQueryRunner,
+            ErrorTrackingSimilarIssuesQueryRunner,
+        ):
+            self.assertTrue(issubclass(runner_class, ErrorTrackingQueryRunnerAccessMixin))
+
+        AccessControl.objects.create(team=self.team, resource="error_tracking", access_level="none")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
 
 class TestSearchTokenizer(TestCase):

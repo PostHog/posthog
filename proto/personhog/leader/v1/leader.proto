@@ -49,4 +49,32 @@ service PersonHogLeader {
   // a mark already settled as deleted absorbs the retry without a second
   // record.
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // Internal, saga-runner only. The merge saga's document write: fold the
+  // sealed source snapshots into the target person's document under the
+  // owner's per-person lock, produce the folded document to the
+  // changelog, and return it. Properties fold target-wins: the target
+  // keeps every key it has, snapshots fill still-absent keys in ordinal
+  // order (sorted by the fold itself, so precedence is deterministic
+  // across re-drives), then the merge event's $set overrides and
+  // $set_once fills.
+  // Scalars fold as created_at = min(target, sources),
+  // is_identified = true, and last_seen_at = max(target, sources); the
+  // version is max(target, max sealed) + 1 — at or above every sealed
+  // source's death document, which derives from the same sealed + 1
+  // (equal when the highest sealed version dominates; the streams are
+  // per-person, so the relation is a convention, not a collision guard).
+  // Safe under at-least-once delivery: re-applying the same fold on
+  // unchanged target state changes no content and only bumps the version.
+  // (The standard re-appliable-merge residual applies — see the request's
+  // op_id comment.) The op must hold the target as its live mark in the
+  // lifecycle database or the fold is refused FAILED_PRECONDITION —
+  // fail closed, mirroring ReleaseFence; the check is read-time, so it
+  // closes late re-drives from a settled op, not a fold already in
+  // flight when the op settles. A target fenced by a
+  // different lifecycle op rejects FAILED_PRECONDITION (the merge target
+  // is marked, never fenced, so this only fires on a ghost fence — the
+  // retry goes through once the healer clears it); a destroyed target
+  // answers NOT_FOUND.
+  rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 }

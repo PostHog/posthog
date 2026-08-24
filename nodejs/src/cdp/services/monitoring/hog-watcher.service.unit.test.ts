@@ -3,7 +3,13 @@ import { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogWatcherConfig, HogWatcherService } from './hog-watcher.service'
+import {
+    HogWatcherConfig,
+    HogWatcherService,
+    HogWatcherState,
+    sameWatcherState,
+    sameWatcherStates,
+} from './hog-watcher.service'
 
 const WATCHER_CONFIG: HogWatcherConfig = {
     hogCostTimingLowerMs: 50,
@@ -93,5 +99,36 @@ describe('HogWatcherService unit behavior', () => {
         await jest.advanceTimersByTimeAsync(WATCHER_CONFIG.observeResultsBufferTimeMs)
 
         await rejections
+    })
+
+    // The Redis/Valkey cutover gate is the dualRead mismatch metric on these calls. Comparing
+    // `tokens`, which is refilled from the wall clock per read, would saturate it and make the
+    // gate useless — so token drift must not read as a mismatch, and a state change must.
+    describe('cutover comparators', () => {
+        it.each([
+            ['token drift alone is equivalent', 10, HogWatcherState.healthy, 9, HogWatcherState.healthy, true],
+            ['a differing state is not', 10, HogWatcherState.healthy, 10, HogWatcherState.disabled, false],
+        ])('%s', (_name, aTokens, aState, bTokens, bState, expected) => {
+            expect(sameWatcherState({ tokens: aTokens, state: aState }, { tokens: bTokens, state: bState })).toBe(
+                expected
+            )
+            expect(
+                sameWatcherStates(
+                    { fn: { tokens: aTokens, state: aState } },
+                    { fn: { tokens: bTokens, state: bState } }
+                )
+            ).toBe(expected)
+        })
+
+        it.each([
+            ['a missing id', { a: { tokens: 1, state: HogWatcherState.healthy } }, {}],
+            ['an extra id', {}, { a: { tokens: 1, state: HogWatcherState.healthy } }],
+        ])('reports %s as a mismatch', (_name, primary, secondary) => {
+            expect(sameWatcherStates(primary, secondary)).toBe(false)
+        })
+
+        it('treats one side missing entirely as a mismatch', () => {
+            expect(sameWatcherState({ tokens: 1, state: HogWatcherState.healthy }, null)).toBe(false)
+        })
     })
 })

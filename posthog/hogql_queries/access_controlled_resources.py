@@ -32,6 +32,18 @@ _DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
     }
 )
 
+# `system.information_schema` tables gated behind warehouse read access (see
+# `_can_read_data_quality` in information_schema.py). They carry check definitions, run outcomes, and
+# per-subject health. A query touching any of these must partition the cache by warehouse access,
+# or an allowed user's cached rows would be served to a denied user on a cache hit.
+_DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.data_quality_checks",
+        "system.information_schema.data_quality_check_runs",
+        "system.information_schema.data_quality_health",
+    }
+)
+
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -51,6 +63,9 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+
+    if getattr(query, "kind", None) == "AccountsTableQuery":
+        return _with_fallback_parents({"account"})
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
@@ -76,6 +91,16 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             # source grants share a cache key and the denied one is served the allowed one's certification
             # notes / proposal evidence on a hit. The specific denied object IDs fold into the key via
             # AnalyticsQueryRunner._get_object_access_restrictions.
+            scopes.add("warehouse_table")
+            scopes.add("warehouse_view")
+
+        # The data-quality information_schema tables are gated on warehouse read access, and their
+        # rows are hidden per the caller's warehouse-object denials (the loaders drop a
+        # check/run/health row whose subject table or view the caller can't see). Without this, two
+        # users with different warehouse grants share a cache key and the denied one is served the
+        # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
+        # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
+        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 

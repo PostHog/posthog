@@ -154,7 +154,7 @@ describe("CustomizeSidebarSettings", () => {
     useSidebarStore.setState({ navItemOrder: ["configure", "inbox"] });
     renderSettings();
 
-    expect(rowLabels().slice(0, 2)).toEqual(["Configure", "Inbox"]);
+    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Inbox"]);
   });
 
   it("previews on dragover and persists only on drop", () => {
@@ -174,6 +174,7 @@ describe("CustomizeSidebarSettings", () => {
       "inbox",
       "activity",
       "command-center",
+      "contexts",
       "configure",
     ]);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_REORDERED, {

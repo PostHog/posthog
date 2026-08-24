@@ -3,7 +3,6 @@ import {
   COMMENT_ACTION_BUTTON_THEMES,
   commentActionAnchorRect,
   commentActionButtonCss,
-  commentActionButtonCssVars,
   computeCommentActionPlacement,
   installSelectionSettleGate,
   type SelectionSettleGateCallbacks,
@@ -110,6 +109,34 @@ describe("selectionCommentAction", () => {
     overlay.remove();
   });
 
+  it.each(["Shift", "ArrowLeft", "Home", "End", "PageUp", "PageDown"])(
+    "ignores the %s selection key while focus is inside the comment UI",
+    (key) => {
+      const callbacks = {
+        onGestureStart: vi.fn(),
+        onSelectionSettled: vi.fn(),
+      } satisfies SelectionSettleGateCallbacks;
+      const remove = installSelectionSettleGate(document, callbacks);
+      const overlay = document.createElement("div");
+      overlay.setAttribute("data-selection-comment-overlay", "");
+      const textarea = document.createElement("textarea");
+      overlay.appendChild(textarea);
+      document.body.appendChild(overlay);
+
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true }),
+      );
+      textarea.dispatchEvent(
+        new KeyboardEvent("keyup", { key, bubbles: true }),
+      );
+      expect(callbacks.onGestureStart).not.toHaveBeenCalled();
+      expect(callbacks.onSelectionSettled).not.toHaveBeenCalled();
+
+      remove();
+      overlay.remove();
+    },
+  );
+
   it("ignores secondary buttons, which open menus instead of selecting", () => {
     const callbacks = { onGestureStart: vi.fn() };
     const remove = installSelectionSettleGate(document, callbacks);
@@ -181,6 +208,27 @@ describe("selectionCommentAction", () => {
     remove();
   });
 
+  it("still treats Shift outside the comment UI as a selection gesture", async () => {
+    const callbacks = {
+      onGestureStart: vi.fn(),
+      onSelectionSettled: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
+    const remove = installSelectionSettleGate(document, callbacks);
+    const target = eventTarget();
+
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Shift", bubbles: true }),
+    );
+    expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
+
+    target.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Shift", bubbles: true }),
+    );
+    await settleFrames();
+    expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
+    remove();
+  });
+
   it("distinguishes typing from select-all and settles after the modifier is released", async () => {
     const callbacks = {
       onGestureStart: vi.fn(),
@@ -207,34 +255,25 @@ describe("selectionCommentAction", () => {
   });
 
   it("applies every theme variable the action button styles reference", () => {
+    const target = document.createElement("button");
     for (const theme of ["light", "dark"] as const) {
-      setCommentActionTheme(theme, COMMENT_ACTION_BUTTON_THEMES);
+      setCommentActionTheme(theme, COMMENT_ACTION_BUTTON_THEMES, target);
       const css = commentActionButtonCss();
       for (const match of css.matchAll(
         /var\((--ph-comment-action-[a-z-]+)\)/g,
       )) {
         expect(
-          document.documentElement.style.getPropertyValue(match[1]),
+          target.style.getPropertyValue(match[1]),
           `${theme} sets ${match[1]}`,
         ).toBe(COMMENT_ACTION_BUTTON_THEMES[theme][cssVarField(match[1])]);
       }
     }
-    document.documentElement.style.cssText = "";
   });
 
   it("falls back to the light palette for an unknown theme name", () => {
-    setCommentActionTheme("solarized", COMMENT_ACTION_BUTTON_THEMES);
-    expect(
-      document.documentElement.style.getPropertyValue("--ph-comment-action-bg"),
-    ).toBe(COMMENT_ACTION_BUTTON_THEMES.light.background);
-    document.documentElement.style.cssText = "";
-  });
-
-  it("bakes the requested theme into the :root variable declarations", () => {
-    expect(commentActionButtonCssVars("dark")).toContain(
-      COMMENT_ACTION_BUTTON_THEMES.dark.background,
-    );
-    expect(commentActionButtonCssVars("light")).toContain(
+    const target = document.createElement("button");
+    setCommentActionTheme("solarized", COMMENT_ACTION_BUTTON_THEMES, target);
+    expect(target.style.getPropertyValue("--ph-comment-action-bg")).toBe(
       COMMENT_ACTION_BUTTON_THEMES.light.background,
     );
   });

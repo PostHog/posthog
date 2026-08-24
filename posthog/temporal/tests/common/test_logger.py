@@ -475,7 +475,11 @@ async def test_logger_produces_to_log_queue_from_activity(activity_environment, 
 @pytest.fixture
 def log_entries_table():
     """Manage log_entries table for testing."""
-    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL())
+    # Each test gets its own consumer group because ClickHouse leaves a dropped table's
+    # consumer registered with the broker until its session.timeout.ms elapses. Sharing
+    # one group would make every test after the first wait out that stale member's
+    # rebalance before its own messages are assigned to it.
+    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL(group=f"test_log_entries_{uuid.uuid4().hex}"))
     sync_execute(LOG_ENTRIES_TABLE_MV_SQL)
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
@@ -743,24 +747,29 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert log_dict["team_id"] == FIRST_WORKFLOW_TEAM_ID + i
         assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
-    results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
+    # The fixture's consumer group is new, so it replays the topic from the start and
+    # ingests rows produced by earlier tests. Scope the query to this workflow's own
+    # rows instead of counting everything in the table.
+    instance_id = log_dict["instance_id"]
+    query = (
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp "
+        f"FROM {log_entries_table} WHERE instance_id = '{instance_id}' ORDER BY team_id ASC"
     )
+
+    results = sync_execute(query)
 
     iterations = 0
     while not len(results) == entries_captured:
         # It may take a bit for CH to ingest.
         await asyncio.sleep(1)
-        results = sync_execute(
-            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
-        )
+        results = sync_execute(query)
 
         iterations += 1
         if iterations > 10:
             raise TimeoutError("Timedout waiting for logs")
 
     for index, row in enumerate(results):
-        assert row[0] == log_dict["instance_id"]
+        assert row[0] == instance_id
         assert row[1] == "info"
         assert row[2] == log_source
         assert row[3] == log_source_id

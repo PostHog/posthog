@@ -578,7 +578,7 @@ mod metrics_tests {
     fn test_record_metrics_with_5xx_error() {
         clear_recorded_metrics();
 
-        let result = Err(FlagError::Internal("test error".to_string()));
+        let result = Err(FlagError::internal(anyhow::anyhow!("test error")));
         let data = MetricsData {
             team_id: Some(456),
             flags_disabled: Some(true),

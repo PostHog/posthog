@@ -33,6 +33,29 @@ export function formatRelativeTimeShort(timestamp: number | string): string {
 }
 
 /**
+ * How long ago something happened, said as a phrase: "2h ago", "3w ago", or
+ * "just now" under a minute. The same scale `formatRelativeTimeShort` uses, so
+ * a stamp and a phrase for one timestamp cannot disagree.
+ */
+export function formatRelativeAge(timestamp: number | string): string {
+  const short = formatRelativeTimeShort(timestamp);
+  return short === "now" ? "just now" : `${short} ago`;
+}
+
+/**
+ * The exact moment, in the reader's own locale and zone. What a relative age
+ * hides, for the tooltip behind it.
+ */
+export function formatAbsoluteDateTime(timestamp: number | string): string {
+  const ms =
+    typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp;
+  return new Date(ms).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+/**
  * Format a timestamp as a longer relative string (e.g. "3 minutes ago", "1 day ago").
  * Falls back to a locale date for anything older than a week.
  * Accepts either a Unix ms timestamp or an ISO date string.
@@ -115,6 +138,29 @@ export function formatDaySeparatorLabel(
   const year =
     date.getFullYear() === now.getFullYear() ? "" : `, ${date.getFullYear()}`;
   return `${weekday}, ${month} ${day}${year}`;
+}
+
+/**
+ * The compact form of `formatDaySeparatorLabel`, for a sidebar column with no
+ * room for "Wednesday, May 20th": the recent days by name, then a short date.
+ *
+ * Both read the same `getLocalDayDiff`, so the two can differ in how verbosely
+ * they name a day but never in which day a timestamp falls on.
+ */
+export function formatShortDayLabel(
+  timestamp: number | string | Date,
+  now: Date = new Date(),
+): string {
+  const date = new Date(timestamp);
+  const days = getLocalDayDiff(date, now);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
 }
 
 export function getRelativeDateGroup(

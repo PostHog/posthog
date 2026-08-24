@@ -1,11 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     webAnalyticsAchievementsAcknowledgeCelebration,
@@ -369,6 +371,29 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             actions.recordInteraction(InteractionKindEnumApi.Data)
         },
     })),
+    urlToAction(({ actions, values }) => {
+        const openFromUrl = (
+            _: Record<string, string | undefined>,
+            searchParams: Record<string, any>,
+            hashParams: Record<string, any>
+        ): void => {
+            const trackKey = searchParams.openAchievements
+            if (!trackKey || !isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                return
+            }
+            actions.openModal()
+            if (!values.expandedTracks.includes(trackKey)) {
+                actions.toggleTrackExpanded(trackKey)
+            }
+            const nextSearchParams = { ...searchParams }
+            delete nextSearchParams.openAchievements
+            router.actions.replace(router.values.location.pathname, nextSearchParams, hashParams)
+        }
+        return {
+            [urls.webAnalytics()]: openFromUrl,
+            '/web/:productTab': openFromUrl,
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()

@@ -72,10 +72,12 @@ export interface certificationsLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     certifyCertification: (id: string) => {
         id: string

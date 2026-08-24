@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
+    QueryStatus,
 )
 
 from posthog.hogql import ast
@@ -22,10 +23,12 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.product_analytics.backend.facade.models import InsightVariable
+from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -225,6 +228,114 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    @patch(
+        "posthog.permissions.posthog_feature_flag_enabled",
+        side_effect=AssertionError("managed warehouse query execution must not evaluate a product feature flag"),
+    )
+    @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
+    def test_managed_warehouse_cache_and_status_do_not_evaluate_a_feature_flag(
+        self, mock_execute_hogql_query: MagicMock, feature_flag_lookup: MagicMock
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": True,
+            },
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": f"posthog_team_{self.team.id}",
+                "password": "reader-password",
+            },
+        )
+        query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["value"], types=[])
+
+        runner = self._create_runner(query)
+        expected_query_status_labels = [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"]
+        self.assertEqual(runner.query_status_labels(), expected_query_status_labels)
+        built_in_cache_key = runner.get_cache_key()
+        response = cast(
+            HogQLQueryResponse,
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
+        )
+        self.assertEqual(response.results, [(1,)])
+
+        with patch(
+            "posthog.hogql_queries.query_runner.enqueue_process_query_task",
+            return_value=QueryStatus(id="managed-query", team_id=self.team.id),
+        ) as enqueue_process_query_task:
+            self._create_runner(query).run(execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+        self.assertEqual(
+            enqueue_process_query_task.call_args.kwargs["labels"],
+            expected_query_status_labels,
+        )
+
+        second_runner = self._create_runner(query)
+        self.assertEqual(second_runner.query_status_labels(), expected_query_status_labels)
+        self.assertEqual(second_runner.get_cache_key(), built_in_cache_key)
+        second_response = cast(
+            HogQLQueryResponse,
+            second_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
+        )
+        self.assertEqual(second_response.results, [(1,)])
+
+        assert isinstance(source.connection_metadata, dict)
+        source.connection_metadata["reader_configured"] = False
+        source.save(update_fields=["connection_metadata"])
+        with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
+            self._create_runner(query).run()
+
+        self.assertEqual(mock_execute_hogql_query.call_count, 2)
+        feature_flag_lookup.assert_not_called()
+
+    def test_legacy_managed_cache_and_status_are_stable(self) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": "org-root",
+                "password": "root-password",
+            },
+        )
+        query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
+
+        first_runner = self._create_runner(query)
+        self.assertIsNone(first_runner.query_status_labels())
+        self.assertNotIn("managed_warehouse_sql_mode", first_runner.get_cache_payload())
+        first_cache_key = first_runner.get_cache_key()
+
+        second_runner = self._create_runner(query)
+        self.assertIsNone(second_runner.query_status_labels())
+        self.assertEqual(second_runner.get_cache_key(), first_cache_key)
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
     def test_send_raw_query_uses_raw_query_string_for_direct_connections(self, mock_execute_hogql_query):

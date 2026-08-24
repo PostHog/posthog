@@ -28,6 +28,15 @@ class TestParser(BaseTest):
         self.assertEqual(finder.placeholder_fields, [["foo"]])
         self.assertEqual(len(finder.placeholder_expressions), 1)
 
+    def test_find_placeholders_dotted_filters_calls(self):
+        # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.
+        # A dotted call on anything else stays an expression placeholder.
+        expr = parse_expr("{filters.interval('week')} and {filters.breakdown(a AS 'plan')} and {other.call(1)}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_filters)
+        self.assertEqual(finder.placeholder_fields, [])
+        self.assertEqual(len(finder.placeholder_expressions), 1)
+
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
         self.assertEqual(

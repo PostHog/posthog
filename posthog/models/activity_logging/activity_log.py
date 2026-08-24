@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Canvas",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",
@@ -98,6 +99,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
     "TableCertification",
@@ -356,6 +358,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "pause_reason": "pause reason",
         "auto_pause_exempt": "never pause for inactivity",
     },
+    # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
+    "SignalTeamConfig": {
+        "autostart_enabled": "PR generation",
+        "default_autostart_priority": "project PR threshold",
+        "default_slack_notification_channel": "team Slack channel",
+        "autostart_base_branches": "base branch overrides",
+    },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
     },
@@ -436,7 +445,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {
         "scope": "User",
-        "activities": ["created", "updated"],
+        "activities": ["created", "updated", "deleted"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -537,13 +546,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+        "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
-        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        # Reverse relations, not plain field diffs — and diffing them reads every related row, which
+        # for SCIM request logs is the tenant's whole request history.
         "domains",
+        "linked_identity_provider_configs",
+        "scim_provisioned_users",
+        "scim_request_logs",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
@@ -1171,7 +1185,15 @@ class LogActivityEntry(TypedDict, total=False):
     force_save: bool
 
 
-def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+def bulk_log_activity(
+    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True
+) -> list[ActivityLog]:
+    """Write activity log rows in bulk.
+
+    Each row created also fires `post_save`, which produces a CDP internal event so customer
+    destinations and workflows can react. Pass `notify=False` for a maintenance sweep, where that
+    fan-out would put one event per affected row onto the internal-events topic.
+    """
     if not log_entries:
         return []
 
@@ -1206,8 +1228,9 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
     def _do_bulk_create():
         created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
-        for log in created_logs:
-            post_save.send(sender=ActivityLog, instance=log, created=True)
+        if notify:
+            for log in created_logs:
+                post_save.send(sender=ActivityLog, instance=log, created=True)
 
         return created_logs
 

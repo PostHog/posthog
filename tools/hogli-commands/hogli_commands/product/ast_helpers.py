@@ -356,6 +356,37 @@ def count_viewset_files(directory: Path) -> int:
     return count
 
 
+def module_import_targets(file_path: Path, package_root: Path, package_prefix: str) -> list[tuple[int, str]]:
+    """(line, dotted module) for every absolute import in the file that names a module under
+    `package_prefix` (e.g. "products.foo.backend"), resolved against `package_root` (the
+    directory that prefix maps to) so `from a.b import c` yields `a.b.c` when c is a
+    module or package and `a.b` when c is a name.
+
+    Pure AST: unlike grimp it does not need __init__.py markers to see a module, which is
+    what lets a lint hold an import-linter contract in directories grimp cannot descend into.
+    """
+    tree = ast_parse_safe(file_path)
+    if not tree:
+        return []
+    prefix_dot = package_prefix + "."
+
+    def is_module(dotted: str) -> bool:
+        rel = Path(*dotted[len(prefix_dot) :].split("."))
+        return (package_root / rel).is_dir() or (package_root / rel).with_suffix(".py").exists()
+
+    targets: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.extend((node.lineno, a.name) for a in node.names if a.name.startswith(prefix_dot))
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module != package_prefix and not node.module.startswith(prefix_dot):
+                continue
+            for alias in node.names:
+                candidate = f"{node.module}.{alias.name}"
+                targets.append((node.lineno, candidate if is_module(candidate) else node.module))
+    return [(line, dotted) for line, dotted in targets if dotted.startswith(prefix_dot)]
+
+
 def _collect_py_files(path: Path) -> list[Path]:
     """Return list of .py files — the file itself if a file, or all *.py in dir (non-recursive)."""
     if path.is_file():

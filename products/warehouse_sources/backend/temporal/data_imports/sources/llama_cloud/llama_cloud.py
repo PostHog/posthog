@@ -22,6 +22,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+# LlamaCloud's current stable API generation (its v2 SDKs shipped January 2026). LlamaCloud versions
+# its API in the endpoint path (`/api/v1/...` vs `/api/v2/...`), not via a request header, and this
+# source already reads the v2-generation job endpoints (parse, extract, classify, batches under
+# `/api/v2`). So the framework's legacy unversioned label and this explicit label resolve to the
+# same requests — new sources are stamped "v2" while existing pins keep syncing byte-for-byte.
+LLAMA_CLOUD_API_VERSION_V2 = "v2"
+
 
 class LlamaCloudRetryableError(Exception):
     pass

@@ -347,6 +347,78 @@ class TestWebhookSourceManager:
         assert tables[0].column_names == ["id"]
         transformer.assert_called_once()
 
+    async def test_get_items_skips_file_deleted_before_read(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+
+        payloads = [{"id": "2", "value": "b"}]
+        parquet_bytes = _make_webhook_parquet_bytes(payloads, team_id=1, schema_id=schema_id)
+
+        mock_file = AsyncMock()
+        mock_file.read = AsyncMock(return_value=parquet_bytes)
+        mock_s3 = AsyncMock()
+        # First file's read raises as if a concurrent run already consumed and deleted it;
+        # the second file still yields normally.
+        first_open = AsyncMock()
+        first_open.__aenter__ = AsyncMock(side_effect=FileNotFoundError("The specified key does not exist."))
+        first_open.__aexit__ = AsyncMock(return_value=False)
+        second_open = AsyncMock()
+        second_open.__aenter__ = AsyncMock(return_value=mock_file)
+        second_open.__aexit__ = AsyncMock(return_value=False)
+        mock_s3.open_async = AsyncMock(side_effect=[first_open, second_open])
+        mock_s3._rm = AsyncMock()
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=["s3://bucket/gone.parquet", "s3://bucket/file.parquet"],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items()]
+
+        assert len(tables) == 1
+        assert tables[0].column("id").to_pylist() == ["2"]
+        # Only the successfully read file is removed; the vanished one was never touched.
+        mock_s3._rm.assert_awaited_once_with("bucket/file.parquet")
+
+    async def test_get_items_merges_files_with_incompatible_column_types(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+
+        # Same field infers as int64 in one file and string in the other; concat_tables can't
+        # promote across that, so get_items must fall back to a row-level rebuild instead of raising.
+        file_a = _make_webhook_parquet_bytes([{"id": "1", "total_sales": 5}], team_id=1, schema_id=schema_id)
+        file_b = _make_webhook_parquet_bytes([{"id": "2", "total_sales": "3"}], team_id=1, schema_id=schema_id)
+
+        mock_s3 = AsyncMock()
+        opens = []
+        for parquet_bytes in (file_a, file_b):
+            mock_file = AsyncMock()
+            mock_file.read = AsyncMock(return_value=parquet_bytes)
+            open_cm = AsyncMock()
+            open_cm.__aenter__ = AsyncMock(return_value=mock_file)
+            open_cm.__aexit__ = AsyncMock(return_value=False)
+            opens.append(open_cm)
+        mock_s3.open_async = AsyncMock(side_effect=opens)
+        mock_s3._rm = AsyncMock()
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=["s3://bucket/a.parquet", "s3://bucket/b.parquet"],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items()]
+
+        assert len(tables) == 1
+        assert tables[0].num_rows == 2
+        assert pa.types.is_string(tables[0].schema.field("total_sales").type)
+        assert sorted(id for id in tables[0].column("id").to_pylist() if id is not None) == ["1", "2"]
+
     async def test_get_items_yields_nothing_when_no_files(self):
         manager = _make_manager()
 

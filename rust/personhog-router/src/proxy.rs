@@ -35,10 +35,10 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteGroupTypeMappingsBatchForTeam",
     "DeleteGroupsBatchForTeam",
     "DeleteHashKeyOverridesByTeams",
-    "DeletePersonlessDistinctIdsBatchForTeam",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "FencePerson",
+    "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
     "GetGroup",
@@ -171,6 +171,12 @@ impl RawProxyInner {
             }
             "ReleaseFence" => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            // The merge saga's document write: leader-routed like every
+            // person write.
+            "FoldPersonDocument" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
                 (resp, "leader", call_ms)
             }
             "GetPerson" => {

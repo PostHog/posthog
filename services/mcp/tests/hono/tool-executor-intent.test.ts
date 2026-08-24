@@ -49,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -57,6 +58,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -70,6 +72,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }

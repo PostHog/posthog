@@ -130,6 +130,14 @@ impl PersonHogService for MockPersonHogService {
         Err(Status::unimplemented("not exercised by this mock"))
     }
 
+    async fn fold_person_document(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse>, Status>
+    {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn get_group_type_mappings_by_team_ids(
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,
@@ -327,12 +335,6 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _: Request<DeletePersonsBatchForTeamRequest>,
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
-        Err(Status::unimplemented(""))
-    }
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        _: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
     async fn get_group_type_mapping_by_dashboard_id(

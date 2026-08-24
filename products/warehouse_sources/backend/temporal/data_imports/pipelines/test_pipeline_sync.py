@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError, transaction
 
+from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -21,10 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _refresh_cumulative_row_count,
     merge_columns,
     update_last_synced_at,
+    validate_schema_and_update_table,
 )
 
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
+_TABLE_MODULE = "products.warehouse_sources.backend.models.table"
 
 
 class TestResolveTableAndFolderNames:
@@ -304,6 +308,55 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+# transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool
+# (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestValidateSchemaAndUpdateTable:
+    def _schema_and_job(self, team) -> tuple[ExternalDataSchema, ExternalDataJob]:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=10
+        )
+        return schema, job
+
+    def test_delta_table_with_no_committed_files_does_not_crash_the_sync(self, team):
+        # A Delta table can pass load.py's "does a table exist" check while still having zero
+        # committed add-file actions (e.g. an incremental run that wrote no new rows). ClickHouse then
+        # raises DELTA_KERNEL_ERROR ("No files in log segment") when get_columns() tries to DESCRIBE
+        # it. This must be tolerated like the sibling CANNOT_EXTRACT_TABLE_STRUCTURE (636) case rather
+        # than crash the whole sync activity - regression for a real production failure where it did.
+        schema, job = self._schema_and_job(team)
+        no_files_error = ServerException(
+            "DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel error: "
+            "No files in log segment (in snapshot).",
+            code=742,
+        )
+
+        with (
+            patch(f"{_TABLE_MODULE}.sync_execute", side_effect=no_files_error),
+            patch(f"{_TABLE_MODULE}.time.sleep"),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders",
+            )
+
+        schema.refresh_from_db()
+        # get_columns() failing means the table never gets linked to the schema or given columns -
+        # but critically, the sync activity itself must survive rather than crash the whole run.
+        assert schema.table is None
+        table = DataWarehouseTable.objects.get(external_data_source=schema.source, deleted=False)
+        assert not table.columns
+        assert table.created_via == DataWarehouseTable.CreatedVia.SOURCE
 
 
 class TestUpdateLastSyncedAt:

@@ -18,6 +18,34 @@ class RequireAtLeastTwoFunnelSteps:
             raise ValidationError("Funnels require at least two steps.", code=self.code)
 
 
+# The aggregate_funnel UDFs return reached steps as a UInt32 bitfield (see
+# posthog/user_scripts/latest_user_defined_function.xml), so steps beyond 32
+# silently report zero conversions. Only raise this limit together with
+# widening the bitfield in funnel-udf and shipping a new UDF version.
+MAX_FUNNEL_STEPS = 32
+
+
+def validate_max_funnel_steps(step_count: int) -> None:
+    if step_count > MAX_FUNNEL_STEPS:
+        raise ValidationError(
+            f"Funnels support up to {MAX_FUNNEL_STEPS} steps.",
+            code="funnel_max_steps_exceeded",
+        )
+
+
+class ValidateMaxFunnelSteps:
+    """Reject funnels with more steps than the UDF bitfield can track."""
+
+    code = "funnel_max_steps_exceeded"
+
+    def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
+        funnels_filter = context.query.funnelsFilter
+        if funnels_filter is not None and funnels_filter.funnelVizType == FunnelVizType.TRENDS:
+            # Trends funnels read the trends UDF, which has no reached-steps bitfield
+            return
+        validate_max_funnel_steps(len(context.query.series))
+
+
 class ValidateFunnelStepRange:
     """Make sure the conversion step range is within the bounds of the declared series."""
 

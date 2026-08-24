@@ -425,6 +425,7 @@ describe("TaskCommentsList", () => {
       threadId: "comment-1",
       nonce: expect.any(Number),
       openCommentsTab: true,
+      intent: "navigate",
     });
   });
 
@@ -446,6 +447,46 @@ describe("TaskCommentsList", () => {
       artifactId: "a",
       name: "report.md",
     });
+  });
+
+  it("scrolls the comment pane without reopening the selected artifact", () => {
+    const animationFrame = vi
+      .spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 0;
+      });
+    render(<TaskCommentsList task={task} timeline={[]} />);
+    const thread = screen
+      .getByText("Tighten this summary")
+      .closest("[data-comment-thread-id]") as HTMLElement;
+    const pane = thread.parentElement as HTMLElement;
+    Object.defineProperty(pane, "scrollTop", { value: 20, writable: true });
+    pane.getBoundingClientRect = () => ({ top: 0, bottom: 100 }) as DOMRect;
+    thread.getBoundingClientRect = () => ({ top: 120, bottom: 160 }) as DOMRect;
+    const paneScroll = vi.spyOn(pane, "scrollTo");
+    const outerScroll = vi.spyOn(Element.prototype, "scrollIntoView");
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "a" },
+          "comment-1",
+          { intent: "reveal-thread" },
+        );
+    });
+
+    expect(paneScroll).toHaveBeenCalledWith({
+      top: 80,
+      behavior: "smooth",
+    });
+    expect(outerScroll).not.toHaveBeenCalled();
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
+    paneScroll.mockRestore();
+    outerScroll.mockRestore();
+    animationFrame.mockRestore();
   });
 
   it("opens the saved canvas version when activity requests its thread", () => {
@@ -745,7 +786,7 @@ describe("TaskCommentsList", () => {
   });
 
   // Not every comment belongs to a deliverable; some are about the work.
-  it("posts a comment on the task itself", async () => {
+  it("posts a comment on the task itself without scrolling", async () => {
     render(<TaskCommentsList task={task} timeline={[]} />);
 
     await act(async () => {
@@ -762,13 +803,12 @@ describe("TaskCommentsList", () => {
         context: { anchor: { kind: "document" } },
       }),
     );
-    // The list is ordered by when a thread started, so the new one lands at the
-    // top, away from the composer it was written in.
     expect(
       useCommentNavigationStore.getState().focusByTask["task-1"],
     ).toMatchObject({
       target: { scope: "task", itemId: "task-1" },
       threadId: "created-comment",
+      intent: "focus-only",
     });
   });
 

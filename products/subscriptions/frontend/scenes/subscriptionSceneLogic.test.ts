@@ -129,6 +129,26 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
+    it.each([
+        [403, true],
+        [404, false],
+    ])('marks only a %s subscription load failure as access denied', async (status, subscriptionAccessDenied) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: () => [status, { detail: 'Request failed' }],
+            },
+        })
+        initKeaTests()
+        const logic = subscriptionSceneLogic({ id: '1' })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSubscriptionFailure'])
+            .toMatchValues({ subscriptionAccessDenied })
+
+        logic.unmount()
+    })
+
     // The failure path matters too: the header button's double-submit guard would stick
     // if deliveringSubscriptionId reset only on success.
     it.each([

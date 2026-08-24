@@ -27,6 +27,7 @@ import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryCh
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
+import { isFailedDelivery, summarizeDeliveries } from '../utils'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
     true_positive: {
@@ -211,7 +212,35 @@ export function AlertHistorySection({
             title: 'Targets notified',
             key: 'targets_notified',
             align: 'right',
-            render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
+            render: (_value, check) => {
+                const summary = summarizeDeliveries(check.deliveries, check.targets_notified)
+                if (summary.kind === 'notified') {
+                    return 'Yes'
+                }
+                if (summary.kind === 'none') {
+                    if (isFailedDelivery(check)) {
+                        return (
+                            <Tooltip title="This alert fired but nothing was sent. Check who's subscribed and which destinations are set up.">
+                                <span>No</span>
+                            </Tooltip>
+                        )
+                    }
+                    return 'No'
+                }
+                return (
+                    <Tooltip
+                        title={
+                            <div className="flex flex-col gap-0.5">
+                                {summary.lines.map((line, i) => (
+                                    <span key={i}>{line}</span>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <span>{summary.label}</span>
+                    </Tooltip>
+                )
+            },
         })
         return columns
     }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])

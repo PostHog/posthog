@@ -12,7 +12,7 @@ Three lanes, one per subpackage:
 This is _outbound_ egress — what PostHog sends.
 It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests from clients.
 
-All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`, `logodev/`), supplying a budget policy, a metric set + parser, and a transport subclass.
+All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`, `logodev/`, `firecrawl/`), supplying a budget policy, a metric set + parser, and a transport subclass.
 Adding a new outbound API is another `<domain>/` folder, not a change to the mechanisms.
 
 ## Rate limiting
@@ -54,6 +54,12 @@ Image CDN requests use `LOGO_DEV_PUBLISHABLE_KEY` (a `pk_` key) as a query param
 logo.dev publishes no rate-limit numbers, so the budgets are static operator ceilings read from settings at acquire time: `LOGODEV_EGRESS_PER_MINUTE_BUDGET` (default 300) smooths bursts and `LOGODEV_EGRESS_HOURLY_BUDGET` (default 5,000) caps total spend.
 Every logo.dev call runs on a sheddable lane — the icon id is user-controlled, so nothing in this domain runs `CRITICAL`.
 Icon bytes are never stored server-side (logo.dev licenses that separately), so steady-state traffic is deduped only by browser caching (`posthog/cdp/services/icons.py` sets `Cache-Control`) and tracks unique (user, icon) first views per day — raise the settings if that outgrows the defaults.
+
+Firecrawl (`firecrawl/`) meters per account and bills a credit per call, and an instance holds a single API key, so it follows the same shape: one `firecrawl` domain, one instance-wide budget under a constant scope.
+Firecrawl's per-plan limits are not discoverable from the running process, so the budgets are operator ceilings on spend read from settings at acquire time: `FIRECRAWL_EGRESS_PER_MINUTE_BUDGET` (default 60) smooths a burst of concurrent callers, and `FIRECRAWL_EGRESS_HOURLY_BUDGET` (default 1,000) caps what a runaway caller can spend before anyone notices.
+One scrape is one credit, so those numbers cap a bill as much as a rate; they are sized for traffic of roughly one scrape per event a person triggers, and are meant to be raised in settings as that grows.
+Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
+`FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
 ### Priority lanes
 
@@ -104,6 +110,21 @@ Response handling — what to do on a 403/429 — stays with the caller: `raise_
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
 Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
+Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
+Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.
+
+Slack Web API calls use `SlackWebClient` (and `SlackAsyncWebClient` where needed) from `slack/` so
+request volume, method, status, source, and workspace are recorded consistently. Slack applies Web API
+limits per method, workspace, and app, with additional special limits such as per-channel message
+posting. Installation age and Marketplace status can also change the limits for history methods.
+Slack does not return remaining-budget headers, so Slack egress records each HTTP attempt and the
+app-and-method-specific `Retry-After` from 429 responses. It does not proactively limit requests.
+Callers continue to own reactive retries.
+
+Incoming webhooks and interactivity `response_url` calls are not Slack Web API calls. Their secret URL is
+the budget identity, and persisting or labeling by it would expose credentials. Keep their error handling
+with the caller rather than assigning them to a shared workspace bucket.
+
 ## The one identity rule
 
 Everything keys on the **budget owner in the external API's own id space** — for GitHub the App **installation id**, because that is what GitHub meters.
@@ -131,10 +152,12 @@ The headers are already on the response, so it needs no request restructuring �
 
 ## Adding a new egress domain
 
-Add a `<domain>/` subpackage with three small adapters (see `github/`):
+Add a `<domain>/` subpackage with three small adapters (see `github/`, or `firecrawl/` for a smaller one):
 
 - `limiter.py` — register a budget with `register_policy("<domain>", provider)` and a thin gate that builds the `{domain}:{scope}:{id}` key.
 - `observability.py` — an observability adapter (metric set, response parser, endpoint normalizer) and the recorders.
 - `transport.py` — an `EgressClient` subclass filling the domain hooks (headers, gate, recorders, normalizer, budget-exhausted error), exposed as a `<domain>_request` helper.
+
+A domain whose callers all hit the same few endpoints can add a fourth module, a typed client over the transport (see `firecrawl/client.py`), so call sites don't hand-build request bodies or re-parse the same response shape.
 
 Keep the identity in the external API's id space, keep the subpackage free of `posthog.models` imports, and remember the limiter is non-blocking — the caller owns the back-off.

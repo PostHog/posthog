@@ -6,7 +6,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
+from requests import Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -27,7 +27,6 @@ class TestRedditAdsHelperFunctions:
     """Test helper functions in reddit_ads.py."""
 
     def test_get_incremental_date_range_with_datetime(self):
-        """Test getting date range with datetime incremental value."""
         last_value = dt.datetime(2024, 3, 15, 14, 30, 0)
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -35,7 +34,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_date(self):
-        """Test getting date range with date incremental value."""
         last_value = dt.date(2024, 3, 15)
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -43,7 +41,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_string(self):
-        """Test getting date range with string incremental value."""
         last_value = "2024-03-15T14:30:00Z"
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -51,7 +48,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_with_invalid_string(self):
-        """Test getting date range with invalid string falls back to initial datetime."""
         last_value = "invalid-date"
         starts_at, ends_at = _get_incremental_date_range(True, last_value)
 
@@ -60,7 +56,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_no_incremental(self):
-        """Test getting date range without incremental field."""
         starts_at, ends_at = _get_incremental_date_range(False)
 
         # Should use initial_datetime
@@ -68,7 +63,6 @@ class TestRedditAdsHelperFunctions:
         assert ends_at.endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_incremental_date_range_none_value(self):
-        """Test getting date range with None incremental value."""
         starts_at, ends_at = _get_incremental_date_range(True, None)
 
         # Should use initial_datetime
@@ -80,7 +74,6 @@ class TestGetResource:
     """Test get_resource function."""
 
     def test_get_resource_campaigns(self):
-        """Test getting campaigns resource configuration."""
         resource = get_resource("campaigns", "test_account", False)
 
         assert resource["name"] == "campaigns"
@@ -92,7 +85,6 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
 
     def test_get_resource_campaigns_incremental(self):
-        """Test getting campaigns resource with incremental configuration."""
         resource = get_resource("campaigns", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
         assert isinstance(resource["write_disposition"], dict)
@@ -105,7 +97,6 @@ class TestGetResource:
         assert "modified_at[after]" in endpoint_params
 
     def test_get_resource_campaign_report_incremental(self):
-        """Test getting campaign report resource with incremental configuration."""
         resource = get_resource("campaign_report", "test_account", True, dt.datetime(2024, 3, 15, 14, 30))
 
         assert isinstance(resource["write_disposition"], dict)
@@ -120,12 +111,10 @@ class TestGetResource:
         assert endpoint_json["data"]["ends_at"].endswith(":00:00Z")  # Should be next hour (rounded to hour)
 
     def test_get_resource_unknown_endpoint(self):
-        """Test getting unknown endpoint raises ValueError."""
         with pytest.raises(ValueError, match="Unknown endpoint: unknown_endpoint"):
             get_resource("unknown_endpoint", "test_account", False)
 
     def test_get_resource_invalid_endpoint_type(self):
-        """Test getting resource with invalid endpoint type raises ValueError."""
         # This would require mocking REDDIT_ADS_CONFIG to have invalid endpoint
         # For now, we'll test the happy path since the config is properly structured
         resource = get_resource("campaigns", "test_account", False)
@@ -160,6 +149,7 @@ class TestBreakdownReportEndpoints:
         ("campaign_placement_report", "PLACEMENT", "placement"),
         ("campaign_community_report", "COMMUNITY", "community"),
         ("campaign_os_type_report", "OS_TYPE", "os_type"),
+        ("campaign_keyword_report", "KEYWORD", "keyword"),
     ]
 
     @parameterized.expand(BREAKDOWN_TABLES)
@@ -190,6 +180,9 @@ class TestBreakdownReportEndpoints:
             # `OS_TYPE` is a valid breakdown but is not a member of Reddit's `fields` enum — asking for
             # it as a field is rejected and fails the whole report request.
             ("campaign_os_type_report", "OS_TYPE", False),
+            # `KEYWORD`'s membership of the `fields` enum is unconfirmed, so it is requested as a
+            # breakdown only rather than risking a rejected report request.
+            ("campaign_keyword_report", "KEYWORD", False),
         ]
     )
     def test_dimension_is_requested_as_a_field_only_when_reddit_allows_it(
@@ -207,13 +200,11 @@ class TestRedditAdsPaginator:
     """Test RedditAdsPaginator class."""
 
     def test_paginator_init(self):
-        """Test paginator initialization."""
         paginator = RedditAdsPaginator()
         assert paginator._next_url is None
         assert paginator._has_next_page is False
 
     def test_update_state_with_pagination(self):
-        """Test updating state with pagination data."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -225,7 +216,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is True
 
     def test_update_state_without_pagination(self):
-        """Test updating state without pagination data."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -237,7 +227,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is False
 
     def test_update_state_invalid_json(self):
-        """Test updating state with invalid JSON."""
         paginator = RedditAdsPaginator()
 
         mock_response = mock.MagicMock()
@@ -249,7 +238,6 @@ class TestRedditAdsPaginator:
         assert paginator._has_next_page is False
 
     def test_update_request_with_next_url(self):
-        """Test updating request with next URL."""
         paginator = RedditAdsPaginator()
         paginator._next_url = "https://api.reddit.com/next-page"
 
@@ -259,7 +247,6 @@ class TestRedditAdsPaginator:
         assert mock_request.url == "https://api.reddit.com/next-page"
 
     def test_update_request_without_next_url(self):
-        """Test updating request without next URL."""
         paginator = RedditAdsPaginator()
 
         mock_request = mock.MagicMock()
@@ -298,6 +285,30 @@ class TestRedditAdsPaginator:
 
         assert paginator.has_next_page is True
         assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
+
+    def test_redirect_to_next_url_stops_the_url_from_growing(self) -> None:
+        """The prepared URL must not grow as pages advance.
+
+        The REST client reuses one `Request` across pages and seeds `page.size` in its params.
+        Reddit's `next_url` already carries `page.size`, so without clearing the params `requests`
+        appends `page.size` again on every page and the URL grows until Reddit returns 414.
+        """
+        session = Session()
+        base_url = "https://ads-api.reddit.com/api/v3/ad_accounts/a1/reports"
+        request = Request(method="GET", url=base_url, params={"page.size": 100})
+
+        paginator = RedditAdsPaginator()
+        paginator.init_request(request)
+
+        prepared_urls = [session.prepare_request(request).url or ""]
+        for page in range(2, 6):
+            paginator._next_url = f"{base_url}?page={page}&page.size=100"
+            paginator.update_request(request)
+            prepared_urls.append(session.prepare_request(request).url or "")
+
+        # Each redirect swaps in the next self-contained URL, so `page.size` appears once per page.
+        for url in prepared_urls:
+            assert url.count("page.size") == 1
 
     @parameterized.expand(
         [

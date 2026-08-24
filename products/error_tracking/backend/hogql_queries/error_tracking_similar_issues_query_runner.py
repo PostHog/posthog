@@ -26,6 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
@@ -83,7 +84,9 @@ class IssueWithSimilarFingerprints(BaseModel):
         )
 
 
-class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
+class ErrorTrackingSimilarIssuesQueryRunner(
+    ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]
+):
     query: ErrorTrackingSimilarIssuesQuery
     cached_response: CachedErrorTrackingSimilarIssuesQueryResponse
     paginator: HogQLHasMorePaginator

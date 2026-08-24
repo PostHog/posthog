@@ -121,6 +121,16 @@ pub fn spawn_server(port: u16) -> Result<()> {
                 common_metrics::Matcher::Full("personhog_traffic_read_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
+            // Batched identity/lifecycle RPCs: one sample per batch call,
+            // same ladder — their cost is a handful of round trips.
+            (
+                common_metrics::Matcher::Full("personhog_traffic_pool_seed_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                common_metrics::Matcher::Full("personhog_traffic_pool_delete_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     let bind = format!("0.0.0.0:{port}");

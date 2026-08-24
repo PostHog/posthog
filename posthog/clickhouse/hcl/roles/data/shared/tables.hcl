@@ -340,6 +340,11 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
+    index "bloom_filter_$session_id" {
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.events"
       replica_name   = "{replica}"

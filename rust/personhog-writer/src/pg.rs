@@ -99,9 +99,16 @@ impl PgStore {
 /// must halt on. Nothing is ever dropped or substituted here — a silent
 /// repair would diverge PG from the cache and changelog.
 fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
-    let cap = persons.len();
-    let mut arrays = PreparedArrays::with_capacity(cap);
-    for person in persons {
+    // Bind order is lock order: the upsert acquires row locks in unnest
+    // order, so binding in conflict-key order gives every flush one global
+    // lock direction. Concurrent multi-row writers on overlapping persons
+    // (the delete saga's unmap, another flush) sort the same way, and
+    // sorted-vs-sorted acquisition cannot deadlock. Only the bind order
+    // changes — batch composition and ack accounting are untouched.
+    let mut sorted: Vec<&Person> = persons.iter().collect();
+    sorted.sort_unstable_by_key(|p| (p.team_id, p.id));
+    let mut arrays = PreparedArrays::with_capacity(sorted.len());
+    for person in sorted {
         push_person(&mut arrays, person)?;
     }
     Ok(arrays)
@@ -212,10 +219,13 @@ async fn run_upsert(
 
 fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
     match e {
-        sqlx::Error::Io(_)
-        | sqlx::Error::PoolTimedOut
-        | sqlx::Error::PoolClosed
-        | sqlx::Error::WorkerCrashed => WriteErrorKind::Transient,
+        // Waiting on our own pool is backpressure, not database failure —
+        // classified apart so the writer retries without escalating.
+        sqlx::Error::PoolTimedOut => WriteErrorKind::Saturation,
+
+        sqlx::Error::Io(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => {
+            WriteErrorKind::Transient
+        }
 
         sqlx::Error::Database(db_err) => {
             if let Some(code) = db_err.code() {
@@ -340,10 +350,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_pool_timeout_as_transient() {
+    fn classify_pool_timeout_as_saturation() {
         assert!(matches!(
             classify_error(&sqlx::Error::PoolTimedOut),
-            WriteErrorKind::Transient
+            WriteErrorKind::Saturation
         ));
     }
 
@@ -412,6 +422,22 @@ mod tests {
             version: 1,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn prepare_chunk_binds_in_conflict_key_order() {
+        // Bind order is the upsert's lock order; a batch bound in buffer
+        // order deadlocks against concurrent sorted writers on overlapping
+        // rows.
+        let persons = [
+            person_with(5, 2),
+            person_with(3, 1),
+            person_with(4, 2),
+            person_with(1, 1),
+        ];
+        let arrays = prepare_chunk(&persons).expect("chunk prepares");
+        assert_eq!(arrays.team_ids, vec![1, 1, 2, 2]);
+        assert_eq!(arrays.ids, vec![1, 3, 4, 5]);
     }
 
     #[test]

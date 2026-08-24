@@ -15,18 +15,19 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 
-class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
+class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
     query: ErrorTrackingQuery
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
     date_from: datetime.datetime
     date_to: datetime.datetime
 
-    CACHE_VERSION = 2
+    CACHE_VERSION = 3
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconBalance,
+    IconChat,
     IconChevronDown,
     IconDirectedGraph,
     IconExternal,
@@ -12,6 +13,7 @@ import {
     IconSearch,
     IconShield,
     IconStack,
+    IconWrench,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -32,11 +34,13 @@ import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconStamphog } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -49,17 +53,22 @@ import type {
     ReviewIssuePriorityEnumApi,
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
+    ReviewResolutionStatusApi,
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
+import { AdoptSkillModal } from './AdoptSkillModal'
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
     const cleaned = skillName
-        .replace(/^review-hog-(perspective|blind-spots|validation)-/, '')
+        .replace(/^review-hog-(perspective|blind-spots|validation|resolution)-/, '')
         .replace(/[-_]/g, ' ')
         .trim()
     return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : skillName
@@ -103,6 +112,22 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
             { number: '06', title: 'Dedupe', caption: 'overlapping findings are merged' },
             { number: '07', title: 'Validate', caption: 'each finding is checked against your quality bar' },
             { number: '08', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
+        ],
+    },
+    {
+        name: 'Resolve',
+        hint: 'settle the review comments',
+        steps: [
+            {
+                number: '09',
+                title: 'Triage threads',
+                caption: 'every unresolved comment thread is judged against your resolution criteria',
+            },
+            {
+                number: '10',
+                title: 'Fix & reply',
+                caption: 'worth-and-safe asks land on the branch, and every thread gets a reply',
+            },
         ],
     },
 ]
@@ -250,7 +275,8 @@ function PipelineSection(): JSX.Element {
                     </LemonButton>
                 }
             >
-                Every review runs through the same steps before it's published.
+                Every review runs through the same steps before it's published, then works through the comment threads
+                it leaves open.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
                 {PIPELINE_PHASES.map((phase, i) => (
@@ -374,6 +400,17 @@ function progressLabel(review: ReviewRecentReviewApi): string {
     }
 }
 
+/** The live resolution run's row label, e.g. "Resolving comments · 6/10 · 5 fixed, 1 needs you". */
+function resolutionLabel(resolution: ReviewResolutionStatusApi): string {
+    const outcomes = [
+        resolution.fixed > 0 ? `${resolution.fixed} fixed` : null,
+        resolution.needs_attention > 0
+            ? `${resolution.needs_attention} need${resolution.needs_attention === 1 ? 's' : ''} you`
+            : null,
+    ].filter(Boolean)
+    return `Resolving comments · ${resolution.done}/${resolution.total}${outcomes.length ? ` · ${outcomes.join(', ')}` : ''}`
+}
+
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
@@ -397,7 +434,11 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
                         </>
                     )}
                     <span className="text-tertiary">·</span>
-                    <span className="whitespace-nowrap font-medium text-warning">{progressLabel(review)}</span>
+                    <span className="whitespace-nowrap font-medium text-warning">
+                        {review.resolution?.resolution_status === 'resolving'
+                            ? resolutionLabel(review.resolution)
+                            : progressLabel(review)}
+                    </span>
                 </div>
             </div>
             <LemonButton size="small" type="secondary" to={review.github_url} targetBlank sideIcon={<IconExternal />}>
@@ -435,11 +476,19 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-semibold">{reviewTitle(review)}</span>
-                        {review.in_progress && (
+                        {review.resolution?.resolution_status === 'resolving' ? (
+                            <LemonTag type="warning" size="small" className="inline-flex items-center gap-1">
+                                <Spinner className="text-xs" /> {resolutionLabel(review.resolution)}
+                            </LemonTag>
+                        ) : review.in_progress ? (
                             <LemonTag type="warning" size="small" className="inline-flex items-center gap-1">
                                 <Spinner className="text-xs" /> Re-reviewing · {progressLabel(review)}
                             </LemonTag>
-                        )}
+                        ) : review.resolution?.resolution_status === 'stopped' ? (
+                            <LemonTag type="muted" size="small">
+                                Resolution didn't finish · stopped at {review.resolution.done}/{review.resolution.total}
+                            </LemonTag>
+                        ) : null}
                         {!review.published && (
                             <LemonTag type="muted" size="small">
                                 Not published
@@ -626,16 +675,24 @@ function RecentReviewsSection(): JSX.Element | null {
 
 /**
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
- * start a publishing review, acting as the requesting user. Hidden unless the backend says this
- * project can trigger reviews (limited to the designated ReviewHog team while in alpha).
+ * start a publishing review, acting as the requesting user. A review resolves the PR's comment
+ * threads afterwards when the user's resolve_comments setting is on; the split button's side
+ * actions are the per-run variants (review without resolving / resolve only). Hidden unless the
+ * backend says this project can trigger reviews (limited to the designated ReviewHog team while
+ * in alpha).
  */
 function TriggerReviewSection(): JSX.Element | null {
-    const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
+    const { settings, triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
 
     if (!settings?.can_trigger_reviews) {
         return null
     }
+    const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
+    // Mirrors the server-side busy-guard for PRs visible in the list; pasted URLs outside it still
+    // get the same refusal from the trigger endpoint.
+    const resolvingReason = triggerUrlResolving ? 'Still resolving comments from the last review' : undefined
+    const inFlightReason = triggeringReview ? 'A run is already starting…' : undefined
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
@@ -659,7 +716,36 @@ function TriggerReviewSection(): JSX.Element | null {
                     type="primary"
                     htmlType="submit"
                     loading={triggeringReview}
-                    disabledReason={!triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined}
+                    disabledReason={noUrlReason ?? resolvingReason}
+                    sideAction={{
+                        icon: <IconChevronDown />,
+                        disabledReason: noUrlReason ?? resolvingReason ?? inFlightReason,
+                        dropdown: {
+                            placement: 'bottom-end',
+                            overlay: (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() =>
+                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ReviewOnly)
+                                        }
+                                        tooltip="Review the pull request but leave its comment threads alone, whatever your setting says."
+                                    >
+                                        Review without resolving comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() =>
+                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+                                        }
+                                        tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
+                                    >
+                                        Only resolve existing comments
+                                    </LemonButton>
+                                </>
+                            ),
+                        },
+                    }}
                 >
                     Review
                 </LemonButton>
@@ -1054,7 +1140,8 @@ function TriggersSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                Choose which pull requests ReviewHog picks up automatically.
+                Choose which pull requests ReviewHog picks up automatically, and whether reviews also resolve the
+                comment threads on them.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 <div className="flex items-center gap-4 p-4">
@@ -1125,6 +1212,24 @@ function TriggersSection(): JSX.Element {
                         aria-label="Review all your PRs with the reviewhog label"
                         checked={settings?.review_labeled_prs ?? true}
                         onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
+                        disabledReason={switchDisabledReason}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconChat className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Resolve comments on your PRs</div>
+                        <div className="text-xs text-secondary">
+                            After a review of your pull request is published, ReviewHog works through its unresolved
+                            comment threads: safe fixes land on the branch, and every thread gets a reply.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Resolve comments on your PRs"
+                        checked={settings?.resolve_comments ?? true}
+                        onChange={(checked) => updateSettings({ resolve_comments: checked })}
                         disabledReason={switchDisabledReason}
                     />
                 </div>
@@ -1265,18 +1370,40 @@ function CreateYourOwnButton({ kind, label }: { kind: ReviewSkillKind; label: st
     const { creatingSkillKind } = useValues(reviewHogSettingsLogic)
     const { startSkillAuthorTask } = useActions(reviewHogSettingsLogic)
     return (
-        <div>
-            <LemonButton
-                type="secondary"
-                icon={<IconPlus />}
-                onClick={() => startSkillAuthorTask(kind)}
-                loading={creatingSkillKind === kind}
-                disabledReason={
-                    creatingSkillKind && creatingSkillKind !== kind ? 'Another authoring task is starting…' : undefined
-                }
-            >
-                {label}
-            </LemonButton>
+        <LemonButton
+            type="secondary"
+            icon={<IconPlus />}
+            onClick={() => startSkillAuthorTask(kind)}
+            loading={creatingSkillKind === kind}
+            disabledReason={
+                creatingSkillKind && creatingSkillKind !== kind ? 'Another authoring task is starting…' : undefined
+            }
+        >
+            {label}
+        </LemonButton>
+    )
+}
+
+function UseExistingSkillButton({ kind }: { kind: ReviewSkillKind }): JSX.Element {
+    const { openAdoptSkillModal } = useActions(reviewHogSettingsLogic)
+    return (
+        <LemonButton
+            type="secondary"
+            icon={<IconSearch />}
+            onClick={() => openAdoptSkillModal(kind)}
+            data-attr={`review-hog-adopt-skill-${kind}`}
+        >
+            Use an existing skill
+        </LemonButton>
+    )
+}
+
+/** The two ways to add a review skill, side by side under each kind's cards. */
+function AddSkillRow({ kind, createLabel }: { kind: ReviewSkillKind; createLabel: string }): JSX.Element {
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            <CreateYourOwnButton kind={kind} label={createLabel} />
+            <UseExistingSkillButton kind={kind} />
         </div>
     )
 }
@@ -1473,7 +1600,7 @@ function PerspectivesSection(): JSX.Element {
                     ))}
                 </div>
             )}
-            <CreateYourOwnButton kind="perspective" label="Create your own perspective" />
+            <AddSkillRow kind="perspective" createLabel="Create your own perspective" />
         </section>
     )
 }
@@ -1532,7 +1659,7 @@ function SingleActiveSection({
                     ))}
                 </div>
             )}
-            <CreateYourOwnButton kind={kind} label={createLabel} />
+            <AddSkillRow kind={kind} createLabel={createLabel} />
         </section>
     )
 }
@@ -1574,15 +1701,17 @@ export const scene: SceneExport = {
 /**
  * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
  * guided-configuration page — every control is live from load, no save step. See
- * `reviewHogSettingsLogic` for the data flow. Staff-only while ReviewHog is an internal alpha;
- * the FEATURE_FLAGS.REVIEW_HOG flag only controls the menu entry's visibility.
+ * `reviewHogSettingsLogic` for the data flow. Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same
+ * flag that shows the menu entry, so whoever discovers the entry can open the page. Staff bypass the
+ * flag, keeping the page reachable by direct URL where the flag is off.
  */
 export function CodeReviewScene(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { blindSpots, validators, initialLoadFailed } = useValues(reviewHogSettingsLogic)
-    const { selectBlindSpots, selectValidator, loadAll } = useActions(reviewHogSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { blindSpots, validators, resolutionSkills, initialLoadFailed } = useValues(reviewHogSettingsLogic)
+    const { selectBlindSpots, selectValidator, selectResolutionSkill, loadAll } = useActions(reviewHogSettingsLogic)
 
-    if (user != null && !user.is_staff) {
+    if (user != null && !user.is_staff && !featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
     }
 
@@ -1659,10 +1788,21 @@ export function CodeReviewScene(): JSX.Element {
                         skills={validators?.map((s) => ({ ...s, on: s.active })) ?? null}
                         onSelect={selectValidator}
                     />
+                    <SingleActiveSection
+                        icon={<IconWrench />}
+                        title="Resolution criteria"
+                        intro="After a review is published, ReviewHog works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
+                        kind="resolution"
+                        kindLabel="resolution criteria"
+                        createLabel="Create your own resolution criteria"
+                        skills={resolutionSkills?.map((s) => ({ ...s, on: s.active })) ?? null}
+                        onSelect={selectResolutionSkill}
+                    />
                 </section>
                 <UrgencySection />
 
                 <SkillDrawer />
+                <AdoptSkillModal />
                 <ReviewDetailDrawer />
             </div>
         </SceneContent>

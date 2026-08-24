@@ -109,7 +109,7 @@ export function LogsSamplingForm(): JSX.Element {
                 <LogsFilterVolumeSparkline
                     filterGroup={samplingForm.filter_group}
                     metric={isRateLimit ? 'bytes' : 'count'}
-                    buildReferenceLines={({ bucketSeconds }) => {
+                    buildGoalLines={({ bucketSeconds }) => {
                         const threshold = rateLimitThresholdPerBucket(bucketSeconds)
                         if (threshold == null) {
                             return undefined
@@ -117,11 +117,11 @@ export function LogsSamplingForm(): JSX.Element {
                         return [
                             {
                                 value: threshold,
-                                color: 'danger',
+                                color: 'var(--danger)',
                                 label: `Rate limit (${samplingForm.rate_limit_amount.trim()} ${
                                     samplingForm.rate_limit_unit
                                 })`,
-                                labelPosition: 'end',
+                                displayLabel: true,
                             },
                         ]
                     }}

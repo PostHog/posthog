@@ -1,5 +1,10 @@
 import { createAppendOnlyTracker } from "@posthog/core/sessions/appendOnlyTracker";
-import { isJsonRpcNotification, readMcpToolDescriptor } from "@posthog/shared";
+import {
+  type AcpMessage,
+  isJsonRpcNotification,
+  readMcpToolDescriptor,
+} from "@posthog/shared";
+import { useMemo, useRef } from "react";
 
 const UPLOAD_ARTIFACT_TOOL = "upload_artifact";
 
@@ -59,4 +64,17 @@ export function createArtifactUploadTracker() {
     },
     getResult: (state) => state.completedCallIds.size,
   });
+}
+
+export function countCompletedArtifactUploads(events: AcpMessage[]): number {
+  return createArtifactUploadTracker().update(events);
+}
+
+export function useCompletedArtifactUploads(events: AcpMessage[]): number {
+  const trackerRef = useRef<ReturnType<
+    typeof createArtifactUploadTracker
+  > | null>(null);
+  trackerRef.current ??= createArtifactUploadTracker();
+  const tracker = trackerRef.current;
+  return useMemo(() => tracker.update(events), [events, tracker]);
 }

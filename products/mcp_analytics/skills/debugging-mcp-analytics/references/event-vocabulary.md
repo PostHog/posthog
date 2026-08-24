@@ -13,16 +13,17 @@ dogfood traffic, and exec-mode ones only appear when a server runs a single `exe
 
 All `$`-prefixed — a non-`$` name would be treated as a customer event.
 
-| Event                                        | Notes                                                                                                                                                                       |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$mcp_tool_call`                             | The primary event. Almost every metric aggregates over it.                                                                                                                  |
-| `$mcp_tools_list`                            | A `tools/list` request. Carries the advertised catalog — the basis for zombie-tool queries.                                                                                 |
-| `$mcp_initialize`                            | The `initialize` handshake. **Not emitted by clients on the MCP 2026-07-28 stateless revision**, which removes the handshake — do not use it as a universal session anchor. |
-| `$mcp_missing_capability`                    | The agent wanted something the server does not offer. The clearest roadmap signal in the dataset.                                                                           |
-| `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                               |
-| `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                    |
-| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                            |
-| `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                       |
+| Event                                        | Notes                                                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$mcp_tool_call`                             | The primary event. Almost every metric aggregates over it.                                                                                                                                                            |
+| `$mcp_tools_list`                            | A `tools/list` request. Carries the advertised catalog — the basis for zombie-tool queries.                                                                                                                           |
+| `$mcp_initialize`                            | The `initialize` handshake. **Not emitted by clients on the MCP 2026-07-28 stateless revision**, which removes the handshake — do not use it as a universal session anchor.                                           |
+| `$mcp_missing_capability`                    | The agent wanted something the server does not offer. The clearest roadmap signal in the dataset.                                                                                                                     |
+| `$mcp_auth_failed`                           | A request refused before a session existed — a rejected credential, or a scope the API denied. **PostHog's own server only, not the SDK.** The one MCP event with no organization/project, because none was resolved. |
+| `$mcp_resource_read` / `$mcp_resources_list` | Resource access. Not emitted by `instrument()` in either SDK.                                                                                                                                                         |
+| `$mcp_prompt_get` / `$mcp_prompts_list`      | Prompt access. Same caveat as resources.                                                                                                                                                                              |
+| `$identify`                                  | Person identity. Since TS 0.9.1 this fires at most once per session, not before every tool call.                                                                                                                      |
+| `$exception`                                 | Error sibling event. Can be disabled, and is not emitted when no error value is passed — see the failures rule below.                                                                                                 |
 
 `$mcp_custom` is registered in the enum, but `analytics.capture()` sends the verbatim event
 name it is given rather than `$mcp_custom`.
@@ -60,10 +61,25 @@ Added by PostHog's own server (`services/mcp/src/hono/analytics.ts::buildBasePro
 server, so never rely on them in customer-facing queries or docs without checking.
 
 `$mcp_session_id` (transport-level), `$mcp_region`, `$mcp_mode`, `$mcp_consumer`,
-`$mcp_version`, `$mcp_client_user_agent`, `$mcp_transport`, `$mcp_organization_id`,
-`$mcp_project_id`, `$mcp_project_uuid`, `$mcp_project_name`, `$ai_product` (`mcp`), and the
-non-`$`-prefixed `mcp_runtime` (`hono`) and `mcp_vendor_client` — the last of which is the
-**top-priority harness signal**, so it appears inside harness SQL.
+`$mcp_version`, `$mcp_client_user_agent`, `$mcp_transport`, `$mcp_auth_method`,
+`$mcp_organization_id`, `$mcp_project_id`, `$mcp_project_uuid`, `$mcp_project_name`,
+`$ai_product` (`mcp`), and the non-`$`-prefixed `mcp_runtime` (`hono`) and
+`mcp_vendor_client` — the last of which is the **top-priority harness signal**, so it
+appears inside harness SQL.
+
+`$mcp_auth_method` (`oauth`, `personal_api_key`, `id_jag`, `none`, `unknown`) comes from the
+bearer token's prefix. It is the only way to tell an OAuth connector apart from an API-key
+connection, which matters when reading a recovery: a user who works around a broken OAuth
+flow by pasting a personal API key produces traffic that otherwise looks identical to the
+connector having been fixed.
+
+On `$mcp_auth_failed`: `$mcp_auth_failure_reason` (`insufficient_scope`,
+`inactive_oauth_token`, `invalid_api_key`, `unknown`), `$mcp_missing_scope` when the API named
+one, and `$mcp_auth_status` (401 or 403). It deliberately does **not** set `$mcp_is_error` or
+`$mcp_error_status` — those mean "a tool call failed", and reusing them would fold auth
+refusals into tool error rates, which is also why the status has its own field. Its
+`distinct_id` is the token hash, not a user id, so it joins to other MCP events by client and
+time, never by person.
 
 Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
 `$mcp_validation_fields` and `$mcp_validation_input_keys` (which fields failed validation, and

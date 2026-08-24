@@ -50,7 +50,7 @@ from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -3114,6 +3114,39 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    @parameterized.expand(
+        [
+            ("time_series_without_day", None, None),
+            ("total_value_with_day", "BoldNumber", "2026-07-01"),
+        ]
+    )
+    def test_creating_static_cohort_from_trends_actors_with_invalid_day_is_rejected(
+        self, _name: str, display: str | None, day: str | None
+    ) -> None:
+        trends_filter = {"display": display} if display else None
+        actors_source: dict[str, Any] = {
+            "kind": "InsightActorsQuery",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                **({"trendsFilter": trends_filter} if trends_filter else {}),
+            },
+            **({"day": day} if day else {}),
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "is_static": True,
+                "query": {
+                    "kind": "ActorsQuery",
+                    "select": ["person"],
+                    "source": actors_source,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_with_query_and_fields(self, patch_capture):
         _create_person(
@@ -5198,7 +5231,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_insight(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5227,7 +5260,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_multiple_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5261,7 +5294,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_more_than_five_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5307,7 +5340,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5337,7 +5370,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_breakdown_filter(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -5373,7 +5406,7 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cannot_delete_cohort_used_in_deeply_nested_properties(self, patch_calculate_cohort, patch_capture):
-        from products.product_analytics.backend.models.insight import Insight
+        from products.product_analytics.backend.facade.models import Insight
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -6792,7 +6825,7 @@ jane@example.com
         with patch.object(
             Cohort,
             "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person1.uuid), str(person2.uuid)],
+            return_value=([str(person1.uuid), str(person2.uuid)], {"john@example.com", "jane@example.com"}),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6936,7 +6969,7 @@ Jane Smith,user456,jane@example.com
         with patch.object(
             Cohort,
             "_get_uuids_for_emails_batch_ch",
-            return_value=[str(person.uuid)],
+            return_value=([str(person.uuid)], {"test@example.com"}),
         ) as ch_mock:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/cohorts/",
@@ -6952,7 +6985,7 @@ Jane Smith,user456,jane@example.com
 
     def test_insert_users_by_email_always_uses_clickhouse(self):
         cohort = Cohort.objects.create(team=self.team, name="ch-only", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
         ch_mock.assert_called_once()
 
@@ -6966,7 +6999,7 @@ Jane Smith,user456,jane@example.com
     )
     def test_email_property_key_is_accepted_and_always_routes_to_clickhouse(self, _name, email_property_key):
         cohort = Cohort.objects.create(team=self.team, name="key-compat", is_static=True)
-        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock:
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=([], set())) as ch_mock:
             cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id, email_property_key=email_property_key)
         ch_mock.assert_called_once()
 

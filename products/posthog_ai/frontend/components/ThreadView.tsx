@@ -34,6 +34,7 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     error: 42,
     status: 42,
     compact_boundary: 42,
+    conversation_cleared: 42,
     task_notification: 26,
     progress: 42,
     debug: 30,
