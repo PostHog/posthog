@@ -360,6 +360,15 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Reserve the personhog host port
+              # docker-compose.dev.yml publishes host port 50052, which sits in the
+              # Linux ephemeral port range (32768-60999). An outbound socket on the
+              # runner can hold that port when Docker programs the mapping, so the
+              # bind fails with "address already in use". Reserving the port stops the
+              # kernel from auto-assigning it; the explicit compose bind still works.
+              shell: bash
+              run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=50052
+
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
