@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -168,6 +168,17 @@ class TestWarmInsightCacheTask(APIBaseTest):
         insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
 
         with self.assertRaises(ClickHouseAtCapacity):
+            warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthog.caching.warming.capture_exception")
+    def test_query_failure_cache_replays_are_not_recaptured(self, mock_capture_exception):
+        replay_error = ClickHouseQueryTimeOut()
+        replay_error.served_from_query_failure_cache = True
+
+        with patch("posthog.caching.warming.process_query_dict", side_effect=replay_error):
+            insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()

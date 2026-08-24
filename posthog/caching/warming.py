@@ -281,9 +281,12 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
+            # Breaker replays were already captured when the original failure happened.
+            if getattr(e, "served_from_query_failure_cache", False):
+                pass
             # A revoked creator's access-denied error is a known limitation - report it as an event
             # rather than surfacing it in error tracking.
-            if isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
+            elif isinstance(e, TableAccessDeniedError) and creator_access_revoked(insight.created_by, insight.team):
                 report_creator_access_revoked(
                     user=insight.created_by,
                     team=insight.team,
