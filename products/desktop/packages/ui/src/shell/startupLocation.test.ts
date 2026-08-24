@@ -221,6 +221,19 @@ describe("startup location", () => {
     expect(removeItem).not.toHaveBeenCalled();
   });
 
+  it("falls back to code when provisioning and saved locations are unavailable", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockRejectedValue(new Error("503")),
+      startOnboardingSession: vi.fn(),
+    };
+
+    await expect(
+      resolveStartupLocation(identity, client, true),
+    ).resolves.toEqual({ href: "/code", firstRun: null });
+    expect(client.startOnboardingSession).not.toHaveBeenCalled();
+  });
+
   it("ignores a first run started by a different account", async () => {
     // A logout or account switch between starting and reading would otherwise hand the
     // next account the previous project's channels.

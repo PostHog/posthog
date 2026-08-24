@@ -62,7 +62,7 @@ export async function resolveStartupLocation(
     const saved = await stateStorage.getItem(storageKey(identity));
     if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
   }
-  if (!provisioned) throw new Error("#general was not provisioned");
+  if (!provisioned) return { href: "/code", firstRun: null };
 
   const general = provisioned.channels.find((channel) =>
     isGeneralChannel(channel),
