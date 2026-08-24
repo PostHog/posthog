@@ -534,6 +534,11 @@ export function useTaskCreation({
           }
 
           if (!result.success) {
+            track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+              error_type: "task_creation_failed",
+              failed_step: result.failedStep,
+            });
+            // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
               useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
@@ -555,6 +560,9 @@ export function useTaskCreation({
           }
           return result.success;
         } catch (error) {
+          track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+            error_type: "unexpected_error",
+          });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {

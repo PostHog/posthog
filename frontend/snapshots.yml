@@ -6108,6 +6108,10 @@ snapshots:
         hash: v1.k794b7964.6fa2b66d27a1675f40be299d4063d6530d9b7899854e2a4f90a7ed9261457532.zZxRebzp1LR0fgFq5G61QARku_wdiC8mrBG5BtU4Ilo
     scenes-app-data-management-revenue-analytics-event-configuration-modal--default--light:
         hash: v1.k794b7964.380602ae2b746844554126dce9f27bca9ec04854e281d8467c8de724f4fd49fc.ySrW_TUWEFnfdhQOLX6USTN5uxF1kODMuE5iXuYWtQU
+    scenes-app-data-pipelines-destinations-incident-replay-banner--default--dark:
+        hash: v1.k794b7964.1fa2847afd2dfb946f145bd4f7a4393dd95c5fccbea361717dafb545b2974238.BS3GjT1_e9vpLhMf5Qr5LkKrpPeP5hgNnmrxX4v_EWQ
+    scenes-app-data-pipelines-destinations-incident-replay-banner--default--light:
+        hash: v1.k794b7964.bc32207650f48ba87bd791f524d84462ecd0cbaa07046e630a1cffde3c68e89e.GHu9dguBRJH_zxhQ8XlozqUsTT3JlpkPVCiFIr26_rk
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--dark:
         hash: v1.k794b7964.054b485fa44909bda3f635ba9d134cea4dfa7e60bbc65206ba752f23b7729c42._2cxQzZ_XmaTvoI9Z7hIKh5kpuDY5rxQG0-1RNRyDgE
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--light:
@@ -6333,7 +6337,7 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.ec64583fd2debf87822296f1c9fc10e73c1c6b7e31fe55f0ca974d3920f8bd14.Ch64gBgjo0wR0Ypvkhap6047UPjXBaWSQCNoKDOiNHc
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
-        hash: v1.k794b7964.0ed912970ce0a55c45fd54799febd21547cedb04534a56e8e789f7ee787c3b39.L7iFT9xjm0sWN6iCtvk9K_z2PKUSEOYkHI_b1oizB2M
+        hash: v1.k794b7964.37e8127d5a33175889cf1da00e80998b1858fd3713fe5c0c1ec42ff0bb1da220.oIA6fAIpYfvfCAh_6TQs-uqDeMEONwTb3luZF1rzBs4
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
         hash: v1.k794b7964.793a4b6109b2c0ab65b07d9eaefd1c8862f12bfc7f33b2f452ad20044396b2a7.6B0Meq7yO75vBEoBmuP2dNl2oKTugzzr_IKTcJHhEi0
     scenes-app-experiments--experiment-with-funnel-metric--dark:
@@ -7721,9 +7725,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.5ac167271f00184ce6159d0072ce163542658b08419f6e70b5cf6a6ca201a718.X6dKpM6uGw_g_FAwdQ5PukTVcKWGAa77bMOzgw-kiXY
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.610a8d8b91871b32a6b83b087df8523999636f905ebacd4d4bad4f6c2c10cdd2.N1EL1qb6-quDv9B8-LwQ5S-zyRZlCwgJJiR-ahq4p-8
+        hash: v1.k794b7964.033e5499811363c36dee07950ff09f33413e64b81c8522859c85748bc0443e3f.Hz66ItOfiG51KAAT2yidV4lINJmLINi-9_k81Ygdk80
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.adb8f8b9586c3cda5749b248291df41cfc5da3f9e1764fbaef8c0c2c3b5315dc.BLb5wQ4ykREEPkol8psVfNFlk1KlbWmTZDwW8MncIPo
+        hash: v1.k794b7964.56f8265ff5de3733a4d00b0dbde7c0fff36ccdc886f713881134159802a13d39.9ArXuAkoxa6dyVQ_uspbjHWKM8YIgCPgCbDUnLHsxso
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
         hash: v1.k794b7964.56670f556ffac0360ec521741db9822f4e545e25b45bd8ed4ad012da8885c30a.qj9dLuAFy8v0TwEH-UTymXnlWPe2eu-YjAOpe2zc3Q8
     scenes-app-settings-environment--settings-environment-feature-flags--light:
