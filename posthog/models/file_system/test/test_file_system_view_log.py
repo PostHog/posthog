@@ -2,8 +2,12 @@ from datetime import UTC, datetime
 from typing import Protocol, cast
 
 from freezegun import freeze_time
+from unittest import mock
 
+from django.db import OperationalError
 from django.test import TestCase
+
+from parameterized import parameterized
 
 from posthog.models import FileSystem, FileSystemViewLog, Organization, Team, User
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -107,6 +111,30 @@ class TestFileSystemViewLog(TestCase):
 
     def _representation(self, *, surface: str = "web", ref: str = "ref-1") -> FileSystemRepresentation:
         return FileSystemRepresentation(base_folder="", type="doc", ref=ref, name="", href="", meta={}, surface=surface)
+
+    @parameterized.expand(
+        [
+            ("statement_cancellation", "57014", False),
+            ("other_operational_error", "08006", True),
+        ]
+    )
+    def test_view_log_only_swallows_statement_cancellation(self, _name: str, pgcode: str, should_raise: bool) -> None:
+        # A concurrent view can make the upsert wait on the unique index. When that wait outlives
+        # statement_timeout, Postgres cancels it (SQLSTATE 57014) as an OperationalError, which must
+        # fail soft rather than 500 a scene open. Any other database error still propagates.
+        cause = Exception()
+        cause.pgcode = pgcode  # type: ignore[attr-defined]
+        error = OperationalError("boom")
+        error.__cause__ = cause
+
+        with mock.patch.object(FileSystemViewLog.objects, "bulk_create", side_effect=error):
+            if should_raise:
+                with self.assertRaises(OperationalError):
+                    log_file_system_view(user=self.user, obj=self._representation(), team_id=self.team.id)
+            else:
+                log_file_system_view(user=self.user, obj=self._representation(), team_id=self.team.id)
+
+        self.assertFalse(FileSystemViewLog.objects.filter(team=self.team, user=self.user).exists())
 
     def test_view_log_stores_surface_from_representation(self) -> None:
         log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
