@@ -13,9 +13,45 @@ import {
   serializeCloudPrompt,
   unescapeXmlAttr,
 } from "@posthog/shared";
+import type { EditorContent } from "../message-editor/content";
 import { skillTagsToSlashCommands } from "../message-editor/skillTags";
 
 export type ReadFileAsBase64 = (filePath: string) => Promise<string | null>;
+
+// The prefix every synthesized attachment summary starts with. Kept as the one
+// source of truth so the producer and the sentinel matchers below can never
+// drift apart on a rename.
+export const ATTACHMENT_SUMMARY_PREFIX = "Attached files: ";
+
+// Every form of the attachment-summary sentinel we synthesize for prompts that
+// carry no typed text. Three need stripping:
+//   "Attached files: a.txt"          — bare description (cloud task.description)
+//   "[Attached files: a.txt]"        — bracketed session-event sentinel
+//   "1. [Attached files: a.txt]"     — numbered form from formatPromptsForTitleInput
+// The bracketed forms require a literal `[` so that user text like
+// "1. Attached files: my notes" (no brackets) is never stripped.
+const ATTACHMENT_SUMMARY_LINE_REGEX = new RegExp(
+  `^(?:(?:\\d+\\.\\s*)?\\[${ATTACHMENT_SUMMARY_PREFIX}[^\\]]*\\]|${ATTACHMENT_SUMMARY_PREFIX}.*)$`,
+  "gm",
+);
+const EMPTY_NUMBERED_LINE_REGEX = /^\d+\.\s*$/gm;
+
+/**
+ * True when the content says something beyond naming its own attachments. File
+ * chips are dropped rather than rendered, because a chip's label is a filename
+ * and would otherwise read as prose. Takes already-parsed content so a caller
+ * that also needs the segments does not parse the same string twice.
+ */
+export function hasProseBeyondAttachments(content: EditorContent): boolean {
+  return (
+    content.segments
+      .flatMap((seg) => (seg.type === "text" ? [seg.text] : []))
+      .join("")
+      .replace(ATTACHMENT_SUMMARY_LINE_REGEX, "")
+      .replace(EMPTY_NUMBERED_LINE_REGEX, "")
+      .trim().length > 0
+  );
+}
 
 const ABSOLUTE_FILE_TAG_REGEX = /<file\s+path="([^"]+)"\s*\/>/g;
 const FOLDER_TAG_REGEX = /<folder\s+path="[^"]+"\s*\/>/g;
@@ -142,7 +178,6 @@ export function getAbsoluteAttachmentPaths(
   );
 }
 
-export const ATTACHMENT_SUMMARY_PREFIX = "Attached files: ";
 const TRAILING_ATTACHMENT_SUMMARY_REGEX = new RegExp(
   `(?:^|\\n)${ATTACHMENT_SUMMARY_PREFIX}[^\\n]*$`,
 );

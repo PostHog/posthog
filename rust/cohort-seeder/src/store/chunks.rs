@@ -316,6 +316,43 @@ impl PgChunkStore {
         Ok(result.rows_affected())
     }
 
+    /// Runs holding ≥1 chunk that exhausted its retry budget, with a representative chunk and its
+    /// persisted error.
+    ///
+    /// The `attempts >= max_attempts` half is the whole point: a `failed` chunk still under the cap
+    /// is reclaimable by [`Self::claim_next`] and will retry, while a capped one never will. Only
+    /// the capped ones are terminal, and only they wedge the run — the completion CAS demands every
+    /// chunk `confirmed`, so a run carrying one sits in `seeding` forever and holds its cohort's
+    /// uniqueness slot against every future run.
+    pub async fn runs_with_exhausted_chunks(
+        &self,
+        run_ids: &[RunId],
+        max_attempts: MaxAttempts,
+    ) -> Result<Vec<ExhaustedRun>, ChunkStoreError> {
+        if run_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+        let rows = sqlx::query_as::<_, ExhaustedRunRow>(
+            r#"
+            SELECT DISTINCT ON (run_id)
+                   run_id,
+                   count(*) OVER (PARTITION BY run_id) AS exhausted,
+                   id::text AS chunk_id,
+                   last_error
+            FROM cohort_backfill_chunks
+            WHERE run_id = ANY($1) AND status = $2 AND attempts >= $3
+            ORDER BY run_id, id
+            "#,
+        )
+        .bind(run_ids)
+        .bind(ChunkStatus::Failed.as_str())
+        .bind(max_attempts.get())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(ExhaustedRun::from).collect())
+    }
+
     /// The person path's mark: seeds were already streamed to Kafka during the scan, so only the
     /// count crosses the `scanning`→`produced` CAS.
     pub async fn mark_produced_streamed(
@@ -655,6 +692,48 @@ impl ChunkProgress {
     pub const fn remaining(self) -> u64 {
         self.remaining
     }
+}
+
+/// A run wedged by chunks that exhausted their retry budget, as reported by
+/// [`PgChunkStore::runs_with_exhausted_chunks`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExhaustedRun {
+    pub run_id: RunId,
+    pub exhausted: u64,
+    /// One of the exhausted chunks, for the operator-facing error text. Which one is arbitrary but
+    /// stable (lowest id) — the point is a concrete row to go read, not a complete list.
+    pub chunk_id: String,
+    /// That same chunk's error, never another one's: an operator handed chunk A with chunk B's
+    /// failure text reads the wrong row. [`NO_ERROR_RECORDED`] when the chunk recorded none.
+    pub last_error: String,
+}
+
+/// Stands in for an empty `last_error` so the operator-facing message never ends in a bare colon.
+/// A capped chunk normally carries one, but `attempts` can reach the cap without a persisted error.
+pub const NO_ERROR_RECORDED: &str = "no error recorded";
+
+impl From<ExhaustedRunRow> for ExhaustedRun {
+    fn from(row: ExhaustedRunRow) -> Self {
+        Self {
+            run_id: row.run_id,
+            // `count(*) OVER (PARTITION BY run_id)` is ≥ 1 and bounded by the run's chunk count, so
+            // the cast cannot lose information.
+            exhausted: row.exhausted.max(0) as u64,
+            chunk_id: row.chunk_id.unwrap_or_default(),
+            last_error: row
+                .last_error
+                .filter(|error| !error.is_empty())
+                .unwrap_or_else(|| NO_ERROR_RECORDED.to_owned()),
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct ExhaustedRunRow {
+    run_id: RunId,
+    exhausted: i64,
+    chunk_id: Option<String>,
+    last_error: Option<String>,
 }
 
 #[derive(Debug, FromRow)]

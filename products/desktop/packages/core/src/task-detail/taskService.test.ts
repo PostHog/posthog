@@ -18,6 +18,8 @@ const rootLogger = {
   scope: () => scopedLog,
 } as unknown as RootLogger;
 
+const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
+
 function makeService(): TaskService {
   const host = {
     // The API client's createTask rejects so tests can observe that an input
@@ -51,7 +53,14 @@ function makeService(): TaskService {
     resume: vi.fn(),
     stop: vi.fn(),
   } as unknown as PiRunner;
-  return new TaskService(host, sessionService, effects, piRunner, rootLogger);
+  return new TaskService(
+    host,
+    sessionService,
+    effects,
+    piRunner,
+    fileReadClient,
+    rootLogger,
+  );
 }
 
 describe("TaskService.openTask", () => {
@@ -80,6 +89,7 @@ describe("TaskService.openTask", () => {
       {} as SessionService,
       {} as TaskCreationEffects,
       piRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -123,6 +133,7 @@ describe("TaskService.openTask", () => {
       {} as SessionService,
       {} as TaskCreationEffects,
       piRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -159,6 +170,7 @@ describe("TaskService.resumeCloudPiRun", () => {
       {} as SessionService,
       effects,
       {} as PiRunner,
+      fileReadClient,
       rootLogger,
     );
 

@@ -4,7 +4,7 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
-import { createProduceCollectedUrlsStep } from './produce-collected-urls-step'
+import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-collected-urls-step'
 
 describe('produceCollectedUrlsStep', () => {
     const PSEUDO_TEAM = 'a'.repeat(32)
@@ -23,11 +23,27 @@ describe('produceCollectedUrlsStep', () => {
     })
 
     function collected(hash: string, host: string, url: string, domain = host): CollectedUrl {
-        return { ref: `imageurl:${PSEUDO_TEAM}:${hash.padEnd(22, 'x')}`, url, host, domain }
+        return { ref: `imageurl:${hash.padEnd(22, 'x')}`, pseudoTeam: PSEUDO_TEAM, url, host, domain }
     }
 
     function decode(batch: { key: string; value: Buffer }[]) {
-        return batch.map((message) => ({ key: message.key, value: parseJSON(message.value.toString()) }))
+        return batch.map((message) => ({
+            key: message.key,
+            value: parseJSON(message.value.toString()) as CollectedUrlsMessage,
+        }))
+    }
+
+    function expectedJob(originalRef: string, currentUrl: string) {
+        return {
+            originalRef,
+            currentUrl,
+            remainingHops: 10,
+            notBeforeMs: 0,
+            firstSeenAtMs: CAPTURED_AT,
+            fetchCount: 0,
+            republishCount: 0,
+            lastRepublishReason: null,
+        }
     }
 
     async function run<T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } }>(
@@ -63,36 +79,18 @@ describe('produceCollectedUrlsStep', () => {
                 {
                     key: 'cdn.example.com',
                     value: {
-                        v: 1,
-                        pseudoTeam: PSEUDO_TEAM,
-                        capturedAtMs: CAPTURED_AT,
-                        urls: [
-                            {
-                                ref: `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
-                                url: 'https://cdn.example.com/a.jpg?sig=1',
-                                host: 'cdn.example.com',
-                            },
-                            {
-                                ref: `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
-                                url: 'https://cdn.example.com/c.jpg',
-                                host: 'cdn.example.com',
-                            },
+                        v: 2,
+                        jobs: [
+                            expectedJob(`imageurl:h1xxxxxxxxxxxxxxxxxxxx`, 'https://cdn.example.com/a.jpg?sig=1'),
+                            expectedJob(`imageurl:h3xxxxxxxxxxxxxxxxxxxx`, 'https://cdn.example.com/c.jpg'),
                         ],
                     },
                 },
                 {
                     key: 'img.other.com',
                     value: {
-                        v: 1,
-                        pseudoTeam: PSEUDO_TEAM,
-                        capturedAtMs: CAPTURED_AT,
-                        urls: [
-                            {
-                                ref: `imageurl:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
-                                url: 'https://img.other.com/b.png',
-                                host: 'img.other.com',
-                            },
-                        ],
+                        v: 2,
+                        jobs: [expectedJob(`imageurl:h2xxxxxxxxxxxxxxxxxxxx`, 'https://img.other.com/b.png')],
                     },
                 },
             ])
@@ -108,15 +106,32 @@ describe('produceCollectedUrlsStep', () => {
         expect(queueMessages).not.toHaveBeenCalled()
     })
 
-    it('dedups refs it already produced across messages', async () => {
+    it('dedups an identical transport URL but produces a new URL for the same ref', async () => {
         const step = createProduceCollectedUrlsStep(outputs)
-        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
-        const second = collected('h2', 'cdn.example.com', 'https://cdn.example.com/b.jpg')
+        const first = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=old')
+        const replacement = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg?cb=new')
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first] })
-        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, second] })
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [first, replacement] })
         expect(
-            queued.map((batch) => decode(batch).map((m) => m.value.urls.map((u: { ref: string }) => u.ref)))
-        ).toEqual([[[first.ref]], [[second.ref]]])
+            queued.map((batch) => decode(batch).map((message) => message.value.jobs.map((job) => job.currentUrl)))
+        ).toEqual([[[first.url]], [[replacement.url]]])
+    })
+
+    it('produces an identical transport URL again after the dedup window', async () => {
+        jest.useFakeTimers().setSystemTime(10_000)
+        try {
+            const step = createProduceCollectedUrlsStep(outputs, 100, 1_000)
+            const entry = collected('h1', 'cdn.example.com', 'https://cdn.example.com/a.jpg')
+
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+            jest.setSystemTime(11_000)
+            await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: [entry] })
+
+            expect(queueMessages).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('swallows a failed produce and un-marks its refs so a later sighting produces again', async () => {
@@ -134,18 +149,18 @@ describe('produceCollectedUrlsStep', () => {
         expect(queueMessages).toHaveBeenCalledTimes(2)
     })
 
-    it('refuses to produce a ref whose hash names bytes rather than a URL', async () => {
-        // A bytes ref comes from an image the page inlined, and its hash cannot be reproduced from
-        // any URL. Producing one would put a record on the fetch topic that the fetcher indexes
-        // under a hash nothing will ever match. Both prefixes parse, so only the source check
-        // separates them.
+    test.each([
+        ['inline image', `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+        ['legacy team-scoped URL', `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`],
+    ])('refuses to produce a %s ref', async (_name, ref) => {
         const step = createProduceCollectedUrlsStep(outputs, 100)
 
         await run(step, {
             message: { timestamp: CAPTURED_AT },
             collectedUrls: [
                 {
-                    ref: `image:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+                    ref,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/a.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -166,6 +181,7 @@ describe('produceCollectedUrlsStep', () => {
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
                     ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    pseudoTeam: PSEUDO_TEAM,
                     url: 'https://img.example.com/inlined.png',
                     host: 'img.example.com',
                     domain: 'example.com',
@@ -176,9 +192,9 @@ describe('produceCollectedUrlsStep', () => {
 
         const sent = decode(queued[0])
         expect(sent).toHaveLength(1)
-        expect(sent[0].value.urls.map((u: { ref: string }) => u.ref)).toEqual([
-            `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
-            `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+        expect(sent[0].value.jobs.map((job) => job.originalRef)).toEqual([
+            `imageurl:h1xxxxxxxxxxxxxxxxxxxx`,
+            `imageurl:h3xxxxxxxxxxxxxxxxxxxx`,
         ])
     })
 
@@ -199,7 +215,7 @@ describe('produceCollectedUrlsStep', () => {
         // The fetcher refuses a record above its own count cap, whole. Byte packing alone would let
         // the collector's per-message cap in another crate decide how many entries a record holds.
         const step = createProduceCollectedUrlsStep(outputs, 100_000)
-        const many = Array.from({ length: 600 }, (_v, i) =>
+        const many = Array.from({ length: 1200 }, (_v, i) =>
             collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
         )
 
@@ -208,7 +224,7 @@ describe('produceCollectedUrlsStep', () => {
         const sent = decode(queued[0])
         expect(sent.length).toBeGreaterThan(1)
         for (const record of sent) {
-            expect(record.value.urls.length).toBeLessThanOrEqual(512)
+            expect(record.value.jobs.length).toBeLessThanOrEqual(1000)
         }
     })
 
@@ -238,7 +254,8 @@ describe('produceCollectedUrlsStep', () => {
             collectedUrls: [
                 collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
                 {
-                    ref: `imageurl:${otherTeam}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    ref: `imageurl:h2xxxxxxxxxxxxxxxxxxxx`,
+                    pseudoTeam: otherTeam,
                     url: 'https://img.example.com/b.png',
                     host: 'img.example.com',
                     domain: 'img.example.com',
@@ -247,8 +264,8 @@ describe('produceCollectedUrlsStep', () => {
         })
 
         const sent = decode(queued[0])
-        expect(sent[0].value.pseudoTeam).toBe(PSEUDO_TEAM)
-        expect(sent[0].value.urls).toHaveLength(1)
+        expect(sent[0].value.jobs).toHaveLength(1)
+        expect(sent[0].value.jobs[0].currentUrl).toBe('https://img.example.com/a.png')
     })
 
     it('puts a sharded CDN on one key, and keeps each host on its record', async () => {
@@ -269,9 +286,9 @@ describe('produceCollectedUrlsStep', () => {
         const sent = decode(queued[0])
         expect(sent.map((m) => m.key).sort()).toEqual(['example.com', 'other.org'])
         const shared = sent.find((m) => m.key === 'example.com')!
-        expect(shared.value.urls.map((u: { host: string }) => u.host)).toEqual([
-            'img1.cdn.example.com',
-            'img8.cdn.example.com',
+        expect(shared.value.jobs.map((job) => job.currentUrl)).toEqual([
+            'https://img1.cdn.example.com/a.png',
+            'https://img8.cdn.example.com/b.png',
         ])
     })
 })

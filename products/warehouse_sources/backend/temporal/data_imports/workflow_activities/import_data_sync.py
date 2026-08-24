@@ -231,7 +231,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
         attempt=current_activity_attempt(),
     ):
-        return await _import_data_with_reporting(inputs, logger)
+        try:
+            return await _import_data_with_reporting(inputs, logger)
+        except (OperationalError, InterfaceError, PostHogInternalDatabaseError) as e:
+            # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
+            # own app DB through the Django ORM before the source's error handling takes over. A
+            # transient connection-pool blip there — a PgBouncer server_login_retry cooldown, the
+            # primary briefly in recovery — raises this exception type, which can only mean our own
+            # infra, never the customer's source (every source talks to a customer database over a
+            # raw driver connection, not the ORM). Re-raise as NonReportableError so Temporal
+            # retries the whole activity and it self-heals, rather than failing the sync with the
+            # raw driver string as latest_error. _handle_import_error already classifies these types
+            # this way once the run is under way; this covers the setup calls that run before it.
+            await logger.awarning(str(e))
+            raise NonReportableError(str(e)) from e
 
 
 async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:

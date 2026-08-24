@@ -19,6 +19,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1808,
         normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
       },
     },
     {
@@ -30,6 +31,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1454,
         normalizedUrl: "https://github.com/PostHog/code/pull/1454",
+        isReviewComment: false,
       },
     },
     {
@@ -41,6 +43,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1454,
         normalizedUrl: "https://github.com/PostHog/code/pull/1454",
+        isReviewComment: false,
       },
     },
     {
@@ -52,6 +55,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1808,
         normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
       },
     },
     {
@@ -64,6 +68,7 @@ describe("parseGithubIssueUrl", () => {
         number: 1808,
         normalizedUrl:
           "https://github.com/PostHog/code/issues/1808#issuecomment-123",
+        isReviewComment: false,
       },
     },
     {
@@ -77,6 +82,7 @@ describe("parseGithubIssueUrl", () => {
         number: 72409,
         normalizedUrl:
           "https://github.com/PostHog/posthog/pull/72409#discussion_r3647131256",
+        isReviewComment: true,
       },
     },
     {
@@ -89,6 +95,7 @@ describe("parseGithubIssueUrl", () => {
         number: 1454,
         normalizedUrl:
           "https://github.com/PostHog/code/pull/1454/files#r3647131256",
+        isReviewComment: true,
       },
     },
     {
@@ -100,6 +107,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1808,
         normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
       },
     },
     {
@@ -111,6 +119,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1808,
         normalizedUrl: "https://github.com/PostHog/code/issues/1808",
+        isReviewComment: false,
       },
     },
     {
@@ -122,6 +131,7 @@ describe("parseGithubIssueUrl", () => {
         repo: "code",
         number: 1,
         normalizedUrl: "https://github.com/PostHog/code/issues/1",
+        isReviewComment: false,
       },
     },
   ];

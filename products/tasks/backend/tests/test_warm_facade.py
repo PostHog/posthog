@@ -12,6 +12,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 
 from products.tasks.backend.facade import (
+    access as tasks_access,
     api as facade,
     contracts,
 )
@@ -49,16 +50,21 @@ WARM_SRC = "products.tasks.backend.logic.services.warm.SandboxWarmer"
 TITLE_SRC = "products.tasks.backend.logic.services.title_generator"
 
 
+def _allow_desktop_access(test_case: APIBaseTest) -> None:
+    access_patcher = patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+        return_value=tasks_access.DesktopAccessDecision.ALLOWED,
+    )
+    access_patcher.start()
+    test_case.addCleanup(access_patcher.stop)
+
+
 class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
         # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
-        access_patcher = patch(
-            "products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=True
-        )
-        access_patcher.start()
-        self.addCleanup(access_patcher.stop)
+        _allow_desktop_access(self)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
@@ -362,6 +368,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
             repository_cache_updated_at=django_timezone.now(),
         )
+        _allow_desktop_access(self)
 
     def _warm_run(
         self,

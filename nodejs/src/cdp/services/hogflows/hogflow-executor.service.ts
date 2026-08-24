@@ -302,6 +302,18 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                     message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
+            } else if (result.invocation.state.currentAction?.delayUntilUnresolved) {
+                // A delay that cannot work out when to continue overrides on_error's default of carrying
+                // on: the next step would run immediately, which is the one outcome the wait exists to
+                // prevent. See delayUntilUnresolved.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not work out the date to wait for`,
+                })
             }
         }
 
@@ -708,6 +720,13 @@ export class HogFlowExecutorService {
     ): void {
         try {
             const { invocation } = result
+            // A delay that could not work out when to continue must never fall through, whatever on_error
+            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
+            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
+            // replace currentAction with a fresh entry and drop it.
+            if (invocation.state.currentAction?.delayUntilUnresolved) {
+                return
+            }
             // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
             const currentAction = ensureCurrentAction(invocation)
             if (currentAction?.on_error === 'continue') {

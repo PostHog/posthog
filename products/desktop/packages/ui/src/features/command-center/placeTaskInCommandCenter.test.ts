@@ -1,13 +1,42 @@
+import { makeCanvasCellValue } from "@posthog/core/command-center/grid";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMMAND_CENTER_INITIAL_STATE,
   useCommandCenterStore,
 } from "./commandCenterStore";
-import { placeTasksInCommandCenterCell } from "./placeTaskInCommandCenter";
+import {
+  placeCanvasInCommandCenter,
+  placeCanvasInCommandCenterCell,
+  placeTasksInCommandCenterCell,
+} from "./placeTaskInCommandCenter";
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToCommandCenter: vi.fn(),
 }));
+
+describe("canvas placement", () => {
+  beforeEach(() => {
+    useCommandCenterStore.setState(COMMAND_CENTER_INITIAL_STATE);
+  });
+
+  it("opens the tile picker for a canvas", () => {
+    placeCanvasInCommandCenter("canvas-1", "Activation overview");
+
+    expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
+      kind: "canvas",
+      id: "canvas-1",
+      title: "Activation overview",
+    });
+  });
+
+  it("places a canvas in the selected cell", () => {
+    placeCanvasInCommandCenterCell("canvas-1", 1);
+
+    expect(useCommandCenterStore.getState().cells[1]).toBe(
+      makeCanvasCellValue("canvas-1"),
+    );
+  });
+});
 
 describe("placeTasksInCommandCenterCell", () => {
   beforeEach(() => {

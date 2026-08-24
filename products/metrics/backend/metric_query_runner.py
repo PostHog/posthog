@@ -42,7 +42,10 @@ _ROW_LIMIT = 10000
 
 # Widest queryable range. Counter/histogram queries scan raw samples within
 # the range on the ClickHouse cluster shared with the live logs/traces
-# products, so the span has to be bounded.
+# products, so the span has to be bounded. Those two also scan
+# `counter_lookback(interval)` before `date_from` for a predecessor sample;
+# the bound stays on the requested range, since the extra reach costs at most
+# one more daily partition and returns no extra rows.
 MAX_QUERY_SPAN = dt.timedelta(days=31)
 
 # These run on the shared logs cluster; cap how much one query may read.
@@ -248,6 +251,37 @@ def _interval_expr(name: str) -> ast.Call:
         if entry_name == name:
             return expr
     raise ValueError(f"Unknown interval: {name!r}")
+
+
+def _interval_step(name: str) -> dt.timedelta:
+    for entry_name, step, _ in _INTERVAL_LADDER:
+        if entry_name == name:
+            return step
+    raise ValueError(f"Unknown interval: {name!r}")
+
+
+# Prometheus's default lookback delta. One interval step on its own is not
+# enough when the scrape interval is coarser than the bucket — a 60s scrape on
+# a `second` or `minute` chart — and `metrics1` is partitioned by day with
+# `timestamp` last in the sort key, so reaching back five minutes inside a day
+# reads the same partitions as reaching back one.
+_MIN_COUNTER_LOOKBACK = dt.timedelta(minutes=5)
+
+
+def counter_lookback(interval: str) -> dt.timedelta:
+    """How far before `date_from` the counter and histogram scans reach.
+
+    Those aggregations diff each sample against the one before it, so the last
+    sample *outside* the requested range is an input to the first bucket inside
+    it. Without it the first bucket diffs against nothing and plots 0
+    (histograms drop the point instead). The pre-range rows are cut again
+    before bucketing, so the returned grid is exactly the requested range.
+
+    `diagnostics.decompose_bucket` reads its raw samples over the same window
+    through this helper: a shorter reach there would find a different
+    predecessor and report a disagreement the chart does not have.
+    """
+    return max(_interval_step(interval), _MIN_COUNTER_LOOKBACK)
 
 
 def _filter_condition(filter: MetricFilter) -> ast.Expr:
@@ -524,15 +558,20 @@ class MetricQueryRunner:
 
         - cumulative temporality: contribution = value - prev, clamped for
           counter resets (value < prev means the counter restarted, so the
-          post-reset absolute value IS the increase); the first sample of a
-          series contributes 0 (its history is unknown).
+          post-reset absolute value IS the increase); a sample with no
+          predecessor within `counter_lookback` contributes 0 (its history is
+          unknown).
         - delta temporality: each sample already is the increase, so it
           contributes its own value.
 
         `increase` sums contributions per bucket; `rate` divides by the
         bucket length in seconds.
+
+        The scan starts a lookback before `date_from` so the first sample in
+        the range has a predecessor to diff against; the outer `WHERE` drops
+        those pre-range rows again, leaving the requested bucket grid.
         """
-        step_seconds = next(step.total_seconds() for name, step, _ in _INTERVAL_LADDER if name == self.interval)
+        step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.aggregation == "rate" else 1.0
         query = parse_select(
             """
@@ -566,12 +605,13 @@ class MetricQueryRunner:
                             ) AS prev_value
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {date_from}
+                          AND timestamp >= {scan_from}
                           AND timestamp < {date_to}
                           AND {filters}
                           AND {type_filter}
                     )
                 )
+                WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
@@ -581,6 +621,7 @@ class MetricQueryRunner:
                 "divisor": ast.Constant(value=divisor),
                 "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
+                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": filters_expr(self.filters),
@@ -595,7 +636,8 @@ class MetricQueryRunner:
     def _build_histogram_query(self) -> ast.SelectQuery:
         """Per-time-bucket summed bucket-count distributions for histogram
         rows, with the same per-series temporality/reset handling as
-        rate/increase applied element-wise to the counts array."""
+        rate/increase applied element-wise to the counts array — including the
+        lookback that gives the first in-range sample a predecessor."""
         query = parse_select(
             """
                 SELECT
@@ -633,13 +675,14 @@ class MetricQueryRunner:
                             ) AS prev_counts
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {date_from}
+                          AND timestamp >= {scan_from}
                           AND timestamp < {date_to}
                           AND notEmpty(histogram_counts)
                           AND {filters}
                           AND {type_filter}
                     )
                 )
+                WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
@@ -648,6 +691,7 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "series_key": ast.Tuple(exprs=_series_key_exprs()),
                 "metric_name": ast.Constant(value=self.metric_name),
+                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "filters": filters_expr(self.filters),

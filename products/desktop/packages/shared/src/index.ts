@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -38,20 +49,20 @@ export {
   isBinaryFile,
 } from "./binary";
 export {
-  activeTabIsBlank,
   type CloseTabResult,
   closeTab,
   closeTabs,
   decideTabNavigation,
-  newBlankTab,
   type OpenTabResult,
-  openOrFocusTab,
+  openTab,
   POSITION_GAP,
   primaryWindow,
-  primaryWindowHasNoTabs,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
+  type TabIdentity,
+  type TabLocation,
   type TabNavDecision,
   type TabTarget,
 } from "./browser-tabs";
@@ -60,8 +71,12 @@ export {
   type BrowserWindow,
   browserTabSchema,
   browserWindowSchema,
+  type RailVisit,
+  railVisitSchema,
   type TabsSnapshot,
+  type TabViewState,
   tabsSnapshotSchema,
+  tabViewStateSchema,
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
@@ -294,6 +309,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
+export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
@@ -326,6 +342,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
   TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
