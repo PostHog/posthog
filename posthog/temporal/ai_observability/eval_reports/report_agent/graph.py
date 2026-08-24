@@ -22,6 +22,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import EvalReportAgentState
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
+    _dead_backticked_ids,
     _fetch_period_summary,
     _is_retriable_ch_error,
     get_eval_report_tools,
@@ -183,13 +184,18 @@ def _append_references_section(content: EvalReportContent) -> None:
     content.sections.append(ReportSection(title="References", content="\n".join(refs_lines)))
 
 
-def _validate_agent_output(content: EvalReportContent) -> str | None:
+def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | None = None) -> str | None:
     """Return a reason string if content is invalid, else None.
 
     Enforced invariants:
       - title must be non-empty
       - section count must be within [MIN_REPORT_SECTIONS, MAX_REPORT_SECTIONS]
       - every section must have a non-empty title and content
+      - no backticked ID may ship dead: the renderer links only an exactly-cited ID
+        in one pair of backticks, so every other backticked ID is a dead identifier
+
+    The dead-ID check reads the final citations, so the agent may draft a section
+    before it cites the example. It also covers the title, which no tool guards.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -202,6 +208,14 @@ def _validate_agent_output(content: EvalReportContent) -> str | None:
             return f"section {idx + 1} has empty title"
         if not section.content.strip():
             return f"section {idx + 1} ({section.title!r}) has empty content"
+
+    dead: list[str] = []
+    for text in [content.title, *(section.content for section in content.sections)]:
+        for token in _dead_backticked_ids(text, content.citations, handled_ids or set()):
+            if token not in dead:
+                dead.append(token)
+    if dead:
+        return f"backticked IDs will not render as citation links: {', '.join(dead[:3])}"
     return None
 
 
@@ -330,7 +344,13 @@ def run_eval_report_agent(
         content.evaluation_target = evaluation_target
         content.metrics = metrics
 
-        validation_error = _validate_agent_output(content)
+        handled_ids: set[str] = set()
+        for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
+            allowlist = result.get(allowlist_key)
+            if isinstance(allowlist, list):
+                handled_ids.update(value for value in allowlist if isinstance(value, str))
+
+        validation_error = _validate_agent_output(content, handled_ids)
         if validation_error:
             increment_report_generated("fallback_validation")
 

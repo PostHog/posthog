@@ -298,6 +298,27 @@ class TestValidateAgentOutput(SimpleTestCase):
         content.citations = [Citation(generation_id="g", trace_id="t", reason="r")]
         self.assertIsNone(_validate_agent_output(content))
 
+    def test_dead_backticked_id_in_section_fails(self):
+        # An opaque session ID the run handled but never cited would ship dead.
+        content = self._valid_content()
+        session_id = "chat_thread_9f2b1a"
+        content.sections = [ReportSection(title="Summary", content=f"See `{session_id}`.")]
+        reason = _validate_agent_output(content, {session_id})
+        self.assertIsNotNone(reason)
+        self.assertIn(session_id, reason or "")
+
+    def test_dead_backticked_id_in_title_fails(self):
+        content = self._valid_content()
+        content.title = "Regression in `chat_thread_9f2b1a`"
+        self.assertIsNotNone(_validate_agent_output(content, {"chat_thread_9f2b1a"}))
+
+    def test_cited_backticked_id_passes(self):
+        content = self._valid_content()
+        session_id = "chat_thread_9f2b1a"
+        content.sections = [ReportSection(title="Summary", content=f"See `{session_id}`.")]
+        content.citations = [Citation(session_id=session_id, reason="regression")]
+        self.assertIsNone(_validate_agent_output(content, {session_id}))
+
 
 class TestAppendReferencesSection(SimpleTestCase):
     def test_no_citations_leaves_sections_untouched(self):

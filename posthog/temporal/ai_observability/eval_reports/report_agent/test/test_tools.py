@@ -35,6 +35,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
+    _dead_backticked_ids,
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
     _widened_ts_window,
@@ -618,38 +619,67 @@ class TestAddSection(SimpleTestCase):
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
-    def test_rejects_section_backticking_an_uncited_uuid(self):
-        # A run_id from list_recent_report_runs is a canonical UUID but not citable,
-        # so backticking it would ship a dead identifier. The guard blocks it in-loop.
+    def test_appends_section_backticking_an_uncited_id(self):
+        # add_section no longer guards; the dead-ID check runs once at validation time
+        # over the final citations, so the agent may draft before it cites.
         state = _state_with_empty_report()
         run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
         result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
-        self.assertIn("Error", result)
-        self.assertIn(run_id, result)
-        self.assertEqual(state["report"].sections, [])
-
-    def test_allows_section_when_backticked_uuid_is_cited(self):
-        state = _state_with_empty_report()
-        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
-        result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+
+class TestDeadBacktickedIds(SimpleTestCase):
+    _OPAQUE_SESSION_ID = "chat_thread_9f2b1a"
+    _RUN_ID = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+
     @parameterized.expand(
         [
-            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
-            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
-            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
+            # An opaque session ID the session handled is invisible to a UUID-shaped
+            # regex, which is exactly the dead identifier readers still chase.
+            (
+                "opaque_handled_id_uncited_is_dead",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                [],
+                {_OPAQUE_SESSION_ID},
+                [_OPAQUE_SESSION_ID],
+            ),
+            (
+                "opaque_handled_id_cited_links",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                [Citation(session_id=_OPAQUE_SESSION_ID)],
+                {_OPAQUE_SESSION_ID},
+                [],
+            ),
+            ("uncited_uuid_is_dead", f"Steady since run `{_RUN_ID}`.", [], set(), [_RUN_ID]),
+            (
+                "cited_uuid_in_one_pair_links",
+                f"See `{_VALID_GEN_ID}`.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [],
+            ),
+            (
+                "cited_uuid_upper_case_wrapper_is_dead",
+                f"See `{_VALID_GEN_ID.upper()}`.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [_VALID_GEN_ID.upper()],
+            ),
+            (
+                "cited_uuid_double_backticks_is_dead",
+                f"See ``{_VALID_GEN_ID}``.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [_VALID_GEN_ID],
+            ),
+            ("backticked_prose_is_ignored", "The `total_runs` field.", [], {_OPAQUE_SESSION_ID}, []),
         ]
     )
-    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
-        state = _state_with_empty_report()
-        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
-
-        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
-
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].sections, [])
+    def test_dead_backticked_ids(
+        self, _name: str, text: str, citations: list[Citation], handled_ids: set[str], expected: list[str]
+    ) -> None:
+        self.assertEqual(_dead_backticked_ids(text, citations, handled_ids), expected)
 
 
 class TestAddCitation(SimpleTestCase):
