@@ -112,7 +112,10 @@ export function InboxDetailFrame({
   // Signals arrive collapsed (one entry per source object), so length
   // undercounts; summing duplicate_count keeps this equal to signal_count.
   const evidenceCount = signalsLoaded
-    ? signals.reduce((total, signal) => total + (signal.duplicate_count ?? 1), 0)
+    ? signals.reduce(
+        (total, signal) => total + (signal.duplicate_count ?? 1),
+        0,
+      )
     : report.signal_count;
   const hasEvidence =
     evidenceSection != null && EvidenceIcon != null && evidenceCount > 0;
