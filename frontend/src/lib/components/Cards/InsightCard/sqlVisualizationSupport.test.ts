@@ -3,9 +3,9 @@ import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Compon
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AXIS_PLOTTING_TYPES, cardVisualizationDisabledReason, withAxes } from './cardVisualizationSupport'
+import { AXIS_PLOTTING_TYPES, cardVisualizationDisabledReason, withAxes } from './SqlVisualizationPicker'
 
-describe('cardVisualizationSupport', () => {
+describe('SqlVisualizationPicker support rules', () => {
     const responses = {
         'date and numeric': {
             columns: ['day', 'total'],

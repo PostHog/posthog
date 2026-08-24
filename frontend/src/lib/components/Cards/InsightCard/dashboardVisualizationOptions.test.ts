@@ -3,8 +3,6 @@ import { DataVisualizationNode, FunnelsQuery, InsightVizNode, Node, NodeKind } f
 import { resolveVisualizationPicker } from './dashboardVisualizationOptions'
 
 describe('resolveVisualizationPicker', () => {
-    const persist = (): void => {}
-
     const sqlQuery = {
         kind: NodeKind.DataVisualizationNode,
         source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
@@ -40,30 +38,23 @@ describe('resolveVisualizationPicker', () => {
             query: funnelQuery as Node,
             supportsDisplay: false,
             canPersist: true,
-            expected: undefined,
+            expected: null,
         },
         {
             label: 'no picker when the change cannot be saved, so a viewer never gets a control that no-ops',
             query: sqlQuery as Node,
             supportsDisplay: false,
             canPersist: false,
-            expected: undefined,
+            expected: null,
         },
         {
             label: 'no picker without a query',
             query: null,
             supportsDisplay: true,
             canPersist: true,
-            expected: undefined,
+            expected: null,
         },
     ])('$label', ({ query, supportsDisplay, canPersist, expected }) => {
-        const picker = resolveVisualizationPicker(query, supportsDisplay, canPersist ? persist : undefined)
-        expect(picker?.kind).toBe(expected)
-    })
-
-    it('hands the SQL picker the narrowed query, so the caller does not re-derive it', () => {
-        const picker = resolveVisualizationPicker(sqlQuery as Node, false, persist)
-
-        expect(picker).toMatchObject({ kind: 'sql', query: sqlQuery })
+        expect(resolveVisualizationPicker(query, supportsDisplay, canPersist)).toBe(expected)
     })
 })
