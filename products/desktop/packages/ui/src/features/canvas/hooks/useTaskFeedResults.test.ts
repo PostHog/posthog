@@ -27,9 +27,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [], isLoading: false }),
 }));
-vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
-  useChannelReportsEnabled: () => true,
-}));
 vi.mock("@posthog/ui/hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
     data: undefined,
