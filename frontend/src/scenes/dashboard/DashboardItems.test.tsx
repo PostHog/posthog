@@ -82,13 +82,7 @@ jest.mock('scenes/urls', () => ({
 }))
 
 jest.mock('lib/components/Cards/InsightCard', () => ({
-    InsightCard: ({
-        tile,
-        showResizeHandles,
-        apiErrored,
-        apiError,
-        refresh,
-    }: {
+    InsightCard: (props: {
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
@@ -99,19 +93,21 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
             data?: { queryId?: string }
         }
         refresh?: () => void
-    }) => (
-        <div
-            data-attr="insight-card"
-            data-tile-id={String(tile.id)}
-            data-show-resize-handles={String(showResizeHandles)}
-            data-api-errored={apiErrored ? 'true' : undefined}
-            data-api-error-status={apiError?.status}
-            data-api-error-detail={apiError?.detail ?? undefined}
-            data-api-error-code={apiError?.code ?? undefined}
-            data-api-error-query-id={apiError?.data?.queryId}
-            data-refreshable={refresh ? 'true' : undefined}
-        />
-    ),
+    }) => {
+        mockInsightCard(props)
+        const { tile, showResizeHandles, apiErrored, apiError } = props
+        return (
+            <div
+                data-attr="insight-card"
+                data-tile-id={String(tile.id)}
+                data-show-resize-handles={String(showResizeHandles)}
+                data-api-errored={apiErrored ? 'true' : undefined}
+                data-api-error-status={apiError?.status}
+                data-api-error-detail={apiError?.detail ?? undefined}
+                data-api-error-code={apiError?.code ?? undefined}
+            />
+        )
+    },
 }))
 
 jest.mock('./items/DashboardTextItem', () => ({
@@ -180,9 +176,11 @@ const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
+const mockInsightCard = jest.fn()
 
 describe('DashboardItems', () => {
     beforeEach(() => {
+        mockInsightCard.mockClear()
         jest.clearAllMocks()
 
         mockedUseValues.mockImplementation((logic) => {
@@ -547,8 +545,12 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
-        expect(insightCard).toHaveAttribute('data-api-error-query-id', 'failed-query-id')
-        expect(insightCard).toHaveAttribute('data-refreshable', 'true')
+        expect(mockInsightCard).toHaveBeenCalledWith(
+            expect.objectContaining({
+                refresh: expect.any(Function),
+                apiError: expect.objectContaining({ data: { queryId: 'failed-query-id' } }),
+            })
+        )
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'
