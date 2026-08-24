@@ -7,6 +7,7 @@ from confluent_kafka import KafkaError, KafkaException
 
 from posthog.cdp.internal_events import InternalEventEvent
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.token_bucket import BucketDecision
 
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,
@@ -18,6 +19,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import SIGNAL_MAX_TOKENS
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
+    SIGNAL_EMISSION_BUDGET,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
@@ -241,3 +243,32 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "extra": {"fingerprint": inputs.fingerprint},
         "idempotency_key": inputs.notification_id,
     }
+
+
+@pytest.mark.asyncio
+async def test_burst_guard_denies_emission_before_any_render() -> None:
+    denied = BucketDecision(allowed=False, remaining=0, limit=SIGNAL_EMISSION_BUDGET.burst, retry_after=18, reset=1800)
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.consume",
+            return_value=denied,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(),
+        ) as aget,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            _inputs(),
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    # The guard drops the emission before the team read, stacktrace render, or workflow start.
+    aget.assert_not_awaited()
+    emit_signal.assert_not_awaited()

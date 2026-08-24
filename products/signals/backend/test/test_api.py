@@ -282,6 +282,8 @@ class TestEmitSignalAnalytics:
             "source_product": "github",
             "source_type": "issue",
             "source_id": "posthog/posthog#42",
+            "team_id": team_stub.id,
+            "project_id": str(team_stub.uuid),
         }
         assert events["signal_emission_started"].kwargs["properties"] == expected_properties
         assert events["signal_emitted"].kwargs["properties"] == expected_properties

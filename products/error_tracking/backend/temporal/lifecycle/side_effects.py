@@ -3,8 +3,10 @@ from typing import Protocol
 
 from django.utils.dateparse import parse_datetime
 
+import structlog
 from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
+from temporalio import activity
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.helpers.tiktoken_encoding import (
@@ -13,6 +15,8 @@ from posthog.helpers.tiktoken_encoding import (
     get_tiktoken_encoding_for_model,
 )
 from posthog.models import Team
+from posthog.temporal.common.metrics import get_metric_meter
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
@@ -25,7 +29,27 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
 )
 from products.signals.backend.facade.api import emit_signal
 
+logger = structlog.get_logger(__name__)
+
 KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
+
+# Per-team burst guard on error-tracking signal emission. One project's incident can create
+# thousands of new issues in an hour, and each new issue would otherwise start its own Temporal
+# workflow, stacktrace render, and two tiktoken passes. This bucket lets a team emit an initial
+# burst, then a steady rate, so one project's fan-out cannot run unbounded. The downstream daily
+# report limit still backstops what gets through.
+SIGNAL_EMISSION_BUDGET = Budget(burst=100, per_hour=200)
+
+
+def _record_signal_emission_throttled(team_id: int, source_type: str) -> None:
+    logger.warning("error_tracking_signal_emission_throttled", team_id=team_id, source_type=source_type)
+    # No-op outside a Temporal activity; keeps the drop alertable when it runs inside one.
+    if not activity.in_activity():
+        return
+    get_metric_meter().create_counter(
+        "error_tracking_signal_emission_throttled_total",
+        "Error tracking signals dropped before emission by the per-team burst guard",
+    ).add(1)
 
 
 class IssueLifecycleSnapshot(EventPropertiesIssueSnapshot, Protocol):
@@ -147,6 +171,15 @@ async def emit_issue_lifecycle_signal(
     source_type: str,
     preamble: str,
 ) -> None:
+    # Charge the per-team bucket before any render or tiktoken work. A denial drops the emission;
+    # `BucketUnavailable` (Redis down) falls through, so a bucket outage cannot stop emission.
+    decision = await sync_to_async(consume, thread_sensitive=False)(
+        f"error_tracking_signal_emit_rate:{inputs.team_id}", SIGNAL_EMISSION_BUDGET
+    )
+    if isinstance(decision, BucketDecision) and not decision.allowed:
+        _record_signal_emission_throttled(inputs.team_id, source_type)
+        return
+
     try:
         team = await Team.objects.aget(id=inputs.team_id)
     except Team.DoesNotExist:
