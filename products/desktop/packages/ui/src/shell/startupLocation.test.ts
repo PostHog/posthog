@@ -1,6 +1,7 @@
+import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { beginFirstRun, firstRun } from "./firstRun";
+import { beginFirstRun, ensureSession, firstRun } from "./firstRun";
 import { resolveStartupLocation } from "./startupLocation";
 
 const personal = {
@@ -322,6 +323,36 @@ describe("startup location", () => {
       firstRun: { generalChannelId: "general-id" },
     });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
+    expect(client.startOnboardingSession).toHaveBeenCalledOnce();
+  });
+
+  it("shares one session between consent prefetch and startup", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    let finishProvisioning!: (value: ProvisionedTaskChannels) => void;
+    const provisioned = new Promise<ProvisionedTaskChannels>((resolve) => {
+      finishProvisioning = resolve;
+    });
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockReturnValue(provisioned),
+      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
+    };
+
+    beginFirstRun(identity, client);
+    const prefetchedSession = ensureSession(identity, client);
+    const startup = resolveStartupLocation(identity, client, true);
+
+    expect(client.startOnboardingSession).not.toHaveBeenCalled();
+    finishProvisioning({
+      channels: [personal, general],
+      personal_created: true,
+      general_created: false,
+    });
+
+    await expect(prefetchedSession).resolves.toBe("session-id");
+    await expect(startup).resolves.toEqual({
+      href: "/website/general-id/tasks/session-id",
+      firstRun: { generalChannelId: "general-id" },
+    });
     expect(client.startOnboardingSession).toHaveBeenCalledOnce();
   });
 

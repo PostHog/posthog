@@ -1,6 +1,7 @@
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
 import { rewriteLegacyHref } from "@posthog/ui/router/legacyPaths";
 import {
+  ensureSession,
   type FirstRunClient,
   firstRun,
   isFirstRun,
@@ -46,6 +47,7 @@ export async function resolveStartupLocation(
   // where the user was last. A saved location is written on every navigation and is shared by every
   // account on the project, so it answers neither question reliably.
   const run = firstRun(identity, client);
+  const sessionTaskIdPromise = ensureSession(identity, client);
   const provisioned = await run.provisioned;
 
   // The old key predates the created flags, so its presence is the only proof this install was
@@ -77,7 +79,7 @@ export async function resolveStartupLocation(
   // land on /code once, which costs them a click rather than the session.
   if (!spacesEnabled) return { href: "/code", firstRun: null };
 
-  const sessionTaskId = await cappedSessionTaskId(run.sessionTaskId);
+  const sessionTaskId = await cappedSessionTaskId(sessionTaskIdPromise);
   return {
     href: sessionTaskId
       ? `/spaces/${general.id}/tasks/${sessionTaskId}`

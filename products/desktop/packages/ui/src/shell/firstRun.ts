@@ -9,8 +9,6 @@ export type FirstRunClient = Pick<
 export interface FirstRun {
   /** ``null`` when provisioning failed, which must not stop the app opening. */
   provisioned: Promise<ProvisionedTaskChannels | null>;
-  /** ``null`` unless this is the first run and the backend opened a session. */
-  sessionTaskId: Promise<string | null>;
 }
 
 /**
@@ -24,39 +22,55 @@ export function isFirstRun(
   return Boolean(provisioned?.general_created || provisioned?.personal_created);
 }
 
-let started: (FirstRun & { identity: string }) | null = null;
+type FirstRunEntry = FirstRun & {
+  identity: string;
+  sessionTaskId?: Promise<string | null>;
+};
 
-function begin(identity: string, client: FirstRunClient): FirstRun {
+let started: FirstRunEntry | null = null;
+
+function begin(identity: string, client: FirstRunClient): FirstRunEntry {
   const provisioned = client.provisionDefaultTaskChannels().catch(() => {
     // Dropped so a later caller provisions again rather than inheriting the failure.
     if (started?.identity === identity) started = null;
     return null;
   });
-  const entry = {
+  const entry: FirstRunEntry = {
     identity,
     provisioned,
-    // Its own promise, not awaited into `provisioned`, so a hung scrape cannot hold up
-    // the callers that only need the channels.
-    sessionTaskId: provisioned.then((channels) =>
-      isFirstRun(channels)
-        ? client.startOnboardingSession().catch(() => null)
-        : null,
-    ),
   };
   started = entry;
   return entry;
 }
 
 /**
- * Start provisioning and, on a first run, the session the user will land in. Called as soon as
- * the user is through the access check, so the work overlaps onboarding instead of following it.
+ * Start provisioning as soon as the user is through the access check.
  */
-export function beginFirstRun(identity: string, client: FirstRunClient): void {
+export function beginProvisioning(
+  identity: string,
+  client: FirstRunClient,
+): void {
   if (started?.identity !== identity) begin(identity, client);
 }
 
+export const beginFirstRun = beginProvisioning;
+
+export function ensureSession(
+  identity: string,
+  client: FirstRunClient,
+): Promise<string | null> {
+  const entry =
+    started?.identity === identity ? started : begin(identity, client);
+  entry.sessionTaskId ??= entry.provisioned.then((channels) =>
+    isFirstRun(channels)
+      ? client.startOnboardingSession().catch(() => null)
+      : null,
+  );
+  return entry.sessionTaskId;
+}
+
 /**
- * The result of {@link beginFirstRun}, shared rather than consumed: `personal_created` and
+ * The result of {@link beginProvisioning}, shared rather than consumed: `personal_created` and
  * `general_created` are true only for whoever provisions first, so every reader has to see the
  * same response or the later ones decide this is not a first run.
  */
