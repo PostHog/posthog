@@ -2,6 +2,7 @@ from typing import Any
 
 from django.conf import settings
 
+from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -119,7 +120,9 @@ def build_teams_subscription_card(
     remaining = TEAMS_CARD_TEXT_BUDGET - len(title)
 
     if change_summary:
-        summary = _fit(f"**AI summary**\n\n{change_summary}", remaining)
+        # The summary is LLM output over customer data, so it is defanged the same way the AI
+        # report is before it reaches a surface that turns a URL into a link.
+        summary = _fit(f"**AI summary**\n\n{strip_external_links_markdown(change_summary)}", remaining)
         body.append(teams_text_block(summary))
         remaining -= len(summary)
     elif summary_skipped_over_budget:

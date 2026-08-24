@@ -83,6 +83,11 @@ class TestTeamsSubscriptionCard(APIBaseTest):
         assert content["body"][1]["text"] == "**AI summary**\n\nSignups doubled"
         assert content["body"][2]["type"] == "Image"
 
+    def test_change_summary_links_are_defanged(self) -> None:
+        content = self._card_content(change_summary="Signups doubled, see [why](https://evil.example.com/x)")
+
+        assert "evil.example.com" not in str(content)
+
     def test_a_run_where_every_asset_failed_stays_inside_the_card_budget(self) -> None:
         failed_assets = [
             ExportedAsset.objects.create(
