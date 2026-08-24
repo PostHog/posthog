@@ -187,7 +187,7 @@ mod tests {
             mode: usage_ingestion_proto::usage_ingestion::v1::BillingUsageMode::Delta as i32,
             unit: "request".to_string(),
             quantity: 10,
-            event_timestamp_ms: 1_718_409_600_000,
+            timestamp_ms: 1_718_409_600_000,
             dimensions: Default::default(),
         }
     }

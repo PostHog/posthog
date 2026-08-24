@@ -2115,7 +2115,7 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
@@ -2140,7 +2140,7 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     engine "kafka" {
@@ -2164,7 +2164,7 @@ SELECT
   mode,
   unit,
   quantity,
-  event_timestamp,
+  timestamp,
   inserted_at,
   dimensions,
   _timestamp,
@@ -2182,7 +2182,7 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }

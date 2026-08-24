@@ -23,8 +23,22 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 }
 
 export interface RecordEventUsageInput {
-    preparedEvent: { teamId: number; event: string; eventUuid: string }
+    preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
     eventUsageBatch: UsageRecordBatch
+}
+
+/**
+ * Mirrors the events table's dedup identity, `(team_id, toDate(timestamp), event,
+ * distinct_id, uuid)`, minus the team the billing sorting key already carries. The UUID alone
+ * is not that identity: two events sharing one but differing in day, name or distinct_id are
+ * separate rows there, and the nightly report counts them separately, so billing must too.
+ *
+ * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
+ * `toDate` resolves.
+ */
+function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
+    const day = preparedEvent.timestamp.slice(0, 10)
+    return `${day}:${preparedEvent.event}:${preparedEvent.distinctId}:${preparedEvent.eventUuid}`
 }
 
 export interface EventUsageRecord {
@@ -38,9 +52,18 @@ export interface EventUsageRecordContext {
 }
 
 /**
- * One record per event, identified by the event UUID. The UUID travels with the
- * event, so a replay reproduces the identity whatever the consumer's batching,
- * which an offset-derived identity cannot.
+ * One record per event. Its identity travels inside the event, so a replay reproduces it
+ * whatever the consumer's batching, which an offset-derived identity cannot.
+ *
+ * TODO: decide how usage records should treat events dated in the past. This step bills every
+ * billable event at the moment it is processed, including a historical migration. The nightly
+ * report does not: `get_teams_with_billable_event_count_in_period` filters the events table on
+ * the event's own `timestamp`, so an event backdated outside the current period lands in a
+ * period that has already been billed and is charged for nowhere. The two systems therefore
+ * disagree on exactly the imports customers run deliberately, and the choice — bill regardless
+ * of event age, or mirror the report and skip old events — is a pricing decision rather than an
+ * implementation one. `historicalMigration` is available upstream in the pipeline if we pick
+ * the second.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
@@ -48,7 +71,7 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T & EventUsageRecordContext>> {
         const usageKey = resolveUsageKey(input.preparedEvent.event)
         const eventUsageRecord = usageKey
-            ? { teamId: input.preparedEvent.teamId, usageKey, recordId: input.preparedEvent.eventUuid }
+            ? { teamId: input.preparedEvent.teamId, usageKey, recordId: analyticsRecordId(input.preparedEvent) }
             : undefined
         return Promise.resolve(ok({ ...input, eventUsageRecord }))
     }

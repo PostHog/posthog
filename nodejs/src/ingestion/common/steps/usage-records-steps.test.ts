@@ -6,14 +6,14 @@ import { isOkResult } from '~/ingestion/framework/results'
 import { createRecordEventUsageAfterIngestStep, createRecordEventUsageStep } from './usage-records-steps'
 
 describe('usage-records-steps', () => {
-    const EVENT_TIMESTAMP_MS = 1_700_000_000_000
+    const FLUSH_TIMESTAMP_MS = 1_700_000_000_000
 
     let ingestedUsage: UsageRecordInput[]
     let eventUsageBatch: UsageRecordBatch
 
     beforeEach(() => {
         jest.useFakeTimers()
-        jest.setSystemTime(EVENT_TIMESTAMP_MS)
+        jest.setSystemTime(FLUSH_TIMESTAMP_MS)
         ingestedUsage = []
         const usageClient = {
             ingest: jest.fn((records: UsageRecordInput[]) => {
@@ -31,7 +31,13 @@ describe('usage-records-steps', () => {
     async function queueEventUsage(ingested: Promise<IngestedEventInfo | null>[]): Promise<void> {
         const prepare = createRecordEventUsageStep((event) => (event === '$pageview' ? 'events' : null))
         const prepared = await prepare({
-            preparedEvent: { teamId: 42, event: '$pageview', eventUuid: 'event-uuid' },
+            preparedEvent: {
+                teamId: 42,
+                event: '$pageview',
+                eventUuid: 'event-uuid',
+                distinctId: 'user-7',
+                timestamp: '2026-06-15T23:55:00.000Z',
+            },
             eventUsageBatch,
         })
         expect(isOkResult(prepared)).toBe(true)
@@ -73,12 +79,12 @@ describe('usage-records-steps', () => {
 
         expect(ingestedUsage).toEqual([
             {
-                recordId: 'event-uuid',
+                recordId: '2026-06-15:$pageview:user-7:event-uuid',
                 teamId: 42,
                 usageKey: 'events',
                 unit: 'events',
                 quantity: 1,
-                eventTimestampMs: EVENT_TIMESTAMP_MS,
+                timestampMs: FLUSH_TIMESTAMP_MS,
                 dimensions: undefined,
             },
         ])

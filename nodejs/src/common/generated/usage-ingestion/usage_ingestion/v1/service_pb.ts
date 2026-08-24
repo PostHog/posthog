@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_usage_ingestion_v1_service: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIucCChJCaWxsaW5nVXNhZ2VSZWNvcmQSEQoJcmVjb3JkX2lkGAEgASgJEhMKC3Byb2R1Y2VyX2lkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEQoJdXNhZ2Vfa2V5GAQgASgJEjIKBG1vZGUYBSABKA4yJC51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlTW9kZRIMCgR1bml0GAYgASgJEhAKCHF1YW50aXR5GAcgASgDEhoKEmV2ZW50X3RpbWVzdGFtcF9tcxgJIAEoAxJKCgpkaW1lbnNpb25zGA0gAygLMjYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZC5EaW1lbnNpb25zRW50cnkaMQoPRGltZW5zaW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgIEAlKBAgKEAtKBAgLEAxKBAgMEA0iVAoZSW5nZXN0QmlsbGluZ1VzYWdlUmVxdWVzdBI3CgdyZWNvcmRzGAEgAygLMiYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZCI5ChpJbmdlc3RCaWxsaW5nVXNhZ2VSZXNwb25zZRIbChNhY2NlcHRlZF9yZWNvcmRfaWRzGAEgAygJKnUKEEJpbGxpbmdVc2FnZU1vZGUSIgoeQklMTElOR19VU0FHRV9NT0RFX1VOU1BFQ0lGSUVEEAASHAoYQklMTElOR19VU0FHRV9NT0RFX0RFTFRBEAESHwobQklMTElOR19VU0FHRV9NT0RFX1NOQVBTSE9UEAIyhQEKDlVzYWdlSW5nZXN0aW9uEnMKEkluZ2VzdEJpbGxpbmdVc2FnZRItLnVzYWdlX2luZ2VzdGlvbi52MS5Jbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0Gi4udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlYgZwcm90bzM'
+        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIuECChJCaWxsaW5nVXNhZ2VSZWNvcmQSEQoJcmVjb3JkX2lkGAEgASgJEhMKC3Byb2R1Y2VyX2lkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEQoJdXNhZ2Vfa2V5GAQgASgJEjIKBG1vZGUYBSABKA4yJC51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlTW9kZRIMCgR1bml0GAYgASgJEhAKCHF1YW50aXR5GAcgASgDEhQKDHRpbWVzdGFtcF9tcxgJIAEoAxJKCgpkaW1lbnNpb25zGA0gAygLMjYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZC5EaW1lbnNpb25zRW50cnkaMQoPRGltZW5zaW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgIEAlKBAgKEAtKBAgLEAxKBAgMEA0iVAoZSW5nZXN0QmlsbGluZ1VzYWdlUmVxdWVzdBI3CgdyZWNvcmRzGAEgAygLMiYudXNhZ2VfaW5nZXN0aW9uLnYxLkJpbGxpbmdVc2FnZVJlY29yZCI5ChpJbmdlc3RCaWxsaW5nVXNhZ2VSZXNwb25zZRIbChNhY2NlcHRlZF9yZWNvcmRfaWRzGAEgAygJKnUKEEJpbGxpbmdVc2FnZU1vZGUSIgoeQklMTElOR19VU0FHRV9NT0RFX1VOU1BFQ0lGSUVEEAASHAoYQklMTElOR19VU0FHRV9NT0RFX0RFTFRBEAESHwobQklMTElOR19VU0FHRV9NT0RFX1NOQVBTSE9UEAIyhQEKDlVzYWdlSW5nZXN0aW9uEnMKEkluZ2VzdEJpbGxpbmdVc2FnZRItLnVzYWdlX2luZ2VzdGlvbi52MS5Jbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0Gi4udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlYgZwcm90bzM'
     )
 
 /**
@@ -18,10 +18,9 @@ export const file_usage_ingestion_v1_service: GenFile =
  */
 export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'> & {
     /**
-     * (team_id, producer_id, usage_key, record_id) is the record's identity, so a retry
-     * reuses all four and collapses to one row. Correcting a quantity means re-sending
-     * the same identity: the last send wins. event_timestamp is free to move between
-     * sends, which is what makes a replay safe.
+     * (team_id, toDate(timestamp), producer_id, usage_key, record_id) is the record's
+     * identity, so a retry reuses all five and collapses to one row. Correcting a quantity
+     * means re-sending the same identity: the last send wins.
      *
      * @generated from field: string record_id = 1;
      */
@@ -61,9 +60,13 @@ export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'
     quantity: bigint
 
     /**
-     * @generated from field: int64 event_timestamp_ms = 9;
+     * Stamp this from the producer's own clock when it emits, never from a customer
+     * payload. It is part of the storage identity, so a value a customer controls would
+     * let them decide whether their records deduplicate.
+     *
+     * @generated from field: int64 timestamp_ms = 9;
      */
-    eventTimestampMs: bigint
+    timestampMs: bigint
 
     /**
      * @generated from field: map<string, string> dimensions = 13;

@@ -120,7 +120,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
   )
@@ -1161,7 +1161,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
       
@@ -1189,7 +1189,7 @@
       mode,
       unit,
       quantity,
-      event_timestamp,
+      timestamp,
       inserted_at,
       dimensions,
       _timestamp,
@@ -2430,7 +2430,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
   )
@@ -6646,7 +6646,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
       
@@ -6654,11 +6654,10 @@
   , _offset UInt64
   , _partition UInt64
   
-      , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
-  PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, usage_key, record_id)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
   
   '''
 # ---
@@ -9175,7 +9174,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
       
@@ -11678,7 +11677,7 @@
       mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
-      event_timestamp DateTime64(6, 'UTC'),
+      timestamp DateTime64(6, 'UTC'),
       inserted_at DateTime64(6, 'UTC'),
       dimensions Map(LowCardinality(String), String)
       
@@ -11686,11 +11685,10 @@
   , _offset UInt64
   , _partition UInt64
   
-      , INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at)
-  PARTITION BY toYYYYMM(event_timestamp)
-  ORDER BY (team_id, producer_id, usage_key, record_id)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
   
   '''
 # ---

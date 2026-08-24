@@ -19,10 +19,9 @@ enum BillingUsageMode {
 }
 
 message BillingUsageRecord {
-  // (team_id, producer_id, usage_key, record_id) is the record's identity, so a retry
-  // reuses all four and collapses to one row. Correcting a quantity means re-sending
-  // the same identity: the last send wins. event_timestamp is free to move between
-  // sends, which is what makes a replay safe.
+  // (team_id, toDate(timestamp), producer_id, usage_key, record_id) is the record's
+  // identity, so a retry reuses all five and collapses to one row. Correcting a quantity
+  // means re-sending the same identity: the last send wins.
   string record_id = 1;
   string producer_id = 2;
 
@@ -34,7 +33,10 @@ message BillingUsageRecord {
   BillingUsageMode mode = 5;
   string unit = 6;
   int64 quantity = 7;
-  int64 event_timestamp_ms = 9;
+  // Stamp this from the producer's own clock when it emits, never from a customer
+  // payload. It is part of the storage identity, so a value a customer controls would
+  // let them decide whether their records deduplicate.
+  int64 timestamp_ms = 9;
   map<string, string> dimensions = 13;
 
   reserved 8, 10, 11, 12; // version, source_ref, user_id, variant
