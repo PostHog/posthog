@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
+  openSettings: vi.fn(),
   openBrowserTab: vi.fn(),
 }));
 
@@ -58,6 +59,9 @@ vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
 }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => mocks.openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
+  openSettings: mocks.openSettings,
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
@@ -180,6 +184,15 @@ describe("NavRail", () => {
       expect(mocks.openBrowserTab).toHaveBeenCalledWith("/inbox");
       expect(mocks.navigateToInbox).not.toHaveBeenCalled();
       expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
+    it("keeps Settings in the current window on Cmd-click", () => {
+      render(<NavRail />);
+
+      fireEvent.click(screen.getByLabelText("Settings"), { metaKey: true });
+
+      expect(mocks.openSettings).toHaveBeenCalledOnce();
+      expect(mocks.openBrowserTab).not.toHaveBeenCalled();
     });
 
     it("routes to Activity from a screen that has no column for it", async () => {

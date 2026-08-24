@@ -31,10 +31,7 @@ import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useConte
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
-import {
-  openSettings,
-  prepareSettingsPage,
-} from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import {
   isNavItemVisible,
@@ -286,18 +283,12 @@ export function NavRail() {
               icon={<GearSix size={16} />}
               label="Settings"
               isActive={false}
-              onClick={(event) => {
+              onClick={() => {
                 track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
                   item: "configure",
                   in_more: false,
                   layout: "channels",
                 });
-                if (tabsEnabled && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  prepareSettingsPage();
-                  openBrowserTab("/settings/general");
-                  return;
-                }
                 openSettings();
               }}
             />

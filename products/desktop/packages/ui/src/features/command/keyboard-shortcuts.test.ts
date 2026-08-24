@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getShortcutsByCategory,
   KEYBOARD_SHORTCUTS,
+  panelTabShortcut,
   SHORTCUTS,
 } from "./keyboard-shortcuts";
 
@@ -67,5 +68,14 @@ describe("SHORTCUTS", () => {
 
   it("offers nine channel slots", () => {
     expect(SHORTCUTS.SWITCH_STARRED_CHANNEL.split(",")).toHaveLength(9);
+  });
+
+  it("keeps browser and inner-panel tab shortcuts distinct off macOS", () => {
+    expect(panelTabShortcut(true)).toBe(
+      "ctrl+1,ctrl+2,ctrl+3,ctrl+4,ctrl+5,ctrl+6,ctrl+7,ctrl+8,ctrl+9",
+    );
+    expect(panelTabShortcut(false)).toBe(
+      "alt+1,alt+2,alt+3,alt+4,alt+5,alt+6,alt+7,alt+8,alt+9",
+    );
   });
 });

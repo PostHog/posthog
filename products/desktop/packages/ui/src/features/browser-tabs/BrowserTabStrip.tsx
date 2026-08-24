@@ -39,6 +39,7 @@ import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInpu
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useAppView } from "@posthog/ui/router/useAppView";
+import { isMac } from "@posthog/ui/utils/platform";
 import { useQuery } from "@tanstack/react-query";
 import {
   useNavigate,
@@ -48,6 +49,7 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { shouldHandleBrowserTabSwitch } from "./browserTabShortcuts";
 import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
@@ -869,13 +871,11 @@ export function BrowserTabStrip() {
   // (pinned-first) order, so the key matches what you are counting on screen.
   //
   // Owned by the strip wherever it is mounted, so a press has one local-first
-  // path. Pure ctrl stays with the task editor's inner tab switcher.
+  // path. On macOS, pure ctrl stays with the task editor's inner tab switcher.
   useHotkeys(
     SHORTCUTS.SWITCH_BROWSER_TAB,
     (event, handler) => {
-      // Same ctrl guard as the shortcuts this replaces: plain ctrl+1-9 is the
-      // editor panel's tab switcher, so leave ctrl-only presses to it.
-      if (event.ctrlKey && !event.metaKey) return;
+      if (!shouldHandleBrowserTabSwitch(event, isMac)) return;
       const slot = Number.parseInt(handler.keys?.[0] ?? "", 10);
       if (Number.isNaN(slot) || tabs.length === 0) return;
       const tab = slot === 9 ? tabs[tabs.length - 1] : tabs[slot - 1];

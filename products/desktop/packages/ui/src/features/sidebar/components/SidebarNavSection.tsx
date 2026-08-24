@@ -8,10 +8,7 @@ import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
-import {
-  openSettings,
-  prepareSettingsPage,
-} from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
   type CustomizableNavItemId,
@@ -197,10 +194,7 @@ export function SidebarNavSection({
     configure: (depth) => (
       <ConfigureItem
         depth={depth}
-        onClick={withNavTrack("configure", () => openSettings(), depth, {
-          href: "/settings/general",
-          prepare: prepareSettingsPage,
-        })}
+        onClick={withNavTrack("configure", () => openSettings(), depth)}
       />
     ),
     loops: (depth) => (

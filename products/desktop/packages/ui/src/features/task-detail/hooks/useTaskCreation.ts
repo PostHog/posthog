@@ -30,7 +30,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
-import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
@@ -67,12 +67,9 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
+import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
-
-function restoreTaskInputTab(tabId: string | null): void {
-  navigateBrowserTab(tabId, { href: "/new", title: "New task" }, openTaskInput);
-}
 
 interface UseTaskCreationOptions {
   editorRef: React.RefObject<EditorHandle | null>;
@@ -574,7 +571,7 @@ export function useTaskCreation({
               if (createdTaskId) {
                 pendingTaskPromptStoreApi.clear(createdTaskId);
               }
-              restoreTaskInputTab(originTabId);
+              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
             }
           }
           return result.success;
@@ -586,7 +583,7 @@ export function useTaskCreation({
             if (createdTaskId) {
               pendingTaskPromptStoreApi.clear(createdTaskId);
             }
-            restoreTaskInputTab(originTabId);
+            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
           }
           return false;
         }

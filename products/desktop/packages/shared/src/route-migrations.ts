@@ -42,7 +42,7 @@ export function rewriteSavedLocation(href: string): string {
     ) {
       const rest = href.slice(from.length);
       if (to !== "/") return to + rest;
-      return rest.startsWith("/") ? rest : `/${rest}`;
+      return `/${rest.replace(/^\/+/, "")}`;
     }
   }
   return href;

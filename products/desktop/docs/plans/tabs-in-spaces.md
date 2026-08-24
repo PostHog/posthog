@@ -1,6 +1,6 @@
 # PRD: Browser tabs in the spaces layout
 
-Status: decided, not built
+Status: partially shipped. The core tab model is built; the broader tier-2 store migration remains deferred.
 Surface: the whole app under `channelsLayout` (spaces / project-bluebird), not just `/spaces/*`
 Supersedes the decisions in [browser-tabs.md](./browser-tabs.md), which describes the strip as it shipped
 into the pre-rail layout. That document stays as the record of what was built; this one records what changes.
@@ -119,20 +119,15 @@ to `#me` on cold start, so `navigateToSpaces()` is effectively dead code. The ne
 
 Cmd/Ctrl-clicking a rail destination is the other explicit new-tab action. It opens the destination's
 root in a fresh tab and never runs the active tab's normal rail-navigation or remembered-visit path.
+Settings is excluded because it still uses the full-window shell.
 
 `BlankTabView` is deleted.
 
-### Settings becomes a normal tab
-The `isSettingsRoute` early return in `__root.tsx` renders no title bar, rail or sidebar. Under
-tabs-everywhere that is a trapdoor: opening settings in a tab makes the whole strip vanish with no way
-back but browser-back. Settings renders inside the content pane like any other route.
-
-Two consequences: the settings panel has to work at content-pane width rather than window width, and
-settings routes live outside `_shell`, so they will pick up `ContentHeader` on top of whatever header
-the panel already draws.
-
-Removing the early return also removes one of the two `TabShortcutFallback` mounts; the strip becomes
-the only `⌘W` owner.
+### Settings remains a full-window route
+The `isSettingsRoute` early return in `__root.tsx` renders no title bar, rail, sidebar, or tab strip.
+Opening that shell as a browser tab would hide the controls needed to leave or close the tab, so
+modifier-clicking Settings follows the normal in-window settings action. Moving settings into the
+content pane remains a separate layout and visual QA project.
 
 ### Launch authority
 The tabs snapshot decides where the app opens. `startupLocation` demotes to the fallback for the cases
@@ -163,9 +158,9 @@ per tab; if it describes how the app is configured, it is global.**
 `rightPanelStore` splits because which panel is open is content while its width is a preference, and a
 user who resizes it in one tab expects that width everywhere.
 
-Tier 2 is implemented with one `createTabScopedStore` primitive that keys existing state by tab id and
-reads the active tab, rather than five bespoke rewrites. New stores then get a one-line decision instead
-of an accidental default.
+The general tier-2 `createTabScopedStore` migration is deferred. The shipped implementation persists
+the tier-1 space, pane, and rail state in each tab's `viewState`; the stores listed in tier 2 still need
+an explicit migration before they can be treated as tab-scoped.
 
 Judgement calls worth revisiting once it is usable, all cheap to flip once the primitive exists:
 `dashboardEditStore` is per tab (two tabs both believing they are the editor of one canvas is a
@@ -186,13 +181,14 @@ rewritten and double its test surface.
 1. **Model, nothing visible.** href-primary schema and migration, per-tab `viewState`, rail memory
    moved onto the tab, dedup deleted, snapshot in the boot gate. One implicit tab throughout.
 2. **The UX, one PR.** Strip renders under `channelsLayout` behind `SPACES_TABS`, search moves to the
-   rail, settings becomes a tab, `+` goes to `/spaces`, tier-2 stores get scoped.
+   rail, and `+` goes to `/spaces`. Settings-in-content and the general tier-2 store migration are
+   deferred.
 
 ## What This Deletes
 
 `railHistoryStore` as a global, `restoreVisit`, the identity dedup branch, `activeTabIsBlank`,
 `primaryWindowHasNoTabs`, `showBlankTab`, `BlankTabView`, the `activeIsBlank` guard, the
-"`/spaces` must not redirect" constraint, the settings early return, and one `TabShortcutFallback` mount.
+"`/spaces` must not redirect" constraint.
 `decideTabNavigation` shrinks to roughly "stamp the entry, or activate on a history tag".
 
 ## Open Questions
@@ -205,7 +201,8 @@ rewritten and double its test surface.
   focus by the guard in `__root.tsx`, which only sees the active tab. Either filter bluebird-only hrefs
   at restore, or skip the snapshot entirely while the flag is off.
 
-## Note
+## Implementation status
 
-`packages/ui/src/features/browser-tabs/AGENTS.md` still describes shipped behaviour and should not be
-edited until this is built. When it is, the invariant at the top of this document belongs there.
+`packages/ui/src/features/browser-tabs/AGENTS.md` documents the shipped core behavior. The settings
+shell and the general tier-2 store migration above are intentionally deferred rather than implied to
+exist in the current implementation.

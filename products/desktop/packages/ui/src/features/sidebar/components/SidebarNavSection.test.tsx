@@ -22,6 +22,7 @@ const {
   navigateToCommandCenter,
   navigateToActivity,
   openCommandMenu,
+  openSettings,
   openBrowserTab,
 } = vi.hoisted(() => ({
   track: vi.fn(),
@@ -33,6 +34,7 @@ const {
   navigateToCommandCenter: vi.fn(),
   navigateToActivity: vi.fn(),
   openCommandMenu: vi.fn(),
+  openSettings: vi.fn(),
   openBrowserTab: vi.fn(),
 }));
 
@@ -63,6 +65,9 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput: vi.fn() }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
+  openSettings,
 }));
 vi.mock("@posthog/ui/shell/commandMenuStore", () => ({
   useCommandMenuStore: (selector: (s: { open: () => void }) => unknown) =>
@@ -167,6 +172,17 @@ describe("SidebarNavSection", () => {
 
     expect(openBrowserTab).toHaveBeenCalledWith("/inbox");
     expect(navigateToInbox).not.toHaveBeenCalled();
+  });
+
+  it("keeps Settings in the current window on Cmd-click", () => {
+    renderNav();
+
+    fireEvent.click(screen.getByRole("button", { name: /Settings/ }), {
+      metaKey: true,
+    });
+
+    expect(openSettings).toHaveBeenCalledOnce();
+    expect(openBrowserTab).not.toHaveBeenCalled();
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

@@ -14,7 +14,7 @@ When working in the Channels space, a person can only look at one canvas at a ti
 
 A browser-style tab strip across the top of the Channels space, rendered in the title bar exactly like the provided mockup: macOS traffic lights, a history/clock control, `< >` back/forward, a row of pill tabs (each an optional icon + a text label, active tab elevated/white, inactive tabs muted/gray), and a `+` to open a new tab.
 
-- Each tab is independent. Navigating changes only the active tab. `+` and Cmd/Ctrl-clicking a navigation destination explicitly open a new tab, even when another tab has the same location.
+- Each tab is an open canvas. Clicking a canvas focuses its tab if already open in the window, otherwise opens a new one.
 - Tabs can be dragged to reorder within the strip.
 - A tab can be torn off into a **new OS window** (multi-window) via a menu action ("Move to new window" / "Open in split"), giving a true side-by-side split. Focus moving between windows updates each window's own nav chrome to reflect where you are.
 - Back/forward behaves like a per-window action timeline: navigations within a tab are traversable, and when a tab's actions are exhausted, traversal spills back to the previously focused tab — all without opening or closing any tab.
@@ -30,7 +30,7 @@ A browser-style tab strip across the top of the Channels space, rendered in the 
 5. As a Channels user, I want to hover a tab and see which channel it belongs to, so that I can disambiguate tabs from different channels sitting side by side.
 6. As a Channels user, I want a single global strip where canvases from different channels coexist, so that my working set isn't fragmented per channel.
 7. As a Channels user, I want a `+` button, so that I can open a new tab quickly.
-8. As a Channels user, I want navigation to stay in my active tab even when another tab shows the same page, so that tab focus remains my choice.
+8. As a Channels user, I want clicking a canvas in the grid or sidebar to focus its existing tab if it's already open in this window, so that I don't accumulate duplicates.
 9. As a Channels user, I want to open the same canvas in two different windows, so that I can reference it while working elsewhere.
 10. As a Channels user, I want to close a tab, so that I can tidy my working set.
 11. As a Channels user, I want closing the last tab in a secondary window to close that window, so that empty windows don't linger.
@@ -89,7 +89,7 @@ A browser-style tab strip across the top of the Channels space, rendered in the 
 - Deferred. There is no host-level scroll to capture (the channels layout is `overflow:hidden` and all scrolling lives inside the null-origin iframe). Real restoration requires a new sandbox postMessage contract (iframe reports `scrollY`; host re-applies after render) and is out of scope here. The `scroll_state` column is created now so the follow-up needs no migration.
 
 ### Lifecycle
-- Tabs never deduplicate by content. Any number of tabs in the same window may hold the same location.
+- Dedup per window (click focuses an existing tab in that window); duplicates allowed across windows.
 - Closing the last tab in a secondary window closes the window; closing the last tab in the primary window shows the channels landing.
 
 ### UI (matches the mockup, quill primitives)
@@ -100,8 +100,8 @@ A browser-style tab strip across the top of the Channels space, rendered in the 
 
 Good tests assert **external behavior at a seam**, not internal wiring. We test at the three highest existing seams:
 
-1. **`TabsService` (core)** — unit-tested with faked injected dependencies (a stubbed workspace-client persistence slice and a fake emitter), mirroring `packages/core/src/focus/service.test.ts`. Assert observable behavior: opening the same location twice creates two tabs; close removes the row and (for secondary windows) signals window close; mutations persist through the slice and emit a change; restore reconstructs windows + tabs + active pointers from persisted state.
-2. **Pure action-stack + tab transforms** — pure-function tests with no DI, mirroring `packages/core/src/panels/panelLayoutTransforms.test.ts`. Cover: reorder (gap-spacing + collision reindex), duplicate-location tab selection, tab-tagged push on switch, pointer-only back/forward, skipping entries for closed tabs, and the spill-to-previous-tab boundary.
+1. **`TabsService` (core)** — unit-tested with faked injected dependencies (a stubbed workspace-client persistence slice and a fake emitter), mirroring `packages/core/src/focus/service.test.ts`. Assert observable behavior: open dedups within a window but allows cross-window dupes; close removes the row and (for secondary windows) signals window close; mutations persist through the slice and emit a change; restore reconstructs windows + tabs + active pointers from persisted state.
+2. **Pure action-stack + tab transforms** — pure-function tests with no DI, mirroring `packages/core/src/panels/panelLayoutTransforms.test.ts`. Cover: reorder (gap-spacing + collision reindex), dedup resolution, tab-tagged push on switch, pointer-only back/forward, skipping entries for closed tabs, and the spill-to-previous-tab boundary.
 3. **`TabStrip` presentational component (ui)** — props-in/render-out, with a Storybook story and an RTL test like `packages/ui/src/primitives/NestedButton.test.tsx`. Assert: active/inactive styling reflects the active prop; clicking a tab/`+`/`< >` fires the right callback; disabled `< >` when no history; tooltip surfaces the channel name. Data-fetching is excluded from the component (tRPC/host queries don't resolve in Storybook), so the strip is pure-presentational and fed resolved tab view-models.
 
 The window-manager platform adapter and the SQLite slice are covered by their host/integration layers, not unit tests of `TabsService`.
