@@ -275,6 +275,45 @@ describe('annotationsOverlayLogic', () => {
         listSpy.mockRestore()
     })
 
+    it('merges every page when the window spans more annotations than one page', async () => {
+        useInsightMocks()
+        // Override the default single-page mock with a two-page response, so the loader has to
+        // follow `next` to see the second page's annotation.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/annotations/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset')
+                    if (offset) {
+                        return [200, { results: [MOCK_ANNOTATION_INSIGHT_1_SCOPED], next: null }]
+                    }
+                    return [
+                        200,
+                        {
+                            results: [MOCK_ANNOTATION_ORG_SCOPED],
+                            next: '/api/projects/997/annotations/?offset=1&limit=1',
+                        },
+                    ]
+                },
+            },
+        })
+
+        logic = annotationsOverlayLogic({
+            dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+            insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: ['2022-01-01', '2023-01-01'],
+            ticks: [{ value: 0 }, { value: 1 }],
+            dashboardId: MOCK_DASHBOARD_ID,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
+
+        // Both pages are present — the second page is not dropped.
+        expect(logic.values.annotations.map((annotation) => annotation.id)).toEqual([
+            MOCK_ANNOTATION_ORG_SCOPED.id,
+            MOCK_ANNOTATION_INSIGHT_1_SCOPED.id,
+        ])
+    })
+
     describe('relevantAnnotations', () => {
         it('returns annotations scoped to the insight for a saved insight', async () => {
             useInsightMocks()

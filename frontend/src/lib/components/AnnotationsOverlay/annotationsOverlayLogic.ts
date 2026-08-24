@@ -246,7 +246,12 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                         date_to: dateRange[1].toISOString(),
                         hidden_in_user_interface: false,
                     })
-                    return response.results.map((annotation) => deserializeAnnotation(annotation, timezone))
+                    // A wide window can hold more annotations than one page. Follow `next` and merge
+                    // every page, or the oldest rows in the window drop — the bug this loader fixes.
+                    const results = response.next
+                        ? [...response.results, ...(await api.loadPaginatedResults<RawAnnotationType>(response.next))]
+                        : response.results
+                    return results.map((annotation) => deserializeAnnotation(annotation, timezone))
                 },
             },
         ],
