@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Literal, cast
@@ -19,6 +20,10 @@ DesktopAccessReason = Literal["startup_plan", "prepaid_credits"]
 DesktopAccessStatus = Literal["allowed", "blocked", "unavailable"]
 
 
+class _CredentialRejectedError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class DesktopAccessDecision:
     status: DesktopAccessStatus
@@ -33,8 +38,9 @@ class DesktopAccessDecision:
         return self.status == "unavailable"
 
 
-def _redis_key(user_id: int, team_id: int) -> str:
-    return f"{DESKTOP_ACCESS_CACHE_PREFIX}:{user_id}:{team_id}"
+def _redis_key(user_id: int, team_id: int, auth_header: str) -> str:
+    credential_fingerprint = hashlib.sha256(auth_header.encode()).hexdigest()
+    return f"{DESKTOP_ACCESS_CACHE_PREFIX}:{user_id}:{team_id}:{credential_fingerprint}"
 
 
 class DesktopAccessResolver:
@@ -47,7 +53,7 @@ class DesktopAccessResolver:
         self._http = http_client
 
     async def resolve_access(self, user_id: int, team_id: int, auth_header: str) -> DesktopAccessDecision:
-        cached = await self._get_cached(user_id, team_id)
+        cached = await self._get_cached(user_id, team_id, auth_header)
         if cached is not None:
             return cached
 
@@ -56,31 +62,53 @@ class DesktopAccessResolver:
     async def _resolve_uncached(self, user_id: int, team_id: int, auth_header: str) -> DesktopAccessDecision:
         try:
             decision = await self._fetch_access(team_id, auth_header)
+        except _CredentialRejectedError:
+            logger.warning("desktop_access_credential_rejected", user_id=user_id, team_id=team_id)
+            decision = DesktopAccessDecision(status="unavailable")
+            await self._set_cached(
+                user_id,
+                team_id,
+                auth_header,
+                decision,
+                get_settings().desktop_access_denied_cache_ttl,
+            )
+            return decision
         except Exception:
             logger.warning("desktop_access_fetch_failed", user_id=user_id, team_id=team_id, exc_info=True)
             return DesktopAccessDecision(status="unavailable")
 
         settings = get_settings()
         ttl = settings.desktop_access_cache_ttl if decision.allowed else settings.desktop_access_denied_cache_ttl
-        await self._set_cached(user_id, team_id, decision, ttl)
+        await self._set_cached(user_id, team_id, auth_header, decision, ttl)
         return decision
 
-    async def _get_cached(self, user_id: int, team_id: int) -> DesktopAccessDecision | None:
+    async def _get_cached(self, user_id: int, team_id: int, auth_header: str) -> DesktopAccessDecision | None:
         if not self._redis:
             return None
         try:
-            value = await self._redis.get(_redis_key(user_id, team_id))
+            value = await self._redis.get(_redis_key(user_id, team_id, auth_header))
             if value is not None:
                 return self._parse_cached_decision(json.loads(value.decode()))
         except Exception:
             logger.debug("desktop_access_cache_read_failed", user_id=user_id, team_id=team_id)
         return None
 
-    async def _set_cached(self, user_id: int, team_id: int, decision: DesktopAccessDecision, ttl: int) -> None:
+    async def _set_cached(
+        self,
+        user_id: int,
+        team_id: int,
+        auth_header: str,
+        decision: DesktopAccessDecision,
+        ttl: int,
+    ) -> None:
         if not self._redis:
             return
         try:
-            await self._redis.set(_redis_key(user_id, team_id), json.dumps(asdict(decision)), ex=ttl)
+            await self._redis.set(
+                _redis_key(user_id, team_id, auth_header),
+                json.dumps(asdict(decision)),
+                ex=ttl,
+            )
         except Exception:
             logger.debug("desktop_access_cache_write_failed", user_id=user_id, team_id=team_id)
 
@@ -95,6 +123,8 @@ class DesktopAccessResolver:
             headers={"Authorization": auth_header},
             timeout=settings.desktop_access_request_timeout,
         )
+        if response.status_code in (401, 403):
+            raise _CredentialRejectedError(f"Desktop access check returned {response.status_code}")
         if response.status_code != 200:
             raise RuntimeError(f"Desktop access check returned {response.status_code}")
 

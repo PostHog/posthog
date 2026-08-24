@@ -89,7 +89,6 @@ class TestDesktopAccessResolver:
             pytest.param(httpx.ReadTimeout("slow"), id="timeout"),
             pytest.param(_make_response(500), id="server_error"),
             pytest.param(_make_response(404), id="route_missing"),
-            pytest.param(_make_response(401), id="unauthorized"),
             pytest.param(_make_response(429), id="throttled"),
             pytest.param(_make_response(200, {"allowed": "yes", "reason": None}), id="malformed_allowed"),
             pytest.param(_make_response(200, {"allowed": False}), id="missing_reason"),
@@ -105,21 +104,44 @@ class TestDesktopAccessResolver:
         assert await resolver.resolve_access(7, 42, "Bearer tok") == expected
 
         assert http.get.await_count == 2
-        assert _redis_key(7, 42) not in redis.store
+        assert _redis_key(7, 42, "Bearer tok") not in redis.store
 
     @pytest.mark.asyncio
-    async def test_cache_is_isolated_by_user_and_team(self) -> None:
+    @pytest.mark.parametrize("status_code", [401, 403])
+    async def test_credential_rejection_is_cached(self, status_code: int) -> None:
+        settings = get_settings()
         redis = _FakeRedis()
-        http = _make_http_client(_make_response(200, {"allowed": True, "reason": None}))
+        http = _make_http_client(_make_response(status_code))
         resolver = _make_resolver(redis, http)
 
-        assert (await resolver.resolve_access(7, 42, "Bearer tok")).allowed is True
-        assert (await resolver.resolve_access(7, 42, "Bearer tok")).allowed is True
-        assert (await resolver.resolve_access(7, 43, "Bearer tok")).allowed is True
-        assert (await resolver.resolve_access(8, 42, "Bearer tok")).allowed is True
+        expected = DesktopAccessDecision(status="unavailable")
+        assert await resolver.resolve_access(7, 42, "Bearer restricted") == expected
+        assert await resolver.resolve_access(7, 42, "Bearer restricted") == expected
 
-        assert http.get.await_count == 3
-        assert len(redis.store) == 3
+        key = _redis_key(7, 42, "Bearer restricted")
+        assert http.get.await_count == 1
+        assert redis.ttls[key] == settings.desktop_access_denied_cache_ttl
+
+    @pytest.mark.asyncio
+    async def test_cache_is_isolated_by_user_team_and_credential(self) -> None:
+        redis = _FakeRedis()
+        http = _make_http_client(_make_response(200, {"allowed": True, "reason": None}))
+        http.get.side_effect = [
+            _make_response(200, {"allowed": True, "reason": None}),
+            _make_response(200, {"allowed": True, "reason": None}),
+            _make_response(200, {"allowed": True, "reason": None}),
+            _make_response(403),
+        ]
+        resolver = _make_resolver(redis, http)
+
+        assert (await resolver.resolve_access(7, 42, "Bearer unrestricted")).allowed is True
+        assert (await resolver.resolve_access(7, 42, "Bearer unrestricted")).allowed is True
+        assert (await resolver.resolve_access(7, 43, "Bearer unrestricted")).allowed is True
+        assert (await resolver.resolve_access(8, 42, "Bearer unrestricted")).allowed is True
+        assert (await resolver.resolve_access(7, 42, "Bearer restricted")).resolution_failed is True
+
+        assert http.get.await_count == 4
+        assert len(redis.store) == 4
 
     @pytest.mark.asyncio
     async def test_denial_cached_more_briefly_than_grant(self) -> None:
@@ -134,8 +156,8 @@ class TestDesktopAccessResolver:
         )
         await denied.resolve_access(8, 42, "Bearer tok")
 
-        assert redis.ttls[_redis_key(7, 42)] == settings.desktop_access_cache_ttl
-        assert redis.ttls[_redis_key(8, 42)] == settings.desktop_access_denied_cache_ttl
+        assert redis.ttls[_redis_key(7, 42, "Bearer tok")] == settings.desktop_access_cache_ttl
+        assert redis.ttls[_redis_key(8, 42, "Bearer tok")] == settings.desktop_access_denied_cache_ttl
         assert settings.desktop_access_denied_cache_ttl < settings.desktop_access_cache_ttl
 
     @pytest.mark.asyncio

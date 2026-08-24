@@ -24,12 +24,12 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 
 ### ✅ Use the Go gateway
 
-| Use case                      | Why it fits                                                                                                                                                             |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Customer LLM traffic          | The caller uses a project secret or OAuth credential, the team wallet should pay, and standard OpenAI or Anthropic APIs are enough.                                     |
-| Server-to-server PostHog call | A `phs_` credential, team wallet billing, and informational event properties provide enough policy and attribution. Internal spend can use a PostHog-owned team wallet. |
-| Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                              |
-| Gateway-managed routing       | The caller accepts Go host selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts.                                |
+| Use case                      | Why it fits                                                                                                                                                                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customer LLM traffic          | The caller uses a project secret or OAuth credential, the team wallet should pay, and standard OpenAI or Anthropic APIs are enough.                                               |
+| Server-to-server PostHog call | A `phs_` credential, team wallet billing, and informational event properties provide enough policy and attribution. Internal spend can use a PostHog-owned team wallet.           |
+| Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                                        |
+| Gateway-managed routing       | The caller accepts operator-managed provider plans and health-aware selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or configured Modal, Fireworks, and Baseten hosts. |
 
 Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). The OpenAI builders forward caller-selected distinct IDs, traces, sessions, and metadata while keeping a temporary Python fallback during rollout.
 
@@ -55,7 +55,7 @@ These are compatibility checks, not automatic blockers:
 - **Attribution:** `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, and `X-PostHog-Properties` provide enough event context. Go does not derive the event distinct ID from OpenAI `user`, Anthropic `metadata.user_id`, or the OAuth user. Caller-supplied properties are not trusted policy.
 - **Session attribution:** `X-PostHog-Session-Id` provides the required gateway-owned `$ai_session_id`.
 - **Provider deployment:** Fireworks and Baseten host support exists in Go, but the target environment must declare the required host and credentials. Baseten also requires approved-subprocessor status before deployment.
-- **Provider behavior:** health-based routing or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
+- **Provider behavior:** operator routing policy, health-aware provider ordering, or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
 - **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.
 - **Metadata:** Python per-key property and feature flag headers are converted to the Go JSON properties header.
 
@@ -71,7 +71,7 @@ These are compatibility checks, not automatic blockers:
 | Anthropic APIs               | Messages and token counting, including Bedrock-hosted models.                                                                                                      | OpenAI models exposed through the Anthropic shape and Python-specific Bedrock opt-in behavior.                                                                                                                                                                                                                               |
 | Providers                    | OpenAI, Anthropic, Azure OpenAI, Bedrock, and configured Modal, Fireworks, and Baseten hosts.                                                                      | OpenRouter and Cloudflare Workers AI.                                                                                                                                                                                                                                                                                        |
 | Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, router categories, and OpenRouter-shaped pricing.                                             | Broader LiteLLM model acceptance, Python product allowlists, and product-scoped model pricing.                                                                                                                                                                                                                               |
-| Routing and failure behavior | Health-based host choice, circuit breakers, hosted-provider failover, and strict provider pinning.                                                                 | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                                                                                                                         |
+| Routing and failure behavior | Operator-managed provider plans, health-aware ordering, circuit breakers, hosted-provider failover, and strict provider pinning.                                   | Caller opt-in Bedrock fallback and provider-specific Python routing.                                                                                                                                                                                                                                                         |
 | Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated distinct ID, trace ID, and provider headers.                                                                 | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                                                                                                                                                                                                                                       |
 | Session attribution          | `X-PostHog-Session-Id` is recorded as the gateway-owned `$ai_session_id`.                                                                                          | The per-key property header can also emit `$ai_session_id`.                                                                                                                                                                                                                                                                  |
 
@@ -89,10 +89,10 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 
 Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
-Last verified on 2026-08-21 against:
+Last verified on 2026-08-24 against:
 
-- `PostHog/posthog` working tree based on master at `ea04477613d794428e95b131f5d87a954d07450f`
-- `PostHog/ai-gateway` main at `931d271cc1a772c8c8359e4f32aa90355804e4c0`
+- `PostHog/posthog` working tree based on master at `64a168b617f22bbf14d31d08a7cebfd7fd789fb0`
+- `PostHog/ai-gateway` main at `9a9826ea448b3f5fcddeb8bc09ef187963a93902`
 
 ## References
 
