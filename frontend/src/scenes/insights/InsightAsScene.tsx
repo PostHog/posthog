@@ -9,6 +9,7 @@ import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { RelativeDayRangeNotice } from '~/queries/nodes/InsightViz/RelativeDayRangeNotice'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
@@ -91,6 +92,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 )}
 
                 <InsightRetentionBanner insightProps={insightProps} />
+
+                <RelativeDayRangeNotice source={isInsightVizNode(query) ? query.source : null} />
 
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
