@@ -33,7 +33,7 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
-    def with_first_seen(self) -> models.QuerySet["ErrorTrackingIssue"]:
+    def with_first_seen(self):
         first_seen = (
             ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
             .order_by("first_seen")
