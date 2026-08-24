@@ -39,6 +39,7 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
@@ -400,14 +401,18 @@ export const productRedirects: Record<
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
-    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-        const { tab, ...restSearchParams } = searchParams
-        return combineUrl(
-            '/error_tracking',
-            { ...restSearchParams, activeTab: 'configuration' },
-            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-        ).url
-    },
+    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>

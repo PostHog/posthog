@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 import structlog
 import posthoganalytics
 
+from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -40,7 +41,8 @@ from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
-ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
+ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
+ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 
@@ -71,6 +73,12 @@ def company_domain_from(email: str) -> str | None:
     if not domain or domain in PERSONAL_EMAIL_DOMAINS:
         return None
     return normalize_target(domain)
+
+
+def onboarding_session_model(team: Team) -> str:
+    if team.organization.is_feature_available(AvailableFeature.POSTHOG_CODE_USAGE):
+        return ONBOARDING_SESSION_PAID_MODEL
+    return ONBOARDING_SESSION_FREE_MODEL
 
 
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
@@ -205,7 +213,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
                 create_pr=False,
                 mode="interactive",
-                model=ONBOARDING_SESSION_MODEL,
+                model=onboarding_session_model(team),
                 reasoning_effort=ONBOARDING_SESSION_EFFORT,
                 posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
                 initial_permission_mode="auto",
