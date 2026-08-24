@@ -108,6 +108,10 @@ function LoadedSetupFlow({
   // Survives a failed submit: if the image was created but a later step
   // failed, resubmitting must reuse it instead of creating an orphaned twin.
   const createdImageRef = useRef<SandboxCustomImage | null>(null);
+  // Same intent for the environment: a build that fails after the environment
+  // was created must not create a second one on the next submit. The existing
+  // path patches by id, so it is already idempotent and needs no guard.
+  const createdEnvironmentRef = useRef(false);
 
   const submit = async (mode: ImageBuildMode | null) => {
     const result = await submitEnvironmentPlan(plan, mode === "build", {
@@ -134,9 +138,11 @@ function LoadedSetupFlow({
           });
           return;
         }
+        if (createdEnvironmentRef.current) return;
         await createEnvironment.mutateAsync(
           planEnvironmentInput(plan, customImageId),
         );
+        createdEnvironmentRef.current = true;
       },
     });
     if (result === null) return;
