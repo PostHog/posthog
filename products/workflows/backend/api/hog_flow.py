@@ -2350,10 +2350,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # always pass, so a flag dial-down can't brick saves or publishes of workflows that already
         # carry a limit. Uses the same fail-closed flag evaluation as gated templates.
         if "email_sending_rate_limit" in data:
+            # Nested use (the `configuration` override on test invocations) never binds
+            # self.instance — the flow arrives via context, same as in to_internal_value — so
+            # resolve it here too or a test run echoing a stored limit would fail the gate.
+            gate_instance = instance or cast(Optional[HogFlow], self.context.get("instance"))
             new_value = data["email_sending_rate_limit"]
-            existing_values = [instance.email_sending_rate_limit if instance else None]
-            if instance is not None and isinstance(instance.draft, dict):
-                existing_values.append(instance.draft.get("email_sending_rate_limit"))
+            existing_values = [gate_instance.email_sending_rate_limit if gate_instance else None]
+            if gate_instance is not None and isinstance(gate_instance.draft, dict):
+                existing_values.append(gate_instance.draft.get("email_sending_rate_limit"))
             if new_value is not None and new_value not in existing_values:
                 # Outside a request (internal re-saves, direct construction) there is no team
                 # to evaluate the flag against.
