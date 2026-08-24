@@ -71,7 +71,7 @@ jq -r 'select(.event.type=="tool_call_updated") | .event.toolCall.status' <log> 
 Largest tool outputs (verbose-output candidates):
 
 ```sh
-jq -c 'select(.event.type=="tool_call_updated") | {line: input_line_number, bytes: (.event.toolCall.rawOutput | tostring | length)}' <log> | jq -s -c 'sort_by(-.bytes)[0:10][]'
+jq -c 'select(.event.type=="tool_call_updated") | {line: input_line_number, bytes: (.event.toolCall.rawOutput | tostring | utf8bytelength)}' <log> | jq -s -c 'sort_by(-.bytes)[0:10][]'
 ```
 
 ## ACP format
@@ -157,14 +157,18 @@ Tool-output bytes across the span — works in both formats, even when the log h
 records. Pi:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.event.type=="tool_call_updated") | (.event.toolCall.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.event.type=="tool_call_updated") | (.event.toolCall.rawOutput | tostring | utf8bytelength)] | add // "no tool outputs in span"'
 ```
 
 ACP:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.params.update.sessionUpdate=="tool_call_update") | (.notification.params.update.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.params.update.sessionUpdate=="tool_call_update") | (.notification.params.update.rawOutput | tostring | utf8bytelength)] | add // "no tool outputs in span"'
 ```
+
+Use `utf8bytelength`, not `length`.
+`length` counts Unicode code points, so it undercounts non-ASCII output.
+For example, `echo '"🦔"' | jq 'utf8bytelength'` returns `4`, while `length` returns `1`.
 
 When the same pattern occurs in separate, non-contiguous spans, measure each span with these
 recipes and report the sum. Never bracket from the first occurrence to the last — the work in
