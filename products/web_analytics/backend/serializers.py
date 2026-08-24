@@ -1,9 +1,12 @@
+from django.core.validators import URLValidator
+
 from rest_framework import serializers
 
 
 class LlmsTxtFetchRequestSerializer(serializers.Serializer):
     url = serializers.URLField(
         max_length=2048,
+        validators=[URLValidator(schemes=["http", "https"])],
         help_text="Public HTTP or HTTPS URL of the llms.txt file to load.",
     )
 

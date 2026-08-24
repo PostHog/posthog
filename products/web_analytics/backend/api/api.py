@@ -1,15 +1,15 @@
-from typing import TypedDict
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
-from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import LlmsTxtFetchBurstRateThrottle, LlmsTxtFetchSustainedRateThrottle
 
 from products.web_analytics.backend.llms_txt import LlmsTxtFetchError, fetch_llms_txt
 from products.web_analytics.backend.recap import build_team_recap
@@ -26,10 +26,6 @@ MAX_DAYS = 90
 DEFAULT_DAYS = 7
 
 
-class _LlmsTxtFetchRequestData(TypedDict):
-    url: str
-
-
 class _DigestQuerySerializer(serializers.Serializer):
     days = serializers.IntegerField(min_value=MIN_DAYS, max_value=MAX_DAYS, required=False, default=DEFAULT_DAYS)
     compare = serializers.BooleanField(required=False, default=True)
@@ -39,6 +35,12 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["weekly_digest", "recap", "llms_txt"]
     serializer_class = WeeklyDigestResponseSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "llms_txt":
+            # One outbound fetch of a caller-supplied file per call, blocking a web worker while it runs.
+            return [LlmsTxtFetchBurstRateThrottle(), LlmsTxtFetchSustainedRateThrottle()]
+        return super().get_throttles()
 
     @validated_request(
         request_serializer=LlmsTxtFetchRequestSerializer,
@@ -51,8 +53,8 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], url_path="llms_txt", pagination_class=None)
-    def llms_txt(self, request: TypedRequest[_LlmsTxtFetchRequestData], **kwargs: object) -> Response:
+    @action(detail=False, methods=["post"], url_path="llms_txt")
+    def llms_txt(self, request: ValidatedRequest, **kwargs: object) -> Response:
         try:
             fetched_file = fetch_llms_txt(request.validated_data["url"])
         except LlmsTxtFetchError as error:

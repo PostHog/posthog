@@ -5,7 +5,14 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from products.web_analytics.backend.llms_txt import LLMS_TXT_MAX_BYTES, LlmsTxtFetchError, fetch_llms_txt
+from posthog.security.pinned_requests import SSRFBlockedError
+
+from products.web_analytics.backend.llms_txt import (
+    LLMS_TXT_MAX_BYTES,
+    LLMS_TXT_MAX_REDIRECTS,
+    LlmsTxtFetchError,
+    fetch_llms_txt,
+)
 
 
 def _response(
@@ -59,3 +66,22 @@ def test_fetch_llms_txt_rejects_html_responses(pinned_session_mock: Mock) -> Non
 
     with pytest.raises(LlmsTxtFetchError, match="HTML page"):
         fetch_llms_txt("https://example.com/llms.txt")
+
+
+@patch("products.web_analytics.backend.llms_txt.pinned_session")
+def test_fetch_llms_txt_reports_ssrf_blocked_targets_as_a_user_error(pinned_session_mock: Mock) -> None:
+    pinned_session_mock.side_effect = SSRFBlockedError("Private IP address not allowed")
+
+    with pytest.raises(LlmsTxtFetchError, match="publicly accessible"):
+        fetch_llms_txt("https://internal.example/llms.txt")
+
+
+@patch("products.web_analytics.backend.llms_txt.pinned_session")
+def test_fetch_llms_txt_gives_up_once_the_redirect_limit_is_reached(pinned_session_mock: Mock) -> None:
+    redirect = _response(status_code=302, headers={"Location": "/next"})
+    pinned_session_mock.side_effect = [nullcontext(_session(redirect)) for _ in range(LLMS_TXT_MAX_REDIRECTS + 1)]
+
+    with pytest.raises(LlmsTxtFetchError, match="redirected too many times"):
+        fetch_llms_txt("https://example.com/llms.txt")
+
+    assert pinned_session_mock.call_count == LLMS_TXT_MAX_REDIRECTS + 1

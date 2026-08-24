@@ -3,8 +3,9 @@ from urllib.parse import urlparse
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +13,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.rate_limit import LlmsTxtFetchBurstRateThrottle
 
 from products.web_analytics.backend.llms_txt import FetchedLlmsTxt
 
@@ -358,14 +360,14 @@ class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
 class TestWebAnalyticsLlmsTxtAPI(APIBaseTest):
     ENDPOINT = "/api/projects/{team_id}/web_analytics/llms_txt/"
 
-    def _url(self):
+    def _url(self) -> str:
         return self.ENDPOINT.format(team_id=self.team.id)
 
     @patch(
         "products.web_analytics.backend.api.api.fetch_llms_txt",
         return_value=FetchedLlmsTxt(content="# Example\n/docs", url="https://example.com/llms.txt"),
     )
-    def test_loads_llms_txt_content(self, fetch_llms_txt_mock):
+    def test_loads_llms_txt_content(self, fetch_llms_txt_mock: Mock) -> None:
         response = self.client.post(
             self._url(),
             data={"url": "https://example.com/llms.txt"},
@@ -382,7 +384,7 @@ class TestWebAnalyticsLlmsTxtAPI(APIBaseTest):
             (["web_analytics:read"], status.HTTP_200_OK),
         ]
     )
-    def test_personal_api_key_requires_web_analytics_read_scope(self, scopes, expected_status):
+    def test_personal_api_key_requires_web_analytics_read_scope(self, scopes: list[str], expected_status: int) -> None:
         api_key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
@@ -398,3 +400,20 @@ class TestWebAnalyticsLlmsTxtAPI(APIBaseTest):
             )
 
         assert response.status_code == expected_status
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch(
+        "products.web_analytics.backend.api.api.fetch_llms_txt",
+        return_value=FetchedLlmsTxt(content="# Example", url="https://example.com/llms.txt"),
+    )
+    def test_fetching_is_throttled_for_the_session_authenticated_ui(self, _fetch: Mock, _enabled: Mock) -> None:
+        # The project-global Burst/Sustained pair only throttles personal API key traffic, so without
+        # an override the browser could hold a web worker per call in an unbounded loop.
+        cache.clear()
+
+        with patch.object(LlmsTxtFetchBurstRateThrottle, "rate", "2/minute"):
+            assert self.client.post(self._url(), {"url": "https://example.com/llms.txt"}).status_code == 200
+            assert self.client.post(self._url(), {"url": "https://example.com/llms.txt"}).status_code == 200
+            throttled = self.client.post(self._url(), {"url": "https://example.com/llms.txt"})
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
