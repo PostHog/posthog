@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   HandPalm,
   Lifebuoy,
+  MagnifyingGlass,
   Pause,
   PushPin,
   SlackLogo,
@@ -49,6 +50,7 @@ const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   session_summaries: { Icon: FilmSlate, label: "Session summary" },
   error_tracking: { Icon: Bug, label: "Error tracking" },
   eval_clusters: { Icon: Flask, label: "Evals" },
+  task_analysis: { Icon: MagnifyingGlass, label: "Task analysis" },
 };
 
 export function getOriginProductMeta(

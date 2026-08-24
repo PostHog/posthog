@@ -201,6 +201,29 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
 
 
 @pytest.mark.asyncio
+async def test_transient_app_db_error_in_setup_is_retryable_not_raw():
+    # The setup phase resolves this run's job/schema/source rows over the Django ORM (our own app
+    # DB). A transient connection-pool blip there — e.g. a PgBouncer server_login_retry cooldown —
+    # raises a Django OperationalError before the source's error handling runs. It's our infra, not
+    # the customer's source, so it must be re-raised as NonReportableError (Temporal retries the
+    # whole activity and it self-heals) rather than escaping raw and being stored verbatim as
+    # latest_error while minting error-tracking noise.
+    error = OperationalError("server login has been failing, cached error: (server_login_retry)")
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    handle_mock.assert_not_awaited()
+    source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at

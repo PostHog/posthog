@@ -1,4 +1,4 @@
-import { StarIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowUUpLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -100,8 +100,8 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               {/* The way out of a space, in the brand's own colour: a muted
                   caret read as decoration on a header rather than the control
                   it is, and people could not find their way back to the list. */}
-              <XIcon
-                size={14}
+              <ArrowUUpLeftIcon
+                size={12}
                 weight="bold"
                 className="shrink-0 text-primary"
               />

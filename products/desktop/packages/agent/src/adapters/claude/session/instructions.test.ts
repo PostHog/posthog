@@ -25,6 +25,18 @@ describe("buildAppendedInstructions", () => {
     );
   });
 
+  it("includes the context wiki block only when a mount path is given", () => {
+    const mounted = buildAppendedInstructions({
+      spokenNarration: false,
+      contextWikiPath: "/tmp/workspace/context",
+    });
+    expect(mounted).toContain("# Context Wiki");
+    expect(mounted).toContain("mounted at /tmp/workspace/context");
+    expect(buildAppendedInstructions({ spokenNarration: false })).not.toContain(
+      "Context Wiki",
+    );
+  });
+
   it("keeps the base blocks in both modes", () => {
     const withNarration = buildAppendedInstructions({ spokenNarration: true });
     const withoutNarration = buildAppendedInstructions({
