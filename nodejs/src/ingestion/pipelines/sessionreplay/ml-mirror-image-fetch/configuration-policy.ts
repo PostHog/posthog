@@ -8,6 +8,7 @@ import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configura
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
+import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
 const BOT_NAME = 'PostHogImageFetcherBot'
 const USER_AGENT = `${BOT_NAME}/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -518,7 +519,7 @@ function tdmrepRefuses(parsed: unknown, url: URL): boolean {
         if (!isObject(rule) || typeof rule.location !== 'string') {
             continue
         }
-        if (tdmLocationMatches(rule.location, url.pathname)) {
+        if (wildcardPatternMatchesPathname(rule.location, url.pathname)) {
             return rule['tdm-reservation'] === 1
         }
     }
@@ -563,26 +564,6 @@ function configurationRevision(item: ConfigurationCacheItem): string {
     return `${item.key}\0${item.fetchedAtMs}`
 }
 
-function tdmLocationMatches(pattern: string, pathname: string): boolean {
-    const decodedPattern = decodeUnreserved(pattern)
-    const endAnchored = decodedPattern.endsWith('$')
-    const matchPattern = endAnchored ? decodedPattern.slice(0, -1) : decodedPattern
-    const escaped = matchPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
-    const source = endAnchored ? `${escaped}$` : `${escaped}.*`
-    try {
-        return new RegExp(`^${source}`).test(decodeUnreserved(pathname))
-    } catch {
-        return false
-    }
-}
-
-function decodeUnreserved(value: string): string {
-    return value.replace(/%[0-9A-Fa-f]{2}/g, (encoded) => {
-        const character = String.fromCharCode(Number.parseInt(encoded.slice(1), 16))
-        return /^[A-Za-z0-9._~-]$/.test(character) ? character : encoded.toUpperCase()
-    })
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -604,7 +585,7 @@ function contentUsageRefuses(values: string[]): boolean {
 function contentSignalRefuses(value: string, url: string): boolean {
     const trimmed = value.trim()
     const pathEnd = trimmed.startsWith('/') ? trimmed.search(/\s/) : -1
-    if (pathEnd > 0 && !tdmLocationMatches(trimmed.slice(0, pathEnd), new URL(url).pathname)) {
+    if (pathEnd > 0 && !wildcardPatternMatchesPathname(trimmed.slice(0, pathEnd), new URL(url).pathname)) {
         return false
     }
     const preferences = (pathEnd > 0 ? trimmed.slice(pathEnd) : trimmed)

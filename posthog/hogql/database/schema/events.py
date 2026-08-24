@@ -126,6 +126,7 @@ class EventsTable(Table):
             name="$window_id", nullable=False, description="Window/tab identifier within a session."
         ),
         "person_mode": StringDatabaseField(name="person_mode", nullable=False),
+        "event_person_id": UUIDDatabaseField(name="person_id", hidden=True),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
             from_field=["distinct_id"],
