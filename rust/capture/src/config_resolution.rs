@@ -344,7 +344,10 @@ mod tests {
     fn traces_and_metrics_clusters_are_left_alone() {
         let (config, _) = resolve(&armed_env()).unwrap().into_parts();
 
-        assert_eq!(config.kafka.kafka_traces_hosts.as_deref(), Some(PRIMARY_HOSTS));
+        assert_eq!(
+            config.kafka.kafka_traces_hosts.as_deref(),
+            Some(PRIMARY_HOSTS)
+        );
         assert_eq!(config.kafka.kafka_traces_tls, Some(true));
         assert_eq!(
             config.kafka.kafka_metrics_hosts.as_deref(),
@@ -451,8 +454,8 @@ mod tests {
             env.insert(HOSTS_VAR.to_string(), hosts.to_string());
         }
 
-        let err = resolve(&env)
-            .expect_err("an armed switch with no backup brokers must fail startup");
+        let err =
+            resolve(&env).expect_err("an armed switch with no backup brokers must fail startup");
         assert!(
             err.to_string().contains(HOSTS_VAR),
             "error must name the missing var: {err}"

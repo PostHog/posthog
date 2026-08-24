@@ -133,10 +133,7 @@ pub struct CaptureComponents {
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
-pub async fn build_components(
-    resolved: Resolved,
-    handles: LifecycleHandles,
-) -> CaptureComponents {
+pub async fn build_components(resolved: Resolved, handles: LifecycleHandles) -> CaptureComponents {
     let LifecycleHandles {
         server,
         sink: sink_handle,
@@ -998,7 +995,6 @@ mod tests {
             overflow_topic: Some("events_plugin_ingestion_ai_overflow"),
         }));
     }
-
 
     #[test]
     fn warnings_kafka_config_is_isolated_from_main_producer_tuning() {
