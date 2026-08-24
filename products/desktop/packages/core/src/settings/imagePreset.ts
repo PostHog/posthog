@@ -584,27 +584,6 @@ export const SETUP_COMMAND_SUGGESTIONS: readonly SetupCommandSuggestion[] = [
     note: "Installs the versions declared in .mise.toml or .tool-versions, so nothing is guessed.",
   },
   {
-    id: "mise-go",
-    group: "toolchains",
-    label: "Go",
-    command: "mise use -g -y go@latest",
-    note: "For a repository that needs Go but does not pin it.",
-  },
-  {
-    id: "mise-rust",
-    group: "toolchains",
-    label: "Rust",
-    command: "mise use -g -y rust@latest",
-    note: "Installs rustc and cargo. Pair it with the crates command to warm the registry.",
-  },
-  {
-    id: "mise-python",
-    group: "toolchains",
-    label: "Python",
-    command: "mise use -g -y python@latest",
-    note: "Only when a repository needs a Python other than the base image's uv-managed one.",
-  },
-  {
     id: "pre-commit",
     group: "project",
     label: "Pre-commit hooks",

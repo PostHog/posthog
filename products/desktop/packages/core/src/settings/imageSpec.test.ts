@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   IMAGE_PRESET_TOOLS,
   type ImagePresetTool,
+  SETUP_COMMAND_SUGGESTIONS,
   toolInstallMethod,
 } from "./imagePreset";
 import {
@@ -161,6 +162,15 @@ describe("tool pinning", () => {
       command.includes("@latest"),
     );
     expect(unpinned).toEqual([]);
+  });
+
+  it("offers no setup command that resolves a version at build time", () => {
+    // A rebuild re-runs these commands, so a `latest` toolchain lands a
+    // different runtime without any repository change.
+    const unpinned = SETUP_COMMAND_SUGGESTIONS.filter((suggestion) =>
+      suggestion.command.includes("@latest"),
+    );
+    expect(unpinned.map((suggestion) => suggestion.id)).toEqual([]);
   });
 });
 
