@@ -1,5 +1,17 @@
 import { ArrowLeft } from "@phosphor-icons/react";
-import { Badge, Button, Input, Label, Text } from "@posthog/quill";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Input,
+  Label,
+  Text,
+} from "@posthog/quill";
 import {
   isImageBuildFailed,
   isImageBuildInProgress,
@@ -44,6 +56,7 @@ export function ImageDetailPage({
   // read a teammate's concurrent rename as a local edit and revert it on save.
   const [savedName] = useState(current.name);
   const [spec, setSpec] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const specYaml = spec ?? current.spec_yaml ?? "";
   const nameChanged = name.trim() !== "" && name.trim() !== savedName;
   const specChanged = spec !== null && spec !== (current.spec_yaml ?? "");
@@ -79,7 +92,7 @@ export function ImageDetailPage({
     }
   };
 
-  const archive = async () => {
+  const requestArchive = () => {
     if (usedBy.length > 0) {
       toast.error(
         `${usedBy.length} environment${usedBy.length === 1 ? "" : "s"} still start from this image`,
@@ -87,8 +100,13 @@ export function ImageDetailPage({
       );
       return;
     }
+    setConfirmOpen(true);
+  };
+
+  const archive = async () => {
     try {
       await deleteMutation.mutateAsync(current.id);
+      setConfirmOpen(false);
       onDone();
     } catch {
       // The mutation's onError toast already explains the failure.
@@ -191,9 +209,9 @@ export function ImageDetailPage({
           loading={deleteMutation.isPending}
           disabled={deleteMutation.isPending}
           data-attr="image-detail-archive"
-          onClick={() => void archive()}
+          onClick={requestArchive}
         >
-          Archive
+          Delete
         </Button>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <Button
@@ -222,6 +240,41 @@ export function ImageDetailPage({
           </Button>
         </div>
       </div>
+
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          if (!next && !deleteMutation.isPending) setConfirmOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this image?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the image and its build history, and it
+              can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              loading={deleteMutation.isPending}
+              disabled={deleteMutation.isPending}
+              data-attr="image-detail-archive-confirm"
+              onClick={() => void archive()}
+            >
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
