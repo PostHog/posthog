@@ -10,6 +10,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    resolve_failure_type,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 
 from products.replay_vision.backend.temporal.constants import (
     INLINE_SCANNER_REAP_TIMEOUT,
@@ -36,6 +42,16 @@ from products.replay_vision.backend.temporal.reconciler_types import (
 
 if TYPE_CHECKING:
     from temporalio.client import Client
+
+
+def _describe_failure(scanner_id: UUID, err: BaseException) -> str:
+    # Unwrap Temporal's ActivityError wrapper to the underlying cause; the wrapper repr is a constant
+    # "Activity task failed" that names no scanner and no cause. Bound the message so a big remote body
+    # can't blow the Temporal payload limit.
+    cause = unwrap_temporal_cause(err) or err
+    message = truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS)
+    return f"{scanner_id}: {resolve_failure_type(cause)}: {message}"
+
 
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
@@ -151,7 +167,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             (sid, err) for sid, err in [*zip(to_upsert, upsert_results), *zip(to_delete, delete_results)] if err
         ]
         if failures:
-            descriptions = [f"{sid}: {err!r}" for sid, err in failures]
+            descriptions = [_describe_failure(sid, err) for sid, err in failures]
             workflow.logger.warning(
                 "replay_vision.reconcile_partial_failure",
                 extra={"failures": descriptions},
