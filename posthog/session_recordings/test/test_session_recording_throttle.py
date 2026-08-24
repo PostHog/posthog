@@ -405,20 +405,48 @@ class TestSharingTokenReplayThrottle(BaseTest):
         for _ in range(10_000):
             assert throttle.allow_request(_fake_sharing_token_request("token"), view=view) is True
 
+    @patch("posthog.session_recordings.session_recording_api.posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
     @override_settings(REPLAY_SHARING_TOKEN_RATE="2/minute")
-    def test_allow_request_emits_throttled_counter_on_rejection(self, _mock) -> None:
+    def test_allow_request_emits_throttled_counter_and_event_on_rejection(self, _mock, mock_capture) -> None:
         throttle = SharingTokenReplayThrottle()
         view = type("FakeView", (), {"team_id": 1})()
         before = _counter_value("replay_sharing_token", "sharing_token")
 
-        # Burn the bucket then attempt one more — only the rejected one bumps the counter.
+        # Burn the bucket then attempt one more — only the rejected one bumps the counter and captures.
         for _ in range(2):
             throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
         throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
 
         after = _counter_value("replay_sharing_token", "sharing_token")
         assert after - before == 1
+        throttled_events = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "session recording api throttled"
+        ]
+        assert len(throttled_events) == 1
+        assert throttled_events[0].kwargs["properties"]["auth_type"] == "sharing_token"
+
+
+class TestCaptureSessionRecordingThrottled(BaseTest):
+    @patch("posthog.session_recordings.session_recording_api.posthoganalytics.capture")
+    def test_capture_emits_event_with_team_and_scope(self, mock_capture) -> None:
+        # We were blind to who a replay throttle blocks; the event must carry team, scope, and auth type.
+        from posthog.session_recordings.session_recording_api import _capture_session_recording_throttled
+
+        view = type("FakeView", (), {"team_id": self.team.id})()
+
+        _capture_session_recording_throttled(
+            _fake_personal_api_key_request(), view, location="snapshots_burst_free", auth_type="personal_api_key"
+        )
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["event"] == "session recording api throttled"
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert properties["team_id"] == self.team.id
+        assert properties["location"] == "snapshots_burst_free"
+        assert properties["auth_type"] == "personal_api_key"
+        # No authenticated user on this request, so the team id stands in for the distinct id.
+        assert mock_capture.call_args.kwargs["distinct_id"] == str(self.team.id)
 
 
 class TestSessionRecordingViewSetThrottleSelection(BaseTest):
