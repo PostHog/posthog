@@ -29,6 +29,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
@@ -180,6 +181,9 @@ export function BrowserTabStrip() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, a restored inbox tab lands on the spaces index
+  // (the inbox is gone as a destination).
+  const channelReportsEnabled = useChannelReportsEnabled();
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
 
@@ -669,7 +673,6 @@ export function BrowserTabStrip() {
           });
         } else {
           navigate({ to: "/spaces/$channelId", params, state });
-        }
       } else if (tab.appView && isTabAppView(tab.appView)) {
         // A top-level app page — back to its canonical route (literal `to` per
         // case so the router types stay checked).
@@ -681,7 +684,7 @@ export function BrowserTabStrip() {
             navigate({ to: "/", state });
             break;
           case "inbox":
-            navigate({ to: "/inbox", state });
+            navigate({ to: channelReportsEnabled ? "/spaces" : "/inbox", state });
             break;
           case "agents":
             navigate({ to: "/agents", state });
@@ -721,7 +724,7 @@ export function BrowserTabStrip() {
         navigate({ to: inChannels ? "/spaces" : "/new", state });
       }
     },
-    [inChannels, navigate, router.history],
+    [channelReportsEnabled, inChannels, navigate, router.history],
   );
 
   const handleSelect = useCallback(

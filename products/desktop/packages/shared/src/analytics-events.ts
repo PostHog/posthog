@@ -677,7 +677,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"

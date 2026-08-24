@@ -1,3 +1,4 @@
+import { taskFeedResultsQueryRoot } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import {
   buildBulkActionEvents,
   type InboxBulkActionType,
@@ -31,7 +32,7 @@ type BulkActionName =
 
 /**
  * Map an enriched reviewer list back to the write shape the artefact PUT expects
- * (mirrors `SuggestedReviewersSection`). The server takes the full replacement
+ * (mirrors `ReportReviewersHeader`). The server takes the full replacement
  * list, not a diff, so removing a reviewer means sending everyone else.
  */
 function toReviewerWriteContent(
@@ -308,6 +309,13 @@ export function useInboxBulkActions(
   const invalidateInboxQueries = useCallback(async () => {
     await queryClient.invalidateQueries({
       queryKey: reportKeys.all,
+      exact: false,
+    });
+    // Saved report feeds render the same rows through their own query root, so
+    // an archive/restore must reach them too or a feed keeps a stale row until
+    // its next poll.
+    await queryClient.invalidateQueries({
+      queryKey: taskFeedResultsQueryRoot,
       exact: false,
     });
   }, [queryClient]);

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   channelMissing: false,
   pathname: "/spaces/channel-1",
+  channelReportsFlag: false,
   open: vi.fn(),
 }));
 
@@ -22,7 +23,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports"
+      ? mocks.channelReportsFlag
+      : false,
+}));
+// Reaches for a QueryClient and auth this suite has no stack for.
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -41,6 +49,36 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 // The row menu's spaces list reaches for a QueryClient the unit test has no
 // stack for. Stubbed at the module boundary, as ShellLayout.test.tsx does for
 // the same reason.
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelReports", () => ({
+  EMPTY_CHANNEL_REPORTS_FILTERS: {
+    search: "",
+    relevantToMeOnly: false,
+    priorities: [],
+    status: "all",
+  },
+  DEFAULT_CHANNEL_REPORTS_FILTERS: {
+    search: "",
+    relevantToMeOnly: true,
+    priorities: [],
+    status: "all",
+  },
+  useChannelReports: () => ({
+    reports: [],
+    statusCounts: {
+      all: 0,
+      "needs-review": 0,
+      ready: 0,
+      running: 0,
+      archived: 0,
+    },
+    hasReports: false,
+    isLoading: false,
+    isError: false,
+    fetchNextPage: () => {},
+    hasNextPage: false,
+    isFetchingNextPage: false,
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
@@ -114,6 +152,7 @@ describe("ChannelSidebar", () => {
     mocks.isLoading = false;
     mocks.channelMissing = false;
     mocks.pathname = "/spaces/channel-1";
+    mocks.channelReportsFlag = false;
   });
 
   it.each([
@@ -240,6 +279,56 @@ describe("ChannelSidebar", () => {
     // back rather than left where the last space was.
     rerender(sidebar("channel-2"));
 
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("opens the report filter menu from the Reports tab header", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.channelReportsFlag = true;
+    mocks.pathname = "/website/channel-1/reports/report-9";
+    renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Filter reports" }));
+
+    expect(await screen.findByText("For you")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.getByText("P0")).toBeInTheDocument();
+  });
+
+  it("cuts the sidebar over to Reports when a report opens", () => {
+    mocks.channelReportsFlag = true;
+    const { rerender } = renderSidebar();
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    mocks.pathname = "/website/channel-1/reports/report-9";
+    rerender(sidebar());
+
+    expect(screen.getByRole("tab", { name: "Reports" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("falls back to Sessions when the reports flag turns off on the Reports tab", () => {
+    mocks.channelReportsFlag = true;
+    mocks.pathname = "/website/channel-1/reports/report-9";
+    const { rerender } = renderSidebar();
+    expect(screen.getByRole("tab", { name: "Reports" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // A live flag rollback while parked on Reports must not strand the pane.
+    mocks.channelReportsFlag = false;
+    rerender(sidebar());
+
+    expect(screen.queryByRole("tab", { name: "Reports" })).toBeNull();
     expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute(
       "aria-selected",
       "true",
