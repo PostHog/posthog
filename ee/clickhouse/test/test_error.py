@@ -212,6 +212,20 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            EOFError("Unexpected EOF while reading bytes"),
+            "CHQueryErrorConnectionDropped",
+            "Code: None.\nUnexpected EOF while reading bytes",
+            None,
+            "EOFError",
+        ),
+        (
+            BrokenPipeError("Broken pipe"),
+            "CHQueryErrorConnectionDropped",
+            "Code: None.\nBroken pipe",
+            None,
+            "BrokenPipeError",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
@@ -221,6 +235,16 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code
     assert label == expected_ch_error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [EOFError("Unexpected EOF while reading bytes"), BrokenPipeError("Broken pipe"), ConnectionResetError()],
+)
+def test_dropped_connection_wraps_to_a_transient_error(error):
+    # A dropped socket must land on a class the retry paths key off, so callers retry it.
+    wrapped = wrap_clickhouse_query_error(error)
+    assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
 
 def test_per_query_memory_limit_phrasing_matches_real_clickhouse():

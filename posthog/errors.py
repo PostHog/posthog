@@ -106,6 +106,10 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, CH_SOCKET_LEVEL_ERRORS):
+        # A dropped connection carries no ClickHouse code, so map it onto a transient class that
+        # CH_TRANSIENT_ERRORS covers and the existing retry paths pick up.
+        return CHQueryErrorConnectionDropped(str(err) or type(err).__name__, code_name="connection_dropped")
     if not isinstance(err, ServerException):
         return err
 
@@ -249,6 +253,13 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorConnectionDropped(InternalCHQueryError):
+    """The ClickHouse connection dropped mid-result, so the driver raised a socket-level error
+    (EOFError or a broken-pipe error) rather than a ServerException. Transient and safe to retry."""
+
     pass
 
 
@@ -1030,6 +1041,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
 
+# Socket-level failures the driver raises when the ClickHouse connection drops mid-result: a bare
+# EOFError from the buffered reader, or a broken-pipe error while writing. ConnectionError covers the
+# broken-pipe family (BrokenPipeError, ConnectionResetError, ConnectionAbortedError).
+CH_SOCKET_LEVEL_ERRORS = (EOFError, ConnectionError)
+
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
@@ -1037,6 +1053,7 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
+    CHQueryErrorConnectionDropped,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
 )
