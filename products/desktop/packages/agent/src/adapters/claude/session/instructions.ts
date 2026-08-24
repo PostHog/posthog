@@ -1,4 +1,3 @@
-import { IMAGE_TOOLS_ENV_KEY } from "@posthog/shared/constants";
 import { buildContextWikiInstructions } from "../../../context-wiki";
 
 const BRANCH_NAMING = `
@@ -85,13 +84,8 @@ const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
 const MAX_IMAGE_TOOLS = 40;
 
 /**
- * The tools a custom sandbox image was built with, which the image publishes as
- * POSTHOG_IMAGE_TOOLS. Nothing else tells the agent they are installed, so
- * without this it reaches for grep and find and the image buys nothing.
- *
- * The value is authored in an image spec, so it is treated as data: only
- * tool-shaped words survive, and only the first few, since it ends up inside
- * the system prompt.
+ * Formats tool metadata from a server-owned image manifest. Never read the
+ * sandbox environment here: image specs and environment variables are user-authored.
  */
 export function imageToolsInstruction(value: string | undefined): string {
   const tools = [
@@ -112,12 +106,10 @@ Use them instead of the slower defaults they replace, and never spend a turn ins
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;
   contextWikiPath?: string;
-  /** Reads POSTHOG_IMAGE_TOOLS when omitted, which is the sandbox case. */
+  /** Tool metadata from a server-owned image manifest. */
   imageTools?: string;
 }): string {
-  let instructions =
-    BASE_INSTRUCTIONS +
-    imageToolsInstruction(opts.imageTools ?? process.env[IMAGE_TOOLS_ENV_KEY]);
+  let instructions = BASE_INSTRUCTIONS + imageToolsInstruction(opts.imageTools);
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }
