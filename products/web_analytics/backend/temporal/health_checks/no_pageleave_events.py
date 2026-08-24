@@ -18,7 +18,7 @@ NO_PAGELEAVE_SQL = """
 SELECT
     team_id,
     countIf(event = '$pageview') AS pageviews,
-    uniqExactIf(`$session_id`, event = '$pageview' AND `$session_id` != '') AS sessions
+    uniqIf(`$session_id`, event = '$pageview' AND `$session_id` != '') AS sessions
 FROM events
 WHERE team_id IN %(team_ids)s
   AND event IN ('$pageview', '$pageleave')
