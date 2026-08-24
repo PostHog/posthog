@@ -77,6 +77,7 @@ from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
+    SQLV2RunPlan,
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
@@ -1258,17 +1259,17 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
                 # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
-                run_code, inputs = code, resolve_python_node_inputs(code, refs)
+                plan = SQLV2RunPlan(node_type="python", code=code, inputs=resolve_python_node_inputs(code, refs))
             elif send_raw_query:
                 # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
                 # there is nothing to inline: it reaches the engine exactly as written. Variables
                 # are refused here rather than escaped by hand — see reject_variables_in_raw_query.
                 reject_variables_in_raw_query(code, variables)
-                run_code, inputs = code, []
+                plan = SQLV2RunPlan(node_type="hogql", code=code, inputs=[])
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
-                node_type, run_code, inputs = resolve_sql_node_run(code, refs, variables)
+                plan = resolve_sql_node_run(code, refs, variables)
         # ExposedHogQLError: with refs present the user's own code is parsed at dispatch, so a
         # plain typo raises here — it's a bad query (400 with the parse message), not a 500.
         except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
@@ -1281,15 +1282,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # frame snapshot to that kernel. A token user has no kernel of its own, hence None.
             user=user if isinstance(user, User) else None,
             node_id=serializer.validated_data["node_id"],
-            code=run_code,
-            node_type=node_type,
+            code=plan.code,
+            node_type=plan.node_type,
             connection_id=connection_id,
             send_raw_query=send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
         try:
-            if node_type == NotebookNodeRun.NodeType.HOGQL:
+            if plan.node_type == "hogql":
                 # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
                 # async query manager, and the run-result poll advances the row.
                 enqueue_direct_run(self.team, user if isinstance(user, User) else None, run)
@@ -1300,13 +1301,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         notebook_short_id=notebook.short_id,
                         team_id=self.team_id,
                         user_id=user.id if isinstance(user, User) else None,
-                        code=run_code,
-                        node_type=node_type,
+                        code=plan.code,
+                        node_type=plan.node_type,
                         output_name=output_name,
-                        inputs=inputs,
+                        inputs=plan.inputs,
                         # Only a python node reads these in the kernel; a duckdb run already
                         # has its values substituted into the SQL.
-                        variables=python_variable_bindings(variables) if node_type == "python" else {},
+                        variables=python_variable_bindings(variables) if plan.node_type == "python" else {},
                     )
                 )
         except Exception:

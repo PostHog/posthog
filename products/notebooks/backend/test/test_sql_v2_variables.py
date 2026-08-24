@@ -179,30 +179,30 @@ class TestPythonVariableBindings(SimpleTestCase):
 
 class TestResolveSqlNodeRunWithVariables(SimpleTestCase):
     def test_the_clickhouse_lane_binds_through_the_ast(self):
-        node_type, run_code, inputs = resolve_sql_node_run("select 1 where 'x' = {country}", {}, [COUNTRY])
-        self.assertEqual(node_type, "hogql")
-        self.assertEqual(inputs, [])
-        self.assertIn("'US'", run_code)
+        plan = resolve_sql_node_run("select 1 where 'x' = {country}", {}, [COUNTRY])
+        self.assertEqual(plan.node_type, "hogql")
+        self.assertEqual(plan.inputs, [])
+        self.assertIn("'US'", plan.code)
 
     def test_the_duckdb_lane_binds_as_a_literal_without_reformatting(self):
         # A local ref reroutes to DuckDB, whose dialect the HogQL printer must not rewrite.
-        node_type, run_code, _inputs = resolve_sql_node_run(
+        plan = resolve_sql_node_run(
             "select * from py_df where country = {country}", {"py_df": SQLV2Ref(kind="local")}, [COUNTRY]
         )
-        self.assertEqual(node_type, "duckdb")
-        self.assertEqual(run_code, "select * from py_df where country = 'US'")
+        self.assertEqual(plan.node_type, "duckdb")
+        self.assertEqual(plan.code, "select * from py_df where country = 'US'")
 
     def test_a_variable_binds_in_a_query_that_also_inlines_a_reference(self):
         # Both rewrites have to survive each other: the CTE merge reprints the AST, which fails
         # on a placeholder that is still unresolved by then.
-        node_type, run_code, _inputs = resolve_sql_node_run(
+        plan = resolve_sql_node_run(
             "select * from df1 where days > {lookback_days}",
             {"df1": SQLV2Ref(kind="hogql", node_id="n1", run_id="r1", last_run_code="select 1 as days")},
             [DAYS],
         )
-        self.assertEqual(node_type, "hogql")
-        self.assertIn("30", run_code)
-        self.assertIn("df1 AS (", run_code)
+        self.assertEqual(plan.node_type, "hogql")
+        self.assertIn("30", plan.code)
+        self.assertIn("df1 AS (", plan.code)
 
 
 class TestRejectVariablesInRawQuery(SimpleTestCase):

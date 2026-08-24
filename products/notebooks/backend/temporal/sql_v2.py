@@ -6,12 +6,13 @@ never on a web worker. Instance lifecycle is owned by the Kernel info panel
 (kernel/start); dispatch lazily ensures the SQLV2 server on the running kernel.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
 from temporalio import activity, common, workflow
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -21,7 +22,7 @@ from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, dispatch_sq
 from products.notebooks.backend.sql_v2_runs import finish_node_run
 
 
-@dataclass
+@frozen
 class SQLV2RunInput:
     run_id: str
     notebook_short_id: str
