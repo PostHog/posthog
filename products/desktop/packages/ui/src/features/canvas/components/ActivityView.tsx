@@ -1,10 +1,12 @@
 import {
   BellIcon,
+  ChatCircleIcon,
+  CheckCircleIcon,
   CheckIcon,
   ChecksIcon,
   DotsThreeIcon,
   LinkIcon,
-  RobotIcon,
+  QuestionIcon,
 } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
@@ -39,6 +41,7 @@ import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLi
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { track } from "@posthog/ui/shell/analytics";
+import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
@@ -46,6 +49,17 @@ import {
   markLoadedReadLabel,
 } from "./activityFeed";
 import { activityMetadata } from "./activityMetadata";
+
+function AgentActivityIcon({ item }: { item: TaskActivityItem }): ReactElement {
+  switch (item.activityKind) {
+    case "completed":
+      return <CheckCircleIcon size={13} />;
+    case "awaiting_input":
+      return <QuestionIcon size={12} weight="bold" />;
+    default:
+      return <ChatCircleIcon size={13} />;
+  }
+}
 
 export function ActivityRow({
   item,
@@ -119,7 +133,7 @@ export function ActivityRow({
           {isAgentActivity ? (
             <Avatar size="xs">
               <AvatarFallback>
-                <RobotIcon size={12} />
+                <AgentActivityIcon item={item} />
               </AvatarFallback>
             </Avatar>
           ) : (
