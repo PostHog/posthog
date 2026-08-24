@@ -299,10 +299,16 @@ export class EmailService {
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
+                // Burst capacity is about one second of budget, not the full count: a bucket that
+                // could hold `count` starts full and refills within the same period, so a fresh (or
+                // idle-expired) bucket would send ~2x the configured limit in its first period.
+                // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
+                // is what the pacing is for.
+                const capacity = Math.max(1, Math.ceil(refillPerSecond))
                 const granted = await this.workflowEmailRateLimiter.claimUpTo({
                     key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
                     requested: 1,
-                    capacity: workflowRateLimit.count,
+                    capacity,
                     refillPerSecond,
                 })
                 if (granted === 0) {

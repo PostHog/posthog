@@ -1033,6 +1033,7 @@ function SendingRateLimitSection(): JSX.Element | null {
                             size="small"
                             className="w-24"
                             min={1}
+                            aria-label="Maximum emails per period"
                             value={displayCount ?? NaN}
                             onChange={(count) => {
                                 if (count == null || !Number.isFinite(count)) {
@@ -1056,6 +1057,7 @@ function SendingRateLimitSection(): JSX.Element | null {
                         <span>emails per</span>
                         <LemonSelect
                             size="small"
+                            aria-label="Rate limit period"
                             value={rateLimit.period}
                             options={[
                                 { value: 'minute' as const, label: 'minute' },

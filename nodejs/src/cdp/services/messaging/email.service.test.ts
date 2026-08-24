@@ -513,7 +513,9 @@ describe('EmailService', () => {
                 expect(claimUpTo).toHaveBeenCalledWith({
                     key: `@posthog/workflow-email-rate/${team.id}/function-1`,
                     requested: 1,
-                    capacity: 120,
+                    // Burst capacity is ~1s of budget (not the count), so the first period can't
+                    // send ~2x the limit and an idle-expired bucket can't re-burst.
+                    capacity: 2,
                     refillPerSecond: 2,
                 })
                 expect(result.finished).toBe(true)
