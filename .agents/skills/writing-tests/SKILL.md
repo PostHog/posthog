@@ -37,9 +37,13 @@ Find the test that already covers the nearest behavior and answer:
 
 > **Why can't this be a case in that test?**
 
-Default to extending it — a `@parameterized` case in Python, a `test.each` row in Jest, an extra assertion in the existing body.
+When your case is a variation of that behavior, extend it: a `@parameterized` case in Python, a `test.each` row in Jest.
 A new standalone test is what you write when extending doesn't work, and you should be able to say why in a sentence: the setup differs, the behavior belongs to a different unit, or no relevant test exists.
-"It's cleaner as its own test" isn't a reason — a fresh function re-pays every setup and fixture cost the existing one already paid.
+"It's cleaner as its own test" isn't a reason on its own; name which of those three applies.
+
+Extend to remove duplication, not to save setup time.
+A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
+That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
 
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.

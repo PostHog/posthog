@@ -99,7 +99,9 @@ Most low-value tests are one of these — recognize them and extend an existing 
 
 Then answer a second question: **why can't this be a case in the test that already covers the nearest behavior?**
 Earning the coverage doesn't earn a new test function.
-Default to extending the existing test, and write a standalone one only when you can say why extending doesn't work — different setup, a different unit, or nothing relevant exists.
+Default to extending the existing test with a parameterized case, and write a standalone one only when you can say why extending doesn't work: different setup, a different unit, or nothing relevant exists.
+Extend to remove duplication, not to save setup time, since a parameterized case still runs `setUp` for itself.
+Fold in variations of the same behavior, and don't attach unrelated assertions to a test that already passes.
 
 #### Weight tests down the pyramid
 
