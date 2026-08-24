@@ -19,9 +19,8 @@ import { Breadcrumb } from '~/types'
 import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
 import {
     SubscriptionsListResourceType,
-    TargetTypeEnumApi,
+    SubscriptionsListTargetType,
     type PaginatedSubscriptionListApi,
-    type SubscriptionsListTargetType,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { OrganizationType, UserType } from '../../../../frontend/src/types'
@@ -46,6 +45,12 @@ function getInitialSubscriptionsTab(): SubscriptionsTab {
 
 /** Query keys owned by the subscriptions list scene (merged into the router; other params are preserved). */
 const SUBSCRIPTIONS_URL_KEYS = ['tab', 'search', 'created_by', 'target_type', 'page'] as const
+
+const LIST_TARGET_TYPES: readonly string[] = Object.values(SubscriptionsListTargetType)
+
+function parseTargetTypeFilter(raw: unknown): SubscriptionsListTargetType | null {
+    return typeof raw === 'string' && LIST_TARGET_TYPES.includes(raw) ? (raw as SubscriptionsListTargetType) : null
+}
 
 /** Router may coerce numeric-looking query values; keep text fields as strings. */
 function urlSearchParamToString(value: unknown): string {
@@ -74,9 +79,7 @@ function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): 
         createdByUuid = null
     }
 
-    const ttRaw = searchParams['target_type']
-    const targetTypeFilter: SubscriptionsListTargetType | null =
-        ttRaw === TargetTypeEnumApi.Email || ttRaw === TargetTypeEnumApi.Slack ? ttRaw : null
+    const targetTypeFilter = parseTargetTypeFilter(searchParams['target_type'])
 
     let page = 1
     const pageRaw = searchParams['page']
