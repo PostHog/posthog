@@ -439,6 +439,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
             if channel_id != canvas.channel_id:
                 record("channel", str(canvas.channel_id), str(channel_id))
+                if canvas.pinned_at is not None:
+                    record("pinned", True, False)
+                    canvas.pinned_at = None
+                    update_fields.append("pinned_at")
             canvas.channel_id = channel_id
             update_fields.append("channel_id")
         if "pinned" in data:

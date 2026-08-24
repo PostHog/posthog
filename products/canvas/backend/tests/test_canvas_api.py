@@ -563,6 +563,35 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         assert response.json()["pinned"] is False
 
+    def test_moving_canvas_clears_channel_pin(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"pinned": True},
+            format="json",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is False
+        assert self._changes(self._activity("updated")[-1]) == [
+            {
+                "type": "Canvas",
+                "action": "changed",
+                "field": "channel",
+                "before": str(self.channel.id),
+                "after": str(destination.id),
+            },
+            {"type": "Canvas", "action": "changed", "field": "pinned", "before": True, "after": False},
+        ]
+
     def test_generation_task_pointer_validates_team(self):
         canvas_id = self._create_canvas()
         response = self.client.patch(
