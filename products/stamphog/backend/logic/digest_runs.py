@@ -218,6 +218,11 @@ def _claim_and_partition(
     config that can change between the merge and the digest. A row whose merges route nowhere is
     left unlinked, so a declaration added later picks it up instead of losing it.
 
+    The repo's digest toggle is read here for the same reason. Capture only decides what gets
+    stamped, so a repo switched off after its merges landed would still post them. Reading the
+    toggle at claim time means switching it off stops the next digest, including the merges already
+    captured, and switching it back on returns whatever is still inside the claim floor.
+
     Every atomic block is bound to the model's routed DB (stamphog_db_writer when the product DB is
     configured, else default). A bare atomic() opens on the default connection, so the
     select_for_update lock and the writes would run outside any transaction on the product DB.
@@ -231,6 +236,7 @@ def _claim_and_partition(
             .filter(
                 audience_key=audience_key,
                 digest_run__isnull=True,
+                pull_request__repo_config__digest_enabled=True,
                 pull_request__merged_at__gte=claim_floor,
             )
             .select_for_update(of=("self",))
@@ -275,7 +281,12 @@ def _claim_and_partition(
 def _has_claimable_merges(team_id: int, audience_keys: list[str], floor: datetime) -> bool:
     return (
         PullRequestAudience.objects.for_team(team_id)
-        .filter(audience_key__in=audience_keys, digest_run__isnull=True, pull_request__merged_at__gte=floor)
+        .filter(
+            audience_key__in=audience_keys,
+            digest_run__isnull=True,
+            pull_request__repo_config__digest_enabled=True,
+            pull_request__merged_at__gte=floor,
+        )
         .exists()
     )
 
@@ -367,12 +378,20 @@ def reclaim_stale_pending_runs() -> None:
 def pending_audiences_by_team() -> dict[int, list[str]]:
     """Every audience with merges nobody has been told about yet, grouped by team.
 
+    Repos with the digest switched off are excluded, so a team whose only pending merges came from
+    one of them is never enqueued. The claim applies the same filter, which is the gate that counts:
+    the toggle can move between this query and the claim.
+
     unscoped(): cross-team beat sweep; each team's work is re-scoped via for_team downstream.
     """
     since = timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS)
     pending = (
         PullRequestAudience.objects.unscoped()
-        .filter(digest_run__isnull=True, pull_request__merged_at__gte=since)
+        .filter(
+            digest_run__isnull=True,
+            pull_request__repo_config__digest_enabled=True,
+            pull_request__merged_at__gte=since,
+        )
         .values_list("team_id", "audience_key")
         .distinct()
     )

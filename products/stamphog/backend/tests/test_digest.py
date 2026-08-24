@@ -37,6 +37,7 @@ from products.stamphog.backend.logic.digest_runs import (
     DIGEST_LOOKBACK_DAYS,
     STALE_PENDING_RUN_MINUTES,
     _previous_run_slot,
+    pending_audiences_by_team,
     reclaim_stale_pending_runs,
 )
 from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
@@ -71,9 +72,15 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
     )
 
 
-def _seed_prs(team_id: int, pr_count: int = 2, repository: str = REPO, first_number: int = 1) -> StamphogRepoConfig:
+def _seed_prs(
+    team_id: int,
+    pr_count: int = 2,
+    repository: str = REPO,
+    first_number: int = 1,
+    digest_enabled: bool = True,
+) -> StamphogRepoConfig:
     repo_config = StamphogRepoConfig.objects.for_team(team_id).create(
-        team_id=team_id, repository=repository, installation_id="9001"
+        team_id=team_id, repository=repository, installation_id="9001", digest_enabled=digest_enabled
     )
     for number in range(first_number, first_number + pr_count):
         pr = PullRequest.objects.for_team(team_id).create(
@@ -314,6 +321,40 @@ def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> N
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_switching_a_repos_digest_off_stops_merges_it_already_captured(team) -> None:
+    # The toggle used to be read only at capture, which decides what gets stamped. A repo switched
+    # off after its merges landed therefore kept posting them for the rest of the claim window, and
+    # the owner who switched it off had no way to stop that. Reading it at claim time is what makes
+    # the toggle take effect on the next digest rather than on the next merge.
+    repo_config = _seed_prs(team.id, pr_count=3)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(digest_enabled=False)
+
+    assert pending_audiences_by_team().get(team.id) is None
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id)
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 3
+
+    # Switching it back on returns the backlog still inside the claim floor, rather than losing it.
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(digest_enabled=True)
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+    ):
+        _run_digests(team.id)
+    assert post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_repo_with_no_registry_inherits_one(team) -> None:
     # The convenience layer. charts carries no ownership file at all, so a team whose channel is not
     # named after its slug still routes correctly there because the monorepo says where it goes.
@@ -490,7 +531,7 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
     # out fast.
     with team_scope(team.id):
         repo_config = StamphogRepoConfig.objects.for_team(team.id).create(
-            team_id=team.id, repository=REPO, installation_id="9001"
+            team_id=team.id, repository=REPO, installation_id="9001", digest_enabled=True
         )
         if has_history:
             DigestRun.objects.for_team(team.id).create(
