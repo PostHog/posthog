@@ -439,7 +439,13 @@ def safe_order_by(queryset: QuerySet, order: str) -> QuerySet:
     learns the value was wrong.
     """
     try:
-        return queryset.order_by(order)
+        ordered = queryset.order_by(order)
+        # order_by() validates only single-segment names eagerly. A bad suffix on a
+        # relation path (e.g. created_by__nonsense) raises FieldError only when the query
+        # compiles, which happens after this returns. Compile the ordering on a throwaway
+        # queryset now so that value also fails here as a 400, not later as a 500.
+        queryset.order_by(order).query.get_compiler(using=queryset.db).get_order_by()
+        return ordered
     except FieldError:
         raise ValidationError({"order": f"Invalid ordering field: '{order}'"})
 
