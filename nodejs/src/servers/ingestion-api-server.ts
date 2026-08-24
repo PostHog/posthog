@@ -213,8 +213,7 @@ export class IngestionApiServer implements NodeServer {
     // (moved to caller-side production so create and flush share one path).
     private ingestionOutputs?: FlushBatchStoresOutputs
 
-    // Set when the HTTP transport is active (INGESTION_API_GRPC_ENABLED off).
-    private httpPipeline?: ReturnType<
+    private httpPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
     >
     private grpcServer?: WorkerIngestServer
@@ -507,11 +506,18 @@ export class IngestionApiServer implements NodeServer {
             groupTypeManager,
             topHog: this.topHog,
         }
-        // 8. Register the ingest transport — exactly one of gRPC or HTTP.
+        // 8. Register the ingest transports. HTTP always serves; gRPC is
+        // additive behind its flag, so consumers can migrate gradually.
         if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
             this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
         }
+        this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
+        this.lifecycle.expressApp.post('/ingest', async (req, res) => {
+            await this.handleIngestRequest(req, res)
+        })
         if (this.config.INGESTION_API_GRPC_ENABLED) {
+            // Own pipeline instance: sharing httpPipeline would let an HTTP
+            // handler's next() consume a gRPC batch's completion (and its ack).
             const grpcPipeline = createJoinedIngestionPipeline<
                 JoinedIngestionPipelineInput,
                 JoinedIngestionPipelineContext,
@@ -542,11 +548,6 @@ export class IngestionApiServer implements NodeServer {
                 }
             )
             await this.grpcServer.start()
-        } else {
-            this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
-            this.lifecycle.expressApp.post('/ingest', async (req, res) => {
-                await this.handleIngestRequest(req, res)
-            })
         }
 
         const service: PluginServerService = {
@@ -569,9 +570,6 @@ export class IngestionApiServer implements NodeServer {
         }
     ): Promise<void> {
         const { batch_id, messages: serializedMessages, consumer_id, replay } = req.body
-
-        // The route is only registered when the HTTP transport is active.
-        const pipeline = this.httpPipeline!
 
         if (!serializedMessages || serializedMessages.length === 0) {
             res.status(400).json({ batch_id: batch_id ?? '', status: 'error', accepted: 0, error: 'Empty batch' })
@@ -596,7 +594,7 @@ export class IngestionApiServer implements NodeServer {
             // stage processes each key in feed order, so this measures the
             // "processed in order per distinct_id" invariant.
             this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await pipeline.feed(batch, {})
+            const feedResult = await this.httpPipeline.feed(batch, {})
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
                 // behavior — the Rust consumer holds a per-worker Semaphore
@@ -633,9 +631,9 @@ export class IngestionApiServer implements NodeServer {
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
             // to do.
-            let result = await pipeline.next()
+            let result = await this.httpPipeline.next()
             while (result !== null) {
-                result = await pipeline.next()
+                result = await this.httpPipeline.next()
             }
 
             // Wait for all side effects — the HTTP response is the ACK to the
