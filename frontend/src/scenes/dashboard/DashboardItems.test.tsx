@@ -97,7 +97,7 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
             data?: { queryId?: string }
         }
         refresh?: () => void
-    }) => {
+    }): JSX.Element => {
         mockInsightCard(props)
         const { tile, showResizeHandles, apiErrored, apiError } = props
         return (
