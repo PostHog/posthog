@@ -1,7 +1,7 @@
 # LOGS role, cloud only — the Kafka metrics ingest MVs. Env-identical across dev /
 # prod-us / prod-eu (all read the WarpStream metrics_avro topic straight into the
-# metric_samples1 / metric_series1 tables); dev composes this file alone, without
-# the ZK-path and codec patches next to it. The local node has no metrics ingest.
+# metric_samples1 / metric_series1 tables). The local node has no metrics ingest.
+# The ZK-path and codec deltas the two prods share sit in roles/logs/prod.
 
 database "posthog" {
   materialized_view "kafka_metrics_avro_to_metric_samples" {
