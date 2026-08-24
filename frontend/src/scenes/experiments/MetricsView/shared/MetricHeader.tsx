@@ -270,7 +270,7 @@ export const MetricHeader = ({
                                 'flex flex-shrink-0 gap-1 transition-opacity',
                                 menuVisible
                                     ? 'opacity-100'
-                                    : 'opacity-0 group-hover/metric-cell:opacity-100 focus-within:opacity-100'
+                                    : 'opacity-0 group-hover/metric-cell:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'
                             )}
                         >
                             <LemonButton
