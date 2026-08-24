@@ -30,14 +30,35 @@ vi.mock("@posthog/host-router/react", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@tanstack/react-router", () => ({
-  Outlet: () => null,
+  // The route's own pane, which is where the header's writer lives.
+  Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
-  useParams: () => ({}),
+  useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
   useRouterState: ({
     select,
   }: {
-    select: (s: { location: { pathname: string } }) => string;
-  }) => select({ location: { pathname: "/website/home" } }),
+    select: (s: {
+      location: { pathname: string };
+      matches: {
+        routeId: string;
+        fullPath: string;
+        search: Record<string, unknown>;
+      }[];
+    }) => unknown;
+  }) =>
+    select({
+      location: { pathname: "/spaces/chan-1/tasks/task-1" },
+      matches: [
+        {
+          routeId: "/spaces/$channelId/tasks/$taskId",
+          // Activity's pane reads its selection off `/activity`'s search, which
+          // this route is not — the pane renders its empty state, which is all
+          // this test needs from it.
+          fullPath: "/spaces/$channelId/tasks/$taskId",
+          search: {},
+        },
+      ],
+    }),
 }));
 vi.mock(
   "@posthog/ui/features/task-detail/components/TaskHeaderActions",
@@ -108,23 +129,18 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
   },
 }));
 
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
-import { useNavRailStore } from "@posthog/ui/features/canvas/stores/navRailStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
-import { WebsiteLayout } from "./WebsiteLayout";
+import { ActivityDetailPane } from "./ActivityDetailPane";
+import { ShellLayout } from "./ShellLayout";
 
 describe("SpaceHeaderRow", () => {
   it("keeps the header store off the layout that renders its writer", () => {
-    useNavRailStore.setState({ pane: "activity" });
-    useActivityDetailStore.setState({
-      selected: { id: "a1", taskId: "task-1", channelId: "chan-1" } as never,
-    });
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     render(
       <QueryClientProvider client={client}>
-        <WebsiteLayout />
+        <ShellLayout />
       </QueryClientProvider>,
     );
     // A layout that subscribes to the header store blows the update depth here.

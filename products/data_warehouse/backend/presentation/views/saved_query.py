@@ -1286,7 +1286,7 @@ class DataWarehouseSavedQuerySerializer(
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
         # Otherwise a user with denied table could create another one with colliding name.
         if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-            raise serializers.ValidationError("A table with this name already exists.")
+            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         return name
 

@@ -69,6 +69,9 @@ HELD_RUNS_GAUGE = Gauge(
     # labels: "shortfall" (an outcome was missing), "error" (the pass raised), "gated" (a person
     # run parked behind the readiness gate)
     ["reason"],
+    # This is a whole-fleet snapshot served from each worker pod's own registry, so `max` holds a
+    # drained reason high until the task lands again on the pod that wrote the high reading.
+    # `observe.py` pushes its equivalent gauges under one job name instead; this one wants the same.
     multiprocess_mode="max",
 )
 

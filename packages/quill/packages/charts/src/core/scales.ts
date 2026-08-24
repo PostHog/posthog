@@ -532,7 +532,9 @@ function buildStackData(
 
     for (const axisSeries of seriesByAxis.values()) {
         const tableData = labels.map((_, i) => {
-            const row: Record<string, number> = {}
+            // Null-prototype: series keys come from user data (breakdown values, service names),
+            // so a key like `__proto__` must land as an own property instead of the prototype setter.
+            const row: Record<string, number> = Object.create(null)
             for (const s of axisSeries) {
                 const raw = s.data[i] ?? 0
                 row[s.key] = allowNegative ? raw : Math.max(0, raw)

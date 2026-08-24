@@ -65,18 +65,24 @@ export function SessionTab({ timestamp, eventMarkerColor }: SessionTabProps): JS
         ))
         .with([false, P.string], ([_, sessionId]) => (
             <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
-                <SessionTimelineTab eventMarkerColor={eventMarkerColor} />
+                <SessionTimelineTab timestamp={timestamp} eventMarkerColor={eventMarkerColor} />
                 <SessionRecordingTab />
             </BindLogic>
         ))
         .exhaustive()
 }
 
-export function SessionTimelineTab({ eventMarkerColor }: { eventMarkerColor?: TimelineMarkerColor }): JSX.Element {
+export function SessionTimelineTab({
+    timestamp,
+    eventMarkerColor,
+}: {
+    timestamp?: string
+    eventMarkerColor?: TimelineMarkerColor
+}): JSX.Element {
     const { properties, uuid } = useValues(errorPropertiesLogic)
     const sessionTimelineRef = useRef<SessionTimelineHandle>(null)
     const { currentTab } = useValues(exceptionCardLogic)
-    const { sessionId, timestamp } = useValues(sessionTabLogic)
+    const { sessionId } = useValues(sessionTabLogic)
     const { setRecordingTimestamp } = useActions(sessionTabLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 

@@ -174,6 +174,7 @@ export class Agent {
       posthogApiConfig: this.posthogApiConfig,
       enricherEnabled: this.enricherEnabled,
       claudeGatewayEnv,
+      contextWiki: options.contextWiki,
       codexOptions:
         options.adapter === "codex" && gatewayConfig
           ? {

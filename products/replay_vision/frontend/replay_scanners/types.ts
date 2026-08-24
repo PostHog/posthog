@@ -383,21 +383,22 @@ export type ScannerConfig =
 
 export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 
+// Ordered broadest to narrowest so the labels read as a ladder.
 export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
-    {
-        value: 'focused',
-        label: 'Highest activity only',
-        description: 'Only scans the recordings with the most going on.',
-    },
-    {
-        value: 'balanced',
-        label: 'Skip lowest activity',
-        description: 'Skips the lowest-activity recordings, scans everything else.',
-    },
     {
         value: 'comprehensive',
         label: 'All recordings',
-        description: 'Scans every recording that matches your filters, regardless of activity.',
+        description: 'Scans everything that matches your filters, whatever happens in the recording.',
+    },
+    {
+        value: 'balanced',
+        label: 'Medium and high activity recordings',
+        description: 'Skips recordings where almost nothing happens.',
+    },
+    {
+        value: 'focused',
+        label: 'High activity recordings only',
+        description: 'Scans just the busiest recordings. The fewest, and the most likely to be interesting.',
     },
 ]
 
