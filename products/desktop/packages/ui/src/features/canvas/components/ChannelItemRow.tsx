@@ -64,6 +64,7 @@ export interface ChannelItemActions {
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
+  fileCanvas: (item: ChannelItemModel, channelId: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -301,6 +302,10 @@ export function ChannelItemRow({
     item.task != null &&
     item.authorUser?.id != null &&
     currentUser.data?.id === item.authorUser.id;
+  const canFileCanvas =
+    item.kind === "canvas" &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
@@ -320,7 +325,7 @@ export function ChannelItemRow({
   );
 
   // A canvas gets the same menu with the items it actually has: command-centre
-  // placement, pin, and delete instead of archive. Filing remains task-only.
+  // placement, pin, filing, and delete instead of archive.
   //
   // Memoized because it travels to the shared preview card as the trigger's
   // payload, which is written to the card's store whenever its identity changes.
@@ -332,6 +337,13 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            channelId,
+            ...(canFileCanvas
+              ? {
+                  onFile: (targetChannelId: string) =>
+                    actions.fileCanvas(item, targetChannelId),
+                }
+              : {}),
             onTogglePin: () => actions.togglePin(item),
             onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
@@ -343,6 +355,7 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            task: item.task ?? undefined,
             channelId,
             onAddToCommandCenter,
             onRename,
@@ -352,7 +365,15 @@ export function ChannelItemRow({
           },
     // canHandoff rides on the currentUser query, so it belongs in deps for a
     // sign-in refresh to re-evaluate.
-    [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
+    [
+      item,
+      channelId,
+      actions,
+      onAddToCommandCenter,
+      onRename,
+      canHandoff,
+      canFileCanvas,
+    ],
   );
 
   if (isEditing) {

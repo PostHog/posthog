@@ -20,13 +20,17 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import {
+  getCurrentBrowserTabId,
+  navigateBrowserTab,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
-import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
@@ -63,6 +67,7 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
+import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -267,6 +272,15 @@ export function useTaskCreation({
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
       if (!allowSubmit) return false;
 
+      // Capture everything owned by the mounted composer before the first
+      // await. Switching tabs unmounts it, but task creation must continue with
+      // the exact prompt and tab that the user submitted.
+      const originTabId = getCurrentBrowserTabId();
+      const content = contentOverride ?? editor.getContent();
+      const plainPromptText = contentToPlainText(content).trim();
+      const serializedContent = contentToXml(content).trim();
+      const filePaths = extractFilePaths(content);
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
       setIsCreatingTask(true);
@@ -335,11 +349,6 @@ export function useTaskCreation({
           }
         }
 
-        const content = contentOverride ?? editor.getContent();
-        const plainPromptText = contentToPlainText(content).trim();
-        const serializedContent = contentToXml(content).trim();
-        const filePaths = extractFilePaths(content);
-
         const shouldShowPendingView = !onTaskCreated && !!plainPromptText;
         const pendingTaskKey = shouldShowPendingView
           ? generatePendingTaskKey()
@@ -357,19 +366,22 @@ export function useTaskCreation({
           // hand over instead of cutting.
           setIsExitingComposer(true);
           await waitForComposerExit();
-          navigateToTaskPending(pendingTaskKey);
-          if (!contentOverride) {
-            editor.clear();
-          }
+          navigateBrowserTab(
+            originTabId,
+            {
+              href: `/tasks/pending/${pendingTaskKey}`,
+              title: "New task",
+            },
+            () => navigateToTaskPending(pendingTaskKey),
+          );
         }
 
         let createdTaskId: string | undefined;
 
         try {
           if (!contentOverride) {
-            const plainText = editor.getText()?.trim() ?? plainPromptText;
-            if (plainText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainText);
+            if (plainPromptText) {
+              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
             }
           }
 
@@ -455,11 +467,16 @@ export function useTaskCreation({
               if (pendingTaskKey) {
                 pendingTaskPromptStoreApi.move(pendingTaskKey, output.task.id);
               }
-              // Clear the draft BEFORE navigating away. When onTaskCreated
-              // navigates (e.g. channels), it can synchronously unmount/destroy
-              // the editor; clearing afterwards would throw in clearContent()
-              // before the persisted draft is wiped, leaving stale text behind.
-              if (!pendingTaskKey && !contentOverride) {
+              // Clear only the editor that submitted. The same component can
+              // render another browser tab before this callback runs; clearing
+              // it would erase that tab's draft. The origin's persisted draft
+              // is cleared by session id after task creation succeeds.
+              if (
+                !pendingTaskKey &&
+                !contentOverride &&
+                editorRef.current === editor &&
+                getCurrentBrowserTabId() === originTabId
+              ) {
                 editor.clear();
               }
               if (defaultedChannelId) {
@@ -475,7 +492,10 @@ export function useTaskCreation({
               if (onTaskCreated) {
                 onTaskCreated(output.task);
               } else {
-                void openTask(output.task);
+                void openTask(output.task, {
+                  channelId,
+                  tabId: originTabId,
+                });
               }
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
@@ -540,7 +560,7 @@ export function useTaskCreation({
             });
             // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
-              useUsageLimitStore.getState().show();
+              useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
             } else {
               const title = getErrorTitle(result.failedStep);
@@ -555,7 +575,7 @@ export function useTaskCreation({
               if (createdTaskId) {
                 pendingTaskPromptStoreApi.clear(createdTaskId);
               }
-              openTaskInput({ initialPrompt: plainPromptText });
+              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
             }
           }
           return result.success;
@@ -570,7 +590,7 @@ export function useTaskCreation({
             if (createdTaskId) {
               pendingTaskPromptStoreApi.clear(createdTaskId);
             }
-            openTaskInput({ initialPrompt: plainPromptText });
+            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
           }
           return false;
         }

@@ -1,6 +1,7 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { usePendingTabViewState } from "@posthog/ui/features/browser-tabs/usePendingTabViewState";
 import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
@@ -17,7 +18,7 @@ import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   selectActivityItem,
-  useActivityDetailStore,
+  useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
   showChannelList,
@@ -66,18 +67,28 @@ function ChannelPanes({
   channelId,
   showList,
   sidebarVisible,
+  pendingTabSwitch,
 }: {
   channelId: string | null;
   showList: boolean;
   sidebarVisible: boolean;
+  pendingTabSwitch: boolean;
 }) {
   // Mark the channel seen only while a reader can see its pane: this pane is
   // the one showing (not the list) and the sidebar is on screen. A collapsed
   // sidebar keeps both panes mounted, so without the visibility gate a mention
   // landing behind it would clear the unread emphasis nobody saw.
   const visibleChannelId =
-    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
+    !pendingTabSwitch && !showList && sidebarVisible
+      ? (channelId ?? undefined)
+      : undefined;
   useMarkChannelSeen(visibleChannelId);
+  const animateTransition = useChannelPaneStore(
+    (state) => state.animateTransition,
+  );
+  const finishTransition = useChannelPaneStore(
+    (state) => state.finishTransition,
+  );
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
     // With no channel to slide to, the list is all there is — leave the gesture
@@ -90,8 +101,13 @@ function ChannelPanes({
   return (
     <div ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
       <div
+        onTransitionEnd={(event) => {
+          if (event.currentTarget === event.target) finishTransition();
+        }}
         className={cn(
-          "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
+          "flex h-full w-[200%]",
+          animateTransition &&
+            "transition-transform duration-200 ease-out motion-reduce:transition-none",
           showList ? "translate-x-0" : "-translate-x-1/2",
         )}
       >
@@ -185,10 +201,18 @@ export function ChannelsSidebar() {
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const { showsActivityDetail } = useRailSurface();
-  const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
+  const selectedActivityId = useActivitySelection()?.id;
   const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
-  const showList = pane === "list" || currentChannelId == null;
+  const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
+    usePendingTabViewState();
+  const presentedChannelId =
+    pendingTabViewState?.spaceId !== undefined
+      ? pendingTabViewState.spaceId
+      : currentChannelId;
+  const showList =
+    (pendingTabViewState?.listOpen ?? pane === "list") ||
+    presentedChannelId == null;
 
   return (
     <ResizableSidebar
@@ -237,9 +261,10 @@ export function ChannelsSidebar() {
               <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
             ) : (
               <ChannelPanes
-                channelId={currentChannelId}
+                channelId={presentedChannelId}
                 showList={showList}
                 sidebarVisible={open || peek}
+                pendingTabSwitch={pendingTabSwitch}
               />
             )
           ) : bodyChannelsWorld ? (

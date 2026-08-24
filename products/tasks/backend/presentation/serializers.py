@@ -26,6 +26,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
@@ -908,11 +909,33 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
+
+
+class DesktopAccessResponseSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        allow_null=True,
+        help_text="Why Desktop access is blocked, or null when access is allowed.",
+    )
+
+
+class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        required=False,
+        help_text="Why PostHog Desktop access was denied, when applicable.",
+    )
     attr = serializers.CharField(required=False, help_text="Request field associated with the error")
     missing_artifact_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -1637,6 +1660,9 @@ class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
         min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
     )
     tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
+    output_bytes = serializers.IntegerField(
+        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    )
 
 
 class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):
