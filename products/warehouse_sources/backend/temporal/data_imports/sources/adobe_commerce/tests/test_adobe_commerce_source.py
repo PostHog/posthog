@@ -116,6 +116,28 @@ class TestAdobeCommerceSource:
         observed_error = f"Adobe Commerce admin token request failed (retryable): status={status}"
         assert any(key in observed_error for key in self.source.get_retryable_errors())
 
+    @parameterized.expand(
+        [
+            (
+                "read_timeout_on_mint_post",
+                "HTTPSConnectionPool(host='store.example.com', port=443): Max retries exceeded with url: "
+                '/rest/V1/integration/admin/token (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='store.example.com', port=443): Read timed out. (read timeout=30)\"))",
+            ),
+            (
+                "connection_reset_on_page_get",
+                "HTTPSConnectionPool(host='store.example.com', port=443): Max retries exceeded with url: "
+                "/rest/V1/orders (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object "
+                "at 0x7f0000000000>: Failed to establish a new connection: [Errno 111] Connection refused'))",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_exhausted_transport_retries(self, _name: str, observed_error: str) -> None:
+        # The mint POST and the page GETs retry a dropped connection or read timeout before urllib3
+        # re-raises it wrapped as "Max retries exceeded with url". Dropping that prefix would file a
+        # false error-tracking issue for a transient blip Temporal still retries.
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
     def test_retryable_errors_do_not_swallow_auth_failures(self) -> None:
         # A real credential rejection must still surface, so the retryable set stays narrow.
         observed_error = (
