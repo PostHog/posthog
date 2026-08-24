@@ -828,6 +828,21 @@ class BlastRadiusSerializer(serializers.Serializer):
     )
 
 
+class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
+    """Response contract for the internal blast-radius persons endpoint. Mirrors
+    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    users_affected = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Person identifiers in this page, in stable pagination order.",
+    )
+    cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Cursor for the next call, or null when this page is the last.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+
+
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -4752,11 +4767,13 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 team, filters, group_type_index, cursor, dedupe_key=dedupe_key
             )
             return Response(
-                {
-                    "users_affected": users_affected,
-                    "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
-                }
+                InternalBlastRadiusPersonsSerializer(
+                    {
+                        "users_affected": users_affected,
+                        "cursor": users_affected[-1] if users_affected else None,
+                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
