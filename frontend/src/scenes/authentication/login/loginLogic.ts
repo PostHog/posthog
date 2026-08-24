@@ -650,8 +650,10 @@ export const loginLogic = kea<loginLogicType>([
             // happens. Report once per email, so a blur → focus → blur cycle cannot inflate the count.
             if (values.hasNoConfiguredLoginMethod) {
                 const reportedEmails = (cache.reportedNoMethodEmails ??= new Set<string>())
-                const { email } = values.login
-                if (!reportedEmails.has(email)) {
+                // Key the dedupe on the email this precheck resolved for, not the live field — the
+                // user may have edited it while the request was in flight.
+                const { email } = precheckResponse
+                if (email && !reportedEmails.has(email)) {
                     reportedEmails.add(email)
                     posthog.capture('login precheck no sign-in method')
                 }

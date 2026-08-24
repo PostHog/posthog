@@ -393,6 +393,9 @@ describe('loginLogic', () => {
             const deadEnd = { saml_available: false, password_login_available: false, social_providers: [] }
             logic.actions.setLoginValue('email', 'user@example.com')
             await precheck(deadEnd)
+            // Editing the field after the check must not re-report — the dedupe keys on the checked
+            // email, not the live field.
+            logic.actions.setLoginValue('email', 'edited@example.com')
             await precheck(deadEnd)
             const deadEndCaptures = (posthog.capture as jest.Mock).mock.calls.filter(
                 ([event]) => event === 'login precheck no sign-in method'
