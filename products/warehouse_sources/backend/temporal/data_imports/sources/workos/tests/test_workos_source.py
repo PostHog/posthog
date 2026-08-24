@@ -1,4 +1,5 @@
 import pytest
+
 import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workos import WorkOSSourceConfig
