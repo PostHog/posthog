@@ -10,23 +10,17 @@ logger = structlog.get_logger(__name__)
 CHUNK_SIZE = 1000
 
 
-def _ids_to_leave_on_their_domain_key(pending: Any) -> list[Any]:
+def _ids_to_leave_on_their_domain_key(pending: Any, config_field: str) -> list[Any]:
     # One user provisioned through two domains of one config holds two records for what is now a
     # single tenant. Keep the oldest on the config and leave the rest on their domain key, so the
     # unique constraint added in 0060 holds without this dropping anyone's record.
-    duplicate_groups = (
-        pending.values("user_id", "organization_domain__identity_provider_config")
-        .annotate(rows=Count("id"))
-        .filter(rows__gt=1)
-    )
+    config_key = f"organization_domain__{config_field}"
+    duplicate_groups = pending.values("user_id", config_key).annotate(rows=Count("id")).filter(rows__gt=1)
 
     skipped: list[Any] = []
     for group in duplicate_groups:
         group_ids = list(
-            pending.filter(
-                user_id=group["user_id"],
-                organization_domain__identity_provider_config=group["organization_domain__identity_provider_config"],
-            )
+            pending.filter(user_id=group["user_id"], **{config_key: group[config_key]})
             .order_by("created_at", "id")
             .values_list("id", flat=True)
         )
@@ -34,7 +28,7 @@ def _ids_to_leave_on_their_domain_key(pending: Any) -> list[Any]:
             logger.warning(
                 "scim_provisioned_user_duplicate_for_identity_provider_config",
                 scim_provisioned_user_id=str(row_id),
-                identity_provider_config_id=str(group["organization_domain__identity_provider_config"]),
+                identity_provider_config_id=str(group[config_key]),
             )
         skipped.extend(group_ids[1:])
     return skipped
@@ -52,16 +46,21 @@ def backfill_scim_provisioned_user_config(apps: Any, schema_editor: Any) -> None
     OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
     db_alias = schema_editor.connection.alias
 
+    config_field = (
+        "_identity_provider_config"
+        if "_identity_provider_config" in {field.name for field in OrganizationDomain._meta.fields}
+        else "identity_provider_config"
+    )
     pending = SCIMProvisionedUser.objects.using(db_alias).filter(
         identity_provider_config__isnull=True,
-        organization_domain__identity_provider_config__isnull=False,
+        **{f"organization_domain__{config_field}__isnull": False},
     )
-    claimable = pending.exclude(id__in=_ids_to_leave_on_their_domain_key(pending))
+    claimable = pending.exclude(id__in=_ids_to_leave_on_their_domain_key(pending, config_field))
 
     config_of_domain = Subquery(
         OrganizationDomain.objects.using(db_alias)
         .filter(pk=OuterRef("organization_domain_id"))
-        .values("identity_provider_config_id")[:1]
+        .values(f"{config_field}_id")[:1]
     )
 
     # Walking the primary key keeps the scan forward-only and each statement small.

@@ -11,8 +11,17 @@ UNLINKED_GRACE_PERIOD = timedelta(days=1)
 
 def delete_orphaned_identity_provider_configs(apps, schema_editor):
     IdentityProviderConfig = apps.get_model("posthog", "IdentityProviderConfig")
-    IdentityProviderConfig.objects.filter(
-        domains__isnull=True, created_at__lt=timezone.now() - UNLINKED_GRACE_PERIOD
+    OrganizationDomain = apps.get_model("posthog", "OrganizationDomain")
+    config_field = (
+        "_identity_provider_config"
+        if "_identity_provider_config" in {field.name for field in OrganizationDomain._meta.fields}
+        else "identity_provider_config"
+    )
+    linked_config_ids = OrganizationDomain.objects.exclude(**{f"{config_field}__isnull": True}).values_list(
+        f"{config_field}_id", flat=True
+    )
+    IdentityProviderConfig.objects.exclude(id__in=linked_config_ids).filter(
+        created_at__lt=timezone.now() - UNLINKED_GRACE_PERIOD
     ).delete()
 
 
