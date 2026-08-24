@@ -74,6 +74,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    WorkflowsScopedAuthNotConfigured,
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
@@ -154,6 +155,16 @@ from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_bat
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
+
+
+class CancelAuthUnavailable(exceptions.APIException):
+    # Cancel mints a scoped service JWT before it calls the CDP API. When the signing secret is
+    # unset, minting fails closed. Surface it as a legible 503 so the client shows why cancel is
+    # unavailable instead of a bare 500.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Canceling workflow runs is not available in this environment yet. Contact support if it persists."
+    default_code = "cancel_auth_unavailable"
+
 
 # Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
 # executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
@@ -3155,18 +3166,21 @@ class HogFlowViewSet(
         # request again for the rest.
         sweep_deadline = monotonic() + 20
         data: dict = {"marked": 0, "remaining": 0, "done": False}
-        for _ in range(5):
-            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
-            if res.status_code != 200:
-                raise exceptions.APIException(detail=res.text, code="cancel_failed")
-            page = res.json()
-            data = {
-                "marked": data["marked"] + page.get("marked", 0),
-                "remaining": page.get("remaining", 0),
-                "done": page.get("done", False),
-            }
-            if data["done"] or monotonic() >= sweep_deadline:
-                break
+        try:
+            for _ in range(5):
+                res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
+                if res.status_code != 200:
+                    raise exceptions.APIException(detail=res.text, code="cancel_failed")
+                page = res.json()
+                data = {
+                    "marked": data["marked"] + page.get("marked", 0),
+                    "remaining": page.get("remaining", 0),
+                    "done": page.get("done", False),
+                }
+                if data["done"] or monotonic() >= sweep_deadline:
+                    break
+        except WorkflowsScopedAuthNotConfigured:
+            raise CancelAuthUnavailable()
 
         if hog_flow is not None:
             self._report_workflow_action(
@@ -4579,20 +4593,23 @@ class HogFlowViewSet(
         # shape as cancel_invocations — `done: false` after the cap tells the caller to
         # request again for the rest.
         data: dict = {"marked": 0, "remaining": 0, "done": False}
-        for _ in range(5):
-            res = cancel_hog_flow_batch_job(
-                team_id=self.team_id, hog_flow_id=str(hog_flow.id), batch_job_id=str(batch_job.id)
-            )
-            if res.status_code != 200:
-                raise exceptions.APIException(detail=res.text, code="cancel_failed")
-            page = res.json()
-            data = {
-                "marked": data["marked"] + page.get("marked", 0),
-                "remaining": page.get("remaining", 0),
-                "done": page.get("done", False),
-            }
-            if data["done"]:
-                break
+        try:
+            for _ in range(5):
+                res = cancel_hog_flow_batch_job(
+                    team_id=self.team_id, hog_flow_id=str(hog_flow.id), batch_job_id=str(batch_job.id)
+                )
+                if res.status_code != 200:
+                    raise exceptions.APIException(detail=res.text, code="cancel_failed")
+                page = res.json()
+                data = {
+                    "marked": data["marked"] + page.get("marked", 0),
+                    "remaining": page.get("remaining", 0),
+                    "done": page.get("done", False),
+                }
+                if data["done"]:
+                    break
+        except WorkflowsScopedAuthNotConfigured:
+            raise CancelAuthUnavailable()
 
         if data["done"]:
             # Conditional so a completion that landed mid-cancel wins over the flip; the

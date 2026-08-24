@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.plugins.plugin_server_api import WorkflowsScopedAuthNotConfigured
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
@@ -108,6 +110,15 @@ class TestHogFlowCancelInvocations(APIBaseTest):
 
         assert response.status_code >= 500
 
+    def test_cancel_returns_503_when_scoped_auth_unconfigured(self):
+        # Minting the scoped JWT fails closed when the secret is unset. The view must turn that into a
+        # legible 503 instead of an unhandled 500 that reaches the user as "A server error occurred."
+        with patch(CANCEL_PROXY, side_effect=WorkflowsScopedAuthNotConfigured("secret unset")):
+            response = self._cancel({"all": True})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["code"] == "cancel_auth_unavailable"
+
 
 class TestHogFlowCancelBatchJob(APIBaseTest):
     def setUp(self):
@@ -207,3 +218,16 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_cancel.assert_not_called()
+
+    def test_cancel_returns_503_when_scoped_auth_unconfigured(self):
+        # Minting the scoped JWT fails closed when the secret is unset. The view must turn that into a
+        # legible 503 instead of an unhandled 500, and leave the run's status untouched.
+        batch_job = self._create_batch_job("active")
+
+        with patch(CANCEL_BATCH_PROXY, side_effect=WorkflowsScopedAuthNotConfigured("secret unset")):
+            response = self._cancel(batch_job.id)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert response.json()["code"] == "cancel_auth_unavailable"
+        batch_job.refresh_from_db()
+        assert batch_job.status == "active"
