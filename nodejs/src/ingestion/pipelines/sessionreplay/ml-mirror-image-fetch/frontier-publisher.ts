@@ -40,7 +40,7 @@ export class FrontierPublisher {
 
     public async republish(
         candidate: FetchCandidate,
-        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'domain'>,
+        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
         reason: RepublishReason,
         waitMs = 0
     ): Promise<RepublishResult> {
@@ -71,7 +71,7 @@ export class FrontierPublisher {
         try {
             await this.producer.produce({
                 topic,
-                key: Buffer.from(target.domain),
+                key: Buffer.from(target.registrableDomain),
                 value: serializeFrontierRecord([republished]),
             })
         } catch (error) {
@@ -97,7 +97,7 @@ export class FrontierPublisher {
             headers['content-encoding'] = result.contentEncoding
         }
         await this.imagePublishes.run({
-            debugTag: candidate.domain,
+            debugTag: candidate.registrableDomain,
             fn: () =>
                 this.producer.produce({
                     topic: this.options.scrubTopic,

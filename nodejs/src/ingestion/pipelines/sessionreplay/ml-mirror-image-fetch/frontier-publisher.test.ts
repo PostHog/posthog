@@ -19,7 +19,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
         currentUrl: 'https://cdn.example.com/a.png',
         host: 'cdn.example.com',
         origin: 'https://cdn.example.com',
-        domain: 'example.com',
+        registrableDomain: 'example.com',
         remainingHops: MAX_HOPS,
         notBeforeMs: 0,
         firstSeenAtMs: 1_700_000_000_000,
@@ -72,7 +72,7 @@ describe('FrontierPublisher', () => {
                 currentUrl: 'https://img.other.net/a.png',
                 host: 'img.other.net',
                 origin: 'https://img.other.net',
-                domain: 'other.net',
+                registrableDomain: 'other.net',
             },
             'redirect'
         )

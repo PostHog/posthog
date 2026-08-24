@@ -278,6 +278,18 @@ describe('ConfigurationPolicyService', () => {
         })
     })
 
+    it('preserves a registrable-domain state deferral', async () => {
+        const { policy } = service({
+            robots: { outcome: 'deferred', reason: 'registrable_domain_map_full' },
+        })
+
+        await expect(policy.check(`${ORIGIN}/image.png`, new Map(), NOW_MS)).resolves.toMatchObject({
+            allowed: false,
+            transient: true,
+            reason: 'registrable_domain_map_full',
+        })
+    })
+
     it('keeps a terminal refusal when the other configuration file is unreachable', async () => {
         const { policy } = service({
             robots: {
@@ -349,7 +361,7 @@ describe('HttpConfigurationFetcher', () => {
 
     it('follows and signs each configuration redirect target', async () => {
         fetchStreamedMock
-            .mockResolvedValueOnce(response(302, [{ name: 'location', value: 'https://cdn.example.net/robots' }]))
+            .mockResolvedValueOnce(response(302, [{ name: 'location', value: 'https://cdn.example.com/robots' }]))
             .mockResolvedValueOnce(
                 response(200, [], { bytes: Buffer.from('User-agent: *\nAllow: /'), overLimit: false })
             )
@@ -363,8 +375,21 @@ describe('HttpConfigurationFetcher', () => {
         })
         expect(headersForGet.mock.calls).toEqual([
             ['https://example.com/robots.txt'],
-            ['https://cdn.example.net/robots'],
+            ['https://cdn.example.com/robots'],
         ])
+    })
+
+    it('does not follow a configuration redirect to another registrable domain', async () => {
+        fetchStreamedMock.mockResolvedValueOnce(
+            response(302, [{ name: 'location', value: 'https://cdn.example.net/robots' }])
+        )
+        const headersForGet = jest.fn().mockReturnValue({ signature: 'value' })
+
+        await expect(httpFetcher(headersForGet).fetch(ORIGIN, 'robots')).resolves.toMatchObject({
+            outcome: 'unreachable',
+        })
+        expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
+        expect(headersForGet).toHaveBeenCalledTimes(1)
     })
 })
 

@@ -6,7 +6,7 @@ import { fetchStreamed } from '~/common/utils/request'
 
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
-import { canonicalizeUrl } from './politeness-key'
+import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 const BOT_NAME = 'PostHogImageFetcherBot'
@@ -22,7 +22,15 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 export type ConfigurationFetchResult =
     | { outcome: 'available'; body: string; cache: HttpCacheMetadata }
     | { outcome: 'absent' | 'refused' | 'unreachable'; cache?: HttpCacheMetadata }
-    | { outcome: 'deferred' }
+    | { outcome: 'deferred'; reason: ConfigurationRequestBlockReason }
+
+export type ConfigurationRequestBlockReason =
+    | 'breaker_open'
+    | 'backoff'
+    | 'deadline'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
+    | 'connection_limit'
 
 export type RobotsPolicyRefusalReason = 'robots_disallow' | 'content_usage' | 'content_signal'
 export type OriginPolicyReason =
@@ -30,11 +38,17 @@ export type OriginPolicyReason =
     | 'robots_refused'
     | 'tdmrep_refused'
     | 'origin_map_full'
+    | 'registrable_domain_map_full'
+    | 'configuration_deferred'
     | 'configuration_unreachable'
 export type ResponseOptOutReason = 'x_robots_tag' | 'content_usage' | 'tdm_reservation'
 
 export interface ConfigurationRequestScheduler {
-    run<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<{ ran: true; value: T } | { ran: false }>
+    run<T>(
+        url: URL,
+        deadlineMs: number,
+        request: () => Promise<T>
+    ): Promise<{ ran: true; value: T } | { ran: false; reason: ConfigurationRequestBlockReason }>
 }
 
 type ConfigurationHop =
@@ -51,20 +65,23 @@ export class HttpConfigurationFetcher {
     public async fetch(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
         const deadlineMs = Date.now() + this.timeoutMs
         let target = new URL(file === 'robots' ? '/robots.txt' : '/.well-known/tdmrep.json', origin)
+        const registrableDomain = politenessKey(target.hostname)
         for (let redirects = 0; ; redirects++) {
             const canonical = canonicalizeUrl(target.toString())
             if (!canonical) {
                 return { outcome: 'refused' }
             }
             target = new URL(canonical.fetch)
-            let scheduled: { ran: true; value: ConfigurationHop } | { ran: false }
+            let scheduled:
+                | { ran: true; value: ConfigurationHop }
+                | { ran: false; reason: ConfigurationRequestBlockReason }
             try {
                 scheduled = await this.scheduler.run(target, deadlineMs, () => this.hop(target, file, deadlineMs))
             } catch {
                 return { outcome: 'unreachable' }
             }
             if (!scheduled.ran) {
-                return { outcome: 'deferred' }
+                return { outcome: 'deferred', reason: scheduled.reason }
             }
             const hop = scheduled.value
             if (hop.kind === 'done') {
@@ -74,7 +91,11 @@ export class HttpConfigurationFetcher {
                 return { outcome: 'unreachable', cache: hop.cache }
             }
             try {
-                target = new URL(hop.location, target)
+                const redirectTarget = new URL(hop.location, target)
+                if (politenessKey(redirectTarget.hostname) !== registrableDomain) {
+                    return { outcome: 'unreachable', cache: hop.cache }
+                }
+                target = redirectTarget
             } catch {
                 return { outcome: 'unreachable', cache: hop.cache }
             }
@@ -244,11 +265,12 @@ export class ConfigurationPolicyService {
         const tdmrepReservation = Boolean(
             tdmrep.item.body && tdmrepRefuses(parsedTdmrepDocument(tdmrep.item, parsed), new URL(url))
         )
-        if (robots.deferred || tdmrep.deferred) {
+        const deferredReason = requestControlDeferralReason(robots.deferredReason, tdmrep.deferredReason)
+        if (deferredReason) {
             return {
                 allowed: false,
                 transient: true,
-                reason: 'origin_map_full',
+                reason: deferredReason,
                 crawlDelayMs: 1_000,
                 tdmrepReservation: false,
                 updates,
@@ -278,15 +300,19 @@ export class ConfigurationPolicyService {
         file: ConfigurationFile,
         previous: ConfigurationCacheItem | undefined,
         nowMs: number
-    ): Promise<{ item: ConfigurationCacheItem; updates: ConfigurationCacheItem[]; deferred: boolean }> {
+    ): Promise<{
+        item: ConfigurationCacheItem
+        updates: ConfigurationCacheItem[]
+        deferredReason?: ConfigurationRequestBlockReason
+    }> {
         if (previous && previous.storageExpiresAtMs <= nowMs) {
             previous = undefined
         }
         if (previous && previous.refreshAtMs > nowMs) {
-            return { item: previous, updates: [], deferred: false }
+            return { item: previous, updates: [] }
         }
         if (previous?.status === 'unreachable' && previous.retryAtMs > nowMs) {
-            return { item: previous, updates: [], deferred: false }
+            return { item: previous, updates: [] }
         }
         const key = configurationCacheKey(origin, file)
         let request = this.inFlight.get(key)
@@ -299,7 +325,7 @@ export class ConfigurationPolicyService {
             return {
                 item: previous ?? unreachableItem(origin, file, nowMs),
                 updates: [],
-                deferred: true,
+                deferredReason: fetched.reason,
             }
         }
         if (fetched.outcome === 'unreachable' && previous && previous.status !== 'unreachable') {
@@ -309,7 +335,7 @@ export class ConfigurationPolicyService {
                 retryAtMs: nowMs + CONFIG_RETRY_MS,
                 storageExpiresAtMs: Math.max(previous.storageExpiresAtMs, nowMs + CONFIG_STORAGE_MS),
             }
-            return { item: retained, updates: [retained], deferred: false }
+            return { item: retained, updates: [retained] }
         }
         const explicitFreshMs = fetched.cache ? explicitFreshnessLifetimeMs(fetched.cache) : 0
         const freshForMs =
@@ -326,8 +352,22 @@ export class ConfigurationPolicyService {
             retryAtMs: nowMs + (fetched.outcome === 'unreachable' ? CONFIG_RETRY_MS : 0),
             storageExpiresAtMs: nowMs + Math.max(CONFIG_STORAGE_MS, freshForMs),
         }
-        return { item, updates: [item], deferred: false }
+        return { item, updates: [item] }
     }
+}
+
+function requestControlDeferralReason(
+    ...reasons: Array<ConfigurationRequestBlockReason | undefined>
+):
+    | Extract<OriginPolicyReason, 'origin_map_full' | 'registrable_domain_map_full' | 'configuration_deferred'>
+    | undefined {
+    if (reasons.includes('registrable_domain_map_full')) {
+        return 'registrable_domain_map_full'
+    }
+    if (reasons.includes('origin_map_full')) {
+        return 'origin_map_full'
+    }
+    return reasons.some(Boolean) ? 'configuration_deferred' : undefined
 }
 
 function unreachableItem(origin: string, file: ConfigurationFile, nowMs: number): ConfigurationCacheItem {

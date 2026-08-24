@@ -14,14 +14,20 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-export type RepublishReason = 'redirect' | 'retry' | 'not_ready' | 'pass_deadline' | 'origin_map_full'
+export type RepublishReason =
+    | 'redirect'
+    | 'retry'
+    | 'not_ready'
+    | 'pass_deadline'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
 
 export interface FetchCandidate {
     originalRef: string
     currentUrl: string
     host: string
     origin: string
-    domain: string
+    registrableDomain: string
     remainingHops: number
     notBeforeMs: number
     firstSeenAtMs: number
@@ -72,7 +78,8 @@ function isRepublishReason(value: unknown): value is RepublishReason | null {
         value === 'retry' ||
         value === 'not_ready' ||
         value === 'pass_deadline' ||
-        value === 'origin_map_full'
+        value === 'origin_map_full' ||
+        value === 'registrable_domain_map_full'
     )
 }
 
@@ -160,7 +167,7 @@ function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): R
             currentUrl: canonical.fetch,
             host: canonical.host,
             origin: new URL(canonical.fetch).origin,
-            domain: canonical.domain,
+            registrableDomain: canonical.domain,
             remainingHops,
             notBeforeMs: readyAtMs,
             firstSeenAtMs: capturedAtMs,
@@ -222,7 +229,7 @@ function parseJob(
             currentUrl,
             host: canonical.host,
             origin: new URL(currentUrl).origin,
-            domain: canonical.domain,
+            registrableDomain: canonical.domain,
             remainingHops,
             notBeforeMs,
             firstSeenAtMs,

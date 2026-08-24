@@ -10,7 +10,7 @@ import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const NOW_MS = 1_700_000_000_000
 const OPTIONS: FetchRunnerOptions = {
-    maxConcurrentPerDomain: 2,
+    maxConcurrentPerRegistrableDomain: 2,
     maxInFlightRequests: 50,
     batchBudgetMs: 20_000,
     maxBytes: 20 * 1024 * 1024,
@@ -25,7 +25,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
         currentUrl: 'https://cdn.example.com/a.png',
         host: 'cdn.example.com',
         origin: 'https://cdn.example.com',
-        domain: 'example.com',
+        registrableDomain: 'example.com',
         remainingHops: MAX_HOPS,
         notBeforeMs: 0,
         firstSeenAtMs: NOW_MS - 1_000,
@@ -48,7 +48,8 @@ interface Harness {
 function build(
     result: Partial<ImageFetchResult> = {},
     policy: Partial<OriginPolicyDecision> = {},
-    republishResult: RepublishResult = 'published'
+    republishResult: RepublishResult = 'published',
+    options: FetchRunnerOptions = OPTIONS
 ): Harness {
     const fetch = jest.fn((url: string, _options: ImageFetchOptions) =>
         Promise.resolve({ outcome: 'ok', redirects: 0, currentUrl: url, ...result } as ImageFetchResult)
@@ -67,7 +68,7 @@ function build(
     const republish = jest.fn(() => Promise.resolve(republishResult))
     const publishImage = jest.fn(() => Promise.resolve())
     const scheduler = {
-        runImage: async (_origin: string, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
+        runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
             ran: true as const,
             value: await request(),
         }),
@@ -80,7 +81,8 @@ function build(
         breakerFailures: 5,
         breakerCooldownMs: 60_000,
         breakerMaxCooldownMs: 3_600_000,
-        maxTrackedDomains: 20_000,
+        maxTrackedRegistrableDomains: 20_000,
+        maxTrackedOrigins: 20_000,
         random: () => 0,
     })
     const runner = new FetchRunner(
@@ -88,7 +90,7 @@ function build(
         budget,
         scheduler,
         { createPass } as unknown as ConfigurationPolicyService,
-        OPTIONS,
+        options,
         { republish, publishImage } as unknown as FrontierPublisher
     )
     return { runner, fetch, check, createPass, republish, publishImage }
@@ -150,6 +152,69 @@ describe('FetchRunner', () => {
         })
     })
 
+    it('uses one worker limit across sibling origins', async () => {
+        const harness = build({}, {}, 'published', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 1 })
+        let releaseFirst: (() => void) | undefined
+        harness.fetch.mockImplementationOnce(
+            (url: string) =>
+                new Promise<ImageFetchResult>((resolve) => {
+                    releaseFirst = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                })
+        )
+        const sibling = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://images.example.com/b.png',
+            host: 'images.example.com',
+            origin: 'https://images.example.com',
+        })
+
+        const run = harness.runner.run([candidate(), sibling], new Map())
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(harness.fetch).toHaveBeenCalledTimes(1)
+        expect(releaseFirst).toBeDefined()
+        releaseFirst?.()
+        await run
+        expect(harness.fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not let one origin occupy every registrable-domain worker', async () => {
+        const harness = build({}, {}, 'published', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
+        let releaseFirst: (() => void) | undefined
+        let releaseSecond: (() => void) | undefined
+        harness.fetch
+            .mockImplementationOnce(
+                (url: string) =>
+                    new Promise<ImageFetchResult>((resolve) => {
+                        releaseFirst = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                    })
+            )
+            .mockImplementationOnce(
+                (url: string) =>
+                    new Promise<ImageFetchResult>((resolve) => {
+                        releaseSecond = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                    })
+            )
+        const sameOrigin = candidate({ originalRef: `imageurl:${'b'.repeat(22)}` })
+        const siblingOrigin = candidate({
+            originalRef: `imageurl:${'c'.repeat(22)}`,
+            currentUrl: 'https://images.example.com/c.png',
+            host: 'images.example.com',
+            origin: 'https://images.example.com',
+        })
+
+        const run = harness.runner.run([candidate(), sameOrigin, siblingOrigin], new Map())
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, siblingOrigin.currentUrl])
+        releaseFirst?.()
+        releaseSecond?.()
+        await run
+        expect(harness.fetch).toHaveBeenCalledTimes(3)
+    })
+
     it('marks an image publish failure as lost after all candidate work settles', async () => {
         const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' })
         harness.publishImage.mockRejectedValue(new Error('queue full'))
@@ -179,7 +244,7 @@ describe('FetchRunner', () => {
                 currentUrl: candidate().currentUrl,
                 host: candidate().host,
                 origin: candidate().origin,
-                domain: candidate().domain,
+                registrableDomain: candidate().registrableDomain,
             },
             'not_ready',
             3_600_000
@@ -230,7 +295,7 @@ describe('FetchRunner', () => {
                 currentUrl: 'https://img.other.net/a.png',
                 host: 'img.other.net',
                 origin: 'https://img.other.net',
-                domain: 'other.net',
+                registrableDomain: 'other.net',
             },
             'redirect',
             0

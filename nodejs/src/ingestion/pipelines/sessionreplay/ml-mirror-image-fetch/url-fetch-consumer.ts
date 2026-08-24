@@ -160,7 +160,7 @@ export class UrlFetchConsumer {
                 currentUrl: candidate.currentUrl,
                 host: candidate.host,
                 origin: candidate.origin,
-                domain: candidate.domain,
+                registrableDomain: candidate.registrableDomain,
             },
             'not_ready',
             waitMs

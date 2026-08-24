@@ -11,16 +11,17 @@ export interface InFlightCount {
 
 /** What the budget gauges read. Narrower than `HostBudget`, so the metrics do not depend on the whole of it. */
 export interface BudgetCounts {
-    readonly trackedDomains: number
+    readonly trackedRegistrableDomains: number
+    readonly trackedOrigins: number
     readonly evictedWhileBlocked: number
-    blockedDomains(nowMs: number): number
+    blockedRegistrableDomains(nowMs: number): number
 }
 
 export type DedupScope = 'batch' | 'store'
-export type SchedulerWaitScope = 'origin_budget' | 'request_capacity'
+export type SchedulerWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate' | 'request_capacity'
 export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'network_error'
 export type RepublishDestination = 'frontier' | 'delay'
-type OriginStatusReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
+type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -158,9 +159,9 @@ export class ImageFetchRequestMetrics {
         help: 'Frontier and delay-topic republishes before a URL reaches a terminal outcome',
         buckets: [0, 1, 2, 3, 5, 10],
     })
-    private static readonly originStatus = new Counter({
-        name: 'ml_image_fetch_origin_status_total',
-        help: 'Origin policy and request-budget decisions after block state is known',
+    private static readonly policyAndBudgetDecisions = new Counter({
+        name: 'ml_image_fetch_policy_and_budget_decisions_total',
+        help: 'Origin-policy and registrable-domain request-control decisions after block state is known',
         labelNames: ['blocked', 'reason'],
     })
     /**
@@ -188,7 +189,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly schedulerWait = new Histogram({
         name: 'ml_image_fetch_scheduler_wait_seconds',
-        help: 'Time a request waited for its origin budget or for a pod request slot',
+        help: 'Time a request waited for an origin crawl delay, registrable-domain rate, or pod request slot',
         labelNames: ['scope'],
         buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
     })
@@ -209,25 +210,32 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly redirects = new Histogram({
         name: 'ml_image_fetch_redirects',
-        help: 'Redirects followed for one URL. Each hop is a separate request against the budget of its origin',
+        help: 'Redirects followed for one URL. Each hop uses its registrable-domain budget and origin crawl delay',
         buckets: [0, 1, 2, 3],
     })
     /**
      * Both gauges read the budget at scrape time. A hold expires by the clock, so a count taken at
      * the end of a batch would report blocked origins until the next batch arrives.
      */
-    private static readonly trackedDomains = new Gauge({
-        name: 'ml_image_fetch_tracked_domains',
-        help: 'Origins this pod holds rate-limit state for',
+    private static readonly trackedRegistrableDomains = new Gauge({
+        name: 'ml_image_fetch_tracked_registrable_domains',
+        help: 'Registrable domains this pod holds request-control state for',
         collect() {
-            this.set(ImageFetchRequestMetrics.budget?.trackedDomains ?? 0)
+            this.set(ImageFetchRequestMetrics.budget?.trackedRegistrableDomains ?? 0)
         },
     })
-    private static readonly blockedDomains = new Gauge({
-        name: 'ml_image_fetch_blocked_domains',
-        help: 'Origins this pod is currently sending nothing to because a breaker opened or Retry-After is still in force',
+    private static readonly trackedOrigins = new Gauge({
+        name: 'ml_image_fetch_tracked_origins',
+        help: 'Origins this pod holds configuration and crawl-delay state for',
         collect() {
-            this.set(ImageFetchRequestMetrics.budget?.blockedDomains(Date.now()) ?? 0)
+            this.set(ImageFetchRequestMetrics.budget?.trackedOrigins ?? 0)
+        },
+    })
+    private static readonly blockedRegistrableDomains = new Gauge({
+        name: 'ml_image_fetch_blocked_registrable_domains',
+        help: 'Registrable domains held by transient back-off, Retry-After, or an open circuit breaker',
+        collect() {
+            this.set(ImageFetchRequestMetrics.budget?.blockedRegistrableDomains(Date.now()) ?? 0)
         },
     })
 
@@ -271,8 +279,8 @@ export class ImageFetchRequestMetrics {
         this.completedUrlFetches.observe(fetches)
         this.completedUrlRepublishes.observe(republishes)
     }
-    public static observeOriginStatus(blocked: boolean, reason: OriginStatusReason = 'none'): void {
-        this.originStatus.labels(blocked ? 'true' : 'false', reason).inc()
+    public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
+        this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
     }
     public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
@@ -281,8 +289,8 @@ export class ImageFetchRequestMetrics {
         this.responseBytes.observe(bytes)
     }
     private static readonly evictedWhileBlocked = new Gauge({
-        name: 'ml_image_fetch_domains_evicted_while_blocked',
-        help: 'Origins dropped from the rate-limit map while still blocked. This must stay zero because blocked entries are not eligible for eviction',
+        name: 'ml_image_fetch_registrable_domains_evicted_while_blocked',
+        help: 'Registrable domains removed from request-control state while still blocked. This must stay zero',
         collect() {
             this.set(ImageFetchRequestMetrics.budget?.evictedWhileBlocked ?? 0)
         },
@@ -296,7 +304,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly inFlight = new Gauge({
         name: 'ml_image_fetch_requests_in_flight',
-        help: "Image requests this pod holds open right now. A URL waiting for its origin's rate limit is not counted, because it holds no socket",
+        help: 'External requests this pod holds open. A URL waiting for its registrable-domain rate limit holds no socket and is not counted',
         collect() {
             this.set(ImageFetchRequestMetrics.requests?.running ?? 0)
         },
@@ -318,7 +326,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before the period it was waiting out had passed',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({

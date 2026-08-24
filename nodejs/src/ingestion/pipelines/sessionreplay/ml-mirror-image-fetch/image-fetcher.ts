@@ -50,7 +50,7 @@ export interface ImageFetchResult {
     contentEncoding?: string
     cache?: HttpCacheMetadata
     refusalReason?: FetchRefusalReason
-    /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for that period. */
+    /** Set by a 429 or a 503 that named a period. The caller holds the registrable domain for that period. */
     retryAfterMs?: number
     schedulingReason?: RequestScheduleBlockReason
     schedulingWaitMs?: number
@@ -65,19 +65,12 @@ export interface ImageFetchOptions {
     timeoutMs: number
     maxRedirects: number
     scheduleRequest: <T>(
-        origin: string,
+        url: URL,
         deadlineMs: number,
         request: () => Promise<T>
     ) => Promise<{ ran: true; value: T } | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }>
     checkRedirectPolicy: (url: string) => Promise<RedirectTargetPolicy>
-    /**
-     * True when the target belongs to another operator, so this fetch must not follow it.
-     *
-     * The fetch asks this before it applies the redirect limit, and the question spends nothing. The
-     * limit bounds the hops this request follows itself. Nobody here follows a target for another
-     * operator, so it goes back to Kafka and costs one hop instead. Requirement 7.
-     */
-    isOffsite: (url: URL) => boolean
+    isDifferentOrigin: (url: URL) => boolean
     cache?: HttpCacheMetadata
     tdmrepReservation: boolean
     onRedirectResponse?: () => void
@@ -88,6 +81,7 @@ export type RequestScheduleBlockReason =
     | 'backoff'
     | 'deadline'
     | 'origin_map_full'
+    | 'registrable_domain_map_full'
     | 'connection_limit'
 
 export type RedirectTargetPolicy =
@@ -136,7 +130,7 @@ export class HttpImageFetcher implements ImageFetcher {
                 | { ran: true; value: HopResult }
                 | { ran: false; reason: RequestScheduleBlockReason; waitMs: number }
             try {
-                scheduled = await options.scheduleRequest(new URL(target).origin, deadlineMs, () =>
+                scheduled = await options.scheduleRequest(new URL(target), deadlineMs, () =>
                     this.hop(
                         target,
                         Math.max(1, deadlineMs - Date.now()),
@@ -166,9 +160,7 @@ export class HttpImageFetcher implements ImageFetcher {
                 return { outcome: 'bad_redirect', redirects, currentUrl: target, status: hop.status }
             }
             options.onRedirectResponse?.()
-            if (options.isOffsite(next)) {
-                // The budget, the breaker, and the connection count for that domain belong to the
-                // consumer that owns its partition.
+            if (options.isDifferentOrigin(next)) {
                 return {
                     outcome: 'redirect_offsite',
                     redirects,

@@ -15,7 +15,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
         currentUrl: 'https://cdn.example.com/a.png',
         host: 'cdn.example.com',
         origin: 'https://cdn.example.com',
-        domain: 'example.com',
+        registrableDomain: 'example.com',
         remainingHops: MAX_HOPS,
         notBeforeMs: 0,
         firstSeenAtMs: 1_700_000_000_000,
@@ -85,7 +85,7 @@ describe('frontier record', () => {
         expect(parsed).toEqual({ ok: false, reason })
     })
 
-    it('drops a job placed on another operator domain partition', () => {
+    it('drops a job placed on another registrable-domain partition', () => {
         const parsed = parseCollectedUrlsRecord(record(), 'other.net')
 
         expect(parsed).toEqual({ ok: false, reason: 'foreign_domain' })

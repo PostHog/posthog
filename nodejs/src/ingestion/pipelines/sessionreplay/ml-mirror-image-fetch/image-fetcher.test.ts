@@ -17,8 +17,8 @@ const OPTIONS: ImageFetchOptions = {
     maxBytes: 1000,
     timeoutMs: 5000,
     maxRedirects: 3,
-    isOffsite: () => false,
-    scheduleRequest: async (_origin, _deadlineMs, request) => ({ ran: true as const, value: await request() }),
+    isDifferentOrigin: () => false,
+    scheduleRequest: async (_url, _deadlineMs, request) => ({ ran: true as const, value: await request() }),
     checkRedirectPolicy: () => Promise.resolve({ allowed: true as const, tdmrepReservation: false }),
     tdmrepReservation: false,
 }
@@ -306,7 +306,7 @@ describe('HttpImageFetcher', () => {
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
             maxRedirects: 0,
-            isOffsite: () => true,
+            isDifferentOrigin: () => true,
         })
 
         expect(result).toMatchObject({
@@ -315,7 +315,7 @@ describe('HttpImageFetcher', () => {
         })
     })
 
-    it('stops at the redirect limit for a target on the same domain', async () => {
+    it('stops at the redirect limit for a target on the same origin', async () => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.com/b.png' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, maxRedirects: 0 })
@@ -335,7 +335,7 @@ describe('HttpImageFetcher', () => {
         let requestNumber = 0
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
-            scheduleRequest: async (_origin, _deadlineMs, request) => {
+            scheduleRequest: async (_url, _deadlineMs, request) => {
                 requestNumber += 1
                 return requestNumber === 1
                     ? { ran: true as const, value: await request() }
@@ -496,7 +496,7 @@ describe('HttpImageFetcher', () => {
 
         await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
-            scheduleRequest: async (_origin, deadlineMs, request) => {
+            scheduleRequest: async (_url, deadlineMs, request) => {
                 deadlines.push(deadlineMs)
                 return { ran: true as const, value: await request() }
             },
@@ -515,7 +515,7 @@ describe('HttpImageFetcher', () => {
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
             ...OPTIONS,
             maxRedirects: 2,
-            scheduleRequest: async (_origin, _deadlineMs, request) => {
+            scheduleRequest: async (_url, _deadlineMs, request) => {
                 scheduledRequests += 1
                 return { ran: true as const, value: await request() }
             },

@@ -10,12 +10,24 @@ import {
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
-import { FetchOutcome, FetchRefusalReason, ImageFetcher, TransientFetchOutcome } from './image-fetcher'
+import {
+    FetchOutcome,
+    FetchRefusalReason,
+    ImageFetcher,
+    RequestScheduleBlockReason,
+    TransientFetchOutcome,
+} from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
 
-export type ShedReason = 'breaker_open' | 'backoff' | 'deadline' | 'connection_limit' | 'origin_map_full'
+export type ShedReason =
+    | 'breaker_open'
+    | 'backoff'
+    | 'deadline'
+    | 'connection_limit'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
 export type AttemptOutcome =
@@ -36,7 +48,7 @@ export interface FetchAttempt {
 }
 
 export interface FetchRunnerOptions {
-    maxConcurrentPerDomain: number
+    maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
     batchBudgetMs: number
     maxBytes: number
@@ -59,6 +71,12 @@ function isTransientOutcome(outcome: FetchOutcome): outcome is TransientFetchOut
     return TRANSIENT_OUTCOMES.has(outcome as TransientFetchOutcome)
 }
 
+function isRequestStateFull(
+    reason: string | undefined
+): reason is Extract<RequestScheduleBlockReason, 'origin_map_full' | 'registrable_domain_map_full'> {
+    return reason === 'origin_map_full' || reason === 'registrable_domain_map_full'
+}
+
 export interface FetchPass {
     run(candidates: FetchCandidate[], stored: Map<string, CrawlHistoryItem>): Promise<FetchAttempt[]>
 }
@@ -74,7 +92,10 @@ export class FetchRunner implements FetchPass {
         private readonly options: FetchRunnerOptions,
         private readonly publisher: FrontierPublisher
     ) {
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_ORIGIN', options.maxConcurrentPerDomain)
+        requirePositive(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN',
+            options.maxConcurrentPerRegistrableDomain
+        )
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
@@ -95,32 +116,40 @@ export class FetchRunner implements FetchPass {
                 configurationItems.set(key, item)
             }
         }
-        const byOrigin = new Map<string, FetchCandidate[]>()
+        const byRegistrableDomain = new Map<string, FetchCandidate[]>()
         for (const candidate of candidates) {
-            const queue = byOrigin.get(candidate.origin)
+            const queue = byRegistrableDomain.get(candidate.registrableDomain)
             if (queue) {
                 queue.push(candidate)
             } else {
-                byOrigin.set(candidate.origin, [candidate])
+                byRegistrableDomain.set(candidate.registrableDomain, [candidate])
             }
         }
         const attempts: FetchAttempt[] = []
-        const originRuns = [...byOrigin].map(([origin, queue]) =>
-            this.runOriginQueue(origin, queue, stored, configurationItems, configurationPolicy, deadlineMs, attempts)
+        const registrableDomainRuns = [...byRegistrableDomain].map(([registrableDomain, queue]) =>
+            this.runRegistrableDomainQueue(
+                registrableDomain,
+                queue,
+                stored,
+                configurationItems,
+                configurationPolicy,
+                deadlineMs,
+                attempts
+            )
         )
-        const settledOrigins = await Promise.allSettled(originRuns)
-        const failedOrigin = settledOrigins.find(
+        const settledRegistrableDomains = await Promise.allSettled(registrableDomainRuns)
+        const failedRegistrableDomain = settledRegistrableDomains.find(
             (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
         )
-        if (failedOrigin) {
-            throw failedOrigin.reason
+        if (failedRegistrableDomain) {
+            throw failedRegistrableDomain.reason
         }
         this.logFailures(attempts)
         return attempts
     }
 
-    private async runOriginQueue(
-        origin: string,
+    private async runRegistrableDomainQueue(
+        registrableDomain: string,
         queue: FetchCandidate[],
         stored: Map<string, CrawlHistoryItem>,
         configurationItems: Map<string, ConfigurationCacheItem>,
@@ -128,10 +157,18 @@ export class FetchRunner implements FetchPass {
         deadlineMs: number,
         attempts: FetchAttempt[]
     ): Promise<void> {
-        let next = 0
-        const worker = async (): Promise<void> => {
-            while (next < queue.length) {
-                const candidate = queue[next++]
+        const byOrigin = new Map<string, FetchCandidate[]>()
+        for (const candidate of queue) {
+            const originQueue = byOrigin.get(candidate.origin)
+            if (originQueue) {
+                originQueue.push(candidate)
+            } else {
+                byOrigin.set(candidate.origin, [candidate])
+            }
+        }
+        const registrableDomainWork = new ConcurrencyController(this.options.maxConcurrentPerRegistrableDomain)
+        const runOriginQueue = async (originQueue: FetchCandidate[]): Promise<void> => {
+            for (const candidate of originQueue) {
                 if (candidate.remainingHops === 0) {
                     attempts.push(this.terminal(candidate, HOPS_EXHAUSTED, undefined, []))
                     continue
@@ -141,28 +178,35 @@ export class FetchRunner implements FetchPass {
                     continue
                 }
                 attempts.push(
-                    await this.candidateWork.run({
-                        debugTag: origin,
-                        fn: () => {
-                            if (Date.now() > deadlineMs) {
-                                return this.republish(candidate, 'deadline', 'pass_deadline', ONE_MINUTE_MS, [])
-                            }
-                            return this.fetchOne(candidate, stored, configurationItems, configurationPolicy, deadlineMs)
-                        },
+                    await registrableDomainWork.run({
+                        debugTag: candidate.origin,
+                        fn: () =>
+                            this.candidateWork.run({
+                                debugTag: registrableDomain,
+                                fn: () => {
+                                    if (Date.now() > deadlineMs) {
+                                        return this.republish(candidate, 'deadline', 'pass_deadline', ONE_MINUTE_MS, [])
+                                    }
+                                    return this.fetchOne(
+                                        candidate,
+                                        stored,
+                                        configurationItems,
+                                        configurationPolicy,
+                                        deadlineMs
+                                    )
+                                },
+                            }),
                     })
                 )
             }
         }
-        const settledWorkers = await Promise.allSettled(
-            Array.from({ length: Math.min(this.options.maxConcurrentPerDomain, queue.length) }, worker)
-        )
+        const settledWorkers = await Promise.allSettled([...byOrigin.values()].map(runOriginQueue))
         const failedWorker = settledWorkers.find(
             (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
         )
         if (failedWorker) {
             throw failedWorker.reason
         }
-        void origin
     }
 
     private async fetchOne(
@@ -181,12 +225,19 @@ export class FetchRunner implements FetchPass {
             configurationItems.set(update.key, update)
         }
         if (!policy.allowed) {
-            ImageFetchRequestMetrics.observeOriginStatus(true, policy.reason ?? 'configuration_refused')
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, policy.reason ?? 'configuration_refused')
             if (policy.transient) {
-                const reason = policy.reason === 'origin_map_full' ? 'origin_map_full' : 'backoff'
-                const republishReason: RepublishReason = reason === 'origin_map_full' ? 'origin_map_full' : 'not_ready'
-                const waitMs = reason === 'origin_map_full' ? ONE_MINUTE_MS : CONFIGURATION_RETRY_MS
-                return await this.republish(candidate, reason, republishReason, waitMs, configurationUpdates)
+                if (isRequestStateFull(policy.reason)) {
+                    return await this.republish(
+                        candidate,
+                        policy.reason,
+                        policy.reason,
+                        ONE_MINUTE_MS,
+                        configurationUpdates
+                    )
+                }
+                const waitMs = policy.reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
+                return await this.republish(candidate, 'backoff', 'not_ready', waitMs, configurationUpdates)
             }
             return this.terminal(
                 candidate,
@@ -197,7 +248,7 @@ export class FetchRunner implements FetchPass {
             )
         }
         if (!this.budget.setCrawlDelay(candidate.origin, policy.crawlDelayMs, Date.now())) {
-            ImageFetchRequestMetrics.observeOriginStatus(true, 'origin_map_full')
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, 'origin_map_full')
             return await this.republish(
                 candidate,
                 'origin_map_full',
@@ -215,10 +266,10 @@ export class FetchRunner implements FetchPass {
             maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
             cache: previousUrl?.cache,
             tdmrepReservation: policy.tdmrepReservation,
-            onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.origin, Date.now()),
-            isOffsite: (url) => url.origin !== candidate.origin,
-            scheduleRequest: (origin, requestDeadlineMs, request) =>
-                this.scheduler.runImage(origin, Math.min(deadlineMs, requestDeadlineMs), request),
+            onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
+            isDifferentOrigin: (url) => url.origin !== candidate.origin,
+            scheduleRequest: (url, requestDeadlineMs, request) =>
+                this.scheduler.runImage(url, Math.min(deadlineMs, requestDeadlineMs), request),
             checkRedirectPolicy: async (url) => {
                 const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())
                 for (const update of redirectPolicy.updates) {
@@ -253,7 +304,7 @@ export class FetchRunner implements FetchPass {
             currentUrl: effectiveUrl.fetch,
             host: effectiveUrl.host,
             origin: new URL(effectiveUrl.fetch).origin,
-            domain: effectiveUrl.domain,
+            registrableDomain: effectiveUrl.domain,
             remainingHops: candidate.remainingHops - result.redirects,
             fetchCount:
                 candidate.fetchCount +
@@ -263,10 +314,11 @@ export class FetchRunner implements FetchPass {
 
         if (result.outcome === 'redirect_policy_refused') {
             const reason = result.refusalReason ?? 'configuration_refused'
-            ImageFetchRequestMetrics.observeOriginStatus(true, reason)
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, reason)
             if (result.policyTransient) {
-                const republishReason: RepublishReason = reason === 'origin_map_full' ? 'origin_map_full' : 'not_ready'
-                const waitMs = reason === 'origin_map_full' ? ONE_MINUTE_MS : CONFIGURATION_RETRY_MS
+                const stateFull = isRequestStateFull(reason)
+                const republishReason: RepublishReason = stateFull ? reason : 'not_ready'
+                const waitMs = reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
                 return await this.republish(attemptedCandidate, reason, republishReason, waitMs, configurationUpdates)
             }
             return this.terminal(attemptedCandidate, reason, undefined, configurationUpdates, reason)
@@ -274,24 +326,27 @@ export class FetchRunner implements FetchPass {
 
         if (result.outcome === 'request_deferred') {
             const reason = result.schedulingReason ?? 'deadline'
-            ImageFetchRequestMetrics.observeOriginStatus(true, reason)
-            const republishReason: RepublishReason =
-                reason === 'origin_map_full'
-                    ? 'origin_map_full'
-                    : reason === 'deadline' && Date.now() >= deadlineMs
-                      ? 'pass_deadline'
-                      : 'not_ready'
+            ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, reason)
+            const republishReason: RepublishReason = isRequestStateFull(reason)
+                ? reason
+                : reason === 'deadline' && Date.now() >= deadlineMs
+                  ? 'pass_deadline'
+                  : 'not_ready'
             const waitMs = Math.max(
                 ONE_MINUTE_MS,
-                result.schedulingWaitMs ?? this.budget.blockedForMs(attemptedCandidate.origin, Date.now())
+                result.schedulingWaitMs ?? this.budget.blockedForMs(attemptedCandidate.registrableDomain, Date.now())
             )
             return await this.republish(attemptedCandidate, reason, republishReason, waitMs, configurationUpdates)
         }
 
-        ImageFetchRequestMetrics.observeOriginStatus(false)
+        ImageFetchRequestMetrics.observePolicyAndBudgetDecision(false)
 
         if (isTransientOutcome(result.outcome)) {
-            const delayMs = this.budget.recordTransientFailure(candidate.origin, Date.now(), result.retryAfterMs)
+            const delayMs = this.budget.recordTransientFailure(
+                candidate.registrableDomain,
+                Date.now(),
+                result.retryAfterMs
+            )
             const attempt = await this.republish(
                 attemptedCandidate,
                 result.outcome,
@@ -305,7 +360,7 @@ export class FetchRunner implements FetchPass {
             return attempt
         }
 
-        this.budget.recordCompletedResponse(candidate.origin, Date.now())
+        this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now())
         if (
             (result.outcome === 'redirect_offsite' || result.outcome === 'redirect_continuation') &&
             result.redirectTarget
@@ -321,7 +376,7 @@ export class FetchRunner implements FetchPass {
                     currentUrl: canonical.fetch,
                     host: canonical.host,
                     origin: new URL(canonical.fetch).origin,
-                    domain: canonical.domain,
+                    registrableDomain: canonical.domain,
                 },
                 'redirect',
                 0,
@@ -367,7 +422,7 @@ export class FetchRunner implements FetchPass {
                 currentUrl: candidate.currentUrl,
                 host: candidate.host,
                 origin: candidate.origin,
-                domain: candidate.domain,
+                registrableDomain: candidate.registrableDomain,
             },
             reason,
             waitMs,
@@ -378,7 +433,7 @@ export class FetchRunner implements FetchPass {
     private async republishToTarget(
         candidate: FetchCandidate,
         outcome: AttemptOutcome,
-        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'domain'>,
+        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
         reason: RepublishReason,
         waitMs: number,
         configurationUpdates: ConfigurationCacheItem[]

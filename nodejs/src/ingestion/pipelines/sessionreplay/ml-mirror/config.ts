@@ -83,26 +83,17 @@ export type MlMirrorConfig = {
     /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
     AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
 
+    /** Requests one registrable domain receives from one pod each second. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: number
+    /** Tokens one idle registrable domain can retain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: number
+    /** Also the worker count for one registrable domain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: number
     /**
-     * What one origin receives from one pod.
+     * Requests this pod holds open across every registrable domain at once.
      *
-     * Every value below is a politeness control, so all of them are environment variables. An
-     * incident must change the load this lane puts on a customer site in minutes, and a deploy
-     * takes longer than that.
-     *
-     * One request each second is far below the rate a browser puts on the same site. This lane can
-     * use a low rate because nothing waits on the result.
-     */
-    SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: number
-    /** Tokens an origin holds while idle, so a site seen once an hour gets a short run rather than one request. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
-    /** Also the per-origin worker count, so the connection limit and the worker count cannot disagree. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
-    /**
-     * Requests this pod holds open across every domain at once.
-     *
-     * The topic keys by registrable domain, so a domain lands on one partition and one pod, and its
-     * rate limit lives there. The origin-state limit prevents an unbounded in-memory map.
+     * The topic key sends one registrable domain to one partition and one pod. Its rate limit lives
+     * on that pod. The state limits prevent unbounded in-memory maps.
      *
      * This bounds the pod instead. A body reads into a buffer, so the resident peak is roughly this
      * times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS lookups
@@ -114,9 +105,10 @@ export type MlMirrorConfig = {
     /**
      * Wall time the fetch pass of one poll batch may take.
      *
-     * A batch can hold more URLs for one domain than a polite rate carries in this time. What the
-     * pass does not reach goes to a delay topic without spending a hop. The value sits well inside
-     * Kafka's max.poll.interval.ms of 300s, which the crawl history round trips share.
+     * A batch can hold more URLs for one registrable domain than a polite rate carries in this
+     * time. What the pass does not reach goes to a delay topic without spending a hop. The value
+     * sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round trips
+     * share.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number
     /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
@@ -124,13 +116,15 @@ export type MlMirrorConfig = {
     /** Covers one URL including its redirects, separate from the connect timeout of the shared request layer. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: number
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: number
-    /** Consecutive failures of one origin before this pod stops sending to it. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES: number
-    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS: number
+    /** Consecutive failures before this pod stops sending to one registrable domain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS: number
     /** The longest calculated breaker back-off. A longer valid `Retry-After` remains authoritative. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: number
-    /** Origins one pod holds request-control state for. Only idle, unblocked entries can be evicted. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS: number
+    /** Registrable domains one pod holds request-control state for. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS: number
+    /** Origins one pod holds configuration and crawl-delay state for. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS: number
 
     /**
      * The delay topic one retry pod drains, and the period every record in it waits.
@@ -226,19 +220,20 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
-        SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 6,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 1,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 20_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: 3,
-        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES: 5,
-        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS: 60_000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: 60 * 60 * 1000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS: 60 * 60 * 1000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS: 20_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: 60_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 500,

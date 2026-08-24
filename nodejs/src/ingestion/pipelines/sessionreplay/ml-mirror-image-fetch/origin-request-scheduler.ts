@@ -4,6 +4,7 @@ import { delay } from '~/common/utils/utils'
 import { ConfigurationRequestScheduler } from './configuration-policy'
 import { BudgetBlockReason, HostBudget } from './host-budget'
 import { ImageFetchRequestMetrics } from './metrics'
+import { politenessKey } from './politeness-key'
 
 export type ScheduledRequest<T> =
     | { ran: true; value: T }
@@ -20,11 +21,11 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
     }
 
     public run<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url.origin, deadlineMs, true, request)
+        return this.runScheduled(url, deadlineMs, true, request)
     }
 
-    public runImage<T>(origin: string, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(origin, deadlineMs, false, request)
+    public runImage<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
+        return this.runScheduled(url, deadlineMs, false, request)
     }
 
     public get running(): number {
@@ -32,59 +33,70 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
     }
 
     private async runScheduled<T>(
-        origin: string,
+        url: URL,
         deadlineMs: number,
         configurationRequest: boolean,
         request: () => Promise<T>
     ): Promise<ScheduledRequest<T>> {
+        const origin = url.origin
+        const registrableDomain = politenessKey(url.hostname)
         const nowMs = Date.now()
-        if (configurationRequest && !this.budget.configurationRequestStarted(origin, nowMs)) {
+        if (!this.budget.requestScheduled(origin, nowMs)) {
             return { ran: false, reason: 'origin_map_full', waitMs: 0 }
         }
         try {
-            const grant = this.budget.take(origin, nowMs, deadlineMs, configurationRequest)
-            if (!grant.granted) {
-                return { ran: false, reason: grant.reason, waitMs: grant.waitMs }
-            }
-            if (grant.waitMs > 0) {
-                ImageFetchRequestMetrics.observeSchedulerWait('origin_budget', grant.waitMs / 1000)
-                await delay(grant.waitMs)
-            }
-            if (Date.now() > deadlineMs) {
-                this.budget.returnGrant(origin, Date.now(), grant.reservedStartAtMs)
-                return { ran: false, reason: 'deadline', waitMs: 0 }
-            }
             for (;;) {
                 const capacityWaitStartedAtMs = Date.now()
                 const scheduled = await this.inFlight.run({
-                    debugTag: origin,
+                    debugTag: registrableDomain,
                     fn: async () => {
-                        const queuedUntilMs = Date.now()
+                        const checkedAtMs = Date.now()
                         ImageFetchRequestMetrics.observeSchedulerWait(
                             'request_capacity',
-                            Math.max(0, queuedUntilMs - capacityWaitStartedAtMs) / 1000
+                            Math.max(0, checkedAtMs - capacityWaitStartedAtMs) / 1000
                         )
-                        const blocked = configurationRequest
-                            ? null
-                            : this.budget.blockedReason(origin, queuedUntilMs, grant.halfOpenProbe)
-                        if (queuedUntilMs > deadlineMs || blocked) {
-                            return { kind: 'stopped', reason: blocked ?? ('deadline' as const) } as const
+                        const grant = this.budget.take(
+                            registrableDomain,
+                            origin,
+                            checkedAtMs,
+                            deadlineMs,
+                            configurationRequest
+                        )
+                        if (!grant.granted) {
+                            return {
+                                kind: 'stopped',
+                                reason: grant.reason,
+                                waitMs: grant.waitMs,
+                            } as const
                         }
-                        const startWaitMs = configurationRequest
-                            ? 0
-                            : this.budget.requestStartWaitMs(origin, queuedUntilMs)
-                        if (startWaitMs > 0) {
-                            ImageFetchRequestMetrics.observeSchedulerWait('origin_budget', startWaitMs / 1000)
-                            return { kind: 'wait', waitMs: startWaitMs } as const
+                        if (grant.waitMs > 0) {
+                            return {
+                                kind: 'wait',
+                                waitMs: grant.waitMs,
+                                waitScope: grant.waitScope ?? 'registrable_domain_rate',
+                            } as const
                         }
-                        if (!this.budget.acquireConnection(origin, queuedUntilMs)) {
-                            return { kind: 'stopped', reason: 'connection_limit' as const } as const
+                        if (!this.budget.acquireConnection(registrableDomain, origin)) {
+                            this.budget.returnGrant(
+                                registrableDomain,
+                                origin,
+                                checkedAtMs,
+                                grant.reservedStartAtMs,
+                                grant.halfOpenProbe
+                            )
+                            return { kind: 'stopped', reason: 'connection_limit' as const, waitMs: 0 } as const
                         }
                         try {
-                            this.budget.markRequestStarted(origin, Date.now(), grant.reservedStartAtMs)
+                            this.budget.markRequestStarted(
+                                registrableDomain,
+                                origin,
+                                Date.now(),
+                                grant.reservedStartAtMs,
+                                configurationRequest ? 'configuration' : 'image'
+                            )
                             return { kind: 'ran', value: await request() } as const
                         } finally {
-                            this.budget.releaseConnection(origin)
+                            this.budget.releaseConnection(registrableDomain, origin)
                         }
                     },
                 })
@@ -92,23 +104,20 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
                     return { ran: true, value: scheduled.value }
                 }
                 if (scheduled.kind === 'stopped') {
-                    this.budget.returnGrant(origin, Date.now(), grant.reservedStartAtMs)
                     return {
                         ran: false,
                         reason: scheduled.reason,
-                        waitMs: this.budget.blockedForMs(origin, Date.now()),
+                        waitMs: scheduled.waitMs,
                     }
                 }
                 if (Date.now() + scheduled.waitMs > deadlineMs) {
-                    this.budget.returnGrant(origin, Date.now(), grant.reservedStartAtMs)
                     return { ran: false, reason: 'deadline', waitMs: scheduled.waitMs }
                 }
+                ImageFetchRequestMetrics.observeSchedulerWait(scheduled.waitScope, scheduled.waitMs / 1000)
                 await delay(scheduled.waitMs)
             }
         } finally {
-            if (configurationRequest) {
-                this.budget.configurationRequestFinished(origin)
-            }
+            this.budget.requestFinished(origin)
         }
     }
 }

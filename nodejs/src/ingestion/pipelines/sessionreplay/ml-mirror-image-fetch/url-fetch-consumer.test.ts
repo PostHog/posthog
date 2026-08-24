@@ -16,7 +16,7 @@ function candidate(name: string, overrides: Partial<FetchCandidate> = {}): Fetch
         currentUrl: `https://cdn.example.com/${name}.png`,
         host: 'cdn.example.com',
         origin: 'https://cdn.example.com',
-        domain: 'example.com',
+        registrableDomain: 'example.com',
         remainingHops: MAX_HOPS,
         notBeforeMs: 0,
         firstSeenAtMs: NOW_MS,
@@ -227,7 +227,7 @@ describe('UrlFetchConsumer', () => {
                 currentUrl: early.currentUrl,
                 host: early.host,
                 origin: early.origin,
-                domain: early.domain,
+                registrableDomain: early.registrableDomain,
             },
             'not_ready',
             30_000
@@ -283,7 +283,7 @@ describe('UrlFetchConsumer', () => {
             currentUrl: 'https://img.other.net/foreign.png',
             host: 'img.other.net',
             origin: 'https://img.other.net',
-            domain: 'other.net',
+            registrableDomain: 'other.net',
         })
 
         await harness.consumer.handleBatch([message([candidate('a'), foreign])], NOW_MS)

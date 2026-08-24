@@ -82,13 +82,14 @@ export function buildFetchRunner(
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
-        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
-        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
-        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
-        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES,
-        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS,
-        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS,
-        maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
+        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES,
+        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS,
+        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS,
+        maxTrackedRegistrableDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS,
+        maxTrackedOrigins: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
     })
     const scheduler = new OriginRequestScheduler(budget, config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS)
     const configurationPolicy = new ConfigurationPolicyService(
@@ -112,7 +113,8 @@ export function buildFetchRunner(
         scheduler,
         configurationPolicy,
         {
-            maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
+            maxConcurrentPerRegistrableDomain:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
             maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
             batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
             maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
