@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconLogomark, IconNotebook } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconInfo, IconLogomark, IconNotebook } from '@posthog/icons'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -16,7 +16,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason, getReplayVisionRecordingViewDisabledReason } from '../utils/accessControl'
 import { isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
-import { VisionDocsLink } from './DocsLink'
+import { VisionDocsLink, visionDocsUrl } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
@@ -133,6 +133,34 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     )
 }
 
+/**
+ * The dock sits on every standard replay player, so it reaches people who have never heard of Replay
+ * vision and meet the summarize button with no idea what it is or what it will spend.
+ */
+function SummarizeExplainer(): JSX.Element {
+    return (
+        <Tooltip
+            placement="bottom"
+            // Base UI opens tooltips on hover only, which leaves this unreachable on a touch device.
+            openOnClick
+            title={
+                <>
+                    <p className="mb-1">Replay vision uses AI to watch recordings for you.</p>
+                    <p className="mb-0">
+                        Summarizing writes up what the user did in this session, so you can read it instead of watching
+                        it.
+                    </p>
+                </>
+            }
+            docLink={`${visionDocsUrl()}?utm_medium=in-product&utm_campaign=summarize-explainer`}
+        >
+            <span className="inline-flex items-center text-muted" data-attr="vision-summarize-info">
+                <IconInfo />
+            </span>
+        </Tooltip>
+    )
+}
+
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
@@ -172,6 +200,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} />
+                <SummarizeExplainer />
                 {hasContent && (
                     <LemonButton
                         className="ml-auto"
@@ -181,6 +210,9 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
                         aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
                         data-attr="vision-dock-toggle"
+                        // This click also sets the auto-expand preference, so which way it went is the
+                        // signal for whether people keep summaries open by default.
+                        data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
                     />
                 )}
             </div>
