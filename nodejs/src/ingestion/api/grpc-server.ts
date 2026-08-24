@@ -118,6 +118,12 @@ export interface WorkerIngestServerOptions {
     readMaxBytes?: number
     /** Idle time before a session with no activity is closed, reaping dead peers. */
     sessionIdleTimeoutMs?: number
+    /**
+     * How long stop() waits for fed sub-batches to settle and their acks to
+     * flush before failing what remains. Without the drain, every scale-down
+     * makes consumers replay work the pipeline already processed.
+     */
+    drainTimeoutMs?: number
 }
 
 /** Thrown from `FifoSlots.acquire` when the waiting stream is cancelled. */
@@ -322,6 +328,10 @@ export class WorkerIngestServer {
     private streams = new Map<number, StreamState>()
     private nextStreamId = 1
     private stopped = false
+    private draining = false
+    private readonly drainAbort = new AbortController()
+    private readonly stopAbort = new AbortController()
+    private sessions = new Set<http2.ServerHttp2Session>()
     private fatalError: Error | null = null
     private pumpTask: Promise<void> | null = null
     private wakePump: (() => void) | null = null
@@ -333,6 +343,7 @@ export class WorkerIngestServer {
     private readonly sessionMemoryMb: number
     private readonly sessionIdleTimeoutMs: number
     private readonly readMaxBytes: number
+    private readonly drainTimeoutMs: number
     private sessionCount = 0
     private readonly slots: FifoSlots
 
@@ -348,6 +359,7 @@ export class WorkerIngestServer {
         this.sessionMemoryMb = options.sessionMemoryMb ?? 64
         this.sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 300_000
         this.readMaxBytes = options.readMaxBytes ?? 32 * 1024 * 1024
+        this.drainTimeoutMs = options.drainTimeoutMs ?? 15_000
         this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
@@ -397,19 +409,42 @@ export class WorkerIngestServer {
             return
         }
         this.sessionCount++
+        this.sessions.add(session)
         session.setTimeout(this.sessionIdleTimeoutMs, () => session.close())
         session.on('error', (error) => logger.warn('🛜', 'WorkerIngest session error', { error }))
         session.once('close', () => {
             this.sessionCount--
+            this.sessions.delete(session)
         })
     }
 
+    /**
+     * Drains before tearing down: fed sub-batches settle and their acks flush,
+     * so a scale-down does not make consumers replay already-processed work.
+     */
     async stop(): Promise<void> {
+        this.draining = true
+        this.drainAbort.abort()
+        // A poisoned pipeline never settles — skip straight to teardown.
+        const deadline = this.fatalError ? 0 : Date.now() + this.drainTimeoutMs
+        while (this.totalInFlight() > 0 && Date.now() < deadline) {
+            await sleep(10)
+        }
         this.stopped = true
+        this.stopAbort.abort()
         for (const stream of this.streams.values()) {
-            stream.acks.fail(new ConnectError('server shutting down', Code.Unavailable))
+            if (stream.inFlight.size === 0) {
+                stream.acks.end()
+            } else {
+                stream.acks.fail(new ConnectError('server shutting down', Code.Unavailable))
+            }
         }
         this.wake()
+        // http2's close() waits for every session to end and consumers hold
+        // theirs open — send a graceful GOAWAY instead of waiting.
+        for (const session of this.sessions) {
+            session.close()
+        }
         if (this.server) {
             await new Promise<void>((resolve) => this.server!.close(() => resolve()))
             this.server = null
@@ -454,7 +489,10 @@ export class WorkerIngestServer {
                 continue
             }
             try {
-                const completed = await this.deps.driver.next()
+                const completed = await this.raceStopped(this.deps.driver.next())
+                if (completed === undefined) {
+                    return
+                }
                 if (completed === null) {
                     // The pipeline drained between feeds while acked work is
                     // still being registered — yield briefly and re-pump.
@@ -470,6 +508,31 @@ export class WorkerIngestServer {
                 return
             }
         }
+    }
+
+    /**
+     * Like Promise.race(work, stop) resolving `undefined` on stop, but without
+     * race's per-call listener leak: the stop listener is removed once work
+     * settles.
+     */
+    private raceStopped<T>(work: Promise<T>): Promise<T | undefined> {
+        if (this.stopAbort.signal.aborted) {
+            return Promise.resolve(undefined)
+        }
+        return new Promise((resolve, reject) => {
+            const onStop = (): void => resolve(undefined)
+            this.stopAbort.signal.addEventListener('abort', onStop, { once: true })
+            work.then(
+                (value) => {
+                    this.stopAbort.signal.removeEventListener('abort', onStop)
+                    resolve(value)
+                },
+                (error) => {
+                    this.stopAbort.signal.removeEventListener('abort', onStop)
+                    reject(error)
+                }
+            )
+        })
     }
 
     private settleAndAck(completed: CompletedSubBatch): void {
@@ -532,6 +595,9 @@ export class WorkerIngestServer {
         if (this.fatalError) {
             throw new ConnectError('ingest pipeline is poisoned', Code.Unavailable)
         }
+        if (this.draining) {
+            throw new ConnectError('server shutting down', Code.Unavailable)
+        }
         // Total stream ceiling across every session: the per-session SETTINGS cap
         // bounds one peer, this bounds the whole server if a peer ignores it.
         if (this.streams.size >= this.maxStreams) {
@@ -579,8 +645,16 @@ export class WorkerIngestServer {
         requests: AsyncIterable<IngestStreamRequest>,
         signal?: AbortSignal
     ): Promise<void> {
+        // Admission waits abort on disconnect and on drain: either way the
+        // sub-batch was never fed, so the consumer replays it for free.
+        const admissionSignal = signal ? AbortSignal.any([signal, this.drainAbort.signal]) : this.drainAbort.signal
         try {
             for await (const request of requests) {
+                if (this.draining) {
+                    stream.readerDone = true
+                    this.maybeFinish(stream)
+                    return
+                }
                 if (request.msg.case === 'hello') {
                     if (stream.hello) {
                         throw this.protocolError(stream, 'duplicate_hello', 'received a second hello frame')
@@ -631,7 +705,17 @@ export class WorkerIngestServer {
                 // that's the backpressure) until a batch slot is granted in
                 // arrival order. A retry race here instead of a queue let busy
                 // streams starve quiet ones, wedging whole consumers.
-                await this.slots.acquire(signal)
+                try {
+                    await this.slots.acquire(admissionSignal)
+                } catch (error) {
+                    if (error instanceof SlotAcquisitionAborted) {
+                        stream.inFlight.delete(seq)
+                        stream.readerDone = true
+                        this.maybeFinish(stream)
+                        return
+                    }
+                    throw error
+                }
                 if (signal?.aborted) {
                     // Cancelled between the slot grant and here: hand the slot
                     // straight back so a live stream gets it, and stop reading.
@@ -641,6 +725,12 @@ export class WorkerIngestServer {
                 let feedAccepted = false
                 try {
                     while (true) {
+                        if (this.draining) {
+                            stream.inFlight.delete(seq)
+                            stream.readerDone = true
+                            this.maybeFinish(stream)
+                            return
+                        }
                         const result = await this.feedGuarded(stream, seq, serialized)
                         if (result.ok) {
                             feedAccepted = true
@@ -671,11 +761,6 @@ export class WorkerIngestServer {
             stream.readerDone = true
             this.maybeFinish(stream)
         } catch (error) {
-            if (error instanceof SlotAcquisitionAborted) {
-                // The stream was cancelled while waiting for a slot; it never
-                // acquired capacity, so there is nothing to release or ack.
-                return
-            }
             stream.readerDone = true
             const connectError = error instanceof ConnectError ? error : new ConnectError(String(error), Code.Internal)
             stream.acks.fail(connectError)

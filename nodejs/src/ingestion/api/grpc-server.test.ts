@@ -208,7 +208,7 @@ describe('WorkerIngestServer', () => {
         onFatal = jest.fn()
         sentinel = new FeedOrderSentinel()
         server = new WorkerIngestServer(
-            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1, drainTimeoutMs: 200 },
             { driver, feedOrderSentinel: sentinel, onFatal }
         )
         await server.start()
@@ -257,6 +257,34 @@ describe('WorkerIngestServer', () => {
             [1, SubBatchStatus.OK, 2],
         ])
         expect(server.streamCount).toBe(0)
+    })
+
+    it('stop() drains in-flight sub-batch acks before ending streams', async () => {
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10]))
+        await until(() => driver.feeds.length === 1)
+        const streamId = driver.feeds[0].streamId
+
+        // The batch settles only after stop() has begun — its ack must still
+        // reach the consumer, or every scale-down forces a replay.
+        const stopping = server.stop()
+
+        // A stream opened mid-drain must be refused, not fed.
+        const late = collect(server, new FrameSource())
+        await late.ended
+        expect(late.error?.code).toBe(Code.Unavailable)
+
+        driver.complete({ streamId, seq: 1, accepted: 1 })
+        await stopping
+        source.end()
+        await collected.ended
+
+        expect(collected.error).toBeNull()
+        expect(collected.acks.map((ack) => [Number(ack.seq), ack.accepted])).toEqual([[1, 1]])
+        expect(driver.feeds).toHaveLength(1)
     })
 
     it('feeds sub-batches in stream order, stalling reads while the pipeline is at capacity', async () => {
@@ -348,7 +376,7 @@ describe('WorkerIngestServer', () => {
         // with zero completed batches while their sub-batches sat unfed.
         const fairDriver = new FakeDriver()
         const fairServer = new WorkerIngestServer(
-            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1, drainTimeoutMs: 50 },
             { driver: fairDriver, onFatal: jest.fn() }
         )
         await fairServer.start()
@@ -389,7 +417,7 @@ describe('WorkerIngestServer', () => {
         // and starving real traffic under repeated disconnects.
         const laneDriver = new FakeDriver()
         const laneServer = new WorkerIngestServer(
-            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1, drainTimeoutMs: 50 },
             { driver: laneDriver, onFatal: jest.fn() }
         )
         await laneServer.start()
