@@ -8,6 +8,7 @@ import {
     IngestStreamResponse,
     KafkaMessageSchema,
     StreamHelloSchema,
+    SubBatchAck,
     SubBatchStatus,
 } from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
@@ -149,9 +150,9 @@ function subBatch(
 }
 
 interface Collected {
-    /** Real acks, with the seq-0 greeting filtered out. */
-    acks: IngestStreamResponse[]
-    /** Every response in arrival order, greeting included. */
+    /** Sub-batch acks, unwrapped from the response oneof. */
+    acks: SubBatchAck[]
+    /** Every response frame in arrival order, ready frame included. */
     all: IngestStreamResponse[]
     error: ConnectError | null
     ended: Promise<void>
@@ -161,10 +162,10 @@ function collect(server: WorkerIngestServer, source: FrameSource, signal?: Abort
     const collected: Collected = { acks: [], all: [], error: null, ended: Promise.resolve() }
     collected.ended = (async () => {
         try {
-            for await (const ack of server.ingestStream(source, signal)) {
-                collected.all.push(ack)
-                if (Number(ack.seq) !== 0) {
-                    collected.acks.push(ack)
+            for await (const frame of server.ingestStream(source, signal)) {
+                collected.all.push(frame)
+                if (frame.msg.case === 'ack') {
+                    collected.acks.push(frame.msg.value)
                 }
             }
         } catch (error) {
@@ -217,18 +218,17 @@ describe('WorkerIngestServer', () => {
         await server.stop()
     })
 
-    it('greets with a seq-0 response before any work arrives', async () => {
+    it('sends a ready frame before any work arrives', async () => {
         // Regression: connect-node flushes response headers only with the
         // first response message, and the consumer's stream-open awaits those
-        // headers before sending anything — without an immediate greeting the
-        // two sides deadlock at open (observed against production workers).
+        // headers before sending anything — without an immediate ready frame
+        // the two sides deadlock at open (observed against production workers).
         const source = new FrameSource()
         const collected = collect(server, source)
 
         source.push(hello())
         await until(() => collected.all.length === 1)
-        expect(Number(collected.all[0].seq)).toBe(0)
-        expect(collected.all[0].status).toBe(SubBatchStatus.OK)
+        expect(collected.all[0].msg.case).toBe('ready')
         source.end()
         await collected.ended
         expect(collected.error).toBeNull()

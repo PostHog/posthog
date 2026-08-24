@@ -10,6 +10,8 @@ import {
     IngestStreamResponseSchema,
     KafkaMessage,
     StreamHello,
+    StreamReadySchema,
+    SubBatchAckSchema,
     SubBatchStatus,
     WorkerIngest,
 } from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
@@ -276,6 +278,30 @@ export function grpcMessageToSerialized(message: KafkaMessage): SerializedKafkaM
     }
 }
 
+function readyFrame(): IngestStreamResponse {
+    return create(IngestStreamResponseSchema, {
+        msg: { case: 'ready', value: create(StreamReadySchema, {}) },
+    })
+}
+
+function okAck(seq: number, accepted: number): IngestStreamResponse {
+    return create(IngestStreamResponseSchema, {
+        msg: {
+            case: 'ack',
+            value: create(SubBatchAckSchema, { seq: BigInt(seq), status: SubBatchStatus.OK, accepted }),
+        },
+    })
+}
+
+function failedAck(seq: number, error: string): IngestStreamResponse {
+    return create(IngestStreamResponseSchema, {
+        msg: {
+            case: 'ack',
+            value: create(SubBatchAckSchema, { seq: BigInt(seq), status: SubBatchStatus.FAILED, error }),
+        },
+    })
+}
+
 /**
  * Serves `ingestion.worker.v1.WorkerIngest`: the ordered streaming transport
  * from the Rust ingestion consumer.
@@ -470,13 +496,7 @@ export class WorkerIngestServer {
             return
         }
         stream.inFlight.delete(completed.seq)
-        stream.acks.push(
-            create(IngestStreamResponseSchema, {
-                seq: BigInt(completed.seq),
-                status: SubBatchStatus.OK,
-                accepted: completed.accepted,
-            })
-        )
+        stream.acks.push(okAck(completed.seq, completed.accepted))
         grpcSubBatches.inc({ status: 'ok' })
         grpcMessagesProcessed.inc(completed.accepted)
         this.maybeFinish(stream)
@@ -529,18 +549,11 @@ export class WorkerIngestServer {
         this.streams.set(stream.id, stream)
         grpcStreams.inc()
 
-        // Greet before anything else. connect-node defers response headers
-        // until the first response message, and the consumer's stream-open
-        // awaits those headers before it sends any sub-batch — without this
-        // greeting the two sides deadlock at open. Seq 0 is reserved for it;
-        // consumers ignore it (see worker.proto).
-        stream.acks.push(
-            create(IngestStreamResponseSchema, {
-                seq: 0n,
-                status: SubBatchStatus.OK,
-                accepted: 0,
-            })
-        )
+        // Send the ready frame before anything else. connect-node defers
+        // response headers until the first response message, and the
+        // consumer's stream-open awaits those headers before it sends any
+        // sub-batch — without this frame the two sides deadlock at open.
+        stream.acks.push(readyFrame())
 
         const reader = this.runReader(stream, requests, signal)
         // The generator surfaces reader failures through the ack queue; this
@@ -595,13 +608,7 @@ export class WorkerIngestServer {
 
                 if (subBatch.messages.length === 0) {
                     // An empty feed never completes a batch, so ack it directly.
-                    stream.acks.push(
-                        create(IngestStreamResponseSchema, {
-                            seq: BigInt(seq),
-                            status: SubBatchStatus.OK,
-                            accepted: 0,
-                        })
-                    )
+                    stream.acks.push(okAck(seq, 0))
                     continue
                 }
 
@@ -647,13 +654,7 @@ export class WorkerIngestServer {
                             continue
                         }
                         stream.inFlight.delete(seq)
-                        stream.acks.push(
-                            create(IngestStreamResponseSchema, {
-                                seq: BigInt(seq),
-                                status: SubBatchStatus.FAILED,
-                                error: result.reason,
-                            })
-                        )
+                        stream.acks.push(failedAck(seq, result.reason))
                         grpcSubBatches.inc({ status: 'failed' })
                         throw new ConnectError(`sub-batch ${seq} rejected: ${result.reason}`, Code.Internal)
                     }
