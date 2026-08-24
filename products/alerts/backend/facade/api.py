@@ -26,7 +26,10 @@ from products.alerts.backend.destination_configs import (
 )
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
+    delete_shared_alert_destinations,
+    get_or_create_shared_alert,
     soft_delete_alert_destinations,
+    soft_delete_alert_destinations_by_ids,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
 )
@@ -212,12 +215,15 @@ __all__ = [
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",
     "delete_insight_alerts",
+    "delete_shared_alert_destinations",
     "get_alert_team_id",
+    "get_or_create_shared_alert",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",
     "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
+    "soft_delete_alert_destinations_by_ids",
     "soft_delete_alert_destinations_for_alerts",
     "soft_delete_all_alert_destinations",
     "send_alert_email",

@@ -28,7 +28,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
+from products.alerts.backend.models.shared_alert import AlertProduct
 from products.alerts.backend.facade.api import (
+    get_or_create_shared_alert,
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -956,6 +958,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            # Dual-write: stamp the same relationship on the explicit columns
+            # that multiplex with the `alert_id` filter while the runtime
+            # still matches on filters.
+            shared_alert = get_or_create_shared_alert(
+                alert_id=alert.id,
+                product=AlertProduct.LOGS.value,
+                organization_id=self.team.organization_id,
+                execution_team_id=alert.team_id,
+            )
             configs = [
                 build_alert_destination_config(
                     team=alert.team,
@@ -964,10 +975,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     alert_name=alert.name,
                     data=data,
                     slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+                    alert_event_kind=kind,
                 )
                 for kind in EVENT_KINDS
             ]
-            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
+            hog_functions = create_alert_destination_hog_functions(
+                configs, request=self.request, shared_alert=shared_alert
+            )
 
         report_user_action(
             request.user,

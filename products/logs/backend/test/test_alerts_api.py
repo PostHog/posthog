@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -865,6 +865,13 @@ class TestLogsAlertAPI(APIBaseTest):
                 "operator": "exact",
                 "type": "event",
             }
+            # Dual-write stamps the explicit ownership columns while the legacy
+            # filter keeps matching during the transition: one shared
+            # AlertDestination owns this executor, and the event kind is set
+            # from the SPECS key, not derived from the filter.
+            assert hf.alert_destination_id is not None
+            assert hf.alert_event_kind is not None
+            assert hf.alert_destination.shared_alert_id == UUID(created["id"])
 
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1

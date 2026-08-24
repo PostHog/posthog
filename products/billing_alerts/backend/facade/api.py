@@ -19,10 +19,12 @@ from products.alerts.backend.facade.api import (
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
+    get_or_create_shared_alert,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
+from products.alerts.backend.models.shared_alert import AlertProduct
 
 from ..alert_destinations import (
     BILLING_ALERT_EVENT_IDS,
@@ -209,6 +211,15 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
         }
         if destination_data["type"].value in existing_types:
             raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
+
+        # Dual-write: stamp the explicit ownership columns alongside the legacy
+        # alert_id filter until the CDP runtime switches over.
+        shared_alert = get_or_create_shared_alert(
+            alert_id=locked_alert.id,
+            product=AlertProduct.BILLING.value,
+            organization_id=locked_alert.organization_id,
+            execution_team_id=locked_alert.execution_team_id,
+        )
         configs = [
             build_alert_destination_config(
                 team=locked_alert.team,
@@ -217,10 +228,13 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
                 alert_name=locked_alert.name,
                 data=destination_data,
                 slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+                alert_event_kind=kind,
             )
             for kind in EVENT_KINDS
         ]
-        hog_functions = create_alert_destination_hog_functions(configs, request=request)
+        hog_functions = create_alert_destination_hog_functions(
+            configs, request=request, shared_alert=shared_alert
+        )
         return [hog_function.id for hog_function in hog_functions]
 
 
