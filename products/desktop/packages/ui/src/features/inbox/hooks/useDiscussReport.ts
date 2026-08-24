@@ -1,7 +1,7 @@
 import { buildDiscussReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildReportPromptContext } from "@posthog/core/inbox/reportPromptContext";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
-import type { SignalReport } from "@posthog/shared/types";
+import type { SignalReport, Task } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import {
@@ -19,6 +19,10 @@ interface UseDiscussReportOptions {
   report: SignalReport;
   /** Space the created session belongs to (its feed home); null files it nowhere. */
   channelId?: string | null;
+  /** Off for callers that show the conversation in place (the chat panel). */
+  redirectOnSuccess?: boolean;
+  /** Called with the created task, before any navigation. */
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseDiscussReportReturn {
@@ -50,6 +54,8 @@ function buildDiscussDescription(
 export function useDiscussReport({
   report,
   channelId,
+  redirectOnSuccess,
+  onTaskCreated,
 }: UseDiscussReportOptions): UseDiscussReportReturn {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
@@ -118,6 +124,8 @@ export function useDiscussReport({
     },
     buildInput,
     analyticsExtras: { has_branch: false },
+    redirectOnSuccess,
+    onTaskCreated,
   });
 
   const discussReport = useCallback(
