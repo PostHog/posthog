@@ -48,7 +48,7 @@ export interface llmEvaluationExecutionLogicActions {
             status: string
             target_event_id: string
             workflow_id: string
-        },
+        } | null,
         payload?: {
             distinctId: string | undefined
             evaluationId: string
@@ -65,7 +65,7 @@ export interface llmEvaluationExecutionLogicActions {
             status: string
             target_event_id: string
             workflow_id: string
-        }
+        } | null
         payload?: {
             distinctId: string | undefined
             evaluationId: string
