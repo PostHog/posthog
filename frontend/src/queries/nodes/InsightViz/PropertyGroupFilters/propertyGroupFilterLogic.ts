@@ -30,6 +30,9 @@ export interface propertyGroupFilterLogicActions {
     addFilterGroup: () => {
         value: true
     }
+    addFilterGroupWithFilters: (properties: AnyPropertyFilter[]) => {
+        properties: AnyPropertyFilter[]
+    }
     duplicateFilterGroup: (propertyGroupIndex: number) => {
         propertyGroupIndex: number
     }
@@ -96,6 +99,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
         addFilterGroup: true,
+        addFilterGroupWithFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
     }),
 
     reducers(({ props }) => ({
@@ -118,6 +122,13 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
                     const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [] }]
 
                     return { ...state, values: filterGroups }
+                },
+                addFilterGroupWithFilters: (state, { properties }) => {
+                    const group = { type: FilterLogicalOperator.And, values: properties }
+                    if (!state.values) {
+                        return { type: FilterLogicalOperator.And, values: [group] }
+                    }
+                    return { ...state, values: [...state.values, group] }
                 },
                 removeFilterGroup: (state, { filterGroup }) => {
                     const filteredGroups = [...state.values]
@@ -165,6 +176,10 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         },
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
+        },
+        addFilterGroupWithFilters: () => {
+            eventUsageLogic.actions.reportPropertyGroupFilterAdded()
+            actions.update()
         },
         duplicateFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()

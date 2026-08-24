@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { BehavioralEventType, BehavioralPropertyFilter, PropertyFilterType, TimeUnitType } from '~/types'
+import {
+    BehavioralEventType,
+    BehavioralPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    TimeUnitType,
+} from '~/types'
 
 import { BehavioralPropertyFilterRow } from './BehavioralPropertyFilterRow'
 
@@ -31,4 +37,24 @@ export const Default: Story = {}
 
 export const ReadOnly: Story = {
     args: { editable: false },
+}
+
+export const ReadOnlyWithCount: Story = {
+    args: { editable: false },
+    render: (props) => (
+        <BehavioralPropertyFilterRow
+            {...props}
+            filter={{
+                type: PropertyFilterType.Behavioral,
+                value: BehavioralEventType.PerformMultipleEvents,
+                key: '$pageview',
+                event_type: 'events',
+                operator: PropertyOperator.GreaterThanOrEqual,
+                operator_value: 3,
+                time_value: 30,
+                time_interval: TimeUnitType.Day,
+            }}
+            onChange={() => {}}
+        />
+    ),
 }

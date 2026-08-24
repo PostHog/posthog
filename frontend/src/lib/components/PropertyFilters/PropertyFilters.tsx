@@ -15,6 +15,7 @@ import {
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -75,6 +76,8 @@ export interface PropertyFiltersProps {
     propertyKeyEditable?: boolean
     singleLine?: boolean
     showRemoveButton?: boolean
+    addFilterSuffix?: JSX.Element | null
+    addFilterDivider?: boolean
 }
 
 export function PropertyFilters({
@@ -119,13 +122,16 @@ export function PropertyFilters({
     propertyKeyEditable,
     singleLine,
     showRemoveButton = true,
+    addFilterSuffix,
+    addFilterDivider = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    const displayedFilters = allowNew && editable ? filtersWithNew : filters
+    const showNewFilterRow = allowNew && editable
+    const displayedFilters = showNewFilterRow ? filtersWithNew : filters
     const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
 
     // do not open on initial render, only open if newly inserted
@@ -144,8 +150,14 @@ export function PropertyFilters({
                         return (
                             <React.Fragment key={displayedFilterIds[index]}>
                                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                                    <LogicalRowDivider
+                                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                                    />
                                 )}
+                                {addFilterDivider &&
+                                    showNewFilterRow &&
+                                    index === displayedFilters.length - 1 &&
+                                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
                                 <FilterRow
                                     item={item}
                                     index={index}
@@ -209,6 +221,11 @@ export function PropertyFilters({
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}
+                                    suffix={
+                                        showNewFilterRow && index === displayedFilters.length - 1
+                                            ? addFilterSuffix
+                                            : null
+                                    }
                                 />
                             </React.Fragment>
                         )
