@@ -246,44 +246,54 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
 
     outcome = evaluate_alert_check(alert.to_snapshot(recent_events_breached=recent_breaches), check_result, now)
 
+    # Re-read (unlocked) before dispatch so a quiet-hours change since discovery still
+    # suppresses the notification — this is a decision read, not the write, so it doesn't
+    # need the row lock the persisting transaction below takes.
+    fresh_alert = TracingAlertConfiguration.objects.select_related("team").get(id=alert.id)
+    try:
+        next_check_at_if_blocked = next_allowed_check_at(
+            now,
+            team_timezone=fresh_alert.team.timezone,
+            schedule_restriction=fresh_alert.schedule_restriction,
+        )
+    except Exception as e:
+        logger.exception(
+            "Skipping tracing alert with invalid quiet-hours configuration",
+            alert_id=str(fresh_alert.id),
+            team_id=fresh_alert.team_id,
+            error=str(e),
+        )
+        next_check_at_if_blocked = now
+
+    if next_check_at_if_blocked > now:
+        with transaction.atomic():
+            current_alert = TracingAlertConfiguration.objects.select_for_update(of=("self",)).get(id=alert.id)
+            current_alert.next_check_at = next_check_at_if_blocked
+            current_alert.save(update_fields=["next_check_at", "updated_at"])
+        return "suppressed"
+
+    # Dispatch and confirm delivery *before* opening the persisting transaction: an
+    # irreversible external side effect (the Kafka produce below) must never sit inside a
+    # transaction a later statement (the event-history insert, the final save) can still
+    # roll back — a rollback after a confirmed send would just resend on the next retry.
+    state_before = fresh_alert.state
+    produce_result = _dispatch_notification(
+        outcome, fresh_alert, check_result, now, date_from=date_from, date_to=date_to
+    )
+    notification_failed = outcome.notification != NotificationAction.NONE and produce_result is None
+    if produce_result is not None:
+        flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+        notification_failed = not alert_internal_event_delivered(
+            produce_result,
+            team_id=fresh_alert.team_id,
+            alert_id=str(fresh_alert.id),
+            event_name=outcome.notification.value,
+        )
+
     with transaction.atomic():
         current_alert = (
             TracingAlertConfiguration.objects.select_for_update(of=("self",)).select_related("team").get(id=alert.id)
         )
-
-        try:
-            next_check_at_if_blocked = next_allowed_check_at(
-                now,
-                team_timezone=current_alert.team.timezone,
-                schedule_restriction=current_alert.schedule_restriction,
-            )
-        except Exception as e:
-            logger.exception(
-                "Skipping tracing alert with invalid quiet-hours configuration",
-                alert_id=str(current_alert.id),
-                team_id=current_alert.team_id,
-                error=str(e),
-            )
-            next_check_at_if_blocked = now
-
-        if next_check_at_if_blocked > now:
-            current_alert.next_check_at = next_check_at_if_blocked
-            current_alert.save(update_fields=["next_check_at", "updated_at"])
-            return "suppressed"
-
-        state_before = current_alert.state
-        produce_result = _dispatch_notification(
-            outcome, current_alert, check_result, now, date_from=date_from, date_to=date_to
-        )
-        notification_failed = outcome.notification != NotificationAction.NONE and produce_result is None
-        if produce_result is not None:
-            flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-            notification_failed = not alert_internal_event_delivered(
-                produce_result,
-                team_id=current_alert.team_id,
-                alert_id=str(current_alert.id),
-                event_name=outcome.notification.value,
-            )
 
         update_fields = apply_outcome(current_alert, outcome)
         current_alert.last_checked_at = now
