@@ -1,20 +1,8 @@
-import {
-  ArrowSquareOutIcon,
-  CaretDownIcon,
-  PlusIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
-import {
-  githubIssueUrl,
-  slackThreadUrl,
-} from "@posthog/core/support/ticketLinks";
 import { isTicketSnoozed } from "@posthog/core/support/ticketState";
-import {
-  isTicketTaskTag,
-  readTicketTaskId,
-} from "@posthog/core/support/ticketTaskLink";
+import { isTicketTaskTag } from "@posthog/core/support/ticketTaskLink";
 import {
   Badge,
   Button,
@@ -30,13 +18,6 @@ import {
 } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import {
-  TaskBadgeStack,
-  TaskDotMark,
-  TaskStatusTooltips,
-} from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import { taskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import { useTaskStatusInput } from "@posthog/ui/features/sidebar/useTaskStatusInput";
 import {
   Row,
   Section,
@@ -54,8 +35,6 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
-import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 
 const STATUS_OPTIONS = Object.keys(
@@ -174,8 +153,6 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           )}
         </Row>
 
-        <TicketAgentRow taskId={readTicketTaskId(ticket.tags)} />
-
         <Row label="Tags">
           <TicketTags
             tags={labelTags}
@@ -195,7 +172,9 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           </Text>
         </Row>
         <Row label="Channel">
-          <ChannelValue ticket={ticket} />
+          <Text className="font-medium text-[12px]">
+            {ticket.channel_source}
+          </Text>
         </Row>
       </Section>
 
@@ -272,70 +251,12 @@ function TicketTags({
   );
 }
 
-function ChannelValue({ ticket }: { ticket: SupportTicket }) {
-  const slackUrl = slackThreadUrl(ticket);
-  const issueUrl = githubIssueUrl(ticket);
-
-  return (
-    <div className="flex items-center gap-2">
-      <Text className="font-medium text-[12px]">{ticket.channel_source}</Text>
-      {slackUrl && <ExternalRowLink href={slackUrl} label="Open in Slack" />}
-      {issueUrl && (
-        <ExternalRowLink
-          href={issueUrl}
-          label={`#${ticket.github_issue_number}`}
-        />
-      )}
-    </div>
-  );
-}
-
-function ExternalRowLink({ href, label }: { href: string; label: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center gap-0.5 text-[12px] text-accent hover:underline"
-    >
-      {label}
-      <ArrowSquareOutIcon size={11} />
-    </a>
-  );
-}
-
 function formatSnoozedUntil(snoozedUntil: string | null | undefined): string {
   if (!snoozedUntil) {
     return "";
   }
   const until = Date.parse(snoozedUntil);
   return Number.isNaN(until) ? "" : `until ${new Date(until).toLocaleString()}`;
-}
-
-function TicketAgentRow({ taskId }: { taskId: string | null }) {
-  const { data: task } = useQuery({
-    ...taskDetailQuery(taskId ?? ""),
-    enabled: !!taskId,
-  });
-  const status = useTaskStatusInput(task);
-
-  if (!status) {
-    return null;
-  }
-
-  const dot = taskDot(status);
-
-  return (
-    <Row label="Agent">
-      <TaskStatusTooltips>
-        <div className="flex min-w-0 items-center gap-1.5">
-          <TaskDotMark dot={dot} />
-          <Text className="truncate text-[12px]">{dot.label}</Text>
-          <TaskBadgeStack status={status} />
-        </div>
-      </TaskStatusTooltips>
-    </Row>
-  );
 }
 
 function PickerMenu({

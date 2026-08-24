@@ -1,9 +1,4 @@
-import { GithubLogoIcon } from "@phosphor-icons/react";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
-import {
-  githubIssueUrl,
-  slackThreadUrl,
-} from "@posthog/core/support/ticketLinks";
 import { ticketSlaState } from "@posthog/core/support/ticketState";
 import { readTicketTaskId } from "@posthog/core/support/ticketTaskLink";
 import { Badge, cn, Text } from "@posthog/quill";
@@ -17,7 +12,6 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
-import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 
 export function TicketRow({
   ticket,
@@ -71,19 +65,6 @@ export function TicketRow({
         )}
         {readTicketTaskId(ticket.tags) && (
           <Badge variant="default">Agent</Badge>
-        )}
-        {slackThreadUrl(ticket) && (
-          <SlackMark
-            aria-label="Has a Slack thread"
-            className="size-3 shrink-0 text-muted-foreground"
-          />
-        )}
-        {githubIssueUrl(ticket) && (
-          <GithubLogoIcon
-            aria-label="Has a GitHub issue"
-            size={12}
-            className="shrink-0 text-muted-foreground"
-          />
         )}
         {(sla === "at-risk" || sla === "breached") && (
           <Text
