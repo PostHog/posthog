@@ -11747,7 +11747,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
             data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "does not support one-shot setup" in response.json()["message"]
+        assert "isn't available to connect yet" in response.json()["message"]
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
