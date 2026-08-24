@@ -48,6 +48,8 @@ class Migration(migrations.Migration):
                 ("last_published_at", models.DateTimeField(blank=True, null=True)),
                 ("last_error", models.CharField(blank=True, max_length=512, null=True)),
                 ("row_count", models.BigIntegerField(blank=True, null=True)),
+                ("active_job_id", models.UUIDField(blank=True, null=True)),
+                ("saved_query_id", models.UUIDField(blank=True, null=True)),
                 (
                     "folder_version",
                     models.CharField(blank=True, max_length=32, null=True),
