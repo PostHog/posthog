@@ -1824,7 +1824,14 @@ def recursive_dict_merge(
         if not isinstance(value, dict):
             continue
 
-        merged[key] = recursive_dict_merge(old.get(key, None) or {}, new.get(key, None) or {})
+        # Recurse only when both sides are dicts: a dict replacing a scalar (e.g. inline
+        # credentials replacing an IAM role or an integration id) is an overwrite, not a merge.
+        old_value = old.get(key)
+        new_value = new.get(key)
+        merged[key] = recursive_dict_merge(
+            old_value if isinstance(old_value, dict) else {},
+            new_value if isinstance(new_value, dict) else {},
+        )
 
     return merged
 
