@@ -130,6 +130,13 @@ export interface errorTrackingIssueSceneLogicActions {
         id: string
         name: string
     } // issueActionsLogic
+    updateIssueSeverity: (
+        id: string,
+        severity: ErrorTrackingQueryIssueSeverity | null
+    ) => {
+        id: string
+        severity: ErrorTrackingQueryIssueSeverity | null
+    } // issueActionsLogic
     updateIssueStatus: (
         id: string,
         status: import('~/queries/schema').ErrorTrackingIssueStatus
@@ -457,6 +464,47 @@ export interface errorTrackingIssueSceneLogicActions {
             name: string
         }
     }
+    updateSeverity: (severity: ErrorTrackingQueryIssueSeverity | null) => {
+        severity: ErrorTrackingQueryIssueSeverity | null
+    }
+    updateSeverityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    updateSeveritySuccess: (
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues?: ErrorTrackingExternalReference[] | undefined
+            first_seen: string
+            id: string
+            name: string | null
+            severity: any
+            status: ErrorTrackingIssueStatus
+        } | null,
+        payload?: {
+            severity: ErrorTrackingQueryIssueSeverity | null
+        }
+    ) => {
+        issue: {
+            assignee: ErrorTrackingIssueAssignee | null
+            cohort?: ErrorTrackingIssueCohort | undefined
+            description: string | null
+            external_issues?: ErrorTrackingExternalReference[] | undefined
+            first_seen: string
+            id: string
+            name: string | null
+            severity: any
+            status: ErrorTrackingIssueStatus
+        } | null
+        payload?: {
+            severity: ErrorTrackingQueryIssueSeverity | null
+        }
+    }
     updateStatus: (status: ErrorTrackingIssue['status']) => {
         status: ErrorTrackingIssueStatus
     }
@@ -558,7 +606,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
-            ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
+            [
+                'updateIssueAssignee',
+                'updateIssueStatus',
+                'updateIssueSeverity',
+                'updateIssueName',
+                'updateIssueDescription',
+            ],
             linkedReportsLogic({ issueId: props.id }),
             ['loadLinkedReports'],
         ],
@@ -581,6 +635,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         }),
         updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
+        updateSeverity: (severity: ErrorTrackingQueryIssueSeverity | null) => ({ severity }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
         setListDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -658,6 +713,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateStatus: ({ status }) => {
                 if (values.issue) {
                     return { ...values.issue, status }
+                }
+                return values.issue
+            },
+            updateSeverity: ({ severity }) => {
+                if (values.issue) {
+                    return { ...values.issue, severity }
                 }
                 return values.issue
             },
@@ -900,6 +961,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
             updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
+            updateSeverity: ({ severity }) => actions.updateIssueSeverity(props.id, severity),
             selectEvent: ({ event }) => {
                 if (event) {
                     router.actions.replace(
