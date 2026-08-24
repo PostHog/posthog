@@ -35,6 +35,7 @@ TEACHING_CANVAS_CONTEXT = (
 TEACHING_CANVAS_CODE = """\
 import { useEffect, useState } from "react";
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -50,7 +51,7 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
-import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard, PartyPopper } from "lucide-react";
 import dayjs from "dayjs";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -111,12 +112,19 @@ const USERS_QUERY = {
 const TOUR_STYLES = `
 @keyframes tour-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes tour-slide-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes tour-pop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: none; } }
 .tour-fade-up { animation: tour-fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 .tour-slide-in { animation: tour-slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.tour-pop { animation: tour-pop 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 @media (prefers-reduced-motion: reduce) {
-  .tour-fade-up, .tour-slide-in { animation: none; }
+  .tour-fade-up, .tour-slide-in, .tour-pop { animation: none; }
 }
 `;
+
+// Progress survives reloads only when the host answers ph.state. An old
+// runtime without it degrades to session-only checks, never a crash.
+const stateApi =
+  typeof ph !== "undefined" && ph.state && typeof ph.state.get === "function" ? ph.state : null;
 
 function IconChip({ icon: Icon }) {
   return (
@@ -126,15 +134,26 @@ function IconChip({ icon: Icon }) {
   );
 }
 
-function StopProgress({ current }) {
+function StopProgress({ current, seen }) {
   return (
     <div className="flex items-center gap-1.5" aria-hidden="true">
       {TOPICS.map((topic, index) => (
         <div
           key={topic.id}
-          className={"h-1 w-6 rounded-full " + (index === current ? "bg-foreground" : "bg-border")}
+          className={
+            "h-1 w-6 rounded-full " +
+            (index === current ? "bg-foreground" : seen[topic.id] ? "bg-muted-foreground" : "bg-border")
+          }
         />
       ))}
+    </div>
+  );
+}
+
+function SeenCheck() {
+  return (
+    <div className="tour-pop mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success">
+      <Check className="h-3 w-3 text-success-foreground" aria-label="Seen" />
     </div>
   );
 }
@@ -233,15 +252,42 @@ function LiveUsersCard() {
   );
 }
 
-function HomeView({ onOpen, seen, allSeen }) {
+function HomeView({ onOpen, seen, seenCount, allSeen }) {
   return (
     <div className="tour-fade-up flex flex-col gap-6">
-      <div className="flex flex-col gap-1.5">
-        <Heading size="2xl" render={<h1 />}>
-          How PostHog Desktop works
-        </Heading>
-        <Text variant="muted">A quick tour in four stops. Pick one.</Text>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <Heading size="2xl" render={<h1 />}>
+            How PostHog Desktop works
+          </Heading>
+          <Text variant="muted">A quick tour in four stops. Pick one.</Text>
+        </div>
+        <div className="mt-1 flex shrink-0 flex-col items-end gap-1.5">
+          {allSeen ? (
+            <Badge variant="success" className="tour-pop">
+              Tour complete
+            </Badge>
+          ) : (
+            <Text size="xs" variant="muted">
+              {seenCount} of {TOPICS.length} seen
+            </Text>
+          )}
+          <StopProgress current={-1} seen={seen} />
+        </div>
       </div>
+      {allSeen ? (
+        <div className="tour-pop flex items-center gap-3 rounded-lg border border-border bg-muted p-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success">
+            <PartyPopper className="h-4 w-4 text-success-foreground" aria-hidden="true" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <Text weight="medium">You know your way around now</Text>
+            <Text size="sm" variant="muted">
+              Delete this canvas whenever you like, or ask the agent to build you a canvas of your own.
+            </Text>
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {TOPICS.map((topic, index) => (
           <div
@@ -263,7 +309,7 @@ function HomeView({ onOpen, seen, allSeen }) {
                   </Text>
                 </div>
                 {seen[topic.id] ? (
-                  <Check className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-label="Seen" />
+                  <SeenCheck />
                 ) : (
                   <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 )}
@@ -274,16 +320,14 @@ function HomeView({ onOpen, seen, allSeen }) {
       </div>
       <div className="border-t border-border pt-4">
         <Text size="sm" variant="muted">
-          {allSeen
-            ? "That's the whole tour. You can delete this canvas whenever you like, and ask the agent for a new one any time."
-            : "This page is a canvas: a small app that lives in this space. Delete it whenever you like."}
+          This page is a canvas: a small app that lives in this space. Delete it whenever you like.
         </Text>
       </div>
     </div>
   );
 }
 
-function DetailView({ topic, index, next, onBack, onNext }) {
+function DetailView({ topic, index, next, seen, onBack, onNext }) {
   return (
     <div className="tour-slide-in flex flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -291,7 +335,7 @@ function DetailView({ topic, index, next, onBack, onNext }) {
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           All topics
         </Button>
-        <StopProgress current={index} />
+        <StopProgress current={index} seen={seen} />
       </div>
       <div className="flex flex-col gap-3">
         <Text size="xs" variant="muted" className="uppercase tracking-wider">
@@ -345,15 +389,39 @@ function DetailView({ topic, index, next, onBack, onNext }) {
 
 export default function StartHere() {
   const [topicId, setTopicId] = useState(null);
-  const [seen, setSeen] = useState({});
+  const [seen, setSeen] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!stateApi) {
+      setSeen({});
+      return;
+    }
+    stateApi
+      .get("seen", { scope: "user" })
+      .then((value) => {
+        if (!cancelled) setSeen(value && typeof value === "object" ? value : {});
+      })
+      .catch(() => {
+        if (!cancelled) setSeen({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const seenMap = seen || {};
   const open = (id) => {
-    setSeen((prev) => ({ ...prev, [id]: true }));
+    const next = { ...seenMap, [id]: true };
+    setSeen(next);
+    if (stateApi) {
+      stateApi.set("seen", next, { scope: "user" }).catch(() => {});
+    }
     setTopicId(id);
   };
   const index = TOPICS.findIndex((topic) => topic.id === topicId);
   const topic = index === -1 ? null : TOPICS[index];
   const next = topic && index < TOPICS.length - 1 ? TOPICS[index + 1] : null;
-  const allSeen = TOPICS.every((entry) => seen[entry.id]);
+  const seenCount = TOPICS.filter((entry) => seenMap[entry.id]).length;
+  const allSeen = seen !== null && seenCount === TOPICS.length;
   return (
     <div className="h-screen overflow-y-auto bg-background">
       <style>{TOUR_STYLES}</style>
@@ -363,11 +431,12 @@ export default function StartHere() {
             topic={topic}
             index={index}
             next={next}
+            seen={seenMap}
             onBack={() => setTopicId(null)}
             onNext={() => next && open(next.id)}
           />
         ) : (
-          <HomeView onOpen={open} seen={seen} allSeen={allSeen} />
+          <HomeView onOpen={open} seen={seenMap} seenCount={seenCount} allSeen={allSeen} />
         )}
       </div>
     </div>
@@ -387,7 +456,7 @@ def teaching_tour_project() -> dict[str, Any]:
             "insights": [],
             "inlineQueries": True,
             "captureEvents": [],
-            "state": [],
+            "state": ["user"],
             "actions": [],
         },
         "network": {"origins": []},
