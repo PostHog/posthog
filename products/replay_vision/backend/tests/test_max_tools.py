@@ -32,7 +32,6 @@ from products.replay_vision.backend.max_tools import (
     SearchReplayVisionObservationsTool,
     SummarizeReplayVisionSummariesTool,
     UpdateReplayVisionScannerTool,
-    _ObservationFilters,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -58,7 +57,7 @@ _SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_rea
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.max_tools.async_generate_embedding"
-_EXECUTE_HOGQL_PATH = "products.replay_vision.backend.max_tools.execute_hogql_query"
+_EXECUTE_HOGQL_PATH = "products.replay_vision.backend.search.execute_hogql_query"
 
 
 class TestDraftReplayVisionScannerPromptTool(BaseTest):
@@ -453,30 +452,6 @@ class TestSummarizeReplayVisionSummariesTool(BaseTest):
 
         assert artifact == {"error": "fetch_failed"}
         assert "hunter2" not in content
-
-
-class TestObservationFiltersTagClause:
-    """Pure-logic clause construction — no DB/ClickHouse, so it runs without the full test stack."""
-
-    @parameterized.expand(
-        [
-            ("single", ["frustrated_or_confused"]),
-            ("multiple", ["abandoned", "completed"]),
-            # `_ObservationFilters` registers values verbatim — pre-slugifying is the caller's (tool's) job. The
-            # SQL slugifies the *stored* side; passing a non-slug here proves the value is not re-normalized.
-            ("verbatim_not_renormalized", ["Frustrated Or Confused"]),
-        ]
-    )
-    def test_tags_clause_normalizes_stored_side_and_registers_values(self, _name: str, tags: list[str]) -> None:
-        placeholders: dict = {}
-        clauses = _ObservationFilters(tags=tags).where_clauses(placeholders)
-
-        assert len(clauses) == 1
-        # Stored metadata tags are slugified inside the clause (arrayMap) so verbatim-stored tags still match.
-        assert clauses[0].startswith("hasAny(")
-        assert "arrayMap" in clauses[0]
-        # The clause carries no inlined tag value — it lives only in the parameterized placeholder, verbatim.
-        assert placeholders["tags"].value == tags
 
 
 class TestReplayVisionChargeConfirmation(BaseTest):

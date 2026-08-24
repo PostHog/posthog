@@ -11,6 +11,7 @@ from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 
+import httpx
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -24,10 +25,11 @@ from drf_spectacular.utils import (
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.embedding_worker import generate_embedding
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
@@ -38,10 +40,11 @@ from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
-from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
@@ -60,6 +63,13 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.search import (
+    DEFAULT_SEARCH_LIMIT,
+    MAX_SEARCH_LIMIT,
+    ObservationSearchFilters,
+    fetch_ranked_observations,
+    rank_observations,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 from products.tasks.backend.facade import api as tasks_facade
@@ -67,6 +77,14 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
+
+
+class EmbeddingUnavailableError(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "Search is unavailable right now because the embedding service didn't respond. Try again in a moment."
+    )
+    default_code = "embedding_unavailable"
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -1065,6 +1083,54 @@ class ReplayObservationViewSet(
         return Response(ReplayObservationLabelSerializer(label).data)
 
 
+class ObservationSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(
+        max_length=2000,
+        help_text="Natural-language description of what to find, e.g. 'users confused by the pricing page'.",
+    )
+    scanner_id = serializers.UUIDField(
+        required=False,
+        help_text="Search a single scanner's observations. Defaults to every scanner you can read.",
+    )
+    verdict = serializers.CharField(
+        required=False,
+        help_text="Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.",
+    )
+    tags = serializers.CharField(
+        required=False,
+        help_text="Comma-separated classifier tags to keep. Matching is case- and format-insensitive.",
+    )
+    min_score = serializers.FloatField(
+        required=False, help_text="Keep only scorer observations with a score at or above this value."
+    )
+    max_score = serializers.FloatField(
+        required=False, help_text="Keep only scorer observations with a score at or below this value."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_SEARCH_LIMIT,
+        default=DEFAULT_SEARCH_LIMIT,
+        help_text=f"Maximum number of results (default {DEFAULT_SEARCH_LIMIT}, at most {MAX_SEARCH_LIMIT}).",
+    )
+
+
+class ObservationSearchResultSerializer(serializers.Serializer):
+    observation = ReplayObservationSerializer(help_text="The matching observation.")
+    distance = serializers.FloatField(
+        help_text="Cosine distance between the search text and the observation's closest embedding; lower is a "
+        "closer match. Only comparable to other results in the same response.",
+    )
+
+
+class ObservationSearchResponseSerializer(serializers.Serializer):
+    results = ObservationSearchResultSerializer(many=True, help_text="Matching observations, most relevant first.")
+
+
+def _csv_values(raw: str | None) -> list[str] | None:
+    return split_csv(raw) or None if raw else None
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1079,7 +1145,8 @@ class ReplayObservationViewSet(
     ),
 )
 class SessionReplayObservationViewSet(ReplayObservationViewSet):
-    """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
+    """A session's observations across every scanner the caller can read, plus the team-level semantic
+    `search` action, which resolves its own scanner scope instead of this queryset."""
 
     # The dock fetches one session's observations; `session_id` is required and enforced in
     # safely_get_queryset, so this viewset needs none of the base's optional list filters.
@@ -1114,6 +1181,83 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
         raise NotFound()
+
+    @extend_schema(
+        parameters=[ObservationSearchQuerySerializer],
+        responses={
+            200: ObservationSearchResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The embedding service did not respond."
+            ),
+        },
+    )
+    @action(detail=False, methods=["GET"])
+    def search(self, request: Request, **kwargs: Any) -> Response:
+        """Rank observations by semantic similarity to the search text, optionally filtered by exact outcome
+        (verdict, score, tags)."""
+        params = ObservationSearchQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        validated = params.validated_data
+
+        scanner_ids = self._searchable_scanner_ids(validated.get("scanner_id"))
+        if not scanner_ids:
+            return self._search_response([])
+        # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "AI data processing is turned off for this organization, so search can't run. "
+                "An organization admin can turn it on in organization settings."
+            )
+        try:
+            # Short timeout: this sync call pins a request thread, and search users don't wait long.
+            embedding_response = generate_embedding(
+                self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
+            )
+        except httpx.HTTPError:
+            # Only transport failures are retryable; anything else is a bug and should surface as a 500.
+            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
+            raise EmbeddingUnavailableError()
+        filters = ObservationSearchFilters.from_raw(
+            verdict=_csv_values(validated.get("verdict")),
+            tags=_csv_values(validated.get("tags")),
+            min_score=validated.get("min_score"),
+            max_score=validated.get("max_score"),
+        )
+        matches = rank_observations(
+            self.team,
+            cast(User, request.user),
+            scanner_ids,
+            embedding_response.embedding,
+            validated["limit"],
+            filters,
+        )
+        distance_by_id = {match.observation_id: match.distance for match in matches}
+        observations = fetch_ranked_observations(
+            self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
+        )
+        return self._search_response(
+            [{"observation": obs, "distance": distance_by_id[str(obs.id)]} for obs in observations]
+        )
+
+    def _search_response(self, results: list[dict[str, Any]]) -> Response:
+        serializer = ObservationSearchResponseSerializer({"results": results}, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    def _searchable_scanner_ids(self, scanner_id: uuid.UUID | None) -> list[str]:
+        # Observations expose recording-derived output, so searching them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Searching replay observations requires session_recording read access.")
+        if scanner_id is not None:
+            scanner = scanner_for_reading_observations(self.team_id, scanner_id)
+            # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
+            if (
+                scanner is None
+                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+                or not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner)
+            ):
+                raise NotFound("Scanner not found.")
+            return [str(scanner.id)]
+        return [str(sid) for sid in readable_observation_scanner_ids(self.user_access_control, self.team_id)]
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])

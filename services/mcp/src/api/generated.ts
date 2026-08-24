@@ -50488,6 +50488,168 @@ export namespace Schemas {
       version_markers: ObservationVersionMarker[];
     }
 
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     */
+    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
+
+
+    export const ObservationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+    } as const;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
+      name: string;
+      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
+    }
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand
+     * * `retry` - Retry
+     * * `backfill` - Backfill
+     */
+    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
+
+
+    export const ObservationTriggerEnum = {
+      Schedule: 'schedule',
+      OnDemand: 'on_demand',
+      Retry: 'retry',
+      Backfill: 'backfill',
+    } as const;
+
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
+    export interface ReplayObservation {
+      readonly id: string;
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Session recording id this scanner was applied to. */
+      readonly session_id: string;
+      /** Observation status (pending, running, succeeded, failed, ineligible).
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible */
+      readonly status: ObservationStatusEnum;
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      readonly error_reason: string;
+      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+      readonly workflow_id: string;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly scanner_result: ScannerResult | null;
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
+       *
+       * * `schedule` - Schedule
+       * * `on_demand` - On demand
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
+      readonly triggered_by: ObservationTriggerEnum;
+      /** User who triggered an on-demand observation; null for scheduled observations. */
+      readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
+      /** @nullable */
+      started_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface ObservationSearchResult {
+      /** The matching observation. */
+      observation: ReplayObservation;
+      /** Cosine distance between the search text and the observation's closest embedding; lower is a closer match. Only comparable to other results in the same response. */
+      distance: number;
+    }
+
+    export interface ObservationSearchResponse {
+      /** Matching observations, most relevant first. */
+      results: ObservationSearchResult[];
+    }
+
     export interface ObservationStatusCounts {
       /** Total observations in the filtered set. */
       total: number;
@@ -50566,40 +50728,6 @@ export namespace Schemas {
       /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
       summarizer: SummarizerStats | null;
     }
-
-    /**
-     * * `pending` - Pending
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     * * `ineligible` - Ineligible
-     */
-    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
-
-
-    export const ObservationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-    } as const;
-
-    /**
-     * * `schedule` - Schedule
-     * * `on_demand` - On demand
-     * * `retry` - Retry
-     * * `backfill` - Backfill
-     */
-    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
-
-
-    export const ObservationTriggerEnum = {
-      Schedule: 'schedule',
-      OnDemand: 'on_demand',
-      Retry: 'retry',
-      Backfill: 'backfill',
-    } as const;
 
     /**
      * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
@@ -53303,122 +53431,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Reminder[];
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
-     */
-    export interface ScannerSnapshot {
-      /** Scanner name at run time. */
-      name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
-      scanner_type: ScannerTypeEnum;
-      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-      scanner_version: number;
-      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
-      model: string;
-      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
-      provider: string;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      scanner_config: unknown;
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
-     */
-    export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-    }
-
-    /**
-     * The team's shared judgement on whether the scanner scored this session correctly.
-     */
-    export interface ReplayObservationLabel {
-      /** True if the scanner scored this session correctly, false if not. */
-      is_correct: boolean;
-      /**
-         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
-         * @maxLength 5000
-         */
-      feedback?: string;
-    }
-
-    export interface ReplayObservation {
-      readonly id: string;
-      /** The scanner that produced this observation. */
-      readonly scanner_id: string;
-      /** Session recording id this scanner was applied to. */
-      readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
-       *
-       * * `pending` - Pending
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed
-       * * `ineligible` - Ineligible */
-      readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
-      readonly error_reason: string;
-      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-      readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-      readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. */
-      readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
-       *
-       * * `schedule` - Schedule
-       * * `on_demand` - On demand
-       * * `retry` - Retry
-       * * `backfill` - Backfill */
-      readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation; null for scheduled observations. */
-      readonly triggered_by_user: UserBasic | null;
-      /**
-         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
-         * @nullable
-         */
-      readonly backfill_id: string | null;
-      /**
-         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
-         * @nullable
-         */
-      readonly previous_observation_id: string | null;
-      /**
-         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
-         * @nullable
-         */
-      readonly next_observation_id: string | null;
-      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly label: ReplayObservationLabel | null;
-      /** @nullable */
-      started_at?: string | null;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
     }
 
     export interface PaginatedReplayObservationList {
@@ -95898,6 +95910,43 @@ export namespace Schemas {
     triggered_by?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
+
+    export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number;
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number;
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string;
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive.
+     * @minLength 1
+     */
+    tags?: string;
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
      */
     verdict?: string;
     };
