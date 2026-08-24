@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as PrRouteImport } from './routes/pr'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as ContextRouteImport } from './routes/context'
@@ -17,6 +18,7 @@ import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as WebsiteIndexRouteImport } from './routes/website.index'
+import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as LoopsIndexRouteImport } from './routes/loops/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
@@ -25,6 +27,7 @@ import { Route as AgentsIndexRouteImport } from './routes/agents/index'
 import { Route as ShellIndexRouteImport } from './routes/_shell/index'
 import { Route as WebsiteSplatRouteImport } from './routes/website.$'
 import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
+import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
 import { Route as LoopsNewRouteImport } from './routes/loops/new'
 import { Route as LoopsLoopIdRouteImport } from './routes/loops/$loopId'
@@ -75,6 +78,11 @@ const UsageRoute = UsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrRoute = PrRouteImport.update({
   id: '/pr',
   path: '/pr',
@@ -108,6 +116,11 @@ const WebsiteIndexRoute = WebsiteIndexRouteImport.update({
   id: '/website/',
   path: '/website/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SupportIndexRoute = SupportIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SupportRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
@@ -148,6 +161,11 @@ const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
   id: '/tasks/$taskId',
   path: '/tasks/$taskId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SupportTicketIdRoute = SupportTicketIdRouteImport.update({
+  id: '/$ticketId',
+  path: '/$ticketId',
+  getParentRoute: () => SupportRoute,
 } as any)
 const SettingsCategoryRoute = SettingsCategoryRouteImport.update({
   id: '/settings/$category',
@@ -386,6 +404,7 @@ export interface FileRoutesByFullPath {
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
+  '/support': typeof SupportRouteWithChildren
   '/usage': typeof UsageRoute
   '/activity': typeof ShellActivityRoute
   '/command-center': typeof ShellCommandCenterRoute
@@ -403,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/agents/': typeof AgentsIndexRoute
@@ -410,6 +430,7 @@ export interface FileRoutesByFullPath {
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/spaces/context': typeof ShellSpacesContextRoute
@@ -455,6 +476,7 @@ export interface FileRoutesByTo {
   '/inbox/agents': typeof InboxAgentsRoute
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/': typeof ShellIndexRoute
@@ -463,6 +485,7 @@ export interface FileRoutesByTo {
   '/inbox': typeof InboxIndexRoute
   '/loops': typeof LoopsIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/support': typeof SupportIndexRoute
   '/website': typeof WebsiteIndexRoute
   '/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/spaces/context': typeof ShellSpacesContextRoute
@@ -500,6 +523,7 @@ export interface FileRoutesById {
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
+  '/support': typeof SupportRouteWithChildren
   '/usage': typeof UsageRoute
   '/_shell/activity': typeof ShellActivityRoute
   '/_shell/command-center': typeof ShellCommandCenterRoute
@@ -517,6 +541,7 @@ export interface FileRoutesById {
   '/loops/$loopId': typeof LoopsLoopIdRouteWithChildren
   '/loops/new': typeof LoopsNewRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/tasks/$taskId': typeof TasksTaskIdRoute
   '/website/$': typeof WebsiteSplatRoute
   '/_shell/': typeof ShellIndexRoute
@@ -525,6 +550,7 @@ export interface FileRoutesById {
   '/inbox/': typeof InboxIndexRoute
   '/loops/': typeof LoopsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/_shell/feeds/$feedId': typeof ShellFeedsFeedIdRoute
   '/_shell/spaces/context': typeof ShellSpacesContextRoute
@@ -564,6 +590,7 @@ export interface FileRouteTypes {
     | '/context'
     | '/inbox'
     | '/pr'
+    | '/support'
     | '/usage'
     | '/activity'
     | '/command-center'
@@ -581,6 +608,7 @@ export interface FileRouteTypes {
     | '/loops/$loopId'
     | '/loops/new'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/agents/'
@@ -588,6 +616,7 @@ export interface FileRouteTypes {
     | '/inbox/'
     | '/loops/'
     | '/settings/'
+    | '/support/'
     | '/website/'
     | '/feeds/$feedId'
     | '/spaces/context'
@@ -633,6 +662,7 @@ export interface FileRouteTypes {
     | '/inbox/agents'
     | '/loops/new'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/'
@@ -641,6 +671,7 @@ export interface FileRouteTypes {
     | '/inbox'
     | '/loops'
     | '/settings'
+    | '/support'
     | '/website'
     | '/feeds/$feedId'
     | '/spaces/context'
@@ -677,6 +708,7 @@ export interface FileRouteTypes {
     | '/context'
     | '/inbox'
     | '/pr'
+    | '/support'
     | '/usage'
     | '/_shell/activity'
     | '/_shell/command-center'
@@ -694,6 +726,7 @@ export interface FileRouteTypes {
     | '/loops/$loopId'
     | '/loops/new'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/tasks/$taskId'
     | '/website/$'
     | '/_shell/'
@@ -702,6 +735,7 @@ export interface FileRouteTypes {
     | '/inbox/'
     | '/loops/'
     | '/settings/'
+    | '/support/'
     | '/website/'
     | '/_shell/feeds/$feedId'
     | '/_shell/spaces/context'
@@ -740,6 +774,7 @@ export interface RootRouteChildren {
   ContextRoute: typeof ContextRoute
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
+  SupportRoute: typeof SupportRouteWithChildren
   UsageRoute: typeof UsageRoute
   CodeSplatRoute: typeof CodeSplatRoute
   FoldersFolderIdRoute: typeof FoldersFolderIdRoute
@@ -762,6 +797,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/usage'
       preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pr': {
@@ -812,6 +854,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/website/'
       preLoaderRoute: typeof WebsiteIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/support/': {
+      id: '/support/'
+      path: '/'
+      fullPath: '/support/'
+      preLoaderRoute: typeof SupportIndexRouteImport
+      parentRoute: typeof SupportRoute
     }
     '/settings/': {
       id: '/settings/'
@@ -868,6 +917,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/tasks/$taskId'
       preLoaderRoute: typeof TasksTaskIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/support/$ticketId': {
+      id: '/support/$ticketId'
+      path: '/$ticketId'
+      fullPath: '/support/$ticketId'
+      preLoaderRoute: typeof SupportTicketIdRouteImport
+      parentRoute: typeof SupportRoute
     }
     '/settings/$category': {
       id: '/settings/$category'
@@ -1345,6 +1401,19 @@ const InboxRouteChildren: InboxRouteChildren = {
 
 const InboxRouteWithChildren = InboxRoute._addFileChildren(InboxRouteChildren)
 
+interface SupportRouteChildren {
+  SupportTicketIdRoute: typeof SupportTicketIdRoute
+  SupportIndexRoute: typeof SupportIndexRoute
+}
+
+const SupportRouteChildren: SupportRouteChildren = {
+  SupportTicketIdRoute: SupportTicketIdRoute,
+  SupportIndexRoute: SupportIndexRoute,
+}
+
+const SupportRouteWithChildren =
+  SupportRoute._addFileChildren(SupportRouteChildren)
+
 interface LoopsLoopIdRouteChildren {
   LoopsLoopIdEditRoute: typeof LoopsLoopIdEditRoute
   LoopsLoopIdIndexRoute: typeof LoopsLoopIdIndexRoute
@@ -1366,6 +1435,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContextRoute: ContextRoute,
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,
+  SupportRoute: SupportRouteWithChildren,
   UsageRoute: UsageRoute,
   CodeSplatRoute: CodeSplatRoute,
   FoldersFolderIdRoute: FoldersFolderIdRoute,

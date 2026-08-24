@@ -48,7 +48,7 @@ export function TicketAgentPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col justify-end gap-12 p-3">
+    <div className="flex h-full min-h-0 flex-col justify-end gap-3 p-3">
       <div className="min-h-0 overflow-y-auto px-0.5 pb-1">
         <Text className="mb-1.5 block px-0.5 font-medium text-[11px] text-muted-foreground">
           Suggestions

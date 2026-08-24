@@ -9,7 +9,6 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
   type CustomizableNavItemId,
@@ -17,14 +16,15 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   navigateToActivity,
   navigateToCommandCenter,
   navigateToContext,
   navigateToInbox,
   navigateToLoops,
-  navigateToSupport,
   navigateToSpacesContext,
+  navigateToSupport,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -40,8 +40,8 @@ import { ContextItem } from "./items/ContextItem";
 import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
-import { SupportItem } from "./items/SupportItem";
 import { SearchItem } from "./items/SearchItem";
+import { SupportItem } from "./items/SupportItem";
 
 const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 

@@ -40,6 +40,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
 }));
+vi.mock("@posthog/ui/features/support/hooks/useSupportMyOpenCount", () => ({
+  useSupportMyOpenCount: () => 0,
+}));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
   ProjectSwitcher: () => null,
 }));
@@ -53,13 +56,14 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+  navigateToSupport: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
 
-import { DESKTOP_HOME_FLAG } from "@posthog/shared";
+import { DESKTOP_HOME_FLAG, DESKTOP_SUPPORT_FLAG } from "@posthog/shared";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
@@ -89,6 +93,15 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
+  });
+
+  it("shows Support only when its feature flag is on", () => {
+    const { rerender } = render(<NavRail />);
+    expect(screen.queryByLabelText("Support")).not.toBeInTheDocument();
+
+    mocks.featureFlags.set(DESKTOP_SUPPORT_FLAG, true);
+    rerender(<NavRail />);
+    expect(screen.getByLabelText("Support")).toBeInTheDocument();
   });
 
   // The route is the whole answer, so a destination can never be lit over a
