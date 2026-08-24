@@ -61,14 +61,50 @@ describe("ConsentPanel", () => {
     const user = userEvent.setup();
     renderPanel(false, true);
 
-    expect(screen.queryByText("AI data processing")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("PostHog AI needs your approval"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("PostHog Desktop beta terms")).toBeInTheDocument();
-    await user.click(screen.getByText("Accept and continue"));
+    await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
 
     await waitFor(() =>
       expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id"),
     );
     expect(approveAiDataProcessing).not.toHaveBeenCalled();
+  });
+
+  it("presents separate actions and keeps legal detail optional", async () => {
+    const user = userEvent.setup();
+    renderPanel(true, true);
+
+    expect(
+      screen.getByRole("button", { name: "Approve AI data processing" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Accept beta terms" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Legal bits about Protected Health Information"),
+    ).not.toBeInTheDocument();
+
+    const details = screen.getAllByRole("button", { name: "Details" });
+    await user.click(details[0]);
+
+    const aiDecision = screen
+      .getByText("PostHog AI needs your approval")
+      .closest("section");
+    expect(aiDecision).toHaveTextContent(
+      `Your "Example Org" organization hasn't approved AI data processing yet.`,
+    );
+    expect(aiDecision).toHaveTextContent(
+      "PostHog AI features process identifying user data with external AI providers.",
+    );
+    expect(aiDecision).toHaveTextContent(
+      "Importantly: Your data won't be used for training models by these providers.",
+    );
+    expect(aiDecision).toHaveTextContent(
+      "Legal bits about Protected Health Information",
+    );
   });
 
   it("shows completion after the requirements are accepted", () => {
@@ -78,20 +114,23 @@ describe("ConsentPanel", () => {
       screen.getByText("Organization consent complete"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Accept and continue" }),
+      screen.queryByRole("button", { name: "Accept beta terms" }),
     ).not.toBeInTheDocument();
   });
 
-  it("keeps partial failure recoverable after addressing both writes", async () => {
+  it("keeps one failed decision recoverable without retrying the other", async () => {
     approveAiDataProcessing.mockResolvedValue(undefined);
     acceptBetaTerms.mockRejectedValue(new Error("reauth required"));
     const user = userEvent.setup();
     renderPanel(true, true);
 
-    await user.click(screen.getByText("Accept and continue"));
+    await user.click(
+      screen.getByRole("button", { name: "Approve AI data processing" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
 
     expect(
-      await screen.findByText(/Some organization consent updates/),
+      await screen.findByText(/beta terms acceptance could not be saved/),
     ).toBeInTheDocument();
     expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith("org-id");
     expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id");
@@ -101,8 +140,15 @@ describe("ConsentPanel", () => {
     renderPanel(true, true, false);
 
     expect(
-      screen.getByText("Ask an organization admin to accept these terms."),
+      screen.getByText(
+        "Ask an organization admin to approve AI data processing.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Accept and continue")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Ask an organization admin to accept the Desktop beta terms.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Accept beta terms")).not.toBeInTheDocument();
   });
 });

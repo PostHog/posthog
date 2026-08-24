@@ -1,5 +1,12 @@
-import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
-import { Button, Text } from "@posthog/quill";
+import { CheckCircle } from "@phosphor-icons/react";
+import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Text,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import {
@@ -8,7 +15,7 @@ import {
 } from "@posthog/ui/features/auth/useCurrentUser";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { desktopBetaTermsKeys, type OrgConsent } from "./useOrgConsent";
 
 interface ConsentPanelProps {
@@ -28,154 +35,143 @@ export function ConsentPanel({
     client,
     refetchOnWindowFocus: "always",
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<"ai" | "beta" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const organization = currentUser?.organization;
 
-  const submit = async (): Promise<void> => {
-    if (!organization || isSubmitting) return;
+  const accept = async (kind: "ai" | "beta"): Promise<void> => {
+    if (!organization || submitting) return;
     setError(null);
-    setIsSubmitting(true);
+    setSubmitting(kind);
     onSubmittingChange?.(true);
 
-    const requests: Array<{
-      kind: "ai" | "beta";
-      request: Promise<void>;
-    }> = [];
-    if (consent.needsAiConsent) {
-      requests.push({
-        kind: "ai",
-        request: client.approveAiDataProcessing(organization.id),
-      });
-    }
-    if (consent.needsBetaTerms) {
-      requests.push({
-        kind: "beta",
-        request: client.acceptDesktopBetaTerms(organization.id),
-      });
-    }
-
-    const results = await Promise.allSettled(
-      requests.map(({ request }) => request),
-    );
-    const confirmations: Promise<unknown>[] = [];
-    results.forEach((result, index) => {
-      if (result.status !== "fulfilled") return;
-      if (requests[index].kind === "ai") {
+    try {
+      if (kind === "ai") {
+        await client.approveAiDataProcessing(organization.id);
         track(ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP);
-        confirmations.push(
-          queryClient.invalidateQueries({ queryKey: authKeys.currentUsers() }),
-        );
+        await queryClient.invalidateQueries({
+          queryKey: authKeys.currentUsers(),
+        });
       } else {
+        await client.acceptDesktopBetaTerms(organization.id);
         track(ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP);
-        confirmations.push(
-          queryClient.invalidateQueries({
-            queryKey: desktopBetaTermsKeys.all(),
-          }),
-        );
+        await queryClient.invalidateQueries({
+          queryKey: desktopBetaTermsKeys.all(),
+        });
       }
-    });
-    await Promise.allSettled(confirmations);
-
-    if (results.some((result) => result.status === "rejected")) {
+    } catch {
       setError(
-        "Some organization consent updates could not be saved. Try again or contact support.",
+        kind === "ai"
+          ? "Could not approve AI data processing. Try again or contact support."
+          : "Desktop beta terms acceptance could not be saved. Try again or contact support.",
       );
+    } finally {
+      setSubmitting(null);
+      onSubmittingChange?.(false);
     }
-    setIsSubmitting(false);
-    onSubmittingChange?.(false);
   };
 
   return (
-    <div className="flex w-full max-w-[600px] flex-col gap-5">
+    <div className="flex w-full max-w-[560px] flex-col gap-5">
       <div className="flex flex-col gap-2">
-        <h1 className="font-bold text-2xl text-foreground">
-          Review organization consent
+        <h1 className="font-bold text-2xl text-foreground tracking-[-0.02em]">
+          Before you continue
         </h1>
         <Text size="sm" variant="muted">
           {organization?.name
-            ? `Review the remaining terms for ${organization.name}.`
-            : "Review the remaining terms for your organization."}
+            ? `${organization.name} needs to review the items below.`
+            : "Your organization needs to review the items below."}
         </Text>
       </div>
 
       {consent.satisfied && (
-        <div className="flex gap-3 rounded-lg border border-success/40 bg-success/10 p-4 text-foreground text-sm">
-          <CheckCircle className="mt-0.5 shrink-0 text-success" size={18} />
-          <div>
-            <p className="font-semibold">Organization consent complete</p>
-            <p className="mt-1 text-muted-foreground">
-              Your organization has accepted the required terms.
-            </p>
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-primary px-4 py-3">
+          <CheckCircle className="shrink-0 text-success-foreground" size={20} />
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+            <Text weight="semibold">Organization consent complete</Text>
+            <Badge variant="completed">Accepted</Badge>
           </div>
         </div>
       )}
 
       {consent.needsAiConsent && (
-        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface-primary p-4">
-          <h2 className="font-semibold text-base text-foreground">
-            AI data processing
-          </h2>
-          <Text size="sm" variant="muted">
-            PostHog AI features process identifying user data with external AI
-            providers. These providers do not use your data to train models.
-          </Text>
-        </section>
+        <ConsentDecision
+          title="PostHog AI needs your approval"
+          summary={
+            organization?.name ? (
+              <>
+                Your "<strong>{organization.name}</strong>" organization hasn't
+                approved AI data processing yet.
+              </>
+            ) : (
+              "Your organization hasn't approved AI data processing yet."
+            )
+          }
+          actionLabel="Approve AI data processing"
+          adminHelp="Ask an organization admin to approve AI data processing."
+          isAdmin={isAdmin}
+          isLoading={submitting === "ai"}
+          isDisabled={submitting !== null || !organization}
+          onAccept={() => void accept("ai")}
+        >
+          <div className="flex flex-col gap-3">
+            <Text size="sm" variant="muted">
+              PostHog AI features process identifying user data with external AI
+              providers.
+              <br />
+              Importantly: Your data won't be used for training models by these
+              providers.
+            </Text>
+            <div>
+              <Text size="sm" weight="semibold">
+                Legal bits about Protected Health Information
+              </Text>
+              <Text className="mt-1" size="sm" variant="muted">
+                This app isn't <i>yet</i> HIPAA-compliant and is not intended
+                for processing of Protected Health Information ("PHI").
+                <br />
+                If you've entered into a Business Associate Agreement ("BAA")
+                with PostHog, it does not currently apply to PostHog Code
+                features.
+              </Text>
+            </div>
+          </div>
+        </ConsentDecision>
       )}
 
       {consent.needsBetaTerms && (
-        <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface-primary p-4">
-          <h2 className="font-semibold text-base text-foreground">
-            PostHog Desktop beta terms
-          </h2>
-          <Text size="sm" variant="muted">
-            PostHog Desktop uses Baseten and Modal to process customer data,
-            personal data, and PII. They are not currently listed as PostHog
-            subprocessors for this feature.
-          </Text>
-          <Text size="sm" variant="muted">
-            Your organization agrees to proceed notwithstanding that status. If
-            this feature becomes generally available, PostHog will update the
-            DPA and provide notice. This beta may change or be discontinued.
-          </Text>
-          <a
-            href="https://posthog.com/subprocessors"
-            target="_blank"
-            rel="noreferrer"
-            className="text-link text-sm hover:underline"
-          >
-            View PostHog subprocessors
-          </a>
-        </section>
-      )}
-
-      <div className="flex gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-foreground text-sm">
-        <WarningCircle className="mt-0.5 shrink-0" size={18} />
-        <div>
-          <p className="font-semibold">Protected Health Information</p>
-          <p className="mt-1 text-muted-foreground">
-            PostHog Desktop is not HIPAA-compliant and is not intended for
-            processing Protected Health Information (PHI). A Business Associate
-            Agreement with PostHog does not currently apply to PostHog Desktop.
-          </p>
-        </div>
-      </div>
-
-      {consent.satisfied ? null : isAdmin ? (
-        <Button
-          variant="primary"
-          size="lg"
-          className="w-full"
-          loading={isSubmitting}
-          disabled={isSubmitting || !organization}
-          onClick={() => void submit()}
+        <ConsentDecision
+          title="PostHog Desktop beta terms"
+          summary="Accept the additional data-processing terms for the PostHog Desktop beta."
+          actionLabel="Accept beta terms"
+          adminHelp="Ask an organization admin to accept the Desktop beta terms."
+          isAdmin={isAdmin}
+          isLoading={submitting === "beta"}
+          isDisabled={submitting !== null || !organization}
+          onAccept={() => void accept("beta")}
         >
-          Accept and continue
-        </Button>
-      ) : (
-        <Text size="sm" variant="muted">
-          Ask an organization admin to accept these terms.
-        </Text>
+          <div className="flex flex-col gap-2">
+            <Text size="sm" variant="muted">
+              PostHog Desktop uses Baseten and Modal to process customer data,
+              personal data, and PII. They are not currently listed as PostHog
+              subprocessors for this feature.
+            </Text>
+            <Text size="sm" variant="muted">
+              Your organization agrees to proceed notwithstanding that status.
+              If this feature becomes generally available, PostHog will update
+              the DPA and provide notice. This beta may change or be
+              discontinued.
+            </Text>
+            <a
+              href="https://posthog.com/subprocessors"
+              target="_blank"
+              rel="noreferrer"
+              className="w-fit text-link text-sm hover:underline"
+            >
+              View PostHog subprocessors
+            </a>
+          </div>
+        </ConsentDecision>
       )}
 
       {error && (
@@ -184,5 +180,67 @@ export function ConsentPanel({
         </div>
       )}
     </div>
+  );
+}
+
+interface ConsentDecisionProps {
+  title: string;
+  summary: ReactNode;
+  actionLabel: string;
+  adminHelp: string;
+  isAdmin: boolean;
+  isLoading: boolean;
+  isDisabled: boolean;
+  onAccept: () => void;
+  children: ReactNode;
+}
+
+function ConsentDecision({
+  title,
+  summary,
+  actionLabel,
+  adminHelp,
+  isAdmin,
+  isLoading,
+  isDisabled,
+  onAccept,
+  children,
+}: ConsentDecisionProps) {
+  return (
+    <section className="rounded-lg border border-border bg-surface-primary px-4 py-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="font-semibold text-base text-foreground">{title}</h2>
+          <Text className="mt-1" size="sm" variant="muted">
+            {summary}
+          </Text>
+        </div>
+        {isAdmin && (
+          <Button
+            variant="primary"
+            size="lg"
+            className="h-9 shrink-0 px-3 text-sm"
+            loading={isLoading}
+            disabled={isDisabled}
+            onClick={onAccept}
+          >
+            {actionLabel}
+          </Button>
+        )}
+      </div>
+      {!isAdmin && (
+        <Text className="mt-3" size="sm" variant="muted">
+          {adminHelp}
+        </Text>
+      )}
+      <Collapsible className="mt-2">
+        <CollapsibleTrigger className="px-0 text-muted-foreground">
+          Details
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2 text-sm leading-relaxed">
+          {children}
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
   );
 }

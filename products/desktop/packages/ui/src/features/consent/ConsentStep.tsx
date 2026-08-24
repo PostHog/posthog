@@ -25,30 +25,33 @@ export function ConsentStep({
   useConsentAnalytics(consent, isAdmin === true, "onboarding_step");
 
   return (
-    <div className="flex h-full items-center justify-center px-8">
-      <div className="flex h-full w-full max-w-[600px] flex-col py-10">
-        <div className="flex min-h-0 flex-1 items-center overflow-y-auto">
-          {consent.status === "loading" ? (
-            <div className="flex w-full justify-center">
-              <Spinner />
-            </div>
-          ) : consent.status === "error" ? (
-            <ConsentErrorContent onRetry={consent.retry} />
-          ) : (
-            <ConsentPanel
-              consent={consent}
-              isAdmin={isAdmin === true}
-              onSubmittingChange={(submitting) => {
-                setIsSubmitting(submitting);
-                onSubmittingChange?.(submitting);
-              }}
-            />
-          )}
+    <div className="flex h-full items-center px-8">
+      <div className="flex h-full w-full flex-col items-center pt-[24px] pb-[40px]">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="m-auto w-full max-w-[560px]">
+            {consent.status === "loading" ? (
+              <div className="flex w-full justify-center">
+                <Spinner />
+              </div>
+            ) : consent.status === "error" ? (
+              <ConsentErrorContent onRetry={consent.retry} />
+            ) : (
+              <ConsentPanel
+                consent={consent}
+                isAdmin={isAdmin === true}
+                onSubmittingChange={(submitting) => {
+                  setIsSubmitting(submitting);
+                  onSubmittingChange?.(submitting);
+                }}
+              />
+            )}
+          </div>
         </div>
         <StepActions>
           <Button
             variant="outline"
             size="lg"
+            className="h-10 px-4 text-sm"
             disabled={isSubmitting}
             onClick={onBack}
           >
@@ -58,6 +61,7 @@ export function ConsentStep({
           <Button
             variant="primary"
             size="lg"
+            className="h-10 px-4 text-sm"
             disabled={
               isSubmitting ||
               consent.status !== "resolved" ||
