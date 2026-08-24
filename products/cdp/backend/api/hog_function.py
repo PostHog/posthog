@@ -1082,7 +1082,10 @@ class HogFunctionViewSet(
         cannot be restored from our side, so each listed input has to be entered again.
         """
         affected = []
-        for hog_function in self.get_queryset().order_by("-updated_at").iterator(chunk_size=100):
+        # Only the columns the scan reads: the rest include large text/JSON fields (hog, bytecode,
+        # transpiled, draft, ...) that would be transferred and deserialized for every row for nothing.
+        scan = self.get_queryset().only("id", "name", "type", "enabled", "encrypted_inputs", "draft_encrypted_inputs")
+        for hog_function in scan.order_by("-updated_at").iterator(chunk_size=100):
             input_keys = masked_secret_input_keys(hog_function.encrypted_inputs)
             draft_input_keys = masked_secret_input_keys(hog_function.draft_encrypted_inputs)
             if not input_keys and not draft_input_keys:
