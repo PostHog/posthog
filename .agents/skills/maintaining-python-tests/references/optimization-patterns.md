@@ -75,9 +75,9 @@ Examples include:
 
 Keep API and integration cases after the production optimization. Strengthen persisted-state assertions when shared production work can cause cross-item contamination.
 
-## Re-level a test
+## Move a test to a cheaper level
 
-Move a test down the cost ladder when its regression does not require its current boundary:
+Move a test to a cheaper level when its regression does not require its current boundary:
 
 ```text
 pure function -> Django SimpleTestCase -> Django TestCase -> integration service
@@ -100,7 +100,7 @@ Prefer `TestCase` when transaction rollback can isolate the case.
 
 Use `TransactionTestCase` only when the regression requires committed transaction behavior. Database flushes make it expensive.
 
-Changing the base class needs an isolation proof. Run the complete class more than once and in a different order when possible.
+A change of the base class needs an isolation proof. Run the complete class more than once and in a different order when possible.
 
 ## Retire temporary migration tests
 
@@ -146,17 +146,17 @@ Replace polling with one of these options:
 - Freeze or advance the clock.
 - Wait on an explicit condition with a bounded diagnostic error.
 
-If the wait represents real external nondeterminism, use `/fixing-flaky-tests` before changing it.
+If the wait represents real external nondeterminism, use `/fixing-flaky-tests` before you change it.
 
 ## Improve ownership
 
 An unowned slow test has two maintenance problems. Fix the path or ownership rule after you confirm the correct team.
 
-Prefer the narrowest stable ownership path. Avoid assigning a broad directory to a team only to capture one file.
+Prefer the narrowest stable ownership path. Do not assign a broad directory to a team only to capture one file.
 
 Verify the emitted `test.owner_team` value after the reporter change reaches CI. A local resolver result proves the rule. It does not prove the timing reporter emitted it.
 
-## Common false wins
+## Common incorrect results
 
 Reject these results:
 
@@ -171,7 +171,7 @@ Reject these results:
 
 ## When to stop
 
-Stop optimizing a target when one of these conditions holds:
+Stop work on a target when one of these conditions is true:
 
 - The target no longer appears in the current high-cost ranking.
 - The next change would weaken a meaningful boundary.
@@ -179,4 +179,4 @@ Stop optimizing a target when one of these conditions holds:
 - Another shard now controls the critical path.
 - The evidence does not identify a cost center.
 
-Rebuild the ranking. Select the next measured target instead of polishing a test that no longer matters.
+Rebuild the ranking. Select the next measured target. Do not continue work on a test that no longer matters.

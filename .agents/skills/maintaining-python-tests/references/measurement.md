@@ -36,7 +36,9 @@ Pytest can report separate phases:
 - **teardown:** fixture cleanup after the test call.
 - **wall:** the complete command, including collection and process startup.
 
-A module-scoped fixture can move cost from repeated call phases into one setup phase. The call sum can decrease while wall time stays flat. Report both.
+A module-scoped fixture can move cost from repeated call phases into one setup phase. The call sum can decrease while wall time does not change. Report both.
+
+Do not assume that expensive setup always shows in the setup phase. A Django migration test runs the migration executor in the call phase, so its call time is almost equal to its total time.
 
 ## Profiling
 
@@ -76,7 +78,7 @@ is_root_span
 duration_nano
 ```
 
-Invoke `/querying-posthog-data` before using `posthog:execute-sql`. Verify the available trace fields before querying them. Use `master` for post-merge impact. Use explicit UTC windows.
+Invoke `/querying-posthog-data` before you use `posthog:execute-sql`. Verify the available trace fields before you query them. Use `master` for post-merge impact. Use explicit UTC windows.
 
 ### Rank emitted slow pytest tests
 
@@ -224,6 +226,8 @@ FROM per_run
 
 `shard.testcase_seconds` includes every JUnit testcase, including tests below the individual-span threshold. The slowest suite span measures pytest execution, not the complete GitHub Actions job.
 
+Summed testcase time under-reports the job step. The difference scales with the number of collected tests, not with their duration, because collection and module imports cost time per test. Do not size a suite from summed durations alone.
+
 ### Measure ownership
 
 ```sql
@@ -252,5 +256,8 @@ Before you state an improvement, confirm these conditions:
 - Both samples use the same time type.
 - The after sample contains the merged code.
 - The sample sizes are large enough to resist one unusual run.
+- The evidence is not a file that the changed step wrote.
 
 State when unrelated changes landed in the same window. Use the exact-test result for causal claims. Use the whole-run result as directional evidence.
+
+A file that a step writes cannot prove that the step is correct. To test a correction or a filter, run it again on the raw inputs.

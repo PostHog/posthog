@@ -17,10 +17,10 @@ The goal is not a smaller test count. The goal is a suite that catches the same 
 3. **Remove only expired or redundant coverage.** Get explicit approval before deleting a test.
 4. **Share expensive infrastructure, not mutable test state.** Preserve isolation with unique IDs, schemas, tables, topics, or tenants.
 5. **Measure after merge.** Local results prove the mechanism. Fresh master data proves the result in CI.
-6. **Separate testcase work from suite wall time.** A change can reduce summed testcase time without moving the slowest pytest suite.
+6. **Separate testcase work from suite wall time.** A change can reduce summed testcase time and not change the slowest pytest suite.
 
-Read [measurement.md](references/measurement.md) before querying timing data or reporting an improvement.
-Read [optimization-patterns.md](references/optimization-patterns.md) when selecting a fix.
+Read [measurement.md](references/measurement.md) before you query timing data or report an improvement.
+Read [optimization-patterns.md](references/optimization-patterns.md) when you select a fix.
 
 ## Workflow
 
@@ -50,6 +50,8 @@ Use p50 to find steady cost. Use p95 to find contention or tail behavior. Use sa
 
 Do not select a target from an old ranking after several fixes merge. Rebuild the ranking first.
 
+Do not rank from `.test_durations`. It holds flat default values (0.01, 18.0, and 60.0) for tests that pytest-split could not time. These values are not measurements.
+
 ### 3. State why the test exists
 
 Apply the `/writing-tests` gate to every target:
@@ -60,7 +62,7 @@ Then classify each case:
 
 - **Distinct behavior:** keep it.
 - **Same behavior with representative inputs:** parameterize it.
-- **Framework or implementation detail:** replace it with an observable assertion, or propose deletion.
+- **Framework or implementation detail:** replace it with an observable assertion, or propose to delete it.
 - **Temporary migration coverage:** check whether every supported environment completed the migration.
 - **Runnable backfill or reusable migration system:** keep active behavior coverage.
 
@@ -138,7 +140,7 @@ Use this validation ladder:
 
 Keep exact result, response, persisted-state, or emitted-message assertions. Do not replace them with weaker row counts or truthiness checks to gain speed.
 
-Use TDD when the change affects a helper or test framework contract. Make the intended behavior fail first. For a pure runtime change, use a measured baseline instead of a brittle timing test.
+Use TDD when the change affects a helper or the contract of a test framework. Make the intended behavior fail first. For a pure runtime change, use a measured baseline instead of an unreliable timing test.
 
 ### 9. Report the local result accurately
 
@@ -156,7 +158,7 @@ Isolation:    <how shared state stays separate>
 Follow-up:    <post-merge query or none>
 ```
 
-Do not report a percentage from unlike measurements.
+Do not report a percentage from two different measurement types.
 
 ### 10. Verify after merge
 
@@ -172,13 +174,13 @@ Check all relevant outcomes:
 - Failure rate and test count.
 - Unowned test-span share when ownership changed.
 
-If summed testcase time falls but suite wall time stays flat, report both facts. Select the next target from the current slowest shard.
+If summed testcase time falls but suite wall time does not change, report both facts. Select the next target from the current slowest shard.
 
-If the expected metric does not move, do not declare success from local data. Check whether the cost moved into fixture setup, teardown, or another test.
+If the expected metric does not change, do not declare success from local data. Check whether the cost moved into fixture setup, teardown, or another test.
 
 ## Deletion rules
 
-Get explicit user approval before deleting tests. Then confirm all of these conditions:
+Get explicit user approval before you delete tests. Then confirm all of these conditions:
 
 - You can name the behavior that the test covered.
 - Another named test covers it, or the production behavior no longer exists.
@@ -186,7 +188,7 @@ Get explicit user approval before deleting tests. Then confirm all of these cond
 - You keep migration source files and active backfill coverage.
 - The surrounding suite passes without hidden ordering dependencies.
 
-Delete expired tests. Do not leave them skipped. A skip preserves dead code and can still add collection or service cost.
+Delete expired tests. Do not leave them skipped. A skip keeps unused code and can still add collection or service cost.
 
 ## Boundaries
 
