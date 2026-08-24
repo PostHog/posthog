@@ -386,6 +386,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the WIP redesigned dashboard tab
+    MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the Retention explorer tab
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
