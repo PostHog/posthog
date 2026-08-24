@@ -328,7 +328,11 @@ export type BufferProcessingMode = 'passthrough' | 'decode_only' | 'decode_and_r
  * `decode_and_reencode` names the work one more stage adds: `decode_only` adds an encode,
  * `passthrough` adds a decode and an encode.
  */
-export function bufferProcessingMode(settings: LogsSettings, stageCount: number, hasVisitor: boolean): BufferProcessingMode {
+export function bufferProcessingMode(
+    settings: LogsSettings,
+    stageCount: number,
+    hasVisitor: boolean
+): BufferProcessingMode {
     const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
