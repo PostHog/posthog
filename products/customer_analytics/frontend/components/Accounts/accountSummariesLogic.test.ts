@@ -175,7 +175,7 @@ describe('accountSummariesLogic', () => {
         mockPatch.mockResolvedValue(CADENCE_OFF)
         await mount('acc-deadline')
         const startedAt = Date.now()
-        const nowSpy = jest.spyOn(Date, 'now')
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(startedAt)
 
         logic.actions.setCadence('daily')
         await expectLogic(logic).toFinishAllListeners()
