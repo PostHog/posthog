@@ -8855,6 +8855,11 @@ SQL
     column "_partition" {
       type = "UInt64"
     }
+    index "event_timestamp_minmax" {
+      expr        = "event_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
