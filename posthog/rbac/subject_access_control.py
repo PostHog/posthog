@@ -7,7 +7,7 @@ from django.db.models import F, Model, Q
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.rbac.user_access_control import (
+from products.access_control.backend.facade.user_access_control import (
     EE_AVAILABLE,
     NO_ACCESS_LEVEL,
     RESOURCE_INHERITANCE_MAP,
@@ -22,7 +22,7 @@ from posthog.rbac.user_access_control import (
 from posthog.scopes import APIScopeObject
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
     from ee.models.rbac.role import RoleMembership
 except ImportError:
     pass

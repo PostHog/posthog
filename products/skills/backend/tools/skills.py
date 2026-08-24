@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.rbac.user_access_control import AccessControlLevel
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 

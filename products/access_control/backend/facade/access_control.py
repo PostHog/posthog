@@ -14,8 +14,8 @@ from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+from products.access_control.backend.facade.user_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     AccessSource,
@@ -29,7 +29,7 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -43,7 +43,7 @@ def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | 
     fallback relation (that's where the walk got its id), so it is read off the object — cached
     by Django, free when already loaded — never refetched by id. The name field comes from the
     same registry the settings UI names objects with, so a new fallback parent needs no code here."""
-    from ee.api.rbac.access_control_settings import (
+    from products.access_control.backend.facade.access_control_settings import (
         _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
     )
 

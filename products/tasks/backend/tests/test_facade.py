@@ -34,7 +34,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",

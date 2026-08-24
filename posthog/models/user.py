@@ -375,7 +375,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
             if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
                 try:
-                    from ee.models.rbac.access_control import AccessControl
+                    from products.access_control.backend.models.access_control import AccessControl
                 except ImportError:
                     pass
                 else:
@@ -546,7 +546,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("id").first()
             else:
-                from posthog.rbac.user_access_control import UserAccessControl
+                from products.access_control.backend.facade.user_access_control import UserAccessControl
 
                 uac = UserAccessControl(user=self, organization_id=str(organization.id))
                 self.current_team = (

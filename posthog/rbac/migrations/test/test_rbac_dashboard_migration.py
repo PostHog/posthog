@@ -10,8 +10,9 @@ from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_acce
 from products.dashboards.backend.models.dashboard import Dashboard
 
 try:
+    from products.access_control.backend.models.access_control import AccessControl
+
     from ee.models.dashboard_privilege import DashboardPrivilege
-    from ee.models.rbac.access_control import AccessControl
 except ImportError:
     pass
 

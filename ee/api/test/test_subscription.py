@@ -23,6 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
@@ -40,7 +41,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -1621,7 +1621,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         # subscriptions. Denying object access must 403, not leak the tile set.
         self._create_subscription(title="On tile", insight=self._insight().id)
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object", return_value=False
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+            return_value=False,
         ):
             res = self.client.get(
                 f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}

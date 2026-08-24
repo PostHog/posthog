@@ -12,7 +12,7 @@ from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayTyp
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_background_capture
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction

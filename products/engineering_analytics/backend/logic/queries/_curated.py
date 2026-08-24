@@ -38,7 +38,7 @@ from products.engineering_analytics.backend.logic.views import (
 )
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -32,8 +32,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+from products.access_control.backend.facade.user_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
     AccessControlLevel,
@@ -45,13 +45,13 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from ee.api.rbac.access_control import (
+from products.access_control.backend.facade.access_control import (
     AccessControlSerializer,
     AccessControlViewSetMixin,
     ResolvedAccessSerializer,
     upsert_access_control,
 )
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:

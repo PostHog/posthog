@@ -10,8 +10,8 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+from products.access_control.backend.facade.user_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
     UserAccessControl,
@@ -25,7 +25,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction, Vi
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
     from ee.models.rbac.role import Role, RoleMembership
 except ImportError:
     pass

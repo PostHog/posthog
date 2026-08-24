@@ -115,7 +115,7 @@ class UserPermissions:
         Prefetch all AccessControl entries for teams in user's organizations.
         Returns a dict mapping team_id to list of access control entries.
         """
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         organization_ids = list(self.organizations.keys())
         # Get all access controls for teams in these organizations
@@ -227,7 +227,7 @@ class UserTeamPermissions:
         # Rules naming this user — directly, or through a role they hold. These decide on their
         # own: the highest of them wins, and an explicit "none" is a denial rather than a miss
         # that falls through to the team default. Same explicit-wins precedence as
-        # `_object_access_level_from_rows` in `posthog/rbac/user_access_control.py`.
+        # `_object_access_level_from_rows` in `products/access_control/backend/facade/user_access_control.py`.
         explicit_access_levels = [
             ac["access_level"]
             for ac in access_controls
@@ -251,7 +251,7 @@ class UserTeamPermissions:
         if default_access_level is not None:
             return self._highest_membership_level([default_access_level])
 
-        # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
+        # No access control row in the database, admin by default. See: `default_access_level()` in `products/access_control/backend/facade/user_access_control.py`
         return OrganizationMembership.Level.ADMIN
 
     @staticmethod

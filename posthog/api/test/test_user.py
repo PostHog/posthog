@@ -43,7 +43,7 @@ from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflow
 from products.dashboards.backend.models.dashboard import Dashboard
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 except ImportError:
     pass
 

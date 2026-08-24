@@ -25,7 +25,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 except ImportError:
     pass
 

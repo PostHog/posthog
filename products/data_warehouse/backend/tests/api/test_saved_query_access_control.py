@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.facade.testing import WarehouseAccessCon
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 except ImportError:
     pass
 

@@ -28,7 +28,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 

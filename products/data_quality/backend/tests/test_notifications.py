@@ -28,7 +28,7 @@ from products.data_quality.backend.logic.subject_access import referenced_subjec
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.notifications.backend.facade.enums import TargetType
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"

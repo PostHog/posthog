@@ -5,8 +5,9 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role
 

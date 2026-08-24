@@ -47,7 +47,7 @@ from products.customer_analytics.backend.models import (
 )
 from products.notebooks.backend.models import ResourceNotebook
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestFacadeHogqlSystemTables(SimpleTestCase):

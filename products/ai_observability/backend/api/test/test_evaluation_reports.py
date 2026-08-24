@@ -21,7 +21,7 @@ from products.ai_observability.backend.api.evaluation_reports import EvaluationR
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestEvaluationReportRunSerializer(SimpleTestCase):

@@ -34,6 +34,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import (
@@ -75,8 +76,6 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _restrict_query_access(test: APIBaseTest) -> None:

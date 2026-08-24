@@ -11,7 +11,7 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _setup_team():

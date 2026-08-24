@@ -70,7 +70,7 @@ from posthog.rate_limit import (
     ErrorTrackingFingerprintProjectionSustainedRateThrottle,
     HogQLQueryThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels

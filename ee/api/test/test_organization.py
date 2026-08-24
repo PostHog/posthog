@@ -11,9 +11,10 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):

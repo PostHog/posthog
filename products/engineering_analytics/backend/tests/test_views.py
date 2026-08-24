@@ -6,8 +6,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -23,8 +24,6 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     pr_association_entry,
     repo_id,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestListGithubSourcesAccessControl(BaseTest):

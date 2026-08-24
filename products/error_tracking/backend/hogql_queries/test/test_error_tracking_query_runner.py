@@ -39,8 +39,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models.utils import uuid7
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
@@ -66,7 +67,6 @@ from products.error_tracking.backend.models import (
     update_error_tracking_issue_fingerprints,
 )
 
-from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 

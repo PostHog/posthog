@@ -16,7 +16,7 @@ from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECO
 from products.error_tracking.backend.models import ErrorTrackingSeverityRule
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 except ImportError:
     pass
 

@@ -621,7 +621,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         )
 
     def _create_ac(self, *, resource, access_level, resource_id=None, role=None, member=None):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         return AccessControl.objects.create(
             team=self.team,
@@ -813,7 +813,7 @@ class TestWarehouseTableAccessControlFlagOff(BaseTest):
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
     def test_warehouse_table_acl_off_keeps_all_tables(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Even an explicit deny row should be ignored when the FF is off.
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -865,7 +865,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
     def test_execute_hogql_query_raises_on_denied_warehouse_table(self):
         from posthog.hogql.query import execute_hogql_query
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         AccessControl.objects.create(
             team=self.team,
@@ -894,9 +894,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         the denial surfaces as "Field not found", indistinguishable from a typo."""
         from posthog.hogql.query import execute_hogql_query
 
+        from products.access_control.backend.models.access_control import AccessControl
         from products.data_tools.backend.models.join import DataWarehouseJoin
-
-        from ee.models.rbac.access_control import AccessControl
 
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -929,7 +928,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.query import execute_hogql_query
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         AccessControl.objects.create(
             team=self.team,
@@ -991,7 +990,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         )
 
     def _create_ac(self, *, resource, access_level, resource_id=None, role=None, member=None):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         return AccessControl.objects.create(
             team=self.team,

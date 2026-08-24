@@ -383,7 +383,8 @@ def connect_signal_handlers() -> None:
     # Project access controls live in ee, which isn't installed in FOSS. Connect
     # only when available; the projection's RBAC check default-allows there anyway.
     try:
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
+
         from ee.models.rbac.role import RoleMembership
 
         post_save.connect(_reproject_on_access_control_change, sender=AccessControl)

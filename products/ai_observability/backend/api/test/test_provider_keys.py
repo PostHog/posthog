@@ -20,7 +20,7 @@ from products.ai_observability.backend.models.model_configuration import LLMMode
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _setup_team():

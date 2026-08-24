@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from ee.api.rbac.test.test_access_control import BaseAccessControlTest
 from parameterized import parameterized
 from rest_framework import serializers, status
 
@@ -10,12 +11,10 @@ from posthog.api.test.test_team import create_team
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
-
-from ee.api.rbac.test.test_access_control import BaseAccessControlTest
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestScheduledChange(APIBaseTest):

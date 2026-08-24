@@ -13,7 +13,7 @@ from posthog.models.user import User
 from products.ai_observability.backend.api.proxy import LLMProxyViewSet
 
 try:
-    from ee.models.rbac.access_control import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 except ImportError:
     pass
 

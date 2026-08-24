@@ -14,7 +14,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import RecordingsQuery
 
 from posthog.dataclasses import frozen
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation

@@ -38,7 +38,7 @@ from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, Customer
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:

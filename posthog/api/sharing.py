@@ -48,8 +48,8 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
+from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
+from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
     UserAccessControlSerializerMixin,

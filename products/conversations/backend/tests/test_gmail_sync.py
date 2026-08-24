@@ -21,7 +21,7 @@ from products.conversations.backend.services import gmail_sync
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 from products.customer_analytics.backend.models import Account
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _response(payload: dict, status_code: int = 200) -> MagicMock:

@@ -1,7 +1,7 @@
 from django.db.models import QuerySet
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import BriefSettings

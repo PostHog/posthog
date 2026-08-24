@@ -24,7 +24,7 @@ from products.context_layer.backend import enablement, store
 from products.context_layer.backend.presentation import views
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _page(title: str) -> str:
