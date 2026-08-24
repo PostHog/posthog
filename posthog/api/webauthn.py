@@ -308,6 +308,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 if lockout_response := self._handle_authentication_failure(request, claimed_user):
                     return lockout_response
 
+                # No stored credential matches this passkey. The browser committed a passkey
+                # during a signup that never finished, so no account was ever created. Tell the
+                # person how to recover instead of showing the generic failure.
+                if not self._credential_exists(credential_id):
+                    return Response(
+                        {"error": "This passkey isn't linked to a PostHog account. Sign up to continue."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
                 return Response(
                     {"error": "Authentication failed. Please check your passkey and try again."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -392,6 +401,14 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 {"error": f"Login failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    def _credential_exists(self, credential_id: str) -> bool:
+        """Whether any stored credential matches the presented credential ID."""
+        try:
+            credential_id_bytes = base64url_to_bytes(credential_id)
+        except Exception:
+            return False
+        return WebauthnCredential.objects.filter(credential_id=credential_id_bytes).exists()
 
     def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
         """Extract user from base64url-encoded userHandle (UUID bytes)."""

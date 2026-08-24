@@ -310,6 +310,32 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("authentication failed", response.json()["error"].lower())
 
+    def test_login_with_unlinked_passkey_points_to_signup(self):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import user_uuid_to_handle
+
+        # A passkey the browser committed during an abandoned signup: no credential row exists.
+        self.client.post("/api/webauthn/login/begin/")
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(b"unlinked-credential-id"),
+                "rawId": bytes_to_base64url(b"unlinked-credential-id"),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_uuid_to_handle(uuid.uuid4())),
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("isn't linked to a PostHog account", response.json()["error"])
+
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_rejects_spoofed_user_handle(self, mock_verify):
         """Spoofed userHandle pointing to a different user must be rejected."""
