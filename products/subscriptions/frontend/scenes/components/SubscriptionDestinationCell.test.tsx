@@ -8,26 +8,30 @@ import { SubscriptionDeliveryDestinationCell, SubscriptionDestinationCell } from
 
 const TEAMS_WEBHOOK_URL =
     'https://prod-12.westeurope.logic.azure.com/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
+const TEAMS_WEBHOOK_HOST = 'prod-12.westeurope.logic.azure.com'
 
 describe('SubscriptionDestinationCell', () => {
-    it.each([
-        [
-            'a subscription row',
+    it('shows a subscription webhook by host and nothing that authorizes a post', () => {
+        const { container } = render(
             <SubscriptionDestinationCell
-                key="subscription"
                 sub={{ target_type: 'teams', target_value: TEAMS_WEBHOOK_URL } as SubscriptionApi}
-            />,
-        ],
-        [
-            'a delivery history row',
-            <SubscriptionDeliveryDestinationCell key="delivery" targetType="teams" targetValue={TEAMS_WEBHOOK_URL} />,
-        ],
-    ])('shows the webhook host and nothing that authorizes a post for %s', (_label, element) => {
-        const { container } = render(element)
+            />
+        )
 
-        expect(container.textContent).toBe('prod-12.westeurope.logic.azure.com')
-        // innerHTML covers the title attribute, which used to carry the whole URL to anyone hovering.
+        expect(container.textContent).toBe(TEAMS_WEBHOOK_HOST)
+        // innerHTML, not textContent, so DOM attributes such as title are covered too.
         expect(container.innerHTML).not.toContain('sig=')
         expect(container.innerHTML).not.toContain('/workflows/')
+    })
+
+    it.each([
+        ['the host the API masked the webhook to', TEAMS_WEBHOOK_HOST],
+        ['the placeholder the API sends when the webhook URL did not parse', 'webhook'],
+    ])('shows a Teams delivery as %s', (_label, targetValue) => {
+        const { container } = render(
+            <SubscriptionDeliveryDestinationCell targetType="teams" targetValue={targetValue} />
+        )
+
+        expect(container.textContent).toBe(targetValue)
     })
 })
