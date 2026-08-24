@@ -72,3 +72,17 @@ class TestQueryCacheFacade(BaseTest):
 
         cache.store_result(response={"results": []}, target_age=None)
         assert "42:" not in get_stale_insights(team_id=self.team.pk)
+
+    def test_store_result_keeps_entry_when_freshness_index_write_fails(self):
+        # A Redis blip in the freshness index only skips cache warming. It must not throw away the
+        # result the query already computed and wrote to the cache.
+        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_fresh_fail_test_{self.team.pk}", insight_id=7)
+        past = datetime.now(UTC) - timedelta(minutes=5)
+
+        with patch(
+            "posthog.query_cache.cache.update_target_age",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            cache.store_result(response={"results": []}, target_age=past)
+
+        assert cache.lookup().entry is not None

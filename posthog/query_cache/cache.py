@@ -104,18 +104,20 @@ class QueryCache:
                     self.cache_key, pointer, settings.CACHED_RESULTS_TTL, expected=storage_bytes
                 ),
             )
+            # The freshness index only schedules cache warming, so its writes must stay inside the
+            # guard too: a sorted-set write that fails must not throw away a result the query already
+            # computed and cached above.
+            if target_age:
+                update_target_age(
+                    team_id=self.team_id,
+                    insight_id=self.insight_id,
+                    dashboard_id=self.dashboard_id,
+                    target_age=target_age,
+                )
+            else:
+                remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return
-
-        if target_age:
-            update_target_age(
-                team_id=self.team_id,
-                insight_id=self.insight_id,
-                dashboard_id=self.dashboard_id,
-                target_age=target_age,
-            )
-        else:
-            remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
 
         count_cache_write_data(data_size)
