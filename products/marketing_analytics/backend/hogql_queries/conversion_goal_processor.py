@@ -124,6 +124,51 @@ CLICK_ID_PROPERTIES: list[str] = [f.event_property for f in TRACKED_FIELDS if f.
 
 CLICK_ID_FIELDS: list[TrackedField] = [f for f in TRACKED_FIELDS if f.click_identifier]
 
+# Drill-down levels whose output is a channel type. `_build_channel_type_expr` classifies a row from
+# medium, referring_domain and the click ids, so these levels read every tracked field.
+_CHANNEL_LEVELS = frozenset(
+    {
+        MarketingAnalyticsDrillDownLevel.CHANNEL,
+        MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
+    }
+)
+
+# The one extra field a UTM level groups by, on top of the always-read set below.
+_UTM_LEVEL_FIELD_NAMES: dict[MarketingAnalyticsDrillDownLevel, str] = {
+    MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
+    MarketingAnalyticsDrillDownLevel.CONTENT: "content",
+    MarketingAnalyticsDrillDownLevel.TERM: "term",
+}
+
+# Every level emits a campaign and a source column, and `_build_source_expr` names the ad network
+# from the click ids when a touchpoint carries no utm_source — so these four are always read.
+_ALWAYS_READ_FIELD_NAMES = frozenset({"campaign", "source", *(f.name for f in CLICK_ID_FIELDS)})
+
+
+def tracked_fields_for_level(level: MarketingAnalyticsDrillDownLevel) -> list[TrackedField]:
+    """The tracked fields the read path consumes at `level`, in TRACKED_FIELDS order.
+
+    Every field costs a conversion array and a UTM array collected per goal, carried through all
+    four attribution stages. A field the level never selects is pure weight: it enlarges the query
+    text — which is capped, and which N goals multiply — and makes ClickHouse group and array-join
+    values nothing reads. Only the channel levels genuinely need all nine.
+
+    Narrowing is safe only on the read path. The two precompute writers
+    (`build_touchpoints_precompute_query`, `build_conversions_precompute_query`) must keep writing
+    every field: their query hash is the job's identity, shared across levels and teams, so a
+    level-dependent column set would fragment one warm job into several cold ones. The
+    precompute-eligibility and property-restriction checks stay on the full set for the same reason
+    — they describe the stored table, not this query.
+    """
+    if level in _CHANNEL_LEVELS:
+        return TRACKED_FIELDS
+
+    names = set(_ALWAYS_READ_FIELD_NAMES)
+    utm_level_field = _UTM_LEVEL_FIELD_NAMES.get(level)
+    if utm_level_field:
+        names.add(utm_level_field)
+    return [field for field in TRACKED_FIELDS if field.name in names]
+
 
 def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
     """A pageview is a paid touchpoint when it carries utm_source or any ad click identifier.
@@ -288,11 +333,12 @@ class ConversionGoalProcessor:
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
 
-    _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
-        MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
-        MarketingAnalyticsDrillDownLevel.CONTENT: "content",
-        MarketingAnalyticsDrillDownLevel.TERM: "term",
-    }
+    _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = _UTM_LEVEL_FIELD_NAMES
+
+    @property
+    def tracked_fields(self) -> list[TrackedField]:
+        """Tracked fields this goal's read path collects, narrowed to what the level selects."""
+        return tracked_fields_for_level(self.config.drill_down_level)
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -739,14 +785,14 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
             select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
             )
         # LEFT JOIN: organic conversions (no matching person in the touchpoints table) get empty
         # touchpoint arrays (ClickHouse fills missing Array columns with []), handled downstream.
         select_columns.append(ast.Alias(alias="utm_timestamps", expr=ast.Field(chain=["t", "utm_timestamps"])))
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(ast.Alias(alias=field.utm_array, expr=ast.Field(chain=["t", field.utm_array])))
 
         return ast.SelectQuery(
@@ -781,7 +827,7 @@ class ConversionGoalProcessor:
             self._build_conversion_timestamps_array(conversion_event),
             self._build_conversion_math_values_array(conversion_event),
         ]
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 self._build_conversion_utm_array(
                     field.conversion_array, conversion_event, self._resolve_field_name(field)
@@ -861,7 +907,7 @@ class ConversionGoalProcessor:
                 ),
             ),
         ]
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(
                     alias=field.conversion_array,
@@ -887,6 +933,8 @@ class ConversionGoalProcessor:
                 ast.Field(chain=["person_id"]),
                 ast.Field(chain=["conversion_timestamp"]),
                 ast.Field(chain=["conversion_math_value"]),
+                # Full identity, not the narrowed read set: dropping a dimension here would collapse
+                # two conversions that differ only in a field this level does not select.
                 *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
             ],
             date_from=date_from,
@@ -924,7 +972,7 @@ class ConversionGoalProcessor:
                 ),
             ),
         ]
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
             # positionally against it, and a stored row can legitimately carry an empty value for any
             # field except campaign and source (which the precompute WHERE requires). Filtering the
@@ -942,6 +990,8 @@ class ConversionGoalProcessor:
             row_columns=[
                 ast.Field(chain=["person_id"]),
                 ast.Field(chain=["touchpoint_timestamp"]),
+                # Full identity, per the dedup rule in this method's docstring: narrowing to the
+                # read set would merge two touchpoints that differ only in an unselected dimension.
                 *[ast.Field(chain=[field.attributed_name]) for field in TRACKED_FIELDS],
             ],
             date_from=date_from,
@@ -1025,14 +1075,14 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion arrays for each tracked field
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
             )
 
         # Add pageview UTM arrays (timestamps + each tracked field)
         select_columns.append(self._build_utm_pageview_array("utm_timestamps", utm_source_field, "timestamp"))
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 self._build_utm_pageview_array(field.utm_array, utm_source_field, resolved[field.name])
             )
@@ -1469,7 +1519,7 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value and fallback for each tracked field
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(
                     alias=field.conversion_value,
@@ -1482,7 +1532,7 @@ class ConversionGoalProcessor:
 
         select_columns.append(self._build_single_touch_timestamp_expr(attribution_window_seconds))
 
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(self._build_single_touch_fallback_expr(field.fallback_value, field.utm_array))
 
         return ast.SelectQuery(
@@ -1647,7 +1697,7 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value for each tracked field
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(
                     alias=field.conversion_value,
@@ -1662,7 +1712,7 @@ class ConversionGoalProcessor:
         select_columns.append(ast.Alias(alias="filtered_utm_timestamps", expr=filtered_ts_expr))
 
         # Add filtered UTM arrays (filter to same indices as filtered timestamps)
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(
                     alias=f"filtered_{field.utm_array}",
@@ -1763,10 +1813,10 @@ class ConversionGoalProcessor:
             ast.Field(chain=["conversion_math_value"]),
         ]
 
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
 
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             touchpoint_select.append(
                 ast.Alias(
                     alias=field.fallback_value,
@@ -1807,7 +1857,7 @@ class ConversionGoalProcessor:
             person_id_field,
         ]
 
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             outer_select.append(
                 ast.Alias(
                     alias=field.attributed_name,
@@ -1847,7 +1897,7 @@ class ConversionGoalProcessor:
             person_id_field,
         ]
 
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             select_columns.append(
                 ast.Alias(
                     alias=field.attributed_name,
@@ -1929,7 +1979,7 @@ class ConversionGoalProcessor:
             "source": self.config.organic_source,
         }
         field_exprs: dict[str, ast.Expr] = {}
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             default = organic_overrides.get(field.name, field.default_value)
             field_expr: ast.Expr
             if field.name == "source":
@@ -2166,7 +2216,7 @@ class ConversionGoalProcessor:
             "campaign": campaign_expr,
             "source": source_expr,
         }
-        for field in TRACKED_FIELDS:
+        for field in self.tracked_fields:
             if field.name in ("campaign", "source"):
                 continue  # Already handled above with special organic defaults
             field_expr = self._resolve_direct_field_expr(field, table)
