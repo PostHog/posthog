@@ -774,6 +774,28 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+def _has_slack_channel_filter(filters: dict) -> bool:
+    """Whether the filters restrict the trigger to at least one Slack channel.
+
+    The builder always writes this filter ("Please pick a Slack channel"), but the table's
+    enable action, the raw API, and MCP authoring all reach activation without the builder,
+    and a live slack-message trigger with no channel filter fires on every message in every
+    channel the bot was ever invited to.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return False
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        value = prop.get("value")
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            return True
+    return False
+
+
 def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
@@ -1296,6 +1318,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters.pop("events", None)
                 filters.pop("actions", None)
                 _normalize_slack_channel_filters(filters)
+                if not is_draft and not _has_slack_channel_filter(filters):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                        }
+                    )
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
