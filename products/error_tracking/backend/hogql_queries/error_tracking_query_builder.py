@@ -243,7 +243,7 @@ class ErrorTrackingQueryBuilder:
 
     def _issue_state_expr(self, field_name: str) -> ast.Expr:
         clickhouse_state = ast.Field(chain=["fp_state", field_name])
-        if not self.include_recent_issue_state or field_name in {"issue_id", "issue_severity", "first_seen"}:
+        if not self.include_recent_issue_state or field_name in {"issue_id", "first_seen"}:
             return clickhouse_state
         return ast.Call(
             name="if",
@@ -483,9 +483,7 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["fp_state", "issue_id"])),
             ast.Alias(alias="status", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_status")])),
-            ast.Alias(
-                alias="severity", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_severity"])])
-            ),
+            ast.Alias(alias="severity", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_severity")])),
             ast.Alias(alias="name", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_name")])),
             ast.Alias(
                 alias="description",

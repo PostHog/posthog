@@ -24,6 +24,7 @@ class RecentIssueState:
     team_id: int
     issue_id: UUID
     issue_status: str
+    issue_severity: str | None
     issue_name: str | None
     issue_description: str | None
     assigned_user_id: int | None
@@ -35,6 +36,7 @@ class RecentIssueState:
             "team_id": self.team_id,
             "issue_id": self.issue_id,
             "issue_status": self.issue_status,
+            "issue_severity": self.issue_severity,
             "issue_name": self.issue_name,
             "issue_description": self.issue_description,
             "assigned_user_id": self.assigned_user_id,
@@ -64,6 +66,7 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             "id",
             "team_id",
             "status",
+            "severity",
             "name",
             "description",
             "state_updated_at",
@@ -90,6 +93,7 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
                 team_id=issue.team_id,
                 issue_id=issue.id,
                 issue_status=issue.status,
+                issue_severity=issue.severity,
                 issue_name=issue.name,
                 issue_description=issue.description,
                 assigned_user_id=assigned_user_id,

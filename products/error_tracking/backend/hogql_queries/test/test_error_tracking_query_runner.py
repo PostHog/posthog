@@ -629,14 +629,16 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.description = "Stale description"
-        resolved_issue.save(update_fields=["description"])
+        resolved_issue.severity = ErrorTrackingIssue.Severity.LOW
+        resolved_issue.save(update_fields=["description", "severity"])
         sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
 
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved_issue.severity = ErrorTrackingIssue.Severity.CRITICAL
         resolved_issue.name = "Updated TypeError"
         resolved_issue.description = None
         resolved_issue.state_updated_at = now()
-        resolved_issue.save(update_fields=["status", "name", "description", "state_updated_at"])
+        resolved_issue.save(update_fields=["status", "severity", "name", "description", "state_updated_at"])
 
         results = self._calculate(status="active")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
@@ -644,6 +646,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(status="resolved", issueId=self.issue_id_one)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
         self.assertEqual(results[0]["status"], ErrorTrackingIssue.Status.RESOLVED)
+        self.assertEqual(results[0]["severity"], ErrorTrackingIssue.Severity.CRITICAL)
         self.assertEqual(results[0]["name"], "Updated TypeError")
         self.assertIsNone(results[0]["description"])
 
@@ -823,6 +826,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     def test_recent_issue_state_applies_before_issue_filters(self):
         ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
             name="Updated TypeError",
+            severity=ErrorTrackingIssue.Severity.CRITICAL,
             state_updated_at=now(),
         )
 
@@ -835,6 +839,11 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                         values=[
                             ErrorTrackingIssueFilter(
                                 key="name", value=["Updated TypeError"], operator=PropertyOperator.EXACT
+                            ),
+                            ErrorTrackingIssueFilter(
+                                key="severity",
+                                value=ErrorTrackingIssue.Severity.CRITICAL,
+                                operator=PropertyOperator.EXACT,
                             ),
                         ],
                     )

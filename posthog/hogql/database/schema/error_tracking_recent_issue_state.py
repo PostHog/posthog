@@ -30,6 +30,9 @@ RECENT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "issue_status": StringDatabaseField(
         name="issue_status", nullable=False, description="Authoritative status stored in Postgres."
     ),
+    "issue_severity": StringDatabaseField(
+        name="issue_severity", nullable=True, description="Authoritative severity stored in Postgres."
+    ),
     "issue_name": StringDatabaseField(
         name="issue_name", nullable=True, description="Authoritative issue name stored in Postgres."
     ),
@@ -58,6 +61,7 @@ RECENT_ISSUE_STATE_EXTERNAL_STRUCTURE: list[tuple[str, str]] = [
     ("team_id", "Int64"),
     ("issue_id", "UUID"),
     ("issue_status", "String"),
+    ("issue_severity", "Nullable(String)"),
     ("issue_name", "Nullable(String)"),
     ("issue_description", "Nullable(String)"),
     ("assigned_user_id", "Nullable(Int64)"),
