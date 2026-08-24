@@ -69,7 +69,9 @@ def get_subscription_failure_metric(
     )
 
 
-SUPPORTED_TARGET_TYPES = frozenset(["email", "slack", "teams"])
+# Targets the delivery activities can send to. A subscription whose target_type is outside this set
+# is auto-disabled instead of delivered.
+SUPPORTED_TARGET_TYPES = frozenset(Subscription.SubscriptionTarget.values)
 
 
 def _capture_delivery_failed_event(
