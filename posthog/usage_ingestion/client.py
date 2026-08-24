@@ -45,7 +45,6 @@ def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
                 mode=service_pb2.BILLING_USAGE_MODE_DELTA,
                 unit=record.unit,
                 quantity=record.quantity,
-                version=1,
                 event_timestamp_ms=record.event_timestamp_ms,
                 dimensions=record.dimensions,
             )
