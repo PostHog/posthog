@@ -20,10 +20,10 @@ interface StartupLocation {
 }
 
 /**
- * The session is started at sign-in and normally settles while onboarding is still on screen, so
- * this wait is only ever paid by someone who got through onboarding faster than the scrape. The
- * cap is what stops a hung one holding the app shut: past it the feed opens, and the session
- * shows up there instead.
+ * The session starts as soon as consent permits and normally settles while onboarding is still on
+ * screen, so this wait is only ever paid by someone who got through onboarding faster than the
+ * scrape. The cap is what stops a hung one holding the app shut: past it the feed opens, and the
+ * session shows up there instead.
  */
 const SESSION_WAIT_MS = 15_000;
 

@@ -25,7 +25,7 @@ import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/componen
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
-import { beginProvisioning, ensureSession } from "@posthog/ui/shell/firstRun";
+import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
@@ -98,12 +98,6 @@ function App({ devToolbar }: AppProps) {
     consent.status === "resolved" &&
     consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
-
-  useEffect(() => {
-    if (!isAuthenticated || hasCodeAccess !== true) return;
-    if (!startupIdentity || !authenticatedClient) return;
-    beginProvisioning(startupIdentity, authenticatedClient);
-  }, [isAuthenticated, hasCodeAccess, startupIdentity, authenticatedClient]);
 
   useEffect(() => {
     if (consent.status !== "resolved" || !consent.satisfied) return;
