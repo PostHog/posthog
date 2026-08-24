@@ -32,6 +32,7 @@ IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
+SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
