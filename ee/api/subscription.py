@@ -47,7 +47,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
-from products.alerts.backend.destination_configs import is_microsoft_teams_webhook_url
+from products.alerts.backend.facade.api import is_microsoft_teams_webhook_url
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
