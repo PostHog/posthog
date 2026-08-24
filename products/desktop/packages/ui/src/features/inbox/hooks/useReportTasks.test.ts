@@ -2,6 +2,7 @@ import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
   findContinuableImplementationTask,
+  findLatestDiscussionTask,
   getTaskPrUrl,
   type ReportTaskData,
   type ReportTaskPurpose,
@@ -103,6 +104,19 @@ describe("findContinuableImplementationTask", () => {
     expect(
       findContinuableImplementationTask([entry(failed), entry(running)]),
     ).toBe(running);
+  });
+});
+
+describe("findLatestDiscussionTask", () => {
+  it("returns the newest discussion and ignores other purposes", () => {
+    const older = entry(makeTask("old-chat"), "discussion");
+    older.startedAt = "2026-06-20T10:00:00Z";
+    const newer = entry(makeTask("new-chat"), "discussion");
+    newer.startedAt = "2026-06-24T10:00:00Z";
+    const impl = entry(makeTask("impl", { prUrl: "https://gh/pr/1" }));
+    expect(findLatestDiscussionTask([impl, older, newer])).toBe(newer.task);
+    expect(findLatestDiscussionTask([impl])).toBeNull();
+    expect(findLatestDiscussionTask(undefined)).toBeNull();
   });
 });
 

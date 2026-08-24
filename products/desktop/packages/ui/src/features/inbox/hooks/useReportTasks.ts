@@ -10,7 +10,11 @@ import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 // Task↔report associations are unlabelled — a task's purpose is derived from the report's
 // `task_run` artefacts (the signals pipeline writes product="signals" with one of these types;
 // custom agents write their own (product, type) pair).
-export type ReportTaskPurpose = "research" | "implementation" | "other";
+export type ReportTaskPurpose =
+  | "research"
+  | "implementation"
+  | "discussion"
+  | "other";
 
 export interface ReportTaskData {
   task: Task;
@@ -31,6 +35,9 @@ function derivePurpose(taskRun: {
     if (taskRun.type === "implementation") {
       return { purpose: "implementation", purposeLabel: "Implementation" };
     }
+    if (taskRun.type === "discussion") {
+      return { purpose: "discussion", purposeLabel: "Discussion" };
+    }
     // repo_selection runs are plumbing, not report work — never displayed (matches the
     // pre-derivation behavior of only showing research/implementation).
     return null;
@@ -44,6 +51,7 @@ function derivePurpose(taskRun: {
 const PURPOSE_ORDER: ReportTaskPurpose[] = [
   "implementation",
   "research",
+  "discussion",
   "other",
 ];
 
@@ -143,4 +151,21 @@ export function findContinuableImplementationTask(
     return status != null && !isTerminalStatus(status);
   });
   return running?.task ?? null;
+}
+
+/**
+ * The report's conversation: the newest discussion task linked to it. A report
+ * has one ongoing chat rather than a pile of one-question sessions, so opening
+ * the chat panel resumes this task when it exists and only starts a fresh one
+ * when it doesn't.
+ */
+export function findLatestDiscussionTask(
+  reportTasks: ReportTaskData[] | undefined,
+): Task | null {
+  if (!reportTasks) return null;
+  const discussions = reportTasks.filter((t) => t.purpose === "discussion");
+  if (discussions.length === 0) return null;
+  return discussions.reduce((latest, t) =>
+    t.startedAt > latest.startedAt ? t : latest,
+  ).task;
 }
