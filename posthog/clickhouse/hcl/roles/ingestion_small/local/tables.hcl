@@ -2117,7 +2117,6 @@ SQL
     column "quantity" { type = "Int64" }
     column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }
@@ -2142,7 +2141,6 @@ SQL
     column "quantity" { type = "Int64" }
     column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "dimensions" { type = "Map(LowCardinality(String), String)" }
     engine "kafka" {
       broker_list = "warpstream_ingestion"
       topic_list  = "kafka_topic_list = 'clickhouse_billing_usage_records'"
@@ -2166,7 +2164,6 @@ SELECT
   quantity,
   timestamp,
   inserted_at,
-  dimensions,
   _timestamp,
   _offset,
   _partition
@@ -2184,7 +2181,6 @@ SQL
     column "quantity" { type = "Int64" }
     column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }

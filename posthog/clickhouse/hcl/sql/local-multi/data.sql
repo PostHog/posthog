@@ -908,7 +908,6 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   quantity Int64,
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -2919,7 +2918,6 @@ CREATE TABLE posthog.billing_usage_records (
   quantity Int64,
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

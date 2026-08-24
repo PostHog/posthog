@@ -349,9 +349,6 @@ database "posthog" {
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
     }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
-    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -5006,9 +5003,6 @@ database "posthog" {
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
