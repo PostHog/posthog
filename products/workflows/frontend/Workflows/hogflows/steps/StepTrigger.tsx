@@ -1033,6 +1033,9 @@ function SendingRateLimitSection(): JSX.Element | null {
                             size="small"
                             className="w-24"
                             min={1}
+                            // Mirror the API's accepted range (min_value=1, max_value=1_000_000) so an
+                            // out-of-range entry is clamped here instead of failing the workflow save.
+                            max={1_000_000}
                             aria-label="Maximum emails per period"
                             value={displayCount ?? NaN}
                             onChange={(count) => {
@@ -1040,7 +1043,7 @@ function SendingRateLimitSection(): JSX.Element | null {
                                     setDisplayCount(undefined)
                                     return
                                 }
-                                const next = Math.max(1, Math.floor(count))
+                                const next = Math.min(1_000_000, Math.max(1, Math.floor(count)))
                                 setDisplayCount(next)
                                 setWorkflowValue('email_sending_rate_limit', { ...rateLimit, count: next })
                             }}
