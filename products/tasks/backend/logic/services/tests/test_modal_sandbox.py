@@ -17,6 +17,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from parameterized import parameterized
 from requests.exceptions import ConnectionError, Timeout
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
@@ -36,6 +37,8 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
 from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
+    CPU_BILLING_SAMPLER_PATH,
+    CPU_BILLING_STATE_PATH,
     DEFAULT_MODAL_REGION,
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
@@ -768,6 +771,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=True),
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
@@ -782,6 +786,31 @@ class TestModalSandboxAgentServer:
         wait_for_ready.assert_called_once_with(["example.com"])
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
+
+    def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        with (
+            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+            patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh,
+            patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
+            patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
+        ):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=["example.com"],
+            )
+
+        mock_free.assert_called_once_with()
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
+        wait_for_ready.assert_called_once_with(["example.com"])
+        assert "./node_modules/.bin/agent-server" in _agent_server_launch_command(mock_sandbox.execute)
 
     def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
         with (
@@ -993,13 +1022,14 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,expected_in_command,not_expected_in_command",
+        "shallow,blobless,expected_in_command,not_expected_in_command",
         [
-            (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (True, False, "--depth 1", "--filter=blob:"),
+            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1007,7 +1037,9 @@ class TestModalSandboxCommandEscaping:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                sandbox.clone_repository(
+                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
@@ -1066,6 +1098,68 @@ class TestModalSandboxResourceUsage:
         assert sandbox.read_cpu_usage_usec() == 12_345_678
 
         sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
+
+    def test_reads_cgroup_v1_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [FileNotFoundError, "12345678000\n"]
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+    def test_returns_none_when_cpu_usage_is_unavailable(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = FileNotFoundError
+
+        assert sandbox.read_cpu_usage_usec() is None
+
+    def test_reads_current_billed_cpu_usage(self, monkeypatch):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage", vm_runtime=True, burstable_resources=True)
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [
+            "2000000 1000000 1000000000",
+            "usage_usec 2500000\n",
+        ]
+        monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)
+
+        assert sandbox.read_billed_cpu_usage_usec() == 3_500_000
+
+    @parameterized.expand(
+        [(True, "0.5"), (False, "4.0")],
+    )
+    def test_starts_cpu_billing_sampler(self, burstable_resources: bool, expected_request: str):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(
+            name="usage", cpu_cores=4, vm_runtime=True, burstable_resources=burstable_resources
+        )
+        with patch.object(
+            sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0)
+        ) as execute:
+            assert sandbox.start_cpu_billing_sampler() is True
+        command = execute.call_args.args[0]
+        assert CPU_BILLING_STATE_PATH in command
+        assert CPU_BILLING_SAMPLER_PATH in command
+        assert expected_request in command
+
+    def test_reads_current_billed_cpu_usage_with_fixed_cpu_floor(self, monkeypatch):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage", cpu_cores=4, burstable_resources=False)
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [
+            "2000000 1000000 1000000000",
+            "usage_usec 1500000\n",
+        ]
+        monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)
+
+        assert sandbox.read_billed_cpu_usage_usec() == 10_000_000
 
 
 class TestModalSandboxAgentServerStartupHelpers:

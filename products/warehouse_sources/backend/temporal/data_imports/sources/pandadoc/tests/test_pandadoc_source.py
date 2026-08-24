@@ -25,6 +25,13 @@ class TestPandaDocSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.PANDADOC
 
+    def test_declares_v1_and_v2_with_v2_default(self):
+        # v2 must be the default (new sources stamp it) while v1 stays supported. The registry
+        # invariant test only checks default == supported[-1], so it would still pass if v2 were
+        # dropped; this test locks in the actual bump.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

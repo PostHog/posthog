@@ -42,9 +42,6 @@ METRIC_PAGE_SIZE = 10000
 LIST_PAGE_SIZE = 100
 APP_PAGE_SIZE = 50
 
-# Vitals are published with a delay; used only when a metric set reports no daily freshness.
-FRESHNESS_LAG_DAYS = 2
-
 
 class GooglePlayConsoleAuthError(Exception):
     """The service account key could not be exchanged for a Play Reporting access token."""
@@ -315,7 +312,12 @@ class GooglePlayConsoleClient:
         freshness_info = payload.get("freshnessInfo") or {}
         for freshness in freshness_info.get("freshnesses") or []:
             if freshness.get("aggregationPeriod") == AGGREGATION_PERIOD:
-                return _date_from_message(freshness.get("latestEndTime"))
+                # `latestEndTime` is already the exclusive bound Play expects back in
+                # `timelineSpec.endTime` (one day past the last day with data), so convert it to an
+                # inclusive date here — everything else in this module treats `latest` as inclusive
+                # and adds its own `+1 day` when building a query's endTime.
+                latest_end = _date_from_message(freshness.get("latestEndTime"))
+                return latest_end - dt.timedelta(days=1) if latest_end else None
         return None
 
 
@@ -444,9 +446,13 @@ def _iter_metric_set_rows(
             window_start = _parse_date(resume_date) or history_start
             resume_app = None
 
-        latest = client.latest_available_date(package_name, endpoint.resource) or (
-            _today() - dt.timedelta(days=FRESHNESS_LAG_DAYS)
-        )
+        latest = client.latest_available_date(package_name, endpoint.resource)
+        if latest is None:
+            # No freshness for this metric set means the app has no data we can query for it — a metric
+            # set the app isn't eligible for, or one with too little volume to report. Querying a guessed
+            # window anyway is rejected with `400 invalid_timeframe`, which failed the whole multi-app
+            # sync every run; skip the app so the others still sync.
+            continue
 
         current = window_start
         while current <= latest:

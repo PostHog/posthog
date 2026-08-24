@@ -65,13 +65,15 @@ export interface TaskCreationInput {
    * agent may draw on, not instructions it must follow.
    */
   channelContext?: string;
+  /** Repo-relative context wiki page for this channel. Takes precedence over the legacy body. */
+  channelContextPath?: string;
   /** Display name of that channel, embedded in the context block for the UI. */
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns this channel's CONTEXT.md (the
-   * `/website/$channelId` id — distinct from the backend feed `channelId`
+   * `/spaces/$channelId` id — distinct from the backend feed `channelId`
    * above). When set, the injected context tells the agent to publish upkeep
    * corrections to this exact id via the PostHog MCP, rather than resolving the
    * channel by display name.

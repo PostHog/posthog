@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { SKILL_EXISTS_MARKER } from "@posthog/shared";
+import { isIgnoredSkillPath, SKILL_EXISTS_MARKER } from "@posthog/shared";
 import type { Unzipped } from "fflate";
 import { injectable } from "inversify";
 import { unzipAsync } from "../posthog-plugin/extract-zip";
@@ -98,7 +98,7 @@ export function collectSkillFiles(
   for (const [key, bytes] of Object.entries(entries)) {
     if (!key.startsWith(prefix) || key.endsWith("/")) continue;
     const relPath = key.slice(prefix.length);
-    if (!isSafeRelativePath(relPath)) continue;
+    if (!isSafeRelativePath(relPath) || isIgnoredSkillPath(relPath)) continue;
     files.set(relPath, bytes);
   }
   return files;

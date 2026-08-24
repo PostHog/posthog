@@ -8,15 +8,18 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     SNAPSHOT_KIND_FILESYSTEM,
+    TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
@@ -26,6 +29,7 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
+    TaskInvalidStateError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import (
@@ -54,25 +58,34 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
-from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.logic.services.sandbox_usage import (
+    measure_sandbox_billed_cpu_usage,
+    measure_sandbox_cpu_usage,
+    open_sandbox_session,
+)
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
+    increment_resume_mode,
     increment_snapshot_restore,
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
     record_sandbox_created,
+    resume_mode_label,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
-from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.observability import (
+    emit_agent_log,
+    log_activity_execution,
+    log_with_activity_context,
+)
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     replace_sandbox_credentials,
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
-    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -82,6 +95,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
+    run_gateway_env_vars,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -260,6 +274,30 @@ def _apply_modal_network_policy(
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
 
 
+def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
+    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        return False
+
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
+                distinct_id=ctx.distinct_id,
+                groups={"organization": ctx.organization_id},
+                group_properties={"organization": {"id": ctx.organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as error:
+        log_with_activity_context(
+            "blobless_signals_clone_flag_check_failed",
+            run_id=ctx.run_id,
+            error=str(error),
+        )
+        return False
+
+
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -328,11 +366,19 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related(
+        task = Task.objects.select_related(
             "created_by", "github_integration", "github_user_integration", "team", "loop"
         ).get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+    context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+    if context_ownership_version != task.ownership_version:
+        raise TaskInvalidStateError(
+            f"TaskRun {ctx.run_id} belongs to a previous task owner",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError(f"TaskRun {ctx.run_id} ownership version is stale"),
+        )
+    return task
 
 
 def _get_image_source_label(
@@ -431,7 +477,7 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    environment_variables.update(ai_gateway_env_vars())
+    environment_variables.update(run_gateway_env_vars(ctx, task))
 
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
@@ -458,6 +504,13 @@ def _build_environment_variables(
     # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
     if ctx.wizard_config is not None:
         environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
+
+    # The flag was evaluated once in get_task_processing_context; presence of
+    # the mount-path env var is what gates the materialize activity in the workflow.
+    if ctx.context_layer_enabled:
+        environment_variables.update(
+            context_layer_facade.sandbox_environment_variables(ctx.organization_id, ctx.team_id)
+        )
 
     return environment_variables
 
@@ -576,10 +629,19 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        activity.logger.info(
+        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        resume_mode = resume_mode_label(
+            handoff_resumed=run_state.handoff_resumed,
+            using_modal_snapshot=resume_snapshot_external_id is not None,
+        )
+        resume_decision_log = (
+            activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
+        )
+        resume_decision_log(
             "resume_decision",
             extra={
                 "run_id": ctx.run_id,
+                "resume_mode": resume_mode,
                 "state_snapshot_external_id": run_state.snapshot_external_id,
                 "state_snapshot_kind": run_state.snapshot_kind,
                 "effective_snapshot_external_id": resume_snapshot_external_id,
@@ -591,7 +653,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "used_snapshot": used_snapshot,
             },
         )
-        if run_state.handoff_resumed or run_state.resume_from_run_id:
+        if is_resume:
             emit_agent_log(
                 ctx.run_id,
                 "debug",
@@ -599,6 +661,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
+            increment_resume_mode(resume_mode, origin_product=ctx.origin_product)
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(
@@ -722,6 +785,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         if config.outbound_domain_allowlist is not None:
             emit_agent_log(ctx.run_id, "debug", "Modal sandbox created with network policy requested")
             record_network_enforcement("sandbox_creation_with_policy_request", runtime, "modal_requested", "success")
+        if not sandbox.start_cpu_billing_sampler():
+            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
         if sandbox.config.image_fallback:
             emit_agent_log(
                 ctx.run_id,
@@ -765,15 +830,15 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = (
-                measure_sandbox_cpu_usage(sandbox) if sandbox.config.is_vm else (None, None)
-            )
+            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
+            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
             open_sandbox_session(
                 run_id=ctx.run_id,
                 sandbox_id=sandbox.id,
                 config=sandbox.config,
                 sandbox_created_at=sandbox_created_at,
                 cpu_usage_attribution_usec=cpu_usage_attribution_usec,
+                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
                 cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
                 required=ctx.task_runtime == "pi",
             )
@@ -856,10 +921,12 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
 @asyncify
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
+    blobless_clone = _is_blobless_signals_clone_enabled(ctx)
 
     with log_activity_execution(
         "clone_repository_in_sandbox",
         sandbox_id=input.sandbox_id,
+        blobless_clone=blobless_clone,
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
@@ -879,6 +946,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 github_token=input.github_token,
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
+                blobless=blobless_clone,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -892,6 +960,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     github_token=input.github_token,
                     shallow=input.shallow_clone,
                     branch=None,
+                    blobless=blobless_clone,
                 )
 
             if clone_result.exit_code != 0:

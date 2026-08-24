@@ -2490,6 +2490,61 @@ class TestErrorClassification:
         # human needs to teach the taxonomy to recognise this failure.
         assert "RuntimeError" in captured["properties"]["exception_types"]
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_terminal_unclassified_error_captures_sqlstate_for_triage(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        # A revoked REPLICATION/SELECT grant surfaces as psycopg InsufficientPrivilege, which the
+        # adapter doesn't classify, so it loops as retryable UNKNOWN. Its SQLSTATE (42501) is what
+        # tells a human this is a permission error and not some other ProgrammingError.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InsufficientPrivilege("permission denied")
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(
+            workflow_id="wf-1", workflow_run_id="run-1", attempt=CDC_MAX_EXTRACTION_ATTEMPTS
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
+            pytest.raises(psycopg.errors.InsufficientPrivilege),
+        ):
+            cdc_extract_activity(inputs)
+
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction unclassified error"
+        assert "42501" in captured["properties"]["sqlstates"]
+
 
 class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
@@ -2918,6 +2973,112 @@ class TestFailureVisibilityJobs:
         assert MockJob.objects.create.call_count == 2
         created_for = {call.kwargs["schema"] for call in MockJob.objects.create.call_args_list}
         assert created_for == {schema_a, schema_b}
+
+
+class TestPKColumnLoading:
+    def _activity(self, schemas, queried_pks=None, default_namespace="public"):
+        source = _make_source()
+        source.job_inputs = {**source.job_inputs, "schema": default_namespace}
+        act = _make_extract_activity(source)
+        act.cdc_schemas = schemas
+        for schema in schemas:
+            schema.source = source
+        act.reader = MagicMock()
+        act.reader.get_primary_key_columns.side_effect = lambda namespace, relations: {
+            relation: pks for relation, pks in (queried_pks or {}).get(namespace, {}).items() if relation in relations
+        }
+        return act
+
+    def test_qualified_name_is_split_for_the_query_and_rejoined_for_the_result(self):
+        # The catalog filters on the bare relation name inside one namespace, so a qualified
+        # ExternalDataSchema.name matched nothing and the table synced with no merge key.
+        schema = _make_schema("cdc_test.orders")
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("cdc_test", ["orders"])
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert "cdc_pk_columns_first_write" in warnings
+
+    def test_bare_name_falls_back_to_the_source_namespace(self):
+        schema = _make_schema("orders")
+        act = self._activity([schema], queried_pks={"analytics": {"orders": ["id"]}}, default_namespace="analytics")
+
+        act._load_pk_columns()
+
+        assert act.reader.get_primary_key_columns.call_args.args == ("analytics", ["orders"])
+        assert act.pk_columns_by_table == {"orders": ["id"]}
+
+    def test_tables_are_grouped_by_namespace(self):
+        # One query per namespace, and two tables sharing a relation name stay distinct.
+        act = self._activity(
+            [_make_schema("cdc_test.orders"), _make_schema("public.orders")],
+            queried_pks={"cdc_test": {"orders": ["id"]}, "public": {"orders": ["uuid"]}},
+        )
+
+        act._load_pk_columns()
+
+        queried_namespaces = {call.args[0] for call in act.reader.get_primary_key_columns.call_args_list}
+        assert queried_namespaces == {"cdc_test", "public"}
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
+
+    def test_stored_keys_are_not_requeried(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        act = self._activity([schema])
+
+        act._load_pk_columns()
+
+        act.reader.get_primary_key_columns.assert_not_called()
+        assert act.pk_columns_by_table == {"cdc_test.orders": ["id"]}
+
+
+class TestPKDivergenceDetection:
+    def _activity(self, decoder_pks, stored_pks, table="cdc_test.orders"):
+        source = _make_source()
+        schema = _make_schema(table, source=source)
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [schema]
+        act.schema_by_name = {table: schema}
+        act.all_table_names = {table}
+        act.pk_columns_by_table = {table: stored_pks}
+        act.reader = MagicMock()
+        act.reader.get_decoder_key_columns.return_value = decoder_pks
+        return act, schema
+
+    @parameterized.expand(
+        [
+            # The qualified name is the whole point: it is what ExternalDataSchema.name holds, and
+            # the decoder used to match only the bare relation name, so this never fired.
+            ("key_gained_a_column", ["id", "tenant_id"], ["id"], True),
+            ("key_replaced", ["uuid"], ["id"], True),
+            # pg_catalog orders by index position, the decoder by column position.
+            ("same_key_different_order", ["tenant_id", "id"], ["id", "tenant_id"], False),
+            ("unchanged", ["id"], ["id"], False),
+            # What REPLICA IDENTITY FULL and NOTHING both report.
+            ("no_key_in_wal", [], ["id"], False),
+        ]
+    )
+    def test_divergence_warns_only_on_a_real_change(self, _name, decoder_pks, stored_pks, expect_warning):
+        act, _schema = self._activity(decoder_pks, stored_pks)
+
+        act._detect_pk_changes_post_wal()
+
+        warnings = [call.args[0] for call in act.log.bind.return_value.warning.call_args_list]
+        assert ("cdc_pk_columns_diverged" in warnings) is expect_warning
+
+    def test_diverged_key_is_not_persisted_over_the_merge_key(self):
+        # Re-keying a live Delta table duplicates every row already merged under the old key, so a
+        # detected change stays a signal until an operator re-snapshots the table.
+        act, schema = self._activity(["id", "tenant_id"], ["id"])
+
+        act._detect_pk_changes_post_wal()
+
+        assert "primary_key_columns" not in schema.sync_type_config
+        assert act.pk_columns_by_table["cdc_test.orders"] == ["id"]
 
 
 class _ScriptedReader:

@@ -21,6 +21,10 @@ import type {
     CanvasCreateApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
+    CanvasLayoutPatchApi,
+    CanvasLayoutPublishApi,
+    CanvasLayoutPublishResponseApi,
+    CanvasLayoutResponseApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
     CanvasReportErrorApi,
@@ -39,6 +43,7 @@ import type {
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
     CanvasesDraftsRetrieveParams,
+    CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
@@ -327,6 +332,93 @@ export const canvasesEditCreate = async (
     })
 }
 
+export const getCanvasesLayoutRetrieveUrl = (projectId: string, id: string, params?: CanvasesLayoutRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/layout/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/layout/`
+}
+
+/**
+ * Read a grid canvas's layout document and its `current_version_id`.
+ *
+ * Always call this before editing: pass the returned version id as
+ * `expected_current_version_id` on publish/patch so concurrent edits are
+ * not overwritten. A grid canvas with no versions yet returns the
+ * default empty layout with a null version id.
+ */
+export const canvasesLayoutRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesLayoutRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasLayoutResponseApi> => {
+    return apiMutator<CanvasLayoutResponseApi>(getCanvasesLayoutRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesLayoutPatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/layout/patch/`
+}
+
+/**
+ * Apply surgical operations to the grid canvas's current layout.
+ *
+ * The default write path for both the editor and agents: add, move,
+ * resize, fill, or remove one placement without resending the layout.
+ * `expected_current_version_id` is mandatory so an agent filling a box
+ * and a user rearranging widgets cannot overwrite each other.
+ */
+export const canvasesLayoutPatchCreate = async (
+    projectId: string,
+    id: string,
+    canvasLayoutPatchApi: CanvasLayoutPatchApi,
+    options?: RequestInit
+): Promise<CanvasLayoutPublishResponseApi> => {
+    return apiMutator<CanvasLayoutPublishResponseApi>(getCanvasesLayoutPatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasLayoutPatchApi),
+    })
+}
+
+export const getCanvasesLayoutPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/layout/publish/`
+}
+
+/**
+ * Publish a complete layout document as the grid canvas's new head version.
+ *
+ * Layout is data, not code: the new version is live immediately, with no
+ * build. Validation errors reject the publish (400) and leave the canvas
+ * untouched; a stale `expected_current_version_id` is rejected with 409.
+ */
+export const canvasesLayoutPublishCreate = async (
+    projectId: string,
+    id: string,
+    canvasLayoutPublishApi: CanvasLayoutPublishApi,
+    options?: RequestInit
+): Promise<CanvasLayoutPublishResponseApi> => {
+    return apiMutator<CanvasLayoutPublishResponseApi>(getCanvasesLayoutPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasLayoutPublishApi),
+    })
+}
+
 export const getCanvasesPromoteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/promote/`
 }
@@ -548,8 +640,8 @@ export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, param
 /**
  * Read the canvas's runtime key-value state (the ph.state store).
  *
- * Returns the canvas's shared entries plus the caller's own user-scoped
- * entries — never another viewer's.
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
  */
 export const canvasesStateRetrieve = async (
     projectId: string,
@@ -658,5 +750,23 @@ export const canvasesActionsRetrieve = async (
     return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCanvasesHomeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/home/`
+}
+
+/**
+ * Get or provision the caller's home canvas.
+ *
+ * Idempotent: returns the user's existing home canvas, or creates a grid
+ * canvas in their personal channel and points their home preference at
+ * it. The home surface calls this on open.
+ */
+export const canvasesHomeCreate = async (projectId: string, options?: RequestInit): Promise<CanvasApi> => {
+    return apiMutator<CanvasApi>(getCanvasesHomeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

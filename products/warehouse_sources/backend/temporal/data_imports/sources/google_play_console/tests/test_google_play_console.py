@@ -266,6 +266,17 @@ def test_list_apps_follows_pagination() -> None:
     assert session.request.call_args_list[1].kwargs["params"]["pageToken"] == "t1"
 
 
+def test_latest_available_date_converts_the_exclusive_freshness_bound_to_an_inclusive_day() -> None:
+    # Play documents `latestEndTime` as already being the exclusive bound ready to reuse as
+    # `timelineSpec.endTime` (one day past the last day with data) — not the last day itself.
+    session = mock.MagicMock()
+    session.post.return_value = _token_response()
+    session.request.return_value = _response(200, _freshness(dt.date(2024, 3, 10)))
+    client = _client(session)
+
+    assert client.latest_available_date("com.example.app", "crashRateMetricSet") == dt.date(2024, 3, 9)
+
+
 @pytest.mark.parametrize(
     "dimension,expected",
     [
@@ -392,26 +403,25 @@ def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> No
     timeline = query_bodies[0]["timelineSpec"] if query_bodies[0] else {}
     assert timeline["aggregationPeriod"] == "DAILY"
     assert timeline["startTime"] == {"year": 2024, "month": 3, "day": 1}
-    # The timeline end is exclusive, so the day after the freshness date is requested.
-    assert timeline["endTime"] == {"year": 2024, "month": 3, "day": 11}
+    # `_freshness` reports latestEndTime 2024-03-10, already Play's exclusive bound, so it is
+    # requested as-is rather than being pushed a further day out.
+    assert timeline["endTime"] == {"year": 2024, "month": 3, "day": 10}
     assert cast("dict[str, Any]", query_bodies[0])["dimensions"] == ["versionCode"]
-    assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-11")]
+    assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
 
-def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
+def test_metric_set_skips_an_app_without_freshness() -> None:
     manager = _manager()
+    calls: list[str] = []
 
     def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            return {"rows": []}
+        calls.append(path)
+        # Empty freshness — the app has no queryable data for this metric set.
         return {}
 
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
         client = _client(mock.MagicMock())
-        list(
+        batches = list(
             _iter_metric_set_rows(
                 client=client,
                 endpoint=METRIC_SETS["anr_rate"],
@@ -422,8 +432,10 @@ def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
             )
         )
 
-    # 2024-03-29 is the last day queried (today minus the freshness lag), so the checkpoint moves past it.
-    assert manager.saved[-1].date == "2024-03-30"
+    # No freshness means no queryable data: the app is skipped rather than queried with a guessed
+    # window Google rejects as an invalid timeframe. No `:query` is issued and nothing is yielded.
+    assert batches == []
+    assert not any(path.endswith(":query") for path in calls)
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
@@ -797,7 +809,9 @@ def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
 
     # The window starts at the stored watermark rather than the full history window.
     assert [row["date"] for batch in batches for row in batch] == [dt.date(2024, 3, 29)]
-    assert manager.saved[-1].date == "2024-03-31"
+    # `_freshness` reports latestEndTime 2024-03-30, already Play's exclusive bound, so the
+    # window closes out at 2024-03-29 and the checkpoint moves to the day after.
+    assert manager.saved[-1].date == "2024-03-30"
 
 
 def test_error_reports_always_carry_an_event_time_column() -> None:

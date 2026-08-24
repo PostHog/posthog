@@ -150,7 +150,7 @@ class DuckLakeStorageConfig:
     """
 
     access_key: str
-    secret_key: str
+    secret_key: str = dataclasses.field(repr=False)
     region: str
     endpoint: str
     use_ssl: bool
