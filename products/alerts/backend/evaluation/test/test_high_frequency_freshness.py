@@ -90,18 +90,19 @@ def test_is_high_frequency_interval_property(interval, expected):
     assert AlertConfiguration(calculation_interval=interval).is_high_frequency_interval is expected
 
 
-# The ceiling is the cadence expressed in seconds. That equality is what the freshness guarantee
-# rests on, so it's asserted rather than left to the map: reading CADENCE_MINUTES without converting
-# would bound an hourly check at 60 seconds. A null cadence (nullable column) declines to bound.
+# The ceiling is half a cadence, in seconds. Half because consecutive checks land just under a
+# cadence apart, so a whole-cadence ceiling would let every second check reuse the previous one's
+# result. Asserted rather than left to the map: reading CADENCE_MINUTES without converting would
+# bound an hourly check at 30 seconds. A null cadence (nullable column) declines to bound.
 @pytest.mark.parametrize(
     "cadence,expected_seconds",
     [
-        (AlertCalculationInterval.HOURLY, 60 * 60),
-        (AlertCalculationInterval.DAILY, 24 * 60 * 60),
+        (AlertCalculationInterval.HOURLY, 30 * 60),
+        (AlertCalculationInterval.DAILY, 12 * 60 * 60),
         (None, None),
     ],
 )
-def test_execution_settings_ceiling_is_one_cadence(cadence, expected_seconds):
+def test_execution_settings_ceiling_is_half_a_cadence(cadence, expected_seconds):
     settings = execution_settings_for_alert(
         IntervalType.DAY, high_frequency=False, cadence=cadence.value if cadence else None
     )

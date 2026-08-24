@@ -112,13 +112,16 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
             run_alert_check(alert["id"])
         assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.NOT_FIRING
 
-        with freeze_time("2024-06-02T10:00:00.000Z"):
+        with freeze_time("2024-06-02T09:30:00.000Z"):
             for distinct_id in range(3):
                 _create_event(team=self.team, event="$exception", distinct_id=str(distinct_id))
             flush_persons_and_events()
 
-        # 70 minutes on, past one cadence: the check must see the new events, not the cached zero.
-        with freeze_time("2024-06-02T10:05:00.000Z"):
+        # 59 minutes on, which is how far apart consecutive hourly checks actually land: each is
+        # scheduled from the previous one's due time and the check itself takes a moment, so the gap
+        # is always a shade under the cadence. A ceiling of one whole cadence would serve the cached
+        # zero here and leave every second check stale.
+        with freeze_time("2024-06-02T09:54:00.000Z"):
             run_alert_check(alert["id"])
 
         check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")

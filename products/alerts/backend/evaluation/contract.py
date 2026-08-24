@@ -122,14 +122,20 @@ def execution_settings_for_alert(
     """Resolve how fresh an alert check's query result has to be.
 
     The mode alone keys freshness off the insight's bucket granularity, which says nothing about
-    how often the alert runs. A single-number insight carries the schema's default ``day`` however
-    short its date range, so its check would accept a six-hour-old value. The ceiling adds the
-    guarantee the cadence implies — never evaluate a result older than the interval we check on —
-    and only ever tightens, so a query whose own policy is already stricter keeps it.
+    how often the alert runs. A single-number display forces ``day`` on the date range whatever the
+    insight's own interval says, so its check would accept a six-hour-old value. The ceiling adds
+    the guarantee the cadence implies, and only ever tightens, so a query whose own policy is
+    already stricter keeps it.
+
+    The ceiling is half a cadence, not a whole one. Consecutive checks land slightly under one
+    cadence apart (each is scheduled from the previous check's due time, and the work takes a
+    moment), so a full-cadence ceiling leaves every second check reusing the previous check's
+    result. Halving it means each check recomputes without raising the ceiling on query volume:
+    that is bounded by the number of checks either way.
     """
     return AlertExecutionSettings(
         execution_mode=execution_mode_for_alert(interval, high_frequency=high_frequency),
-        max_cache_age_seconds=cadence_seconds(to_calendar_interval(cadence)) if cadence else None,
+        max_cache_age_seconds=cadence_seconds(to_calendar_interval(cadence)) // 2 if cadence else None,
     )
 
 
