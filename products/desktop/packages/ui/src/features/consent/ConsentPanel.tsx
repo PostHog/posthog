@@ -175,7 +175,10 @@ export function ConsentPanel({
       )}
 
       {error && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-destructive-foreground text-sm">
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-destructive-foreground text-sm"
+        >
           {error}
         </div>
       )}

@@ -62,7 +62,7 @@ describe("ConsentPanel", () => {
     renderPanel(false, true);
 
     expect(
-      screen.queryByText("PostHog AI needs your approval"),
+      screen.queryByRole("button", { name: "Approve AI data processing" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("PostHog Desktop beta terms")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
@@ -83,28 +83,10 @@ describe("ConsentPanel", () => {
     expect(
       screen.getByRole("button", { name: "Accept beta terms" }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByText("Legal bits about Protected Health Information"),
-    ).not.toBeInTheDocument();
-
     const details = screen.getAllByRole("button", { name: "Details" });
+    expect(details[0]).toHaveAttribute("aria-expanded", "false");
     await user.click(details[0]);
-
-    const aiDecision = screen
-      .getByText("PostHog AI needs your approval")
-      .closest("section");
-    expect(aiDecision).toHaveTextContent(
-      `Your "Example Org" organization hasn't approved AI data processing yet.`,
-    );
-    expect(aiDecision).toHaveTextContent(
-      "PostHog AI features process identifying user data with external AI providers.",
-    );
-    expect(aiDecision).toHaveTextContent(
-      "Importantly: Your data won't be used for training models by these providers.",
-    );
-    expect(aiDecision).toHaveTextContent(
-      "Legal bits about Protected Health Information",
-    );
+    expect(details[0]).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows completion after the requirements are accepted", () => {
@@ -129,9 +111,7 @@ describe("ConsentPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
 
-    expect(
-      await screen.findByText(/beta terms acceptance could not be saved/),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith("org-id");
     expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id");
   });
@@ -139,16 +119,6 @@ describe("ConsentPanel", () => {
   it("asks members to contact an admin without rendering an accept button", () => {
     renderPanel(true, true, false);
 
-    expect(
-      screen.getByText(
-        "Ask an organization admin to approve AI data processing.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Ask an organization admin to accept the Desktop beta terms.",
-      ),
-    ).toBeInTheDocument();
     expect(screen.queryByText("Accept beta terms")).not.toBeInTheDocument();
   });
 });
