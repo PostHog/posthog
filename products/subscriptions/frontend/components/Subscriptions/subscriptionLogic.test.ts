@@ -658,13 +658,15 @@ describe('subscriptionLogic', () => {
 
     it.each<[string, string, string | undefined]>([
         ['accepts a webhook URL', TEAMS_WEBHOOK_URL, undefined],
-        ['rejects a channel name', 'reports', 'Enter the webhook URL, starting with https://'],
+        ['accepts a webhook URL pasted with stray whitespace', `  ${TEAMS_WEBHOOK_URL}\n`, undefined],
+        ['rejects a channel name', 'reports', 'The webhook URL must start with https://'],
         [
             'rejects a plain-HTTP URL',
             'http://prod-12.westeurope.logic.azure.com/workflows/1',
-            'Enter the webhook URL, starting with https://',
+            'The webhook URL must start with https://',
         ],
         ['rejects an empty value', '', 'A webhook URL is required'],
+        ['rejects a whitespace-only value', '   ', 'A webhook URL is required'],
     ])('%s for a Microsoft Teams subscription', async (_label, targetValue, expectedError) => {
         await expectLogic(newLogic).toFinishListeners()
         newLogic.actions.setSubscriptionValues({ target_type: 'teams', target_value: targetValue })
@@ -675,9 +677,7 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscriptionValidationErrors.target_type).toBeUndefined()
     })
 
-    it('saves a Microsoft Teams subscription', async () => {
-        // The form used to reject every target type outside email and slack, so a teams
-        // subscription could be filled in but never submitted.
+    it('saves a Microsoft Teams subscription with the webhook URL trimmed', async () => {
         let capturedBody: Partial<SubscriptionType> | undefined
         useMocks({
             post: {
@@ -693,7 +693,7 @@ describe('subscriptionLogic', () => {
             resource_type: 'insight',
             title: 'Teams test',
             target_type: 'teams',
-            target_value: TEAMS_WEBHOOK_URL,
+            target_value: `  ${TEAMS_WEBHOOK_URL}\n`,
         })
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])

@@ -12,7 +12,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { isEmail } from 'lib/utils/url'
+import { isEmail, isHttpsUrl } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,6 +26,7 @@ import {
 import {
     TargetTypeEnumApi,
     type AIWindowConfigApi,
+    type SubscriptionApi,
     type SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -35,7 +36,7 @@ import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, targetTypeOptions, urlForSubscription } from './utils'
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -96,33 +97,39 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
     return {}
 }
 
-const SUPPORTED_TARGET_TYPES: string[] = Object.values(TargetTypeEnumApi)
+type SubscriptionTargetType = SubscriptionApi['target_type']
 
-const MISSING_TARGET_VALUE_ERROR: Record<string, string> = {
+// Taken from the destination select, so a type the form has no fields for is never accepted.
+const SUPPORTED_TARGET_TYPES: readonly SubscriptionTargetType[] = targetTypeOptions.map(({ value }) => value)
+
+function isSupportedTargetType(target_type: string): target_type is SubscriptionTargetType {
+    return SUPPORTED_TARGET_TYPES.some((supported) => supported === target_type)
+}
+
+const MISSING_TARGET_VALUE_ERROR: Record<SubscriptionTargetType, string> = {
     [TargetTypeEnumApi.Email]: 'At least one email is required',
     [TargetTypeEnumApi.Slack]: 'A channel is required',
     [TargetTypeEnumApi.Teams]: 'A webhook URL is required',
 }
 
-function isHttpsUrl(value: string): boolean {
-    try {
-        return new URL(value).protocol === 'https:'
-    } catch {
-        return false
-    }
-}
-
 function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
-    if (!target_value) {
-        return MISSING_TARGET_VALUE_ERROR[target_type] ?? 'This field is required.'
+    if (!isSupportedTargetType(target_type)) {
+        // `target_type` reports its own error, and there is nothing to say about a value for a
+        // destination this form cannot render.
+        return undefined
     }
-    if (target_type === TargetTypeEnumApi.Email && !target_value.split(',').every((email) => isEmail(email))) {
+    // Submit sends the trimmed value, so validate the same string the backend will receive.
+    const trimmed = target_value?.trim()
+    if (!trimmed) {
+        return MISSING_TARGET_VALUE_ERROR[target_type]
+    }
+    if (target_type === TargetTypeEnumApi.Email && !trimmed.split(',').every((email) => isEmail(email))) {
         return 'All emails must be valid'
     }
     // The serializer owns the host allowlist and reports its own error on save. This check stays
     // loose on purpose, so it cannot reject a URL the backend would have accepted.
-    if (target_type === TargetTypeEnumApi.Teams && !isHttpsUrl(target_value)) {
-        return 'Enter the webhook URL, starting with https://'
+    if (target_type === TargetTypeEnumApi.Teams && !isHttpsUrl(trimmed)) {
+        return 'The webhook URL must start with https://'
     }
     return undefined
 }
@@ -562,9 +569,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
                 // The destination select cannot produce an unknown value, but a `target_type`
                 // search param can.
-                target_type: SUPPORTED_TARGET_TYPES.includes(subscription.target_type)
-                    ? undefined
-                    : 'Unsupported target type',
+                target_type: isSupportedTargetType(subscription.target_type) ? undefined : 'Unsupported target type',
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
                 target_value: validateTargetValue(subscription.target_type, subscription.target_value),
@@ -576,6 +581,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const payload = {
                     ...subscription,
+                    // `new URL()` ignores surrounding whitespace, so an untrimmed webhook URL
+                    // validates but would be stored with the stray characters.
+                    target_value: subscription.target_value?.trim(),
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
