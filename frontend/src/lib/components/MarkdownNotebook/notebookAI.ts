@@ -54,11 +54,16 @@ export function rebaseNotebookAIResponseRange(
         previousDocument.nodes.length,
         previousRange.insertionIndex + previousRange.deleteCount
     )
-    const nextStartIndex = getRebasedNotebookAIResponseStartIndex(
+    const nextStartBoundaryIndex = getRebasedNotebookAIResponseStartIndex(
         previousDocument.nodes,
         nextDocument.nodes,
         previousStartIndex
     )
+    const previousResponseStartNode = previousDocument.nodes[previousStartIndex]
+    const nextResponseStartIndex = previousResponseStartNode
+        ? getMatchingNodeFingerprintIndex(previousResponseStartNode, nextDocument.nodes, nextStartBoundaryIndex)
+        : null
+    const nextStartIndex = nextResponseStartIndex ?? nextStartBoundaryIndex
     const nextEndIndex = getRebasedNotebookAIResponseEndIndex(
         previousDocument.nodes,
         nextDocument.nodes,
