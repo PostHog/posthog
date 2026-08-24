@@ -5,9 +5,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{clickhouse, clickhouse_url, table, Service};
-use usage_ingestion_proto::usage_ingestion::v1::{
-    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
-};
+use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBillingUsageRequest};
 use uuid::Uuid;
 
 /// Fixed so both rows land in one monthly partition, the scope ReplacingMergeTree collapses within.
@@ -19,7 +17,6 @@ fn record(record_id: &str, timestamp_ms: i64) -> BillingUsageRecord {
         producer_id: "usage-ingestion-e2e".to_string(),
         team_id: 1,
         usage_key: "e2e_records".to_string(),
-        mode: BillingUsageMode::Delta as i32,
         unit: "record".to_string(),
         quantity: 1,
         timestamp_ms,
