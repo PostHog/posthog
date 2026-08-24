@@ -18,6 +18,7 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import GoogleCloudServiceAccountIntegration
@@ -152,9 +153,12 @@ class BigQueryDestinationWriter:
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
             autodetect=True,
-            # Additive evolution: a column the source grew is added rather than rejected.
-            schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
         )
+        if disposition == bigquery.WriteDisposition.WRITE_APPEND:
+            # Additive evolution: a column the source grew is added rather than rejected.
+            # BigQuery rejects this option on a truncating load, which replaces the schema
+            # outright and so has nothing to evolve.
+            job_config.schema_update_options = [bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
         client.load_table_from_file(buffer, self._table_ref(table), job_config=job_config).result()
 
     def _merge(
@@ -181,7 +185,10 @@ class BigQueryDestinationWriter:
             staging = staging_table_name(ctx)
             try:
                 client.get_table(self._table_ref(staging))
-            except Exception:
+            except NotFound:
+                # No staging table means an earlier attempt already published. Anything else
+                # has to propagate: swallowing it would leave the live table on stale data
+                # and complete the run anyway.
                 return
             client.copy_table(
                 self._table_ref(staging),
