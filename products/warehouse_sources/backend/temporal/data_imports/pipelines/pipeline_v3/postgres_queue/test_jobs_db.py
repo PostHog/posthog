@@ -1064,11 +1064,15 @@ class TestGetStaleStrandedRuns:
             plan = "\n".join(row[0] for row in await cur.fetchall())
         finally:
             await conn.execute("SET enable_seqscan = on")
-        # The fence must keep the failed-run gate a per-run SubPlan probing the
-        # run-gate index. Asserting "no Hash Anti Join anywhere" instead is flaky:
-        # the UNFENCED lease gate may legitimately plan as a hash anti-join, and a
-        # flattened failed-gate can still show sb_run_gate_idx (as its hash build).
-        assert "sb_run_gate_idx" in plan
+        # The fence must keep the failed-run gate a per-run SubPlan that probes an
+        # index instead of flattening into a hash anti-join (the quadratic scan).
+        # At near-empty stats the planner may substitute sb_failed_changed_idx for
+        # sb_run_gate_idx: both are partial indexes covering the failed probe, and the
+        # tie breaks on transient CI statistics. At storm sizes only sb_run_gate_idx
+        # survives, so either name proves the guard. Asserting "no Hash Anti Join
+        # anywhere" is too loose: the UNFENCED lease gate may plan as one, and a
+        # flattened failed gate can still show sb_run_gate_idx (as its hash build).
+        assert any(idx in plan for idx in ("sb_run_gate_idx", "sb_failed_changed_idx"))
         assert "SubPlan" in plan
 
 
