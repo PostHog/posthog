@@ -6,6 +6,7 @@ import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixture
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -249,6 +250,97 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
             })
+
+            it('uses and logs the sender selected for this workflow invocation', async () => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 4,
+                    kind: 'email',
+                    config: {
+                        email: 'second@posthog.com',
+                        name: 'Second Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                invocation.id = 'invocation-0'
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, integrationIds: [1, 4] },
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Second Sender" <second@posthog.com>')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Email sent to test@example.com from Second Sender <second@posthog.com>'
+                )
+            })
+        })
+        describe('from overrides', () => {
+            it.each<[string, { email?: string; name?: string }, string, string]>([
+                [
+                    'address on the verified domain',
+                    { email: 'community@posthog.com' },
+                    '"Test User" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'address with different domain casing',
+                    { email: 'community@POSTHOG.com' },
+                    '"Test User" <community@POSTHOG.com>',
+                    'community@POSTHOG.com',
+                ],
+                ['name only', { name: 'Community Team' }, '"Community Team" <test@posthog.com>', 'test@posthog.com'],
+                [
+                    'name and address',
+                    { email: 'community@posthog.com', name: 'Community Team' },
+                    '"Community Team" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'empty overrides fall back to the integration sender',
+                    { email: '', name: '' },
+                    '"Test User" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+                [
+                    'name with header-breaking characters is sanitized',
+                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:' },
+                    '"Evil fake@evil.com, Bcc:" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+            ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, ...fromOverride },
+                })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe(expectedFrom)
+                expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe(expectedFeedback)
+            })
+
+            it.each([
+                ['an address on an unverified domain', 'someone@evil.com'],
+                ['an address on a subdomain of the verified domain', 'someone@sub.posthog.com'],
+                ['a list of addresses', 'a@posthog.com, b@posthog.com'],
+                ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
+                ['a value that is not an email address', 'not-an-email'],
+            ])('discards %s and sends from the integration sender', async (_desc, email) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email },
+                })
+                const result = await service.executeSendEmail(invocation)
+                // Failing the send would break every step still carrying the placeholder address
+                // an old sender picker wrote, so an unusable override degrades to the integration's
+                // own sender. The unverified address must never reach the provider either way.
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(email))).toBe(true)
+            })
         })
         describe('email sending', () => {
             it('should send an email', async () => {
@@ -310,6 +402,23 @@ describe('EmailService', () => {
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('keeps the send priority class across a throttle reschedule', async () => {
+                // A bulk send enters the email queue at priority 1. On an SES throttle the job is
+                // rescheduled on the email queue, so its priority must stay 1 — resetting it to the
+                // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
+                // which is exactly the traffic the fast lane exists to protect.
+                invocation.queuePriority = 1
+                sendEmailSpy.mockRejectedValueOnce(
+                    new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                expect(result.invocation.queuePriority).toBe(1)
             })
 
             it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
@@ -537,6 +646,58 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+            })
+        })
+
+        describe('team suspension enforcement at send time', () => {
+            // Guards the reputation kill switch: while a team is suspended, no send path may
+            // reach SES — including editor test sends, which count against the tenant too.
+            // The first two write a real row so they also cover the service's SELECT; mocking
+            // isEmailSendingSuspended would pass with the column missing from the query.
+            const suspendTeam = async (): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', now(), 'testing suspension')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                    [team.id],
+                    'test-suspend-email-sending'
+                )
+            }
+
+            it('does not call SES while the team is suspended and records email_suspended', async () => {
+                await suspendTeam()
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+            })
+
+            it('blocks editor test sends while suspended without recording metrics', async () => {
+                await suspendTeam()
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.metrics).toEqual([])
+            })
+
+            it('fails open when the suspension lookup errors', async () => {
+                // The config lookup rejecting must never block a legitimate send. Rejects once:
+                // the suspension check is the first config read; later reads use the real loader.
+                jest.spyOn(service['teamWorkflowsConfigService'], 'get').mockRejectedValueOnce(new Error('pg down'))
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
         })
 

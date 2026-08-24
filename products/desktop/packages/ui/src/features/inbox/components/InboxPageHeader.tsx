@@ -28,7 +28,7 @@ interface InboxPageHeaderProps {
 }
 
 /**
- * Responder configuration lives at /code/agents, not in the inbox. The header
+ * Responder configuration lives at /agents, not in the inbox. The header
  * carries this always-visible way there so the config surface stays one click
  * away from the work it powers.
  */
@@ -37,7 +37,7 @@ function ConfigureAgentsButton() {
     <Button
       variant="primary"
       size="sm"
-      render={<Link to="/code/agents" />}
+      render={<Link to="/agents" />}
       className="shrink-0"
     >
       <RobotIcon size={14} />

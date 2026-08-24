@@ -15,7 +15,7 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.facade import CanvasGenerationState, NotebookCanvasSource
+from products.canvas.backend.facade.notebooks import CanvasGenerationState, NotebookCanvasSource
 from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.notebooks.backend.genui import (
     GENUI_GENERATOR_VERSION,

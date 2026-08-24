@@ -12,7 +12,7 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
@@ -42,7 +42,7 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results == [
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
@@ -138,6 +138,27 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert len(results) == 0
+
+    def test_include_shared_adds_team_shared_but_not_teammates_personal(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation()
+        shared = self._create_installation(scope="shared", user=other_user, url="https://mcp.shared.com/mcp")
+        self._create_installation(user=other_user, url="https://mcp.theirs.com/mcp")
+
+        results = get_active_installations(self.team.id, self.user.id, include_shared=True)
+
+        assert {result.id for result in results} == {str(own_personal.id), str(shared.id)}
+
+    def test_include_shared_still_applies_readiness_checks(self) -> None:
+        self._create_installation(scope="shared", is_enabled=False)
+        self._create_installation(
+            scope="shared",
+            url="https://mcp.pending.com/mcp",
+            auth_type="oauth",
+            sensitive_configuration={},
+        )
+
+        assert get_active_installations(self.team.id, self.user.id, include_shared=True) == []
 
     @parameterized.expand(
         [
@@ -359,7 +380,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve(credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+        def resolve(credential_owner_id: int | None) -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -392,7 +413,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             granted_by=self.user,
         )
 
-        def resolve() -> list[ActiveInstallationInfo]:
+        def resolve() -> list[ActiveInstallation]:
             return get_installations_for_sandbox(
                 self.team.id,
                 task_origin="support_reply",
@@ -437,7 +458,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             scope=scope,
         )
 
-    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+    def _agent_results(self, credential_owner_id: int | None) -> list[ActiveInstallation]:
         return get_installations_for_sandbox(
             self.team.id,
             task_origin="support_reply",

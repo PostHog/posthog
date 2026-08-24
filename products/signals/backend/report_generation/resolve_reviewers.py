@@ -83,7 +83,9 @@ def enrich_reviewer_dicts_with_org_members(
     enriched: list[dict] = []
     for r in reviewer_dicts:
         login = r.get("github_login", "")
-        user = resolved_map.get(login.lower()) if login else None
+        # strip + lower matches the resolver's key normalization, so a legacy padded login
+        # (stored before the schema stripped on write) still resolves.
+        user = resolved_map.get(login.strip().lower()) if login else None
         enriched.append(
             {
                 **r,

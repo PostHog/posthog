@@ -1,5 +1,8 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
+import { consumeGoalDraftIntent, markGoalDraftIntent } from './goalDraftIntent'
 import {
     buildObservationListParams,
     ObservationStatusValue,
@@ -17,7 +21,7 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
-import { readScannerDraft } from './scannerDraft'
+import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
@@ -59,9 +63,10 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/draft/': draftSpy,
             },
         })
-        // The draft layer persists form edits to localStorage; without a reset, one test's edits
-        // restore into the next test's freshly mounted wizard.
+        // The draft layer persists form edits to localStorage and the nudge hand-off marker to
+        // sessionStorage; without a reset, one test's state bleeds into the next.
         localStorage.clear()
+        sessionStorage.clear()
         initKeaTests()
         logic = replayScannerLogic({ id: 'new' })
         logic.mount()
@@ -78,11 +83,12 @@ describe('replayScannerLogic', () => {
         it('new scanner starts as monitor with empty prompt and default sampling', () => {
             expect(logic.values.scanner).toMatchObject({
                 id: 'new',
-                name: '',
+                name: 'MockHog App + Marketing monitor',
                 enabled: true,
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
-                sampling_rate: 1,
+                sampling_rate: 0.2,
+                sampling_mode: 'balanced',
             })
         })
 
@@ -105,13 +111,17 @@ describe('replayScannerLogic', () => {
         it.each([
             ['the template step', urls.replayVisionScannerTemplate('new')],
             ['the empty scanner list', urls.replayVision()],
-        ])('seeds the form from the AI draft and routes to the configure step from %s', async (_origin, path) => {
+        ])('seeds the form from the AI draft and routes to the details step from %s', async (_origin, path) => {
             const draft = {
                 name: 'User intent',
                 description: 'Tags each session by intent.',
                 scanner_type: 'classifier',
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
                 rationale: 'A classifier fits because you want the mix of visit intents.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
+                },
             }
             draftSpy.mockReturnValue([200, draft])
             router.actions.push(path)
@@ -128,14 +138,36 @@ describe('replayScannerLogic', () => {
                 description: draft.description,
                 scanner_type: draft.scanner_type,
                 scanner_config: draft.scanner_config,
+                query: draft.query,
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
 
             // The rationale stays available for the configure step, until a template pick replaces the draft.
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
             logic.actions.startFromTemplate(null)
             expect(logic.values.goalDraft).toBeNull()
+        })
+
+        it('keeps the default query (every session) when the draft has no session filter', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Overview',
+                    description: 'Summarizes sessions.',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Summarize the session.' },
+                    rationale: '',
+                    query: null,
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
@@ -166,8 +198,99 @@ describe('replayScannerLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.goalDraft).toBeNull()
-            expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })
+            expect(logic.values.scanner).toMatchObject({
+                name: 'MockHog App + Marketing monitor',
+                scanner_type: 'monitor',
+            })
             expect(router.values.location.pathname).toEqual(pathBefore)
+        })
+
+        // The in-player analysis nudge hands the goal to the wizard via a one-shot sessionStorage
+        // hand-off that authorizes the auto-start; the free text never travels in the URL.
+        it('consumes the nudge hand-off: prefills the box and starts the draft with the goal never in the URL', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                { name: 'Rage clicks', description: '', scanner_type: 'monitor', scanner_config: { prompt: 'x' } },
+            ])
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () => logic.actions.loadScanner())
+                .toDispatchActions([
+                    logic.actionCreators.setGoalDraftInput('find rage clicks in checkout'),
+                    'draftScannerFromGoal',
+                ])
+                .toFinishAllListeners()
+
+            expect(draftSpy).toHaveBeenCalled()
+            expect(router.values.searchParams.goal).toBeUndefined()
+            expect(logic.values.scanner).toMatchObject({ name: 'Rage clicks' })
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
+            // One-shot: the entry consumed the hand-off, so a reload cannot re-fire the draft.
+            expect(consumeGoalDraftIntent()).toBeNull()
+        })
+
+        // The hand-off is consumed on every wizard entry, even when another prefill path wins,
+        // so it can't stay armed for the tab session and auto-start from a later ?goal= link.
+        it('an entry that takes the experiment path still consumes the hand-off, so a later ?goal= link cannot auto-start', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
+        // Documented precedence with the ?filters= deep link (a fully built query): filters win,
+        // the free-text goal is dropped, regardless of which entry point built the URL.
+        it('an explicit ?filters= param outranks the goal prefill and drops it', async () => {
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'), {
+                filters: JSON.stringify({ kind: 'RecordingsQuery' }),
+                goal: 'find rage clicks in checkout',
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('')
+            expect(draftSpy).not.toHaveBeenCalled()
+        })
+
+        // A ?goal= link without the nudge's marker (e.g. crafted or shared) must not spend the
+        // user's AI allowance on its own; it only prefills the box for an explicit click.
+        it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
+            expect(draftSpy).not.toHaveBeenCalled()
+            expect(router.values.searchParams.goal).toBeUndefined()
+        })
+
+        // The drafted scanner persists over the sole saved-draft slot, so auto-starting on top of
+        // a restored draft would destroy the user's saved work without any action of theirs.
+        it('a nudge hand-off over a saved draft restores the draft and does not auto-start', async () => {
+            writeScannerDraft(MOCK_TEAM_ID, {
+                ...logic.values.scanner!,
+                name: 'My saved work',
+            })
+            markGoalDraftIntent('find rage clicks in checkout')
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'My saved work' })
+            expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
+            expect(draftSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -312,19 +435,16 @@ describe('replayScannerLogic', () => {
                 name: 'Test scanner',
                 scanner_config: { prompt: 'Q?' },
             })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
-            expect(logic.values.submitIntent).toBe('save')
         })
 
         it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
             router.actions.push('/replay-vision/new/configure')
             logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             // The draft must not be adopted as the saved baseline — no API write happened.
-            expect(logic.values.originalScanner?.name).toBe('')
+            expect(logic.values.originalScanner?.name).toBe('MockHog App + Marketing monitor')
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
@@ -336,11 +456,18 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
 
+        it('keeps the ?template param when advancing, so the type stays fixed to the template', async () => {
+            router.actions.push(`${urls.replayVisionScannerConfigure('new')}?template=dead_end`)
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
         it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
             router.actions.push('/replay-vision/new/not-a-step')
             scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
@@ -348,7 +475,6 @@ describe('replayScannerLogic', () => {
         it('routes a rejected submit to the step that renders the errored fields', async () => {
             // Defaults leave name and prompt empty, both configure-owned.
             router.actions.push('/replay-vision/new/triggers')
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
@@ -356,8 +482,8 @@ describe('replayScannerLogic', () => {
 
         it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
             const success = jest.spyOn(lemonToast, 'success')
-            router.actions.push('/replay-vision/new/self-driving')
-            scannerEditorSceneLogic.actions.setStep('self_driving')
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).toHaveBeenCalledTimes(1)
@@ -480,6 +606,26 @@ describe('replayScannerLogic', () => {
             info.mockRestore()
         })
 
+        // Leaving mid-wizard is routine (the recordings step links out to settings), so resuming has to
+        // land where the work was. Always returning to the first step reads as having lost the later ones.
+        it('resumes on the step the last edit was made on', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            const editorLogic = scannerEditorSceneLogic()
+            editorLogic.mount()
+            try {
+                editorLogic.actions.setStep('budget')
+                logic.actions.setScannerValues({ name: 'Drafted' })
+                logic.unmount()
+
+                info.mock.calls[0][1]?.button?.action?.()
+                expect(router.values.location.pathname).toContain(urls.replayVisionScannerBudget('new'))
+            } finally {
+                info.mockRestore()
+                editorLogic.unmount()
+                router.actions.push(urls.replayVision())
+            }
+        })
+
         it('stays quiet on the way out when the draft was only restored', async () => {
             logic.actions.setScannerValues({ name: 'Drafted' })
             logic.unmount()
@@ -508,11 +654,6 @@ describe('replayScannerLogic', () => {
 
     describe('validation errors', () => {
         it.each([
-            {
-                name: 'flags missing name',
-                setup: () => undefined,
-                expectedErrors: { name: 'Name is required' },
-            },
             {
                 name: 'flags missing prompt',
                 setup: () => undefined,
@@ -586,7 +727,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one tag') }),
+                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one category') }),
                 },
             },
             {
@@ -602,7 +743,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
+                    scanner_config: expect.objectContaining({ tags: 'Categories must be unique' }),
                 },
             },
             {
@@ -618,7 +759,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: "Tags can't be blank" }),
+                    scanner_config: expect.objectContaining({ tags: "Categories can't be blank" }),
                 },
             },
         ])('$name', async ({ setup, expectedErrors }) => {
@@ -762,6 +903,30 @@ describe('replayScannerLogic', () => {
             })
         })
 
+        it('Enter on the details step advances rather than failing validation on unseen fields', async () => {
+            // A from-scratch scanner has an empty prompt, which only the configure step can fix.
+            router.actions.push(urls.replayVisionScannerDetails('new'))
+            scannerEditorSceneLogic.actions.setStep('details')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+        })
+
+        it('keeps the ?template param when a rejected submit jumps to the errored step', async () => {
+            router.actions.push(`${urls.replayVisionScannerTriggers('new')}?template=dead_end`)
+            scannerEditorSceneLogic.actions.setStep('triggers')
+            logic.actions.setScannerValues({ scanner_config: { prompt: '' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
+        it('Enter on an intermediate step advances instead of saving and leaving the wizard', async () => {
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            router.actions.push(urls.replayVisionScannerDetails('limited-1'))
+            await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('limited-1'))
+        })
+
         it('strips the form-only toggle from the update payload', async () => {
             let patchedBody: any
             useMocks({
@@ -773,6 +938,8 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            // Only the final step persists; earlier ones advance, so save from where the button lives.
+            router.actions.push(urls.replayVisionScannerBudget('sid'))
             editLogic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 100 })
             await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
             expect(patchedBody.credit_limit).toBe(100)
@@ -1224,6 +1391,69 @@ describe('replayScannerLogic', () => {
             } finally {
                 sidLogic.unmount()
             }
+        })
+    })
+
+    describe('creation path telemetry', () => {
+        // Both paths end on the same created event, so these captures are the only path marker.
+        it.each([
+            ['dead_end', 'template'],
+            [null, 'scratch'],
+        ])('startFromTemplate(%s) reports the %s path', (templateKey, creationMethod) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.startFromTemplate(templateKey)
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                creation_method: creationMethod,
+                template_key: templateKey,
+            })
+        })
+
+        it('drafting from a goal reports the AI path without the goal text', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('  find users who get stuck  ')
+            }).toFinishAllListeners()
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                creation_method: 'ai',
+                template_key: null,
+                goal_length: 'find users who get stuck'.length,
+            })
+        })
+    })
+
+    describe('rebuildExperimentContext', () => {
+        it('installs the targeting card from the form targeting', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            logic.actions.setScannerValues({ experiment_targeting: { experiment_id: 7, variant: 'control' } })
+
+            await expectLogic(logic, () => logic.actions.rebuildExperimentContext()).toFinishAllListeners()
+
+            expect(logic.values.experimentContext).toEqual({
+                experiment: { id: 7, name: 'Checkout redesign' },
+                variantKey: 'control',
+            })
+        })
+
+        it('does not restore targeting a template pick discarded while the request was in flight', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            logic.actions.setScannerValues({ experiment_targeting: { experiment_id: 7, variant: 'control' } })
+
+            await expectLogic(logic, () => {
+                logic.actions.rebuildExperimentContext()
+                // Fires during the in-flight experiment request; resetScanner drops the form targeting.
+                logic.actions.startFromTemplate(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
+            expect(logic.values.experimentContext).toBeNull()
         })
     })
 })

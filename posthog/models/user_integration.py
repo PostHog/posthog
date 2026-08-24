@@ -97,6 +97,55 @@ class UserIntegration(UUIDModel):
         ]
 
 
+class GitHubInstallRequest(UUIDModel):
+    """Durable record of a personal GitHub App install that an org owner must approve.
+
+    GitHub sends the user back with ``setup_action=request`` (no ``installation_id``) when the
+    installing account isn't an org owner. That wait can take hours to days, so unlike the
+    in-flight connect state machine it needs server-side state the desktop can poll instead of a
+    client-held marker: a row here is the fact of "approval requested"; the
+    ``installation.created`` webhook (see ``posthog.api.github_callback.installation_events``)
+    flips it to ``approved`` once an owner acts. User-scoped like ``UserIntegration``, not
+    team-scoped, because the request predates any team's Integration row.
+
+    ``github_user_id`` is what the webhook matches on, because a pending row can outlive the login
+    it was created under: GitHub logins are renameable and a freed one can be claimed by someone
+    else. ``github_login`` is display data only. A request whose requester we could not resolve at
+    all is ``unidentified`` rather than ``pending``, since no webhook can ever match it.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        APPROVED = "approved"
+        UNIDENTIFIED = "unidentified"
+
+    # db_constraint=False: posthog_user is a hot table, see safe-django-migrations.md.
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="github_install_requests",
+    )
+    github_user_id = models.BigIntegerField(null=True, blank=True)
+    github_login = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    installation_id = models.CharField(max_length=64, null=True, blank=True)
+    # The GitHub org or user the approved installation landed on, from the installation.created
+    # payload. Only known once approved; the request itself doesn't say which org was targeted.
+    account_login = models.CharField(max_length=255, null=True, blank=True)
+    account_type = models.CharField(max_length=32, null=True, blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_github_install_request"
+        indexes = [
+            models.Index(fields=["github_user_id", "status"], name="github_install_req_ghuser_idx"),
+        ]
+
+
 class ReauthorizationRequired(Exception):
     """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 

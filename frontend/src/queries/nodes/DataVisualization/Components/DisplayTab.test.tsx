@@ -172,12 +172,17 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Goals')).not.toBeInTheDocument()
 
+        await user.click(screen.getByText('Show line of best fit'))
+
         await user.click(screen.getByText('X-axis'))
         await user.click(await screen.findByText('Begin at zero'))
 
+        // Both live under `scatter`, so the second write must merge into the first rather than replace it.
         await waitFor(() => {
             expect(query.chartSettings).toEqual(
-                expect.objectContaining({ scatter: expect.objectContaining({ xStartAtZero: true }) })
+                expect.objectContaining({
+                    scatter: expect.objectContaining({ showBestFit: true, xStartAtZero: true }),
+                })
             )
         })
     })

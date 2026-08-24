@@ -26,6 +26,7 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    oauthClientId: string | undefined
     mcpClientName: string | undefined
     mcpClientVersion: string | undefined
     mcpProtocolVersion: string | undefined
@@ -40,6 +41,8 @@ export type State = {
     Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
     Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
+    Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
 

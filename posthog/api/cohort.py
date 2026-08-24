@@ -102,7 +102,7 @@ from products.cohorts.backend.models.util import (
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -648,6 +648,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -668,6 +670,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
         ]

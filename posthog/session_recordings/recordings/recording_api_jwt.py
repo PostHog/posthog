@@ -5,8 +5,8 @@ from django.conf import settings
 
 import structlog
 
-from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.settings.utils import get_list
+from posthog.jwt import PosthogJwtAudience
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 logger = structlog.get_logger(__name__)
 
@@ -17,18 +17,24 @@ RecordingApiOp = Literal["read", "delete"]
 # longer ttl explicitly.
 DEFAULT_RECORDING_API_TOKEN_TTL = timedelta(minutes=5)
 
+RECORDING_API_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.RECORDING_API,
+    settings_name="RECORDING_API_JWT_SECRET",
+    default_ttl=DEFAULT_RECORDING_API_TOKEN_TTL,
+)
+
 
 def recording_api_signing_keys() -> list[str]:
     """The comma-separated `new_key,old_key` set, newest first. Whitespace-trimmed (matching the
     Node verifier's parseJwtKeys) and empty entries dropped."""
-    return [key for key in get_list(settings.RECORDING_API_JWT_SECRET or "") if key]
+    return RECORDING_API_JWT_PURPOSE.signing_keys()
 
 
 def recording_api_jwt_enabled() -> bool:
     """True once a dedicated signing secret is configured. Until then callers fall back to the
     legacy X-Internal-Api-Secret, so the JWT scheme can be rolled out per environment (dev, then
     prod) without leaving any environment unauthenticated in the meantime."""
-    return bool(recording_api_signing_keys())
+    return RECORDING_API_JWT_PURPOSE.enabled()
 
 
 def recording_api_auth_headers(team_id: int, op: RecordingApiOp) -> dict[str, str]:
@@ -50,7 +56,4 @@ def recording_api_auth_headers(team_id: int, op: RecordingApiOp) -> dict[str, st
 def mint_recording_api_token(team_id: int, op: RecordingApiOp, ttl: timedelta = DEFAULT_RECORDING_API_TOKEN_TTL) -> str:
     """Mint a team + operation scoped token for recording-api. Signs with the newest key;
     recording-api verifies against the full key set, so rotation works without breaking callers."""
-    keys = recording_api_signing_keys()
-    if not keys:
-        raise RuntimeError("RECORDING_API_JWT_SECRET is not configured")
-    return encode_jwt({"team_id": team_id, "op": op}, ttl, PosthogJwtAudience.RECORDING_API, signing_key=keys[0])
+    return RECORDING_API_JWT_PURPOSE.mint({"team_id": team_id, "op": op}, ttl=ttl)

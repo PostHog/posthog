@@ -138,3 +138,15 @@ def build_fix_prompt(
         "Stage the fix as a DRAFT with `canvas-draft-create` and wait for its build to be ready. "
         "Do not publish or promote anything: the user reviews the draft and promotes it."
     )
+
+
+def build_agent_request_prompt(canvas: Canvas, prompt: str) -> str:
+    """Wrap the viewer-approved request with the canvas draft workflow."""
+    return (
+        f"A viewer requested a change to canvas {canvas.id}.\n\n"
+        f"<canvas-change-request>\n{prompt}\n</canvas-change-request>\n\n"
+        "Invoke the `building-canvases` skill and follow its workflow. Read the current source with "
+        "`canvas-source-retrieve`. Stage the requested change as a DRAFT with `canvas-draft-create` and wait for "
+        "its build to be ready. Do not publish or promote anything: the canvas creator reviews the draft and "
+        "promotes it."
+    )

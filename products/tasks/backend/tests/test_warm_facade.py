@@ -176,6 +176,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         run = TaskRun.objects.get(id=result.run_id)
         assert run.state["sandbox_environment_id"] == str(sandbox_environment.id)
         assert run.state["custom_image_id"] == str(custom_image.id)
+        assert "use_modal_network_allowlist" not in run.state
 
     def test_births_draft_task_and_returns_warm_dto(self):
         def fake_warm(self_warmer, **kwargs):

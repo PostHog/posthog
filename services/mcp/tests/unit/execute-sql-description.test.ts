@@ -43,13 +43,14 @@ describe('formatExecuteSqlDescription', () => {
 
     // The description ships to every MCP client on every tools/list; keep the flag-gated
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
-    // Budget bumped to 2200 to cover the metric-discovery section (now carrying the
-    // catalog-vs-query-* precedence rule and synonym/derived-form routing) plus the
-    // certification/verified-join trust checklist; keep future additions under this so
-    // bloat still fails the build.
+    // Budget bumped to 2500 to cover the metric-discovery section (now carrying the
+    // catalog-vs-query-* precedence rule, synonym/derived-form and definition-question
+    // routing, and the no-match offer to save a settled measure as a proposed metric)
+    // plus the certification/verified-join trust checklist; keep future additions under
+    // this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const withSection = builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: true })
         const withoutSection = builder.formatExecuteSqlDescription()
-        expect(withSection.length - withoutSection.length).toBeLessThan(2200)
+        expect(withSection.length - withoutSection.length).toBeLessThan(2500)
     })
 })

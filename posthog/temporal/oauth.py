@@ -5,6 +5,8 @@ from uuid import UUID
 from django.conf import settings
 from django.utils import timezone
 
+import structlog
+
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import (
@@ -16,6 +18,8 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
+logger = structlog.get_logger(__name__)
+
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
@@ -24,11 +28,16 @@ POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU = "1A7vO138Fh5sYmJislicN4F5HnttI6urmFttx
 POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
+SIGNALS_APP_CLIENT_ID_US = "jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE"
+SIGNALS_APP_CLIENT_ID_EU = "nqZsiFEbu1fCWDK3r8QtSGwKmmANxVIgfZmTXywk"
+SIGNALS_APP_CLIENT_ID_DEV = "xMT3Nejjbi4lUdhJLkzmCVJKFsx0JsHXdU0pIjl8"
 
 # The LLM gateway authorizes by application id, so these must stay equal to
-# POSTHOG_CODE_DEV_APP_ID / POSTHOG_AI_DEV_APP_ID in llm_gateway/products/config.py.
+# POSTHOG_CODE_DEV_APP_ID / POSTHOG_AI_DEV_APP_ID / SIGNALS_DEV_APP_ID in
+# llm_gateway/products/config.py.
 ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
 POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
+SIGNALS_APP_ID_DEV = "019fb2ee-9d54-0000-61d9-faf825230d44"
 
 POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
     {
@@ -44,9 +53,45 @@ POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
 # issue interactive Desktop grants, so membership in this set does not prove sandbox origin.
 POSTHOG_CODE_OAUTH_APP_CLIENT_IDS = frozenset({ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_DEV})
 
+# The dedicated "Signals" OAuth app, minted for every Signals sandbox run (scouts and
+# report-driven tasks alike). Held apart from the Array app so the LLM gateway can pin the
+# `signals` product to it: while the two share an app, a Signals token also satisfies every
+# other product that app is authorized for, and the product a caller declares is a path
+# segment it chooses, so a per-product budget on a shared app is advisory rather than binding.
+SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        SIGNALS_APP_CLIENT_ID_US,
+        SIGNALS_APP_CLIENT_ID_EU,
+        SIGNALS_APP_CLIENT_ID_DEV,
+    }
+)
+
+# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
+# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
+# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
+# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
+TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
+        *SIGNALS_OAUTH_APP_CLIENT_IDS,
+    }
+)
+
 SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     {
         *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+        *SIGNALS_OAUTH_APP_CLIENT_IDS,
+    }
+)
+
+# The dedicated "PostHog AI" OAuth app. Tokens minted against it are only ever created
+# server-side for PostHog AI sandbox agents, so a request bearing one is authoritatively
+# attributable to PostHog AI regardless of spoofable user-agent or client headers.
+POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
         POSTHOG_AI_APP_CLIENT_ID_US,
         POSTHOG_AI_APP_CLIENT_ID_EU,
         POSTHOG_AI_APP_CLIENT_ID_DEV,
@@ -54,7 +99,11 @@ SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
 )
 
 McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
-SandboxOAuthApplication = Literal["array", "posthog_ai"]
+SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
+
+# Granted only to sandbox runs a person started by hand (see `interactive_run` in
+# posthog/scopes.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
+INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 
 INTERNAL_SCOPES: list[str] = [
@@ -87,6 +136,8 @@ SCOUT_INTERNAL_SCOPES: list[str] = [
 SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
+
+LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -221,9 +272,37 @@ def get_posthog_ai_app() -> OAuthApplication:
     return _get_oauth_app_for_client_id(client_id, "PostHog AI", region)
 
 
+def get_signals_app() -> OAuthApplication | None:
+    """The Signals sandbox app for this region, or None when it isn't provisioned here.
+
+    Unlike the Array and PostHog AI resolvers this one never raises: the application rows are
+    created per region out of band, so callers fall back to the Array app until the row exists
+    rather than failing every Signals run in a region that hasn't been provisioned yet.
+    """
+    region = get_instance_region()
+    client_id = _get_client_id_for_region(
+        region=region,
+        us=SIGNALS_APP_CLIENT_ID_US,
+        eu=SIGNALS_APP_CLIENT_ID_EU,
+        dev=SIGNALS_APP_CLIENT_ID_DEV,
+    )
+    if not client_id:
+        return None
+    return OAuthApplication.objects.filter(client_id=client_id).first()
+
+
 def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAuthApplication:
     if application == "posthog_ai":
         return get_posthog_ai_app()
+    if application == "signals":
+        signals_app = get_signals_app()
+        if signals_app is not None:
+            return signals_app
+        # The gateway no longer accepts Array tokens for the `signals` product, so this run's
+        # inference calls will be rejected there. Minting still succeeds so the failure surfaces
+        # in the run (with this log to explain it) rather than as an opaque kickoff error; the
+        # real fix is provisioning the region's Signals application row.
+        logger.warning("signals_oauth_app_missing_falling_back_to_array", region=get_instance_region())
     return get_array_app()
 
 
@@ -252,6 +331,7 @@ def create_oauth_access_token_for_user(
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
+    include_interactive_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
 ) -> str:
@@ -261,6 +341,10 @@ def create_oauth_access_token_for_user(
         # surface and route the agent through its explicit gateway grants. It
         # does not narrow the token's other scopes.
         resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
+    if include_interactive_run_scope:
+        # Provenance marker only — it grants no access. The LLM gateway meters a run
+        # carrying it against the interactive budget instead of the pipeline's.
+        resolved.append(INTERACTIVE_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
