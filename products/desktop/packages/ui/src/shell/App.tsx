@@ -14,6 +14,7 @@ import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeRea
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
@@ -27,6 +28,7 @@ import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import { track } from "@posthog/ui/shell/analytics";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
+import { beginFirstRun } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
@@ -91,6 +93,12 @@ function App({ devToolbar }: AppProps) {
     wasShowingAiGateRef.current = needsAiApproval;
   }, [needsAiApproval, currentOrg]);
 
+  const spacesLayoutEnabled = useChannelsLayout();
+  // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
+  // a route the user has already moved off.
+  const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
+  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+
   const readyForMainApp =
     isBootstrapped &&
     isAuthenticated &&
@@ -99,6 +107,15 @@ function App({ devToolbar }: AppProps) {
     !needsInviteCode &&
     !needsAiApproval;
   const startupIdentity = getAuthIdentity(authState);
+
+  // Provision, and open the first session, as soon as the user is through the access check.
+  // Onboarding runs next and takes far longer than either call, so starting here is what keeps
+  // the session ready by the time the route resolves instead of the route waiting on it.
+  useEffect(() => {
+    if (!isAuthenticated || hasCodeAccess !== true) return;
+    if (!startupIdentity || !authenticatedClient) return;
+    beginFirstRun(startupIdentity, authenticatedClient);
+  }, [isAuthenticated, hasCodeAccess, startupIdentity, authenticatedClient]);
 
   // Resolve and load the initial route before mounting the router. Reset when
   // the user leaves the main app so a later re-entry starts fresh.
@@ -117,6 +134,7 @@ function App({ devToolbar }: AppProps) {
         const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,
+          spacesLayoutEnabledRef.current,
         );
         if (firstRun) {
           showChannelList(firstRun.generalChannelId);

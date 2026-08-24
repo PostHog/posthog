@@ -732,9 +732,8 @@ export function BrowserTabStrip() {
       navigate({ to: "/new", state });
       return;
     }
-    // #me is provisioned lazily server-side with the channel list (same source
-    // the sidebar's #me row reads); fall back to the new-task screen while it
-    // hasn't loaded yet.
+    // Startup provisions #me, so its absence here means the list has not loaded rather
+    // than that there is nothing to open.
     const personal = channels.find((c) => c.channelType === "personal");
     if (personal) {
       navigate({
