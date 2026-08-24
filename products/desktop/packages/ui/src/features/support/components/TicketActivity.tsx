@@ -4,7 +4,7 @@ import {
 } from "@posthog/core/support/activitySummary";
 import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { Section } from "@posthog/ui/features/support/components/SidebarSection";
+import { Section } from "@posthog/ui/features/support/components/TicketRailSection";
 import { useSupportTicketActivity } from "@posthog/ui/features/support/hooks/useSupportTicketActivity";
 import { useState } from "react";
 

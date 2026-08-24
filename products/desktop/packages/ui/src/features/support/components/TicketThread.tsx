@@ -2,6 +2,18 @@ import { ChatCircleIcon, RobotIcon } from "@phosphor-icons/react";
 import type { SupportTicketMessage } from "@posthog/api-client/posthog-client";
 import {
   Badge,
+  ChatBubble,
+  ChatBubbleContent,
+  ChatMessage,
+  ChatMessageContent,
+  ChatMessageFooter,
+  ChatMessageHeader,
+  ChatMessageScroller,
+  ChatMessageScrollerButton,
+  ChatMessageScrollerContent,
+  ChatMessageScrollerItem,
+  ChatMessageScrollerProvider,
+  ChatMessageScrollerViewport,
   cn,
   Empty,
   EmptyDescription,
@@ -13,23 +25,12 @@ import {
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { messageAuthorLabel } from "@posthog/ui/features/support/ticketPresentation";
-import { useEffect, useRef } from "react";
 
 export function TicketThread({
   messages,
 }: {
   messages: SupportTicketMessage[];
 }) {
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-  const lastMessageId = messages.at(-1)?.id;
-
-  useEffect(() => {
-    if (!lastMessageId) {
-      return;
-    }
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [lastMessageId]);
-
   if (messages.length === 0) {
     return (
       <Empty className="p-6">
@@ -47,14 +48,20 @@ export function TicketThread({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-      <div className="flex flex-col gap-3">
-        {messages.map((message) => (
-          <TicketMessageRow key={message.id} message={message} />
-        ))}
-      </div>
-      <div ref={bottomRef} />
-    </div>
+    <ChatMessageScrollerProvider>
+      <ChatMessageScroller className="min-h-0 flex-1">
+        <ChatMessageScrollerViewport>
+          <ChatMessageScrollerContent density="dense" className="px-4 py-3">
+            {messages.map((message) => (
+              <ChatMessageScrollerItem key={message.id} messageId={message.id}>
+                <TicketMessageRow message={message} />
+              </ChatMessageScrollerItem>
+            ))}
+          </ChatMessageScrollerContent>
+        </ChatMessageScrollerViewport>
+        <ChatMessageScrollerButton />
+      </ChatMessageScroller>
+    </ChatMessageScrollerProvider>
   );
 }
 
@@ -62,17 +69,12 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
   const isNote = message.is_private;
   const fromUs =
     message.author_type === "support" || message.author_type === "AI";
-  const fromCustomer = !fromUs;
+  const align = fromUs ? "end" : "start";
 
   return (
-    <div className={cn("flex", fromUs ? "justify-end" : "justify-start")}>
-      <div className="flex min-w-0 max-w-[85%] flex-col gap-1">
-        <div
-          className={cn(
-            "flex items-baseline gap-2 px-1",
-            fromUs && "flex-row-reverse",
-          )}
-        >
+    <ChatMessage align={align}>
+      <ChatMessageContent>
+        <ChatMessageHeader>
           <Text className="font-medium text-[12px]">
             {messageAuthorLabel(message)}
           </Text>
@@ -85,31 +87,31 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
           <Text className="shrink-0 text-[11px] text-gray-11 tabular-nums">
             {formatRelativeTimeShort(message.created_at)}
           </Text>
-        </div>
+        </ChatMessageHeader>
 
-        <div
-          className={cn(
-            "rounded-(--radius-3) border px-3 py-2",
-            isNote && "border-(--amber-6) bg-(--amber-3)",
-            fromUs && !isNote && "border-transparent bg-fill-selected",
-            fromCustomer && "border-border bg-card",
-          )}
+        <ChatBubble
+          align={align}
+          variant={fromUs && !isNote ? "muted" : "outline"}
+          className={cn(isNote && "border-(--amber-6) bg-(--amber-3)")}
         >
-          {isNote && (
-            <Text className="mb-1 block font-semibold text-(--amber-11) text-[10px] uppercase tracking-wide">
-              Internal note
-            </Text>
-          )}
-          <div className="min-w-0 break-words text-[13px]">
-            <ChatMarkdown content={message.content} />
-          </div>
-          {message.version > 0 && (
-            <Text className="mt-1 block text-[10px] text-muted-foreground">
-              Edited
-            </Text>
-          )}
-        </div>
-      </div>
-    </div>
+          <ChatBubbleContent>
+            {isNote && (
+              <Text className="mb-1 block font-semibold text-(--amber-11) text-[10px] uppercase tracking-wide">
+                Internal note
+              </Text>
+            )}
+            <div className="min-w-0 break-words text-[13px]">
+              <ChatMarkdown content={message.content} />
+            </div>
+          </ChatBubbleContent>
+        </ChatBubble>
+
+        {message.version > 0 && (
+          <ChatMessageFooter>
+            <Text className="text-[10px] text-muted-foreground">Edited</Text>
+          </ChatMessageFooter>
+        )}
+      </ChatMessageContent>
+    </ChatMessage>
   );
 }

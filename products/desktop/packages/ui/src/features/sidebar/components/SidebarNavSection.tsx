@@ -204,7 +204,7 @@ export function SidebarNavSection({
         depth={depth}
         isActive={isSupportActive}
         onClick={withNavTrack("support", navigateToSupport, depth)}
-        unreadCount={supportOpenCount}
+        openCount={supportOpenCount}
       />
     ),
   };

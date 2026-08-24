@@ -213,18 +213,11 @@ export const SUPPORT_HISTORY_PAGE_SIZE = 10;
 export type SupportTicket = Omit<Schemas.Ticket, "tags" | "assignee"> & {
   tags?: string[];
   assignee: Schemas.TicketAssignment | null;
-  identity_verified?: boolean | null;
-  ai_triage?: Record<string, unknown> | null;
-  github_repo?: string | null;
-  github_issue_number?: number | null;
-  organization_id?: string | null;
-  user_access_level?: string | null;
 };
 
 export interface SupportTicketMessage {
   id: string;
   content: string;
-  rich_content: unknown | null;
   author_type?: "customer" | "support" | "AI";
   author_name: string;
   is_private: boolean;

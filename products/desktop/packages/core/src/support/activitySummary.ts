@@ -2,6 +2,7 @@ import type {
   SupportActivityChange,
   SupportActivityEntry,
 } from "@posthog/api-client/posthog-client";
+import { formatAbsoluteDateTime } from "@posthog/shared";
 
 const DATE_FIELDS = new Set(["snoozed_until", "sla_due_at"]);
 
@@ -76,7 +77,7 @@ function formatValue(field: string, value: unknown): string | null {
   }
   if (DATE_FIELDS.has(field) && typeof value === "string") {
     const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
+    return Number.isNaN(parsed) ? value : formatAbsoluteDateTime(parsed);
   }
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;

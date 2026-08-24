@@ -6,14 +6,14 @@ import { SidebarCountBadge } from "./SidebarCountBadge";
 interface SupportItemProps {
   isActive: boolean;
   onClick: () => void;
-  unreadCount?: number;
+  openCount?: number;
   depth?: number;
 }
 
 export function SupportItem({
   isActive,
   onClick,
-  unreadCount = 0,
+  openCount = 0,
   depth = 0,
 }: SupportItemProps) {
   return (
@@ -24,8 +24,8 @@ export function SupportItem({
         <>
           Support
           <SidebarCountBadge
-            count={unreadCount}
-            title={`${unreadCount} tickets with unread replies`}
+            count={openCount}
+            title={`${openCount} open tickets assigned to you`}
           />
         </>
       }

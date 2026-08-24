@@ -4,7 +4,7 @@ import {
 } from "@posthog/api-client/posthog-client";
 import { Badge, Text } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { Section } from "@posthog/ui/features/support/components/SidebarSection";
+import { Section } from "@posthog/ui/features/support/components/TicketRailSection";
 import { useSupportTickets } from "@posthog/ui/features/support/hooks/useSupportTickets";
 import {
   TICKET_STATUS_VARIANTS,

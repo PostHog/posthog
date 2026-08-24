@@ -16,14 +16,15 @@ import {
   Input,
   Text,
 } from "@posthog/quill";
+import { formatAbsoluteDateTime } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { TicketActivity } from "@posthog/ui/features/support/components/TicketActivity";
+import { TicketHistory } from "@posthog/ui/features/support/components/TicketHistory";
 import {
   Row,
   Section,
-} from "@posthog/ui/features/support/components/SidebarSection";
-import { TicketActivity } from "@posthog/ui/features/support/components/TicketActivity";
-import { TicketHistory } from "@posthog/ui/features/support/components/TicketHistory";
+} from "@posthog/ui/features/support/components/TicketRailSection";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
 import {
   TICKET_PRIORITY_LABELS,
@@ -65,6 +66,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
       <Section title="Ticket">
         <Row label="Status">
           <PickerMenu
+            label="Status"
             trigger={
               <Badge variant={TICKET_STATUS_VARIANTS[ticket.status ?? "new"]}>
                 {ticketStatusLabel(ticket.status)}
@@ -83,6 +85,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
 
         <Row label="Priority">
           <PickerMenu
+            label="Priority"
             trigger={
               ticket.priority ? (
                 <Badge variant={TICKET_PRIORITY_VARIANTS[ticket.priority]}>
@@ -113,6 +116,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
 
         <Row label="Assignee">
           <PickerMenu
+            label="Assignee"
             trigger={
               <Text className="text-[12px]">{ticketAssigneeName(ticket)}</Text>
             }
@@ -120,6 +124,9 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
             options={[
               ...(currentUserId ? [{ value: "me", label: "Me" }] : []),
               { value: "none", label: "Unassigned" },
+              ...(ticket.assignee && !assignedToMe
+                ? [{ value: "other", label: ticketAssigneeName(ticket) }]
+                : []),
             ]}
             onSelect={(value) =>
               write({
@@ -256,15 +263,17 @@ function formatSnoozedUntil(snoozedUntil: string | null | undefined): string {
     return "";
   }
   const until = Date.parse(snoozedUntil);
-  return Number.isNaN(until) ? "" : `until ${new Date(until).toLocaleString()}`;
+  return Number.isNaN(until) ? "" : `until ${formatAbsoluteDateTime(until)}`;
 }
 
 function PickerMenu({
+  label,
   trigger,
   value,
   options,
   onSelect,
 }: {
+  label: string;
   trigger: ReactNode;
   value: string;
   options: Array<{ value: string; label: string }>;
@@ -274,7 +283,7 @@ function PickerMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="default" size="sm">
+          <Button variant="default" size="sm" aria-label={label}>
             {trigger}
             <CaretDownIcon size={10} weight="bold" />
           </Button>
