@@ -4,25 +4,6 @@ from django.db import migrations, models
 import products.stamphog.backend.facade.enums
 
 
-def backfill_destinations(apps, schema_editor):
-    """Copy each run's destination off the channel row it used to point at.
-
-    Without this every past run reads back with an empty audience and channel, so the history shows
-    a blank destination for work that did have one, and the claim floor treats every existing
-    audience as one that has never posted.
-    """
-    run_table = apps.get_model("stamphog", "DigestRun")._meta.db_table
-    channel_table = apps.get_model("stamphog", "DigestChannel")._meta.db_table
-    schema_editor.execute(
-        f'UPDATE "{run_table}" AS r SET '
-        '"audience_key" = c."audience_key", '
-        '"slack_channel_id" = c."slack_channel_id", '
-        '"slack_channel_name" = c."slack_channel_name", '
-        '"resolution_source" = c."resolution_source" '
-        f'FROM "{channel_table}" AS c WHERE r."digest_channel_id" = c."id"'
-    )
-
-
 class Migration(migrations.Migration):
     """Move the digest destination onto the run, and retire the channel table from state.
 
@@ -30,10 +11,14 @@ class Migration(migrations.Migration):
     run has to record where it actually posted. A foreign key to a row that later re-resolves would
     rewrite the destination of every past digest that pointed at it.
 
-    The channel table and the ``digest_channel_id`` column stay in the database. Pods running the
-    previous release still read both during a rolling deploy, so this migration only drops the NOT
-    NULL that would reject a row the new code writes without them. A later migration drops the
-    column and the table for real, once no running release refers to either.
+    The channel table and the ``digest_channel_id`` column stay in the database. Pods on the
+    previous release still read both during a rolling deploy. This migration therefore only drops
+    the NOT NULL that would reject a row the new code writes without them. A later migration drops
+    the column and the table, once no running release reads either.
+
+    Schema only. The backfill and the state removal live in 0004, because the migration analyzer
+    blocks a data migration that shares a file with schema changes: the data migration can hold a
+    lock while the schema changes wait on it.
     """
 
     dependencies = [("stamphog", "0002_digest_audiences_and_summaries")]
@@ -80,13 +65,5 @@ class Migration(migrations.Migration):
                 related_name="runs",
                 to="stamphog.digestchannel",
             ),
-        ),
-        # Runs before the model leaves state, while the channel rows are still reachable.
-        migrations.RunPython(backfill_destinations, migrations.RunPython.noop, elidable=True),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.RemoveField(model_name="digestrun", name="digest_channel"),
-                migrations.DeleteModel(name="DigestChannel"),
-            ],
         ),
     ]

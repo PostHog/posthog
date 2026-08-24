@@ -20,6 +20,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from ..facade.enums import DigestRunStatus
 from ..models import DigestRun, PullRequestAudience
 from .channel_resolution import (
@@ -53,6 +55,15 @@ STALE_PENDING_RUN_MINUTES = 60
 # a Slack-accepted digest into a duplicate re-send, so retry the write a few times first.
 _PROOF_OF_POST_WRITE_ATTEMPTS = 3
 _PROOF_OF_POST_WRITE_RETRY_SECONDS = 0.2
+
+
+@frozen
+class _ClaimedGroup:
+    """One destination's share of a claim, and the run opened to post it."""
+
+    run: DigestRun
+    destination: Destination
+    audiences: list[PullRequestAudience]
 
 
 def _previous_run_slot(now: datetime) -> datetime:
@@ -139,13 +150,9 @@ def _write_proof_of_post(team_id: int, run_id: str, message_ts: str | None, pr_c
             time.sleep(_PROOF_OF_POST_WRITE_RETRY_SECONDS)
 
 
-def _post_group(
-    team_id: int,
-    run: DigestRun,
-    destination: Destination,
-    audiences: list[PullRequestAudience],
-) -> None:
+def _post_group(team_id: int, group: _ClaimedGroup) -> None:
     """Summarize one destination's share of a claim and post it. Runs outside the claim transaction."""
+    run, destination, audiences = group.run, group.destination, group.audiences
     prs = [audience.pull_request for audience in audiences]
     audience_ids = [audience.id for audience in audiences]
     summary = summarize_merged_prs(prs, audiences)
@@ -209,7 +216,7 @@ def _post_group(
 
 def _claim_and_partition(
     team_id: int, audience_key: str, claim_floor: datetime, context: RoutingContext
-) -> list[tuple[DigestRun, Destination, list[PullRequestAudience]]]:
+) -> list[_ClaimedGroup]:
     """Lock this audience's unposted merges, split them by destination, and open one run per group.
 
     Claiming before posting is what stops two concurrent runs for one audience from both posting.
@@ -239,7 +246,7 @@ def _claim_and_partition(
     select_for_update lock and the writes would run outside any transaction on the product DB.
     """
     write_db = router.db_for_write(PullRequestAudience)
-    opened: list[tuple[DigestRun, Destination, list[PullRequestAudience]]] = []
+    opened: list[_ClaimedGroup] = []
 
     destination_by_repo = {
         repository: destination
@@ -281,7 +288,7 @@ def _claim_and_partition(
                 status=DigestRunStatus.PENDING,
             )
             PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in group]).update(digest_run=run)
-            opened.append((run, destination, group))
+            opened.append(_ClaimedGroup(run=run, destination=destination, audiences=group))
 
     return opened
 
@@ -329,8 +336,8 @@ def post_team_digests(team_id: int, audience_keys: list[str]) -> None:
 
     for audience_key in audience_keys:
         try:
-            for run, destination, group in _claim_and_partition(team_id, audience_key, floors[audience_key], context):
-                _post_group(team_id, run, destination, group)
+            for group in _claim_and_partition(team_id, audience_key, floors[audience_key], context):
+                _post_group(team_id, group)
         except Exception:
             logger.exception("stamphog_digest_audience_failed", team_id=team_id, audience_key=audience_key)
 
