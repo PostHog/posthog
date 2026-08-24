@@ -156,9 +156,12 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         # individually edited or restored while their parent is soft-deleted.
         # They reappear automatically when the parent is restored. Mirrors how
         # alerts behave (see posthog/temporal/alerts/activities.py).
+        # Gated on scope: every annotation records the insight and dashboard it was
+        # created from, so a project- or organization-scoped one would otherwise
+        # disappear project-wide once that parent is deleted.
         queryset = queryset.filter(
-            Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
-            Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
+            ~Q(scope=Annotation.Scope.INSIGHT) | Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
+            ~Q(scope=Annotation.Scope.DASHBOARD) | Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
         )
 
         scope = self.request.query_params.get("scope")

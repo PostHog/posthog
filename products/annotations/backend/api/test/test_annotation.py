@@ -659,6 +659,38 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
         assert annotation.id in {a["id"] for a in list_response.json()["results"]}
 
+    @parameterized.expand(
+        [
+            ("project_scope_deleted_dashboard", Annotation.Scope.PROJECT, "dashboard"),
+            ("project_scope_deleted_insight", Annotation.Scope.PROJECT, "insight"),
+            ("organization_scope_deleted_dashboard", Annotation.Scope.ORGANIZATION, "dashboard"),
+        ]
+    )
+    def test_project_wide_annotations_survive_a_soft_deleted_parent(
+        self, _name: str, scope: str, parent_kind: str
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="My Insight")
+        dashboard = Dashboard.objects.create(team=self.team, name="My Dashboard")
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=scope,
+            dashboard_item=insight,
+            dashboard=dashboard,
+        )
+
+        parent = dashboard if parent_kind == "dashboard" else insight
+        parent.deleted = True
+        parent.save()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+        assert annotation.id in {a["id"] for a in list_response.json()["results"]}
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/")
+        assert retrieve_response.status_code == status.HTTP_200_OK
+
     def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
