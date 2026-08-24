@@ -7,9 +7,12 @@
 # ///
 """Compare test selection against actual JUnit failures to produce a verdict.
 
-Evaluates whether the shadow test selector would have caught the tests
-that actually failed in CI. Outputs a JSON verdict suitable for batch
-collection across PRs.
+Evaluates whether the shadow test selector would have caught the tests that
+actually failed in CI, separately for the two matrices ci-backend runs: the
+Django shards (junit-results-backend-* artifacts) and the product shards
+(product-junit-results-* artifacts). The product side is scored twice: by test
+file, like Django, and by product, which is the grain the product matrix is
+built at. Outputs a JSON verdict suitable for batch collection across PRs.
 """
 
 from __future__ import annotations
@@ -21,6 +24,16 @@ import argparse
 from pathlib import Path
 
 from defusedxml import ElementTree
+
+DJANGO = "django"
+PRODUCTS = "products"
+
+# select-tests only runs on PRs, so these are empty on every other trigger.
+CONTEXT_ENV_VARS = {
+    "selection_mode": "SELECTION_MODE",
+    "selection_skip_reason": "SELECTION_SKIP_REASON",
+    "run_legacy_reason": "RUN_LEGACY_REASON",
+}
 
 
 def classname_to_filepath(classname: str) -> str:
@@ -44,8 +57,28 @@ def classname_to_filepath(classname: str) -> str:
     return "/".join(file_parts) + ".py"
 
 
-def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int, int]:
-    """Parse all JUnit XML files and return (failed_test_files, total_tests_run, xml_files_seen)."""
+def junit_side(xml_file: Path, junit_dir: Path) -> str:
+    """Which matrix produced a JUnit file.
+
+    download-artifact unpacks each artifact into a directory named after it, so the
+    first path component under junit_dir is the artifact name. turbo-tests stages its
+    files as junit-product-<name>.xml, which also identifies a file on its own.
+    """
+    try:
+        artifact = xml_file.relative_to(junit_dir).parts[0]
+    except ValueError:
+        artifact = ""
+    if artifact.startswith("product-junit-results-") or xml_file.name.startswith("junit-product-"):
+        return PRODUCTS
+    return DJANGO
+
+
+def parse_junit_failures(junit_dir: Path, side: str | None = None) -> tuple[list[str], int, int]:
+    """Parse JUnit XML files and return (failed_test_files, total_tests_run, xml_files_seen).
+
+    With `side`, only files from that matrix count; the others are invisible to
+    all three results.
+    """
     failed_files: set[str] = set()
     total_tests = 0
     xml_files_seen = 0
@@ -54,6 +87,8 @@ def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int, int]:
         return [], 0, 0
 
     for xml_file in sorted(junit_dir.rglob("*.xml")):
+        if side is not None and junit_side(xml_file, junit_dir) != side:
+            continue
         xml_files_seen += 1
         try:
             tree = ElementTree.parse(xml_file)
@@ -85,124 +120,167 @@ def parse_junit_failures(junit_dir: Path) -> tuple[list[str], int, int]:
     return sorted(failed_files), total_tests, xml_files_seen
 
 
-def compute_verdict(
-    selection_path: Path,
-    junit_dir: Path,
+def product_of(path: str) -> str | None:
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[0] == "products":
+        return parts[1]
+    return None
+
+
+def score(failed: list[str], selected: set[str], full_run_triggered: bool) -> tuple[list[str], list[str], float | None]:
+    """Split failures into caught and missed. Returns (caught, missed, recall).
+
+    A selector that asked for a full run would have executed every failure, so
+    counting those as missed against the narrowed list would skew recall.
+    """
+    if not failed:
+        return [], [], None
+    if full_run_triggered:
+        return list(failed), [], 1.0
+    caught = sorted(f for f in failed if f in selected)
+    missed = sorted(f for f in failed if f not in selected)
+    return caught, missed, len(caught) / len(failed)
+
+
+def side_verdict(
+    failed_test_files: list[str],
+    total_tests_run: int,
+    xml_files_seen: int,
+    selected: set[str],
+    full_run_triggered: bool,
 ) -> dict[str, object]:
+    # No JUnit XMLs means we don't actually know what happened: the upstream
+    # artifact upload may have failed, the job may have run before tests
+    # finished, or this matrix was skipped. Emit "unknown" rather than the
+    # misleading "success" we'd otherwise infer from "0 failures observed".
+    if xml_files_seen == 0:
+        conclusion = "unknown"
+    elif not failed_test_files:
+        conclusion = "success"
+    else:
+        conclusion = "failure"
+
+    caught, missed, recall = score(failed_test_files, selected, full_run_triggered)
+    return {
+        "conclusion": conclusion,
+        "junit_xml_files_seen": xml_files_seen,
+        "total_tests_run": total_tests_run,
+        "failure_count": len(failed_test_files),
+        "failed_test_files": failed_test_files,
+        "caught": caught,
+        "missed": missed,
+        "recall": recall,
+    }
+
+
+def product_level(failed_files: list[str], selected: set[str], full_run_triggered: bool) -> dict[str, object]:
+    """Score the product side at the grain the product matrix is built at.
+
+    The question is whether a product matrix narrowed to the products the selector
+    touched would still have run the failing product's suite.
+    """
+    selected_products = sorted({p for p in (product_of(t) for t in selected) if p})
+    failed_products = sorted({p for p in (product_of(f) for f in failed_files) if p})
+    caught, missed, recall = score(failed_products, set(selected_products), full_run_triggered)
+    return {
+        "selected_products": selected_products,
+        "failed_products": failed_products,
+        "caught_products": caught,
+        "missed_products": missed,
+        "product_recall": recall,
+    }
+
+
+def compute_verdict(selection_path: Path, junit_dir: Path) -> dict[str, object]:
     """Build the verdict JSON comparing selection against actual failures."""
     with open(selection_path) as f:
         selection = json.load(f)
 
-    failed_test_files, total_tests_run, xml_files_seen = parse_junit_failures(junit_dir)
-
     combined = selection.get("combined", {})
     selected_tests: list[str] = combined.get("tests", [])
-    selected_set = set(selected_tests)
+    selected = set(selected_tests)
 
     ast_data = selection.get("ast", {})
     full_run_reasons: list[str] = ast_data.get("full_run_reasons", [])
     full_run_triggered = len(full_run_reasons) > 0
 
-    # No JUnit XMLs means we don't actually know what happened — the upstream
-    # artifact upload may have failed or the job may have run before tests
-    # finished. Emit "unknown" rather than the misleading "success" we'd
-    # otherwise infer from "0 failures observed".
-    if xml_files_seen == 0:
-        conclusion = "unknown"
-        recall: float | None = None
-        caught: list[str] = []
-        missed: list[str] = []
-    elif not failed_test_files:
-        conclusion = "success"
-        recall = None
-        caught = []
-        missed = []
-    elif full_run_triggered:
-        # Selector explicitly opted into running the whole suite, so every
-        # failure would have been executed. Recording these as "missed"
-        # against `combined.tests` would skew the recall metric.
-        conclusion = "failure"
-        caught = list(failed_test_files)
-        missed = []
-        recall = 1.0
-    else:
-        conclusion = "failure"
-        caught = sorted(f for f in failed_test_files if f in selected_set)
-        missed = sorted(f for f in failed_test_files if f not in selected_set)
-        recall = len(caught) / len(failed_test_files)
-
-    pr = os.environ.get("PR_NUMBER", "")
-    sha = os.environ.get("PR_SHA", "")
-    branch = os.environ.get("PR_BRANCH", "")
+    django = side_verdict(*parse_junit_failures(junit_dir, DJANGO), selected, full_run_triggered)
+    product_failures = parse_junit_failures(junit_dir, PRODUCTS)
+    products = side_verdict(*product_failures, selected, full_run_triggered)
+    products.update(product_level(product_failures[0], selected, full_run_triggered))
 
     return {
-        "pr": pr,
-        "sha": sha,
-        "branch": branch,
-        "backend_conclusion": conclusion,
-        "junit_xml_files_seen": xml_files_seen,
-        "total_tests_run": total_tests_run,
-        "failure_count": len(failed_test_files),
-        "failed_test_files": failed_test_files,
+        "pr": os.environ.get("PR_NUMBER", ""),
+        "sha": os.environ.get("PR_SHA", ""),
+        "branch": os.environ.get("PR_BRANCH", ""),
+        **{key: os.environ.get(var, "") for key, var in CONTEXT_ENV_VARS.items()},
         "selected_test_count": len(selected_tests),
-        "caught": caught,
-        "missed": missed,
-        "recall": recall,
         "full_run_triggered": full_run_triggered,
         "full_run_reasons": full_run_reasons,
+        DJANGO: django,
+        PRODUCTS: products,
     }
+
+
+def format_side(title: str, side: dict[str, object]) -> list[str]:
+    lines: list[str] = [f"### {title}", ""]
+    conclusion = side["conclusion"]
+    failure_count = side["failure_count"]
+    recall = side["recall"]
+
+    if conclusion == "unknown":
+        lines.append("Conclusion unknown. No JUnit XML artifacts were found for this matrix.")
+    elif conclusion == "success":
+        lines.append("Passed. No failures to evaluate recall against.")
+    else:
+        recall_str = f"{recall:.0%}" if isinstance(recall, float) else "n/a"
+        lines.append(f"**File recall: {recall_str}** ({failure_count} failed test files)")
+        product_recall = side.get("product_recall")
+        if isinstance(product_recall, float):
+            failed_products = side.get("failed_products", [])
+            assert isinstance(failed_products, list)
+            lines.append(f"**Product recall: {product_recall:.0%}** ({len(failed_products)} failed products)")
+        lines.append("")
+
+        for label, key in (("Caught", "caught"), ("Missed", "missed"), ("Missed products", "missed_products")):
+            items = side.get(key, [])
+            assert isinstance(items, list)
+            if items:
+                lines.append("")
+                lines.append(f"**{label}** ({len(items)}):")
+                lines.extend(f"- `{item}`" for item in items)
+
+    lines.append("")
+    return lines
 
 
 def format_summary(verdict: dict[str, object]) -> str:
     """Produce a concise markdown summary for GITHUB_STEP_SUMMARY."""
-    lines: list[str] = []
-    lines.append("## Test selection verdict")
+    lines: list[str] = ["## Test selection verdict", ""]
+
+    context = ", ".join(f"{key}={verdict[key]}" for key in CONTEXT_ENV_VARS if verdict.get(key))
+    lines.append(
+        f"{verdict['selected_test_count']} tests selected by the shadow selector" + (f" ({context})" if context else "")
+    )
+    if verdict.get("full_run_triggered"):
+        lines.append("")
+        lines.append("Full-run mode was active, so every failure counts as caught.")
     lines.append("")
 
-    conclusion = verdict["backend_conclusion"]
-    failure_count = verdict["failure_count"]
-    recall = verdict["recall"]
-    selected = verdict["selected_test_count"]
-    full_run_triggered = verdict.get("full_run_triggered", False)
-
-    if conclusion == "unknown":
-        lines.append("Backend conclusion unknown — no JUnit XML artifacts were found.")
-        lines.append("")
-        lines.append(f"{selected} tests would have been selected by the shadow selector.")
-    elif conclusion == "success":
-        lines.append(f"Backend passed. {selected} tests were selected by the shadow selector.")
-        lines.append("")
-        lines.append("No failures to evaluate recall against.")
-    else:
-        recall_str = f"{recall:.0%}" if recall is not None else "n/a"
-        lines.append(f"**Recall: {recall_str}** ({failure_count} failed test files, {selected} selected)")
-        if full_run_triggered:
-            lines.append("")
-            lines.append("Full-run mode was active, so every failure counts as caught.")
-        lines.append("")
-
-        caught = verdict.get("caught", [])
-        missed = verdict.get("missed", [])
-
-        if caught:
-            lines.append(f"**Caught** ({len(caught)}):")
-            for f in caught:
-                lines.append(f"- `{f}`")
-
-        if missed:
-            lines.append("")
-            lines.append(f"**Missed** ({len(missed)}):")
-            for f in missed:
-                lines.append(f"- `{f}`")
+    django = verdict[DJANGO]
+    products = verdict[PRODUCTS]
+    assert isinstance(django, dict)
+    assert isinstance(products, dict)
+    lines.extend(format_side("Django matrix", django))
+    lines.extend(format_side("Product matrix", products))
 
     full_run_reasons = verdict.get("full_run_reasons", [])
+    assert isinstance(full_run_reasons, list)
     if full_run_reasons:
+        lines.append("**Full-run triggered**, so the selector would have run everything anyway:")
+        lines.extend(f"- {reason}" for reason in full_run_reasons)
         lines.append("")
-        lines.append("**Full-run triggered** — selector would have run everything anyway:")
-        for reason in full_run_reasons:
-            lines.append(f"- {reason}")
 
-    lines.append("")
     return "\n".join(lines)
 
 

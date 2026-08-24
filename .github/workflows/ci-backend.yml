@@ -3874,8 +3874,13 @@ jobs:
         if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
+        # Security invariant: this job runs PR-head-controlled scripts (the selector and the
+        # verdict). Never add secrets beyond github.token here; capture-test-selection-verdict
+        # below holds the DevEx token and reads only this job's output.
         permissions:
             contents: read
+        outputs:
+            telemetry: ${{ steps.telemetry.outputs.json }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -3887,10 +3892,12 @@ jobs:
               with:
                   version: '0.11.28'
 
+            # Both matrices: the verdict scores the Django shards and the product shards
+            # separately, telling them apart by artifact name.
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  pattern: junit-results-backend-*
+                  pattern: '{junit-results-backend,product-junit-results}-*'
                   path: /tmp/junit-results/
               continue-on-error: true
 
@@ -3926,6 +3933,12 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_SHA: ${{ github.event.pull_request.head.sha }}
                   PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  # What select-tests decided for this run. A verdict computed on a run where
+                  # selection was not trusted (mode=full, skip_reason=untrusted) is the shadow
+                  # measurement for widening the trust rule, so the reason has to travel with it.
+                  SELECTION_MODE: ${{ needs.select-tests.outputs.mode }}
+                  SELECTION_SKIP_REASON: ${{ needs.select-tests.outputs.skip_reason }}
+                  RUN_LEGACY_REASON: ${{ needs.select-tests.outputs.run_legacy_reason }}
               run: |
                   set -euo pipefail
                   mkdir -p /tmp/verdict
@@ -3957,6 +3970,71 @@ jobs:
                   name: test-selection-verdict-pr${{ github.event.pull_request.number }}
                   path: /tmp/verdict/
                   retention-days: 90
+
+            # Counts only, never the file lists: event properties stay small and the query side
+            # groups by reason and conclusion, not by test file.
+            - name: Summarize the verdict for telemetry
+              id: telemetry
+              env:
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+              run: |
+                  {
+                      echo 'json<<VERDICT_EOF'
+                      jq -c --arg run_id "$RUN_ID" --argjson run_attempt "$RUN_ATTEMPT" '{
+                          suite: "backend",
+                          run_id: $run_id,
+                          run_attempt: $run_attempt,
+                          pr_number: (.pr | tonumber? // null),
+                          sha,
+                          branch,
+                          selection_mode,
+                          selection_skip_reason,
+                          run_legacy_reason,
+                          selected_test_count,
+                          full_run_triggered,
+                          full_run_reasons_count: (.full_run_reasons | length),
+                          django_conclusion: .django.conclusion,
+                          django_failure_count: .django.failure_count,
+                          django_caught_count: (.django.caught | length),
+                          django_missed_count: (.django.missed | length),
+                          django_recall: .django.recall,
+                          products_conclusion: .products.conclusion,
+                          products_failure_count: .products.failure_count,
+                          products_caught_count: (.products.caught | length),
+                          products_missed_count: (.products.missed | length),
+                          products_recall: .products.recall,
+                          products_selected_product_count: (.products.selected_products | length),
+                          products_failed_product_count: (.products.failed_products | length),
+                          products_missed_product_count: (.products.missed_products | length),
+                          products_product_recall: .products.product_recall
+                      }' /tmp/verdict/verdict.json
+                      echo 'VERDICT_EOF'
+                  } >> "$GITHUB_OUTPUT"
+
+    capture-test-selection-verdict:
+        name: Capture test selection verdict
+        needs: [test-selection-verdict]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Its own job so the DevEx token never reaches test-selection-verdict, which runs
+        # PR-head scripts. Same-repo PRs only: forks and Dependabot never have the secret.
+        # Every attempt, unlike capture-test-selection: a re-run that recovers a flake changes
+        # the verdict, and the query side keeps the latest attempt per run_id.
+        # continue-on-error so telemetry never reds CI.
+        if: |
+            !cancelled()
+            && needs.test-selection-verdict.result == 'success'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        steps:
+            - name: Capture test selection verdict to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection-verdict'
+                  properties: ${{ needs.test-selection-verdict.outputs.telemetry }}
 
     calculate-running-time:
         name: Calculate running time

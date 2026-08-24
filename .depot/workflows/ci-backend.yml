@@ -17,8 +17,9 @@
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
 #   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
-#   capture-test-selection job — select-tests still emits its telemetry outputs to
-#   stay apples-to-apples, they just have no consumer here),
+#   capture-test-selection and capture-test-selection-verdict jobs — select-tests
+#   still emits its telemetry outputs to stay apples-to-apples, they just have no
+#   consumer here),
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
