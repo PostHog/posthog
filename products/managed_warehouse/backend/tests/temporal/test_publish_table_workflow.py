@@ -66,6 +66,7 @@ class TestPublishTableActivities(BaseTest):
 
         assert superseded is None
         publication.refresh_from_db()
+        assert publication.saved_query_id is not None
         saved_query = DataWarehouseSavedQuery.objects.get(id=publication.saved_query_id)
         assert publication.status == ManagedWarehousePublishedTable.Status.COMPLETED
         assert publication.folder_version == "20260720120000"
@@ -266,6 +267,7 @@ class TestPublishTableActivities(BaseTest):
         publication.refresh_from_db()
         assert publication.status == ManagedWarehousePublishedTable.Status.FAILED
         assert publication.last_error == "COPY failed: out of memory"
+        assert publication.saved_query_id is not None
         saved_query = DataWarehouseSavedQuery.objects.get(id=publication.saved_query_id)
         assert saved_query.status == DataWarehouseSavedQuery.Status.FAILED
         assert saved_query.latest_error == "COPY failed: out of memory"

@@ -56,8 +56,11 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
+    delete_publication,
+    get_publication,
     pause_saved_query_schedule,
     saved_query_workflow_exists,
+    start_publish_workflow,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
@@ -399,12 +402,10 @@ def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
-        from products.data_warehouse.backend.logic import managed_warehouse_publish
-
-        publication = managed_warehouse_publish.get_publication(saved_query.team_id, saved_query.id)
+        publication = get_publication(saved_query.team_id, saved_query.id)
         if publication is None:
             raise serializers.ValidationError("This published table is no longer available.")
-        managed_warehouse_publish.delete_publication(publication)
+        delete_publication(publication)
         return
 
     if saved_query.managed_viewset is not None:
@@ -1682,12 +1683,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query = self.get_object()
 
         if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
-            from products.data_warehouse.backend.logic import managed_warehouse_publish
-
-            publication = managed_warehouse_publish.get_publication(saved_query.team_id, saved_query.id)
+            publication = get_publication(saved_query.team_id, saved_query.id)
             if publication is None:
                 raise serializers.ValidationError("This published table is no longer available.")
-            managed_warehouse_publish.start_publish_workflow(publication)
+            start_publish_workflow(publication)
             return response.Response(status=status.HTTP_200_OK)
 
         if body.validated_data["full_refresh"]:

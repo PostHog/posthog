@@ -31,7 +31,7 @@ def _to_record(saved_query: DataWarehouseSavedQuery) -> ManagedWarehouseSavedQue
         latest_error=saved_query.latest_error,
         table_id=saved_query.table_id,
         row_count=table.row_count if table is not None else None,
-        deleted=saved_query.deleted,
+        deleted=bool(saved_query.deleted),
     )
 
 
