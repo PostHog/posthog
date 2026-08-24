@@ -317,6 +317,22 @@ export type ProcessLogMessageBufferResult = {
 }
 
 /**
+ * How much work `processLogMessageBuffer` does with a buffer, cheapest first: `passthrough` forwards
+ * it untouched, `decode_only` decodes for a visitor then forwards the original, `decode_and_reencode`
+ * decodes, transforms and encodes again. Both branches below read this, so the rule has one
+ * expression. A caller about to add a stage asks first, to price what that stage costs the batch.
+ */
+export type BufferHandling = 'passthrough' | 'decode_only' | 'decode_and_reencode'
+
+export function bufferHandling(settings: LogsSettings, stageCount: number, hasVisitor: boolean): BufferHandling {
+    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    if (normalizeActive || stageCount > 0) {
+        return 'decode_and_reencode'
+    }
+    return hasVisitor ? 'decode_only' : 'passthrough'
+}
+
+/**
  * The single decode → transform → encode path for a log message buffer.
  * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off, there are no `stages`, and
  * no `onRecordsDecoded` visitor.
@@ -340,10 +356,9 @@ export const processLogMessageBuffer = instrumented({
     const { onRecordsDecoded, stages = [] } = options
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
-    const normalizeActive = jsonParse || piiScrub
-    const mustReencode = normalizeActive || stages.length > 0
+    const handling = bufferHandling(settings, stages.length, Boolean(onRecordsDecoded))
 
-    if (!mustReencode && !onRecordsDecoded) {
+    if (handling === 'passthrough') {
         // Passthrough: nothing mutates or drops and no visitor needs the records — forward untouched.
         return { value: buffer, pii: EMPTY_PII, drops: EMPTY_DROP_STATS() }
     }
@@ -372,7 +387,7 @@ export const processLogMessageBuffer = instrumented({
             // already-empty batch so the caller can attribute it correctly.
             return { value: null, pii, drops: stats }
         }
-        if (!mustReencode) {
+        if (handling === 'decode_only') {
             // Only a visitor ran and records survive — the buffer is unchanged, so forward it without
             // re-encoding.
             return { value: buffer, pii, drops: stats }

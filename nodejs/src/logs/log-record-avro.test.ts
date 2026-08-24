@@ -6,6 +6,7 @@ import * as logBodyParse from './log-body-parse'
 import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'
 import {
     LogRecord,
+    bufferHandling,
     decodeLogRecords,
     encodeLogRecords,
     enrichLogRecordWithJsonAttributes,
@@ -520,6 +521,19 @@ describe('log-record-avro', () => {
 
             expect(out).toBe(inputBuffer)
             expect(pii).toEqual({ piiReplacements: 0 })
+        })
+
+        // Callers use these exact semantics to price what adding a stage costs a batch. `decode_only`
+        // matters as much as `passthrough`: adding a stage to such a batch buys it a full encode.
+        it.each([
+            ['everything off', {}, 0, false, 'passthrough'],
+            ['json parse on', { json_parse_logs: true }, 0, false, 'decode_and_reencode'],
+            ['pii scrub on', { pii_scrub_logs: true }, 0, false, 'decode_and_reencode'],
+            ['a stage present', {}, 1, false, 'decode_and_reencode'],
+            ['a decoded-records visitor present', {}, 0, true, 'decode_only'],
+            ['a visitor and a stage', {}, 1, true, 'decode_and_reencode'],
+        ])('bufferHandling: %s', (_name, settings, stageCount, hasVisitor, expected) => {
+            expect(bufferHandling(settings, stageCount, hasVisitor)).toEqual(expected)
         })
 
         it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {
