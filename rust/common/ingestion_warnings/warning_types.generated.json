@@ -290,6 +290,12 @@
       "captureProduced": false
     },
     {
+      "type": "replay_message_clock_skew",
+      "category": "replay",
+      "severity": "warning",
+      "captureProduced": false
+    },
+    {
       "type": "schema_validation_failed",
       "category": "event",
       "severity": "error",

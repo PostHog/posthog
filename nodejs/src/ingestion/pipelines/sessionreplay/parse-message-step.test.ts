@@ -1,10 +1,16 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep, decompressMessageValue } from './parse-message-step'
+import {
+    ParseMessageStepInput,
+    createParseMessageStep,
+    decompressMessageValue,
+    detectClockSkew,
+} from './parse-message-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
@@ -592,6 +598,46 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('clock skew detection', () => {
+        const HOUR_MS = 60 * 60 * 1000
+        const eventEnd = DateTime.fromMillis(fixedTimeMs)
+
+        it.each([
+            ['device clock 1h behind server', fixedTimeMs + HOUR_MS, 'device_behind', HOUR_MS],
+            ['device clock 1h ahead of server', fixedTimeMs - HOUR_MS, 'device_ahead', -HOUR_MS],
+            ['exactly at the 5-minute threshold', fixedTimeMs + 5 * 60 * 1000, 'device_behind', 5 * 60 * 1000],
+        ])('warns when %s', (_desc, messageTimestamp, direction, skewMs) => {
+            const warning = detectClockSkew(messageTimestamp, eventEnd, 'session-1')
+            expect(warning).not.toBeNull()
+            expect(warning?.type).toBe('replay_message_clock_skew')
+            expect(warning?.key).toBe('session-1')
+            expect(warning?.details).toMatchObject({ direction, skewMs })
+        })
+
+        it('does not warn when the gap stays under the threshold', () => {
+            expect(detectClockSkew(fixedTimeMs + 60 * 1000, eventEnd, 'session-1')).toBeNull()
+        })
+
+        it('surfaces the warning on the ingested message', async () => {
+            const step = createParseMessageStep()
+            const now = Date.now()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                snapshotItems: [{ type: 2, timestamp: now }],
+                distinctId: 'user-123',
+            })
+            // Events sit at `now` (inside the 7-day guard) but the server stamped the message an hour later.
+            const input = createInput(0, 1, payload, undefined, { timestamp: now + HOUR_MS })
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.warnings).toHaveLength(1)
+            expect(result.warnings[0].type).toBe('replay_message_clock_skew')
+            expect(result.warnings[0].key).toBe('session-1')
+        })
     })
 
     describe('decompressMessageValue lz4 hardening', () => {

@@ -4,6 +4,9 @@ import { recordMessagesDroppedByRestrictions } from './otel-metrics'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
+/** Whether the sender device clock reads ahead of or behind the server-stamped message time. */
+export type ClockSkewDirection = 'device_ahead' | 'device_behind'
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -55,6 +58,13 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
+    private static readonly messageClockSkew = new Histogram({
+        name: 'recording_blob_ingestion_v2_message_clock_skew_seconds',
+        help: 'Absolute gap between a replay message latest rrweb event time (the sender device clock) and the server-stamped Kafka message time, by direction. Replay skips the skew correction every other event gets, so a large gap means the recording start_time — the default playlist sort — disagrees with the corrected event time.',
+        labelNames: ['direction'],
+        buckets: [1, 5, 30, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400],
+    })
+
     private static readonly unbilledNewSession = new Counter({
         name: 'recording_blob_ingestion_v2_unbilled_new_session',
         help: 'New sessions whose first message failed before the usage step, so a later message for the same session bills nothing while the report still counts the recording',
@@ -80,6 +90,10 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMessagesByEncoding(encoding: string): void {
         this.messagesByEncoding.labels(encoding).inc()
+    }
+
+    public static observeMessageClockSkew(direction: ClockSkewDirection, seconds: number): void {
+        this.messageClockSkew.labels(direction).observe(seconds)
     }
 
     public static resetSessionsRevoked(): void {

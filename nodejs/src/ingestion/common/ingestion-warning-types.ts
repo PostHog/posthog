@@ -111,6 +111,10 @@ export const INGESTION_WARNING_TYPES = {
     replay_lib_version_too_old: { category: 'replay', severity: 'info' },
     message_contained_no_valid_rrweb_events: { category: 'replay', severity: 'warning' },
     message_timestamp_diff_too_large: { category: 'replay', severity: 'warning' },
+    // The rrweb events carry the sender device clock, which replay ingestion never
+    // corrects for skew. When that clock diverges from the server-stamped message time,
+    // the recording start_time (the default playlist sort) is wrong. Ingested unchanged.
+    replay_message_clock_skew: { category: 'replay', severity: 'warning' },
     // Capture's replay endpoint (/s), which validates the $snapshot envelope before
     // the batch is collapsed into one $snapshot_items message. Distinguished from the
     // three above by `source: capture` and `path: replay` — those describe conditions
