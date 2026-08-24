@@ -20,6 +20,9 @@ use uuid::Uuid;
 /// Every record sits in the same month, so `PARTITION BY toYYYYMM(event_timestamp)` keeps a
 /// retry in the same partition as its original. ReplacingMergeTree only collapses within one.
 const BASE_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
+/// Retries sit an hour after their original, well inside the same partition. Producers stamp
+/// event time when they flush, so this is what a real retry looks like.
+const RETRY_OFFSET_MS: i64 = 3_600_000;
 
 const BASELINE_REQUESTS: usize = 32;
 /// Sequential latency is dominated by the producer's 20ms linger, so there is a lot of
@@ -33,10 +36,10 @@ const USAGE_KEYS: [(&str, &str); 4] = [
     ("queries_executed", "query"),
 ];
 
-/// A retry is a byte-identical redelivery of the same index. `event_timestamp` is part of the
-/// sorting key `(team_id, event_timestamp, producer_id, record_id, version)`, so a retry that
-/// shifted the timestamp would be a separate row by design instead of a duplicate to collapse.
-fn record(run: &str, index: usize) -> BillingUsageRecord {
+/// A retry reuses the sorting key `(team_id, producer_id, usage_key, record_id)` but moves
+/// event_timestamp, which is what a producer that stamps flush time actually sends. Putting
+/// event_timestamp back in the sorting key makes this test fail with double the rows.
+fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
     BillingUsageRecord {
@@ -51,11 +54,9 @@ fn record(run: &str, index: usize) -> BillingUsageRecord {
         },
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        version: 1 + (index % 3) as u64,
-        event_timestamp_ms: BASE_EVENT_TIMESTAMP_MS + event_offset_ms,
-        source_ref: None,
-        user_id: None,
-        variant: Some(format!("variant-{}", index % 5)),
+        event_timestamp_ms: BASE_EVENT_TIMESTAMP_MS
+            + event_offset_ms
+            + if retry { RETRY_OFFSET_MS } else { 0 },
         dimensions: [("region".to_string(), format!("region-{}", index % 3))]
             .into_iter()
             .collect(),
@@ -91,7 +92,7 @@ async fn sustains_thousands_of_concurrent_requests() {
         let started = Instant::now();
         baseline_client
             .ingest_billing_usage(IngestBillingUsageRequest {
-                records: vec![record(&run, index)],
+                records: vec![record(&run, index, false)],
             })
             .await
             .expect("a baseline ingest failed");
@@ -100,17 +101,15 @@ async fn sustains_thousands_of_concurrent_requests() {
     let baseline_throughput = BASELINE_REQUESTS as f64 / baseline_started.elapsed().as_secs_f64();
     baseline_latencies.sort();
 
-    let mut plan: Vec<(usize, BillingUsageRecord)> = (0..unique)
-        .map(|index| record(&run, index))
-        .chain((0..retries).map(|index| record(&run, index)))
-        .enumerate()
+    let mut plan: Vec<BillingUsageRecord> = (0..unique)
+        .map(|index| record(&run, index, false))
+        .chain((0..retries).map(|index| record(&run, index, true)))
         .collect();
-    // Arrival order must not match insert order: a duplicate landing well after its original
-    // still has to collapse. The two copies are identical, so hashing the position as well as
-    // the record is what separates them; hashing the record alone leaves them adjacent.
-    plan.sort_by_key(|(position, record)| {
+    // Arrival order must not match event order: a retry landing before its original still has
+    // to collapse to one row.
+    plan.sort_by_key(|record| {
         let mut hasher = DefaultHasher::new();
-        (&record.record_id, position).hash(&mut hasher);
+        (&record.record_id, record.event_timestamp_ms).hash(&mut hasher);
         hasher.finish()
     });
 
@@ -123,7 +122,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     let tasks: Vec<_> = plan
         .into_iter()
         .enumerate()
-        .map(|(slot, (_, record))| {
+        .map(|(slot, record)| {
             let mut client = clients[slot % channels].clone();
             let permits = permits.clone();
             tokio::spawn(async move {
@@ -212,9 +211,8 @@ async fn sustains_thousands_of_concurrent_requests() {
     // merge covers every row the run inserted rather than the handful the e2e test writes, so
     // poll instead of assuming OPTIMIZE returned with all parts already merged.
     //
-    // Which of two identical rows survives is deliberately not asserted. The engine's `ver` is
-    // event_timestamp, which a retry has to reuse to share the sorting key, so ReplacingMergeTree
-    // has no tiebreak between them and either row is a correct outcome.
+    // Which of the two survives is not asserted: `ver` is inserted_at, so the copy that
+    // arrived second wins, and arrival order here is deliberately shuffled.
     let collapse_query =
         format!("SELECT count() FROM {table} WHERE startsWith(record_id, '{run}:') FORMAT TSV");
     let collapse_deadline = Instant::now() + Duration::from_secs(60);
