@@ -30,13 +30,14 @@ HAVING countIf(event = '$pageview') > 0
 
 
 def _estimate_pageleave_ratio(pageviews: int, sessions: int) -> float | None:
-    """Estimate the extra events that enabling $pageleave adds, as a fraction of $pageview.
+    """Estimate how many $pageleave events enabling capture adds, per $pageview.
 
-    Turning on $pageleave adds about one event per session, because the SDK fires
-    $pageleave when the user leaves the page. As a share of $pageview that is
-    sessions / pageviews: a single-page app packs many $pageview into one session, so
-    it pays almost nothing; a project with one $pageview per session pays close to 1x.
-    Returns None when there are no sessions to estimate from.
+    The SDK fires $pageleave when a visitor leaves the page, so a project gains
+    roughly one $pageleave per session. Per $pageview that is sessions / pageviews:
+    a single-page app packs many $pageview into one session and gains few, while a
+    project with one $pageview per session gains close to one per $pageview. This is
+    an estimate from observed traffic, not a guarantee. Returns None when there are
+    no sessions to estimate from.
     """
     if sessions <= 0 or pageviews <= 0:
         return None
@@ -48,10 +49,13 @@ def _volume_estimate_sentence(payload: dict) -> str | None:
     ratio = payload.get("estimated_pageleave_ratio")
     if ratio is None:
         return None
-    percent = round(ratio * 100)
-    if percent < 1:
-        return "Enabling `$pageleave` adds less than 1% more events for this project."
-    return f"Enabling `$pageleave` adds about {percent}% more events for this project."
+    per_hundred = round(ratio * 100)
+    if per_hundred < 1:
+        return "Enabling `$pageleave` adds fewer than 1 `$pageleave` event for every 100 `$pageview` in this project."
+    return (
+        f"Enabling `$pageleave` adds roughly {per_hundred} `$pageleave` events for every 100 `$pageview` "
+        "in this project."
+    )
 
 
 class NoPageleaveEventsCheck(HealthCheck):
@@ -66,9 +70,9 @@ class NoPageleaveEventsCheck(HealthCheck):
         human="""
             Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
             on a recent posthog-js with pageview autocapture enabled, which emits $pageleave automatically
-            when the user navigates away. The extra volume is modest: $pageleave adds about one event per
-            session, so a single-page app pays almost nothing and a project with one $pageview per session
-            pays at most 1x more events. The health page shows the estimate for this project.
+            when the user navigates away. The extra volume is usually small: $pageleave adds at most one
+            event per $pageview, and far fewer for single-page apps that send many $pageview per visit. The
+            health page shows the estimate for this project.
         """,
         agent="""
             Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN

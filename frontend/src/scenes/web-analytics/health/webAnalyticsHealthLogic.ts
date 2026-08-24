@@ -49,18 +49,18 @@ interface WebHealthCheckConfig {
     urgent?: boolean
 }
 
-// Estimate how many extra events enabling $pageleave adds for this project, as a percentage of
-// $pageview. The backend stores the ratio (sessions / pageviews) on the issue payload.
+// Estimate how many $pageleave events enabling capture adds for this project, per $pageview. The
+// backend stores the ratio (sessions / pageviews) on the issue payload.
 function pageleaveVolumeExtra(payload: Record<string, any>): string | null {
     const ratio = payload?.estimated_pageleave_ratio
     if (typeof ratio !== 'number') {
         return null
     }
-    const percent = Math.round(ratio * 100)
-    if (percent < 1) {
-        return 'Enabling it adds less than 1% more events for this project.'
+    const perHundred = Math.round(ratio * 100)
+    if (perHundred < 1) {
+        return 'Enabling it adds fewer than 1 $pageleave event for every 100 $pageview.'
     }
-    return `Enabling it adds about ${percent}% more events for this project.`
+    return `Enabling it adds roughly ${perHundred} $pageleave events for every 100 $pageview.`
 }
 
 const INSTALL_GUIDE_ACTION: HealthCheckAction = {
