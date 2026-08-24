@@ -174,8 +174,11 @@ def create_subscription_auto_disabled_notification(subscription: Subscription, r
             notification_type=NotificationType.PIPELINE_FAILURE,
             priority=Priority.NORMAL,
             title=f"{title[:75]} was automatically disabled",
+            # Every description is a sentence-case fragment, and most open on a brand name
+            # ("Microsoft Teams stopped accepting messages"), so it stands as its own sentence.
+            # Folding it into a "because ..." clause needs it lowercased, which mangles the brand.
             body=(
-                f"PostHog automatically disabled this subscription because {reason.description.lower()}. "
+                f"PostHog automatically disabled this subscription. {reason.description}. "
                 f"{reason.user_message.format(target_type=target_type_label(subscription.target_type))}"
             ),
             target_type=TargetType.USER,

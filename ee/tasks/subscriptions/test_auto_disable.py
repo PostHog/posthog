@@ -100,7 +100,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
         assert notification.target_id == str(self.user.id)
         assert notification.resource_id == str(sub.id)
         assert notification.title == "t was automatically disabled"
-        assert "slack integration disconnected" in notification.body
+        assert "Slack integration disconnected" in notification.body
         send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
     def test_compare_and_swap_no_op_when_already_disabled(self):
