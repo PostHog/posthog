@@ -6025,9 +6025,9 @@ snapshots:
     scenes-app-customer-analytics-track-rules--configured--light:
         hash: v1.k794b7964.de5a3e9672100bbd083b4608693261a0e5624693afd5de70b0014a9adfa13b3e.k9pAMbCur-xOSs_utBsXvuCXde14rcNor-R-C89EedA
     scenes-app-customer-analytics-track-rules--feature-gate-off--dark:
-        hash: v1.k794b7964.247e31dff1b806907ec4c327f1ad132fc186861cbe8f2265fa05296f1aa2a95b.KZZKeqM5D6IpwNrMdlEf5EbTm6KGmcdapADEzg755Gw
+        hash: v1.k794b7964.68dfb562def4db8fb8b8082b864115e315caf6662c6be713af5572a9f263bc57.z9X01dYMXIIFZXt9s1TM1GrALc0HZlSgEzRxu85W9Kg
     scenes-app-customer-analytics-track-rules--feature-gate-off--light:
-        hash: v1.k794b7964.5bf2ef575702ea1997fa9c147c10662b40445407894616a915c9e330cbc8c06a.0vS8B765QPDhC4h_KtJPlL5o3f5b_PZ-giJD2DPRkd4
+        hash: v1.k794b7964.365fcdc6fae12bf1f704d0bc3a6d8992b7fea05cb5d48eb78bfc1f2f24fac929.ad9HX_I4T-esxuMW3YamDdHs0pZbTQRDjBRsSvX8ReA
     scenes-app-customer-analytics-track-rules--preview--dark:
         hash: v1.k794b7964.4d60ac636f3d4b309108ff038058f81c38dfd65d4badfb9dcf780b2dedf88c25.ZUVE6wN40QhrIaL0iR-shEMXZja7utjNvptDYTLVxPY
     scenes-app-customer-analytics-track-rules--preview--light:
@@ -6352,6 +6352,10 @@ snapshots:
         hash: v1.k794b7964.a38909c8222409c5fa2174c283833ab419c75a0ed5420da095a9aded11bf6532.5EK4l32txmbHcS11UWiwesynVVHf7FKe98dPAeWsjkw
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.ec64583fd2debf87822296f1c9fc10e73c1c6b7e31fe55f0ca974d3920f8bd14.Ch64gBgjo0wR0Ypvkhap6047UPjXBaWSQCNoKDOiNHc
+    scenes-app-experiments--experiment-replay-scanner-backlink--dark:
+        hash: v1.k794b7964.e04ec522e5f690078c89c21f4e160d067f13c755e65988852d89dbc624e4c74b.DbWktEPnIBX15xGlIGLocMuFHo7CzbH-yVTgowQMnck
+    scenes-app-experiments--experiment-replay-scanner-backlink--light:
+        hash: v1.k794b7964.c6573bba587cbabd798e942c29bd722fea308624f4cffda71303fb2b110dd7e0.j-wHlxQDewiAsZ_lDoIuGozhNEb_FEGu0tT0I_UXkMY
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
         hash: v1.k794b7964.e347bbe9e217d7cbd915b09b362a9d995285c1f6492229235ce3dcef74e49f30.5xV99CaEDXp-xFACHoS4M9vQ6zFGOjestb-iW79F5Q4
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
