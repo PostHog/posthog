@@ -634,7 +634,6 @@ def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | Non
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
-    pat_scopes = mcp_advertised_resource_scopes()
     # TODO: latent bug - every call mints a new PAT without revoking earlier
     # ones, so rotate_credentials accumulates live keys instead of rotating
     # them. A correct fix needs a provenance marker on PersonalAPIKey (or the
@@ -642,6 +641,10 @@ def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | Non
     # target only provisioned keys - scope alone is ambiguous with keys a user
     # created via /api/personal_api_keys/ carrying the same team/org scope.
     try:
+        # Reads the committed tool-definition JSON, so it belongs under the same
+        # guard as the mint: the caller degrades to omitting personal_api_key
+        # rather than failing a resource creation that already succeeded.
+        pat_scopes = mcp_advertised_resource_scopes()
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
