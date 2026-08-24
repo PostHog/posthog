@@ -176,6 +176,11 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// Safari can hand rrweb a player iframe whose document has no <head> yet. This happens
+// right after the tab becomes visible again and we rebuild the player. Retry the rebuild on
+// the next frame this many times before we give up and surface the failure to the user.
+const MAX_REPLAYER_INIT_RETRIES = 10
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -2241,6 +2246,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         })
 
                         actions.setPlayer({ replayer, windowId })
+                        cache.replayerInitRetries = 0
 
                         return () => {
                             canvasPlugin.destroy()
@@ -2264,6 +2270,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             }
                         }
                     } catch (error) {
+                        // rrweb creates the player iframe and writes into its document while it
+                        // builds. On Safari that document can lack a <head> for a frame after the
+                        // tab becomes visible again, so the write throws. In that case, wait for
+                        // the document to become usable and rebuild, rather than failing.
+                        const iframe = values.rootFrame?.querySelector('iframe')
+                        const documentNotReady = !!iframe && !iframe.contentDocument?.head
+                        const retries = cache.replayerInitRetries ?? 0
+                        if (documentNotReady && retries < MAX_REPLAYER_INIT_RETRIES) {
+                            cache.replayerInitRetries = retries + 1
+                            cache.disposables.add(
+                                () => {
+                                    const frameId = requestAnimationFrame(() => actions.tryInitReplayer())
+                                    return () => cancelAnimationFrame(frameId)
+                                },
+                                'replayerInitRetry',
+                                { pauseOnPageHidden: false }
+                            )
+                            return () => {}
+                        }
+
+                        cache.replayerInitRetries = 0
                         posthog.captureException(error, {
                             feature: 'session-recording-replayer-init',
                             sessionRecordingId: props.sessionRecordingId,
