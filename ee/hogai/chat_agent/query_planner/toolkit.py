@@ -3,6 +3,9 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
+from django.db.models import BigIntegerField, F
+from django.db.models.functions import Coalesce
+
 from pydantic import BaseModel, field_validator
 
 from posthog.schema import (
@@ -106,10 +109,6 @@ Results:
 class TaxonomyAgentToolkit:
     _team: Team
     _user: User
-
-    # Cap on the size of each `name__in` batch, so a wide event's property list does not build one
-    # unbounded Postgres query that crosses the statement timeout on large teams.
-    PROPERTY_TYPE_CHUNK_SIZE = 500
 
     def __init__(self, team: Team, user: User, event_source: EventSource = EventSource.POSTHOG_AI):
         self._team = team
@@ -291,23 +290,35 @@ class TaxonomyAgentToolkit:
             )
         return response, verbose_name
 
-    def _fetch_event_property_types(self, names: list[str]) -> list[tuple[str, str | None]]:
+    def _fetch_event_property_types(self, names: list[str]) -> dict[str, str | None]:
         """
         Fetch the stored type for each event property name.
 
-        The names come from ClickHouse and can number in the hundreds for a wide event. A single
-        unbounded `IN` list crosses the Postgres statement timeout on large teams, so the names are
-        queried in chunks. Only `name` and `property_type` are selected to keep the query cheap.
+        Filters on COALESCE(project_id, team_id) rather than team_id: no index on this table
+        contains (team_id, name), so a plain team_id predicate makes Postgres walk the team's
+        entire index range — multi-second to statement-timeout on teams with millions of
+        property definitions. The coalesce expression matches the posthog_propdef_proj_uniq
+        index (COALESCE(project_id, team_id), name, type, ...), turning the lookup into one
+        index seek per name. It is also the same project-level scoping the taxonomy REST API
+        applies to this table. When sibling environments define the same property, the row
+        belonging to this exact team wins.
         """
-        results: list[tuple[str, str | None]] = []
-        for start in range(0, len(names), self.PROPERTY_TYPE_CHUNK_SIZE):
-            chunk = names[start : start + self.PROPERTY_TYPE_CHUNK_SIZE]
-            results.extend(
-                PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.EVENT, name__in=chunk
-                ).values_list("name", "property_type")
+        rows = (
+            PropertyDefinition.objects.alias(
+                effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())
             )
-        return results
+            .filter(
+                effective_project_id=self._team.project_id,
+                type=PropertyDefinition.Type.EVENT,
+                name__in=names,
+            )
+            .values_list("name", "property_type", "team_id")
+        )
+        property_to_type: dict[str, str | None] = {}
+        for name, property_type, team_id in rows:
+            if name not in property_to_type or team_id == self._team.id:
+                property_to_type[name] = property_type
+        return property_to_type
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
@@ -330,7 +341,9 @@ class TaxonomyAgentToolkit:
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
         property_to_type = {
             name: property_type
-            for name, property_type in self._fetch_event_property_types([item.property for item in response.results])
+            for name, property_type in self._fetch_event_property_types(
+                [item.property for item in response.results]
+            ).items()
             if name not in restricted
         }
         props: list[tuple[str, str | None]] = [

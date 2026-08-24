@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
+from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -357,7 +358,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             # Virtual properties are surfaced even though they never appear in stored event data.
             self.assertIn("- $virt_is_bot", prompt)
 
-    def test_fetch_event_property_types_resolves_all_names_across_chunks(self):
+    def test_fetch_event_property_types_resolves_all_names(self):
         names = [f"prop_{i}" for i in range(5)]
         for name in names:
             PropertyDefinition.objects.create(
@@ -365,10 +366,36 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             )
         toolkit = DummyToolkit(self.team, self.user)
 
-        with patch.object(DummyToolkit, "PROPERTY_TYPE_CHUNK_SIZE", 2):
-            resolved = dict(toolkit._fetch_event_property_types(names))
+        resolved = toolkit._fetch_event_property_types(names)
 
         self.assertEqual(resolved, dict.fromkeys(names, PropertyType.String))
+
+    def test_fetch_event_property_types_resolves_sibling_environment_definitions(self):
+        # Definitions are project-scoped: a property defined under a sibling environment of the
+        # same project resolves, matching what the taxonomy REST API returns for this team.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling, type=PropertyDefinition.Type.EVENT, name="sibling_prop", property_type=PropertyType.Numeric
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(["sibling_prop"])
+
+        self.assertEqual(resolved, {"sibling_prop": PropertyType.Numeric})
+
+    def test_fetch_event_property_types_prefers_own_team_definition(self):
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling, type=PropertyDefinition.Type.EVENT, name="shared_prop", property_type=PropertyType.Numeric
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="shared_prop", property_type=PropertyType.String
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(["shared_prop"])
+
+        self.assertEqual(resolved, {"shared_prop": PropertyType.String})
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
