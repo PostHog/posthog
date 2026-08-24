@@ -116,6 +116,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
+from products.workflows.backend.api.run_scout_validation import validate_run_scout_flow
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -573,6 +574,21 @@ def _parse_uuid_or_none(value: Any) -> Optional[uuid_mod.UUID]:
         return uuid_mod.UUID(str(value))
     except (ValueError, AttributeError, TypeError):
         return None
+
+
+def _with_non_failure_status_default(inputs: dict, input_schema: list[dict] | None) -> dict:
+    """Materialize a template's `non_failure_status_codes` default onto the step's own inputs.
+
+    The engine reads that setting from `action.config.inputs` only, never from the template, so a
+    step created without it (API/MCP callers, or the chooser before the toolbar pinned it) fails on
+    exactly the statuses the template meant as a graceful skip. A value the author set is kept."""
+    for schema in input_schema or []:
+        if schema.get("type") != "non_failure_status_codes" or schema.get("default") is None:
+            continue
+        key = schema["key"]
+        if key not in inputs:
+            return {**inputs, key: {"value": schema["default"]}}
+    return inputs
 
 
 def _apply_fixed_template_id(config: dict, template_id: str, fixed_template_id: str) -> str:
@@ -1325,7 +1341,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     _apply_email_template_content(config, get_team(), strict, self.context)
             template = HogFunctionTemplate.get_template(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
-            already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
+            already_stored = (data.get("id"), template_id) in (self.context.get("stored_gated_template_steps") or set())
             if template is not None and gating_flag is not None and not already_stored:
                 # Outside a request (internal re-saves, direct construction) there is no team to
                 # evaluate the flag against, and the flow was already allowed to hold this step.
@@ -1337,7 +1353,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
-                inputs = data.get("config", {}).get("inputs", {})
+                inputs = _with_non_failure_status_default(data.get("config", {}).get("inputs", {}), input_schema)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -2151,15 +2167,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 
-        # Action ids already stored with a flag-gated template, so the gate only polices new
-        # adoption: a flow that was allowed to hold the step keeps validating after a flag
-        # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
-        # failing refresh_hog_flows. Only an active flow's steps count - active means the step
-        # passed the gate at activation, whereas a draft can hold the step without ever passing
-        # it (lenient web saves skip strict validation), so grandfathering a draft would let an
-        # unflagged team activate the step.
-        self.context["stored_gated_template_action_ids"] = {
-            action["id"]
+        # (action id, template id) pairs already stored with a flag-gated template, so the gate
+        # only polices new adoption: a flow that was allowed to hold the step keeps validating
+        # after a flag dial-down or eval blip (the gate fails closed), instead of becoming
+        # un-editable and failing refresh_hog_flows. Keyed on the pair, not the id alone, so a
+        # step that passed one template's gate cannot be re-submitted under another gated
+        # template. Only an active flow's steps count - active means the step passed the gate at
+        # activation, whereas a draft can hold the step without ever passing it (lenient web
+        # saves skip strict validation), so grandfathering a draft would let an unflagged team
+        # activate the step.
+        self.context["stored_gated_template_steps"] = {
+            (action["id"], (action.get("config") or {}).get("template_id"))
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
             if isinstance(action, dict)
             and action.get("id")
@@ -2316,6 +2334,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                             )
                         }
                     )
+
+        # A "Run scout" node turns each matching event into an LLM sandbox run, and scouts write
+        # events back into the same project — so an event-triggered flow containing one needs
+        # masking and a trigger that scout output can't satisfy. Skipped for drafts like the check
+        # above: a half-wired draft is legitimate, and this fires on the save that activates it.
+        if not is_draft:
+            get_team = self.context.get("get_team")
+            validate_run_scout_flow(
+                actions=actions,
+                trigger_config=data["trigger"],
+                trigger_masking=data.get("trigger_masking", instance.trigger_masking if instance else None),
+                team=get_team() if get_team is not None else None,
+            )
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES

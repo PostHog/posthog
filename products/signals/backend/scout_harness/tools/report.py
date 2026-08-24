@@ -50,6 +50,10 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.scout_harness.customer_events import (
+    CUSTOMER_REPORT_EDITED_EVENT,
+    CUSTOMER_REPORT_EMITTED_EVENT,
+)
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -634,8 +638,9 @@ def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
 # or a CDP destination (e.g. the Slack destination) filtering on the event and templating off `report_url`
 # / `title` / `summary`. The `$` prefix marks a PostHog-generated event (cf. `$session_summary_ready`,
 # `$ai_tag`), keeping them out of a customer's own custom-event namespace.
-CUSTOMER_REPORT_EMITTED_EVENT = "$scout_report_emitted"
-CUSTOMER_REPORT_EDITED_EVENT = "$scout_report_edited"
+# The names themselves live in `scout_harness/customer_events.py` so anything that needs to know
+# which events a scout produced — notably the workflows self-loop guard — can read the full set
+# without importing the harness.
 _REPORT_EVENT_SOURCE = "signals_scout_report"
 
 # Gate-skip reasons that mean the scout isn't active — deliberately off (`scout_emit_disabled` /
