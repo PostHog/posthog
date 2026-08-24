@@ -140,6 +140,42 @@ Triage:
 
 The `blocked_domain != ''` filter already drops the giant inline / `eval` / `unsafe-inline` and browser-extension clusters (non-empty `$csp_blocked_url`, empty `domain()`) — the baseline noise this surface always carries — so the limit is spent on the reach that matters: **named** domains. Dedupe standing reports with `addressed:csp_violations:{blocked_domain}-{directive}` so a confirmed-and-allowlisted (or accepted) block doesn't re-surface every run.
 
+#### Reconstruct the policy that blocked
+
+Every violation carries `$csp_original_policy` — the whole header that was active when the browser blocked the request.
+A report that names a blocked domain but not the policy makes the reader go and find it.
+A report that carries the current header plus the corrected one is a diff they can apply.
+Read the policy for any cluster you are about to report:
+
+```sql
+SELECT
+    replaceRegexpAll(JSONExtractString(properties, '$csp_original_policy'), 'nonce-[A-Za-z0-9+/=_-]+', 'nonce-N') AS policy,
+    JSONExtractString(properties, '$csp_effective_directive') AS directive,
+    domain(JSONExtractString(properties, '$csp_blocked_url')) AS blocked_domain,
+    count() AS occurrences,
+    uniq(person_id) AS distinct_users,
+    uniq(domain(JSONExtractString(properties, '$csp_document_url'))) AS distinct_hosts
+FROM events
+WHERE event = '$csp_violation'
+  AND timestamp > now() - INTERVAL 7 DAY
+  AND JSONExtractString(properties, '$csp_disposition') = 'enforce'
+GROUP BY policy, directive, blocked_domain
+ORDER BY occurrences DESC
+LIMIT 30
+```
+
+Normalize the nonce out, or each pageload becomes its own policy string and the grouping gives you nothing.
+
+Three things this buys beyond the header text:
+
+1. **The fix is often not the directive that fired.** A cluster that reports as a `connect-src` gap can come from a policy with no `connect-src` at all, where `default-src` does the blocking. Then the fix adds a directive instead of extending one. Read the header before you name the change.
+2. **Sibling gaps in the same header.** One policy usually causes several enforced blocks at once — a directive set to `'none'`, a directive that omits `'self'`, a host allowed for one directive but not another. Group the full enforced set by policy and fix them in one delta, instead of filing them as unrelated clusters.
+3. **Evidence for the shared-artifact test.** A byte-identical normalized policy across deployment hosts that do not operate together is strong evidence that they inherit one template. That is the artifact the own-surface check in Decide tells you to identify before you file.
+
+The current policy only describes what is already deployed, so it is always safe to quote.
+A **proposed** policy is a widen, so put one in a report only after the blocked domain clears the vetting gate in Decide.
+Where it has not cleared, quote the current header, name the directive that blocks, and leave the delta to the human.
+
 #### Per-directive burst
 
 Group by `properties.$csp_effective_directive`. A directive whose recent 24h count is materially above its 7d-prior baseline (≥ 3×) with reach across multiple documents is a strong "policy regression after deploy" signal. Pair with `advanced-activity-logs-list` filtered to the last 24–48h — a deploy or hog-flow change correlating to the burst timestamp is the clean cross-source convergence.
@@ -205,6 +241,7 @@ The generic report mechanics — searching the inbox for your own prior reports 
   **The blocked domain itself** must be confirmed an _intended_ dependency, by an `allowlist:` entry the team vetted, business knowledge, a steering note, or by being first-party / own-infra (the blocked host is the team's own surface).
   Reach never confirms that second one. The CSP report endpoint is public: anyone holding the project token can post crafted `$csp_violation` payloads and vary `distinct_id` until a domain they own clears the reach gates. Widening `script-src` or `connect-src` on that evidence hands an attacker the allowlist entry they wanted, through a draft PR nobody asked for.
   With both trusted, write the exact allowlist addition and file `immediately_actionable` with that repo. With only the repo trusted, it stays `requires_human_input` — say in the summary that the domain is unvetted and that vetting it is the gate.
+  **Either way the report carries the current header** from `$csp_original_policy`, with nonces normalized, and names the directive that does the blocking — a policy-widen report that makes the reader go and find the policy is below the bar. Where the domain is vetted, carry the corrected header too, as a directive-level diff against the current one.
   Every `requires_human_input` policy-widen report must hand off explicitly in the summary: who owns the policy, the exact directive change, and the success criterion (enforced violations for the domain at ~0 after the change, over a named window).
   **The other two lenses get their own handoff, and never a directive delta.** For a suspected compromise the safe action is to _keep_ enforcement and remove or trace the injected source, so hand off the source file, the affected documents, and containment — proposing an allowlist addition there would allowlist the attack. For vendor drift the action is removing the caller, so hand off where the script is still loaded from. Both still need an owner and a success criterion; neither needs a policy widen.
   Priority: a `disposition=enforce` block on a `script-src` / `connect-src` directive with broad reach, or a suspected compromise, is **P1–P2** (functionality broken / possible security incident); a policy-allowlist-gap or vendor-drift finding is **P2–P3** by reach. After authoring, write the `report:csp_violations:<domain>-<directive>` pointer so the next run can re-find it (and edit only on material change).
@@ -212,7 +249,7 @@ The generic report mechanics — searching the inbox for your own prior reports 
   When the affected document hosts sit outside the surfaces this team runs, the reader cannot change that policy — never file a report asking them to.
   State the ownership boundary explicitly ("this policy is configured on `<host>`, which this team does not operate"), and name who does operate it where a trusted, human-authored source identifies them (a steering note, business knowledge, an account owner) — "someone else owns this" is not an owner, and a report with no named actor on either side of the boundary is below the bar.
   Then report only the action the reader _can_ take: the same-shape gap appearing across two or more independent deployments _suggests_ they inherit one default policy, template, or docs page.
-  Matching violation shapes are the reason to go looking, not proof the shared artifact exists — identify it before filing, and name it (the file, template, or docs page a trusted source confirms those deployments inherit). Can't find one, and the correlation is all you have? That's `pattern:` memory, not a report against a target you inferred.
+  Matching violation shapes are the reason to go looking, not proof the shared artifact exists — identify it before filing, and name it (the file, template, or docs page a trusted source confirms those deployments inherit). A byte-identical normalized `$csp_original_policy` across those hosts is the strongest pointer you have that the artifact is real, so group by policy before you go looking. Can't find one, and the correlation is all you have? That's `pattern:` memory, not a report against a target you inferred.
   With the artifact identified, file one report against it, routed to whoever owns it, with the per-instance clusters as evidence and the same enforced-violation success criterion.
   A single foreign instance's own misconfiguration is `pattern:` memory, not a report.
 - **Advisory reports** (enforcement readiness / inline-script debt / noise budget) are `priority=P3`, `actionability=requires_human_input`, `repository=NO_REPO`, at most **one report per category per week**, and need broad reach (≥ 100 distinct users for an inline-script-debt finding). Write a `report:csp_violations:advisory-<category>` pointer after filing so the weekly cap holds across runs. These must be _rarer and better-argued_ than incident reports — an advisory report a reviewer dismisses is a strong signal to raise your bar, not to rephrase and re-file.
@@ -240,7 +277,7 @@ When in doubt, write a memory entry instead of filing a report.
 
 Direct calls (read-only):
 
-- `execute-sql` against `events` (filtered to `event = '$csp_violation'`) — primary drill-down. Group by `domain($csp_blocked_url)`, `$csp_effective_directive`, `$csp_document_url`, `$csp_source_file`. The full property list is in `posthog/api/csp.py`.
+- `execute-sql` against `events` (filtered to `event = '$csp_violation'`) — primary drill-down. Group by `domain($csp_blocked_url)`, `$csp_effective_directive`, `$csp_document_url`, `$csp_source_file`, and `$csp_original_policy` (nonces normalized out). The full property list is in `posthog/api/csp.py`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$csp_violation'`) — discover the team's actual `$csp_*` property surface and sample values.
 - `advanced-activity-logs-list` — pair burst timestamps with recent deploys or feature-flag changes for cross-source convergence. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
