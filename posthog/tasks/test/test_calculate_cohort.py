@@ -1313,8 +1313,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         ]
     )
     def test_calculate_cohort_ch_schedules_a_retry_and_keeps_is_calculating(self, _name: str, error: Exception) -> None:
-        # A pooler blip on the task's first ORM read used to strand the cohort "in flight" for an
-        # hour until reset_stuck_cohorts caught it - regression guard for that report signal 5.
+        # A connection-pooler blip on the task's first ORM read used to strand the cohort "in
+        # flight" for an hour, until reset_stuck_cohorts caught it.
         # Celery raising Retry rather than the original error is what proves one was scheduled, and
         # is_calculating must not be cleared while the recalculation still has attempts left.
         cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True)

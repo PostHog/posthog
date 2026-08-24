@@ -162,7 +162,9 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
     elif name == "QUERY_WAS_CANCELLED":
-        # Transient: happens when a deploy or manual restart cancels in-flight queries.
+        # Not retryable by default: a deploy cancelling in-flight queries and a deliberate
+        # KILL QUERY are indistinguishable here, so this stays out of CH_TRANSIENT_ERRORS and
+        # callers that want the deploy case retried opt in themselves.
         return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
