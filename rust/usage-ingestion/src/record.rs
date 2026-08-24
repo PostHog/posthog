@@ -7,7 +7,10 @@ use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageMode, BillingUsageR
 use uuid::Uuid;
 
 const CLICKHOUSE_DATETIME64_YEARS: Range<i32> = 1900..2300;
-const MAX_IDENTIFIER_LENGTH: usize = 200;
+/// A record_id may have to mirror a whole dedup identity: the analytics producers compose
+/// theirs from the events table's sorting key, whose event name and distinct_id are each
+/// capped at 200. Rejecting one would drop the record and under-bill.
+const MAX_IDENTIFIER_LENGTH: usize = 512;
 const MAX_DIMENSIONS: usize = 50;
 const MAX_DIMENSION_LENGTH: usize = 500;
 

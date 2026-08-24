@@ -59,3 +59,16 @@ fn rejects_zero_delta_quantity() {
         ValidationError::InvalidDeltaQuantity
     );
 }
+
+/// The analytics producers compose a record_id from the events table's dedup identity, whose
+/// event name and distinct_id are each capped at 200. Lowering this bound would reject those
+/// records, and a rejected record is usage nobody is billed for.
+#[test]
+fn accepts_a_record_id_long_enough_for_a_composed_identity() {
+    for (length, expected) in [(512, Ok(())), (513, Err(ValidationError::TooLong("record_id")))] {
+        let mut candidate = record();
+        candidate.record_id = "r".repeat(length);
+        let result = KafkaBillingUsageRecord::from_proto(candidate, Uuid::new_v4(), Utc::now());
+        assert_eq!(result.map(|_| ()), expected, "record_id of {length} bytes");
+    }
+}
