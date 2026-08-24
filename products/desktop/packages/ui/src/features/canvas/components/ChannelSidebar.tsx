@@ -261,7 +261,8 @@ function RecentSectionHeader({
               />
             )}
           </>
-        )}      </div>
+        )}{" "}
+      </div>
       {hasControls && searchOpen && (
         <div className="px-1 pb-1">
           <Input
