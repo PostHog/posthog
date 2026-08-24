@@ -45,9 +45,7 @@ class Migration(migrations.Migration):
                 ("task_run_id", models.UUIDField(blank=True, null=True)),
                 (
                     "model",
-                    models.CharField(
-                        blank=True, db_default="", default="", max_length=200
-                    ),
+                    models.CharField(blank=True, db_default="", default="", max_length=200),
                 ),
                 ("fleet_snapshot", models.JSONField(blank=True, default=list)),
                 ("last_requested_at", models.DateTimeField(blank=True, null=True)),
