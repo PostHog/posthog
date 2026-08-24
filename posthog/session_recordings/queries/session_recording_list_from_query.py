@@ -15,7 +15,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
@@ -25,7 +24,10 @@ from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQ
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.sub_queries.base_query import (
+    SessionRecordingsListingBaseQuery,
+    replay_hogql_settings,
+)
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
@@ -252,7 +254,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 user=self._user,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(**settings_args),
+                settings=replay_hogql_settings(**settings_args),
             )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,

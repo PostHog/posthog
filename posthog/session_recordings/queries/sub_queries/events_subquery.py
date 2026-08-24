@@ -24,7 +24,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.sub_queries.base_query import (
+    SessionRecordingsListingBaseQuery,
+    replay_hogql_settings,
+)
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
@@ -661,6 +664,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             team=self._team,
             query_type="SessionRecordingMatchingEventsForSessionQuery",
             modifiers=self._hogql_query_modifiers,
+            settings=replay_hogql_settings(),
         )
 
         return SessionRecordingQueryResult(

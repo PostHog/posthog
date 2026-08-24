@@ -11,7 +11,6 @@ from opentelemetry import trace
 from posthog.schema import RecordingsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -22,6 +21,7 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     UNSCORED_SURFACING_SCORE,
     SessionRecordingListFromQuery,
 )
+from posthog.session_recordings.queries.sub_queries.base_query import replay_hogql_settings
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import GROUP_KEY_RESOLUTION_QUERY_TYPE
 
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
@@ -142,7 +142,7 @@ def execute_candidate_query(
             query=query,
             team=team,
             query_type=query_type,
-            settings=HogQLGlobalSettings(max_execution_time=max_execution_time_seconds),
+            settings=replay_hogql_settings(max_execution_time=max_execution_time_seconds),
             ch_user=ClickHouseUser.REPLAY_VISION,
         )
     return response.results or []

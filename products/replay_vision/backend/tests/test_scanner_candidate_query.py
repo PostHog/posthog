@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -27,6 +28,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     SWEEP_EVENTS_LOOKBACK,
     ScannerCandidateQuery,
     WindowedCandidateQuery,
+    execute_candidate_query,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
@@ -856,3 +858,26 @@ class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
         # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
         assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]
+
+
+class TestCandidateQueryExecutionSettings:
+    @pytest.mark.django_db
+    def test_candidate_queries_run_with_transform_null_in_off(self, team) -> None:
+        # `run_correlated_batch` restricts the events subquery to a page of session ids so `bloom_filter_$session_id`
+        # can prune the scan; ClickHouse only consults that index for `IN` on the Nullable session expression when
+        # `transform_null_in` is off.
+        with patch(
+            "products.replay_vision.backend.queries.scanner_candidate_query.execute_hogql_query"
+        ) as execute_hogql_query:
+            execute_hogql_query.return_value.results = []
+            execute_candidate_query(
+                ast.SelectQuery(select=[ast.Constant(value=1)]),
+                team=team,
+                query_type="ReplayVisionScannerCandidateQuery",
+                max_execution_time_seconds=7,
+                scanner_id=None,
+            )
+
+        executed_settings = execute_hogql_query.call_args.kwargs["settings"]
+        assert executed_settings.transform_null_in is False
+        assert executed_settings.max_execution_time == 7

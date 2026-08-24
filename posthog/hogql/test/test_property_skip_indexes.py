@@ -104,7 +104,9 @@ def _extract_persons_where_optimization_subquery(sql: str) -> str | None:
     return None
 
 
-def _run_explain_and_get_skip_indexes(query: str, values: dict[str, Any]) -> set[str]:
+def _run_explain_and_get_skip_indexes(
+    query: str, values: dict[str, Any], hogql_settings: HogQLGlobalSettings | None = None
+) -> set[str]:
     # For ``FROM persons`` queries, EXPLAIN the inner ``where_optimization`` subquery instead — see helper docstring for why.
     inner = _extract_persons_where_optimization_subquery(query)
     if inner is not None:
@@ -112,7 +114,7 @@ def _run_explain_and_get_skip_indexes(query: str, values: dict[str, Any]) -> set
     # Apply the runtime ClickHouse settings (``transform_null_in`` etc.) — skip index selection diverges from real queries without them.
     settings = {
         k: "1" if v is True else "0" if v is False else str(v)
-        for k, v in HogQLGlobalSettings().model_dump().items()
+        for k, v in (hogql_settings or HogQLGlobalSettings()).model_dump().items()
         if v is not None
     }
     [[raw]] = sync_execute(
