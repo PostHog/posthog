@@ -27,7 +27,7 @@ describe('feature request navigation', () => {
         const origin = `${urls.customerAnalyticsAccount('account-1', 'feature_requests')}?tab=details`
 
         expect(getFeatureRequestBackUrl(origin, { status: 'planned' })).toBe(origin)
-        expect(getFeatureRequestBackLabel(origin)).toBeUndefined()
+        expect(getFeatureRequestBackLabel(origin)).toBeNull()
     })
 
     it.each([undefined, 'https://example.com/accounts', '//example.com/accounts', '/\\example.com/accounts'])(

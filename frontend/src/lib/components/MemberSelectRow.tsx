@@ -23,7 +23,7 @@ export function MemberSelectRow({ member, isYou, onClick, checked }: MemberSelec
                 size="small"
                 icon={
                     isMultiSelect ? (
-                        <LemonCheckbox checked={checked} className="pointer-events-none" />
+                        <LemonCheckbox checked={checked} className="pointer-events-none" decorative />
                     ) : (
                         <ProfilePicture size="md" user={member.user} />
                     )

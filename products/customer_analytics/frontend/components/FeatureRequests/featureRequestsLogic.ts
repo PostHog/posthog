@@ -261,7 +261,7 @@ export interface featureRequestsLogicValues {
     evidenceSource: string
     evidenceSummary: string
     evidenceUrl: string
-    featureRequestBackLabel: string | undefined
+    featureRequestBackLabel: string | null
     featureRequestBackUrl: string
     featureRequestsError: string | null
     featureRequestsPage: number
@@ -717,7 +717,7 @@ export interface featureRequestsLogicMeta {
             requestOrdering: FeatureRequestOrdering,
             featureRequestsPage: number
         ) => Record<string, string>
-        featureRequestBackLabel: (searchParams: Record<string, any>) => string | undefined
+        featureRequestBackLabel: (searchParams: Record<string, any>) => string | null
         featureRequestBackUrl: (listSearchParams: Record<string, string>, searchParams: Record<string, any>) => string
     }
 }
@@ -1660,7 +1660,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
         featureRequestBackLabel: [
             () => [router.selectors.searchParams],
-            (searchParams: Record<string, any>): string | undefined => getFeatureRequestBackLabel(searchParams.origin),
+            (searchParams: Record<string, any>): string | null => getFeatureRequestBackLabel(searchParams.origin),
         ],
         featureRequestBackUrl: [
             (selectors) => [selectors.listSearchParams, router.selectors.searchParams],

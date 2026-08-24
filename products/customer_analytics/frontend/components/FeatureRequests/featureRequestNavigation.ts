@@ -34,6 +34,6 @@ export function getFeatureRequestBackUrl(origin: unknown, listSearchParams: Reco
     return isInternalOrigin(origin) ? origin : combineUrl(urls.customerAnalyticsFeatureRequests(), listSearchParams).url
 }
 
-export function getFeatureRequestBackLabel(origin: unknown): string | undefined {
-    return isInternalOrigin(origin) ? undefined : 'Feature requests'
+export function getFeatureRequestBackLabel(origin: unknown): string | null {
+    return isInternalOrigin(origin) ? null : 'Feature requests'
 }
