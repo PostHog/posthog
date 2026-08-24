@@ -117,12 +117,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
   SETTINGS date_time_input_format = 'best_effort'
@@ -1158,12 +1156,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1186,12 +1182,10 @@
       team_id,
       organization_id,
       usage_key,
-      mode,
       unit,
       quantity,
       timestamp,
       inserted_at,
-      dimensions,
       _timestamp,
       _offset,
       _partition
@@ -2427,12 +2421,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
   SETTINGS date_time_input_format = 'best_effort'
@@ -6643,12 +6635,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
       
   , _timestamp DateTime
   , _offset UInt64
@@ -9171,12 +9161,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
       
   , _timestamp DateTime
   , _offset UInt64
@@ -11674,12 +11662,10 @@
       team_id Int64,
       organization_id UUID,
       usage_key LowCardinality(String),
-      mode Enum8('delta' = 1, 'snapshot' = 2),
       unit LowCardinality(String),
       quantity Int64,
       timestamp DateTime64(6, 'UTC'),
-      inserted_at DateTime64(6, 'UTC'),
-      dimensions Map(LowCardinality(String), String)
+      inserted_at DateTime64(6, 'UTC')
       
   , _timestamp DateTime
   , _offset UInt64

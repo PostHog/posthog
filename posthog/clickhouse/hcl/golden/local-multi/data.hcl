@@ -334,9 +334,6 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -348,9 +345,6 @@ database "posthog" {
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -4992,9 +4986,6 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -5006,9 +4997,6 @@ database "posthog" {
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
