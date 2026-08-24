@@ -9,20 +9,68 @@ import {
   type SpendSnapshot,
   useSpendTotals,
 } from "@posthog/ui/features/billing/useSpendTotals";
+import {
+  useSetUserSpendLimit,
+  useUserSpendLimit,
+} from "@posthog/ui/features/billing/useUserSpendLimit";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { SpendLimitCard } from "@posthog/ui/features/settings/sections/SpendLimitCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { toast } from "@posthog/ui/primitives/toast";
+import { useEffect } from "react";
+
+/**
+ * The window the enforced line resets over. The gateway counts a fixed window
+ * that starts at the first spend after a reset, so this is 30 days of spend
+ * rather than a calendar month.
+ */
+const MONTH_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 
 export function SpendLimitsSettings() {
   const spendLimits = useSettingsStore((state) => state.spendLimits);
   const setSpendLimits = useSettingsStore((state) => state.setSpendLimits);
   const totals = useSpendTotals();
+  const enforced = useUserSpendLimit();
+  const pushLimit = useSetUserSpendLimit();
+  const serverLimitUsd = enforced.data?.enforced
+    ? (enforced.data.limitUsd ?? null)
+    : undefined;
+
+  // The gateway holds the line whether this app is running or not, so its
+  // stored value is the truth a stale local one has to give way to. Keyed on
+  // the fetched value alone: a local edit is pushed below, and reacting to it
+  // here would fight the person typing.
+  useEffect(() => {
+    if (serverLimitUsd === undefined) return;
+    useSettingsStore.setState((state) => ({
+      spendLimits: { ...state.spendLimits, monthlyStopUsd: serverLimitUsd },
+    }));
+  }, [serverLimitUsd]);
+
+  const commit = (limits: Partial<SpendLimits>) => {
+    setSpendLimits(limits);
+    if (!("monthlyStopUsd" in limits) || !enforced.data?.enforced) return;
+    pushLimit.mutate(
+      {
+        limitUsd: limits.monthlyStopUsd ?? null,
+        windowSeconds: MONTH_WINDOW_SECONDS,
+      },
+      {
+        onError: (error) =>
+          toast.error("Couldn't save your stop line", {
+            description:
+              error instanceof Error ? error.message : "Try again in a moment.",
+          }),
+      },
+    );
+  };
 
   return (
     <SpendLimitsSettingsView
       spendLimits={spendLimits}
       totals={totals}
-      onCommit={setSpendLimits}
+      enforced={enforced.data?.enforced ?? false}
+      onCommit={commit}
     />
   );
 }
@@ -31,12 +79,15 @@ interface SpendLimitsSettingsViewProps {
   spendLimits: SpendLimits;
   /** Live spend for the sliders; null renders them without fill or marker. */
   totals: SpendSnapshot | null;
+  /** The gateway can hold spend, so the monthly stop line is more than a notice. */
+  enforced: boolean;
   onCommit: (limits: Partial<SpendLimits>) => void;
 }
 
 export function SpendLimitsSettingsView({
   spendLimits,
   totals,
+  enforced,
   onCommit,
 }: SpendLimitsSettingsViewProps) {
   const todayIso = utcDayIso();
@@ -49,12 +100,16 @@ export function SpendLimitsSettingsView({
   return (
     <SettingsSubsection
       title="Spend limits"
-      description="A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out."
+      description={
+        enforced
+          ? "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
+          : "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Figures are an estimate of your own usage in this app, so they can differ from your PostHog bill."
+      }
     >
       <SpendLimitCard
         scope="day"
         title="Per day"
-        description="Counts every task you run in a day, and resets at midnight UTC."
+        description="Counts every task you run in a day, and resets at midnight UTC. This one pauses work in this app."
         spentUsd={totals?.todayUsd ?? null}
         soFarLabel="today"
         markerUsd={avgUsd}
@@ -79,7 +134,11 @@ export function SpendLimitsSettingsView({
       <SpendLimitCard
         scope="month"
         title="Per month"
-        description="Counts the whole calendar month, and resets on the first."
+        description={
+          enforced
+            ? "Counts 30 days of model spend, and restarts once the window runs out. Your stop line holds outside this app too."
+            : "Counts the whole calendar month, and resets on the first."
+        }
         spentUsd={totals?.monthUsd ?? null}
         soFarLabel="this month"
         markerUsd={projectedUsd}

@@ -61,6 +61,30 @@ export function buildPosthogPropertyHeaderLines(
     .join("\n");
 }
 
+/**
+ * Attribution node header for the person a request is spent on behalf of. The
+ * gateway keys its per-user spend limit on this value, so it must be the same
+ * node the spend-limit endpoint writes the limit against: the user's distinct
+ * id, not their uuid (see posthog/models/user_gateway_node.py).
+ */
+export const POSTHOG_USER_HEADER = "X-PostHog-User";
+
+export function buildPosthogUserHeaderRecord(
+  userUuid: string | null | undefined,
+): Record<string, string> {
+  return userUuid
+    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userUuid) }
+    : {};
+}
+
+export function buildPosthogUserHeaderLines(
+  userNode: string | null | undefined,
+): string {
+  return userNode
+    ? `${POSTHOG_USER_HEADER}: ${sanitizeHeaderValue(userNode)}`
+    : "";
+}
+
 export function buildPosthogProjectHeaderRecord(
   projectId: number | null | undefined,
 ): Record<string, string> {

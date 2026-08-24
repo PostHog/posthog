@@ -124,6 +124,7 @@ export type TaskRunUpdate = Partial<
 
 export class PostHogAPIClient {
   private config: PostHogAPIConfig;
+  private userNode: string | null | undefined;
 
   constructor(config: PostHogAPIConfig) {
     this.config = config;
@@ -220,6 +221,26 @@ export class PostHogAPIClient {
 
   getLlmGatewayUrl(): string {
     return getLlmGatewayUrl(this.baseUrl);
+  }
+
+  /**
+   * The gateway user node for the signed-in person, or null when the credential
+   * resolves to no user (a task-scoped token). This is the distinct id, not the
+   * uuid: it has to match what a per-person spend limit is keyed on and what a
+   * cloud run pins into its token (see posthog/models/user_gateway_node.py).
+   * Cached, since it never changes for a credential.
+   */
+  async getUserNode(): Promise<string | null> {
+    if (this.userNode !== undefined) return this.userNode;
+    try {
+      const user = await this.apiRequest<{ distinct_id?: string }>(
+        "/api/users/@me/",
+      );
+      this.userNode = user.distinct_id ?? null;
+    } catch {
+      this.userNode = null;
+    }
+    return this.userNode;
   }
 
   async getTask(taskId: string): Promise<Task> {

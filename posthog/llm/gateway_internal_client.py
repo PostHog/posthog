@@ -150,3 +150,115 @@ def _error_detail(response: httpx.Response) -> str:
     if isinstance(body, dict):
         return str(body.get("error") or body.get("message") or body)
     return f"HTTP {response.status_code}"
+
+
+# The attribution node a per-person limit hangs off. It matches the
+# `X-PostHog-User` header the desktop agent asserts on every gateway request,
+# so the node the gate counts is the node this configures.
+USER_SCOPE_TYPE = "user"
+# Ledger/audit provenance for a limit someone set on themselves, as opposed to
+# the operator grants ADMIN_ACTOR covers.
+USER_ACTOR = "posthog-user"
+
+
+@dataclasses.dataclass(frozen=True)
+class UserBudget:
+    team_id: int
+    scope_value: str
+    limit_usd: str
+    window_seconds: int
+
+
+def _user_budget(team_id: int, row: dict[str, Any]) -> UserBudget:
+    try:
+        window_seconds = int(row.get("window_seconds") or 0)
+    except (TypeError, ValueError) as exc:
+        raise AIGatewayInternalError(f"budget response had a non-numeric window: {exc}") from exc
+    limit_usd = row.get("limit_usd")
+    if not limit_usd or window_seconds <= 0:
+        raise AIGatewayInternalError("budget response missing required fields (limit_usd/window_seconds)")
+    return UserBudget(
+        team_id=int(row.get("team_id", team_id)),
+        scope_value=str(row.get("scope_value", "")),
+        limit_usd=str(limit_usd),
+        window_seconds=window_seconds,
+    )
+
+
+def _budgets_url(url: str, team_id: int) -> str:
+    return f"{url}/internal/teams/{team_id}/budgets"
+
+
+def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
+    # The gateway lists a team's budgets rather than serving one node, so the
+    # match happens here. A team holds one row per person, not per request, so
+    # the list stays small.
+    url, token = _config()
+    try:
+        response = httpx.get(
+            _budgets_url(url, team_id),
+            headers=_auth_headers(token),
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"budget read failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"budget response was not valid JSON: {exc}") from exc
+    for row in data.get("budgets") or []:
+        if row.get("scope_type") == USER_SCOPE_TYPE and row.get("scope_value") == scope_value:
+            return _user_budget(team_id, row)
+    return None
+
+
+def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_seconds: int) -> UserBudget:
+    # A config replace rather than a ledger movement, so there is no
+    # idempotency key: the last write for a node is the limit that holds.
+    url, token = _config()
+    try:
+        response = httpx.put(
+            _budgets_url(url, team_id),
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: USER_ACTOR}),
+            json={
+                "scope_type": USER_SCOPE_TYPE,
+                "scope_value": scope_value,
+                "limit_usd": limit_usd,
+                "window_seconds": window_seconds,
+            },
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"budget write failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"budget response was not valid JSON: {exc}") from exc
+    return _user_budget(team_id, data)
+
+
+def clear_user_budget(team_id: int, scope_value: str) -> bool:
+    """Remove one person's budget. False means they had none to remove."""
+    url, token = _config()
+    try:
+        response = httpx.request(
+            "DELETE",
+            _budgets_url(url, team_id),
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: USER_ACTOR}),
+            params={"scope_type": USER_SCOPE_TYPE, "scope_value": scope_value},
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"budget delete failed: {exc}") from exc
+    if response.status_code == 404:
+        return False
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+    return True

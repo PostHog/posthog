@@ -1,7 +1,14 @@
 from posthog.api.routing import RouterRegistry
 
+from products.ai_gateway.backend.api import UserSpendLimitViewSet
+
 
 def register_routes(routers: RouterRegistry) -> None:
-    # AI gateway has no per-team management resource: a project secret key with the
-    # llm_gateway:read scope reaches the gateway directly, and usage is read from events.
-    pass
+    # Usage is read from events and a project secret key reaches the gateway
+    # directly, so the only management resource here is a person's own limit.
+    routers.projects.register(
+        r"ai_gateway/@me/spend_limit",
+        UserSpendLimitViewSet,
+        "project_ai_gateway_user_spend_limit",
+        ["team_id"],
+    )
