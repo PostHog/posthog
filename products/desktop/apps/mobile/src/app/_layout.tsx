@@ -6,7 +6,7 @@ import { router, Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "nativewind";
 import { PostHogProvider } from "posthog-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -71,19 +71,33 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   // onto a protected route. Wait for the status to resolve before routing so we
   // never bounce a user whose consent we haven't checked yet.
   const consentSatisfied = consent.status === "resolved" && consent.satisfied;
+  // Where the user was heading when the gate intercepted, so a deep link opened
+  // before consent is restored once both requirements are met.
+  const pendingHrefRef = useRef<string | null>(null);
   useEffect(() => {
     if (isLoading || !isAuthenticated || pathname === "/auth") return;
     if (consent.status === "loading") return;
-    if (!consentSatisfied && pathname !== "/consent") {
-      router.replace("/consent");
-    } else if (consentSatisfied && pathname === "/consent") {
-      router.replace("/(tabs)/tasks");
+    if (!consentSatisfied) {
+      if (pathname !== "/consent") {
+        if (pathname !== "/") pendingHrefRef.current = pathname;
+        router.replace("/consent");
+      }
+    } else if (pathname === "/consent") {
+      const next = pendingHrefRef.current ?? "/(tabs)/tasks";
+      pendingHrefRef.current = null;
+      router.replace(next);
     }
   }, [isAuthenticated, isLoading, consent.status, consentSatisfied, pathname]);
 
-  // Hold the app on a spinner until consent resolves, so tabs never render for
-  // a frame before the gate redirects an unconsented user.
-  if (isLoading || (isAuthenticated && consent.status === "loading")) {
+  // Hold the app on a spinner while an authenticated user's consent is unknown
+  // or unmet, so no protected route renders for a frame before the gate
+  // redirects to /consent.
+  const blockUntilConsent =
+    isAuthenticated &&
+    !consentSatisfied &&
+    pathname !== "/consent" &&
+    pathname !== "/auth";
+  if (isLoading || blockUntilConsent) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" color={themeColors.accent[9]} />
