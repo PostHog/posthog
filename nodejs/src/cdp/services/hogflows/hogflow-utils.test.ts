@@ -1,6 +1,4 @@
-import { HogFlow } from '~/cdp/schema/hogflow'
-
-import { hasEvaluableWaitCondition, isEvaluableCondition } from './hogflow-utils'
+import { isEvaluableCondition } from './hogflow-utils'
 
 describe('isEvaluableCondition', () => {
     it('treats a filter that targets nothing as absent (compiles to always-true)', () => {
@@ -21,34 +19,5 @@ describe('isEvaluableCondition', () => {
         expect(isEvaluableCondition({ filters: { actions: [{ id: 3 }] } } as any)).toBe(true)
         // Test-account filtering alone is a real filter (compiler emits team test-account predicates).
         expect(isEvaluableCondition({ filters: { filter_test_accounts: true } })).toBe(true)
-    })
-})
-
-describe('hasEvaluableWaitCondition', () => {
-    const flowWith = (actions: any[]): HogFlow => ({ actions }) as HogFlow
-
-    it.each([
-        [
-            'a wait with a real condition',
-            [{ type: 'wait_until_condition', config: { condition: { filters: { properties: [{ key: 'email' }] } } } }],
-            true,
-        ],
-        [
-            'a wait whose condition targets nothing',
-            [{ type: 'wait_until_condition', config: { condition: { filters: { properties: [] } } } }],
-            false,
-        ],
-        ['a wait with no condition at all (events-only)', [{ type: 'wait_until_condition', config: {} }], false],
-        ['no wait step', [{ type: 'delay', config: { delay_duration: '1h' } }], false],
-        [
-            'a wait alongside other steps',
-            [
-                { type: 'delay', config: {} },
-                { type: 'wait_until_condition', config: { condition: { filters: { properties: [{ key: 'plan' }] } } } },
-            ],
-            true,
-        ],
-    ])('%s', (_name, actions, expected) => {
-        expect(hasEvaluableWaitCondition(flowWith(actions as any[]))).toBe(expected)
     })
 })

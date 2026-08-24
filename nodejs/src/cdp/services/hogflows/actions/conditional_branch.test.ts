@@ -219,6 +219,34 @@ describe('action.conditional_branch', () => {
             counterHogflowRekeyWake.reset()
         })
 
+        it('refreshes the person before a wait evaluates for the first time', async () => {
+            const refreshPerson = jest.fn().mockResolvedValue(undefined)
+            waitInvocation.refreshPerson = refreshPerson
+
+            await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(refreshPerson).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps the cached person on a re-check of a wait that already parked', async () => {
+            const refreshPerson = jest.fn().mockResolvedValue(undefined)
+            waitInvocation.refreshPerson = refreshPerson
+            // Set once the wait parks; its re-checks run 10 minutes apart, by when the cache expired.
+            waitInvocation.state.currentAction!.pollReparked = true
+
+            await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(refreshPerson).not.toHaveBeenCalled()
+        })
+
         it('advances to the matched branch and clears eventMatched', async () => {
             waitInvocation.state.currentAction!.eventMatched = true
             waitInvocation.state.currentAction!.eventMatchedEvent = 'subscription created'

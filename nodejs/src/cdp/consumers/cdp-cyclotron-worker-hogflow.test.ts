@@ -401,51 +401,32 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[3].invocation.state.personId).toBeUndefined()
         })
 
-        it('reads the person uncached on a wait flow first dequeue, so a just-written property is seen', async () => {
-            // The logic lives in hasEvaluableWaitCondition / PersonsManagerService.forceFresh (unit
-            // tested); this guards the wiring, without which a run enrolling right after a person write
-            // parks on a stale read that nothing will ever wake.
-            const spy = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
-
-            await processor.processInvocations([
+        it('supplies a refreshPerson hook that re-reads uncached and rebuilds the filter globals', async () => {
+            // A wait step calls this before its first evaluation. Without it the wait evaluates the
+            // person the dequeue cached, and a run that parks on a stale read has nothing left to wake it.
+            const results = (await processor.processInvocations([
                 createSerializedHogFlowInvocation(hogFlows[2], {
                     event: { distinct_id: 'distinct_A_1', properties: {} } as any,
                 }),
-                createSerializedHogFlowInvocation(hogFlows[0], {
-                    event: { distinct_id: 'distinct_A_2', properties: {} } as any,
-                }),
-            ])
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
-            const forceFreshByDistinctId = new Map(
-                spy.mock.calls.map(([, id, , options]) => [id, options?.forceFresh ?? false])
-            )
-            expect(forceFreshByDistinctId.get('distinct_A_1')).toBe(true)
-            // A flow with no wait step cannot park on a condition, so it keeps the cached read.
-            expect(forceFreshByDistinctId.get('distinct_A_2')).toBe(false)
-        })
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson').mockResolvedValue({
+                id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                properties: { name: 'Person A 1', email: 'written-after-caching@posthog.com' },
+                name: 'Person A 1',
+                url: 'http://localhost:8000/project/1/person/distinct_A_1',
+                distinct_id: 'distinct_A_1',
+            })
 
-        it('reads the person uncached when a wait is reached after an earlier step parked', async () => {
-            // A run waking from a delay carries that delay in currentAction, so keying off its absence
-            // would send the wait's first evaluation into the cache — the same unrecoverable park.
-            const spy = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
+            const refreshed = await results[0].invocation.refreshPerson!()
 
-            await processor.processInvocations([
-                createSerializedHogFlowInvocation(hogFlows[2], {
-                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
-                    currentAction: { id: 'delay', startedAtTimestamp: Date.now() },
-                } as any),
-                createSerializedHogFlowInvocation(hogFlows[2], {
-                    event: { distinct_id: 'distinct_A_2', properties: {} } as any,
-                    currentAction: { id: 'wait', startedAtTimestamp: Date.now(), pollReparked: true },
-                } as any),
-            ])
-
-            const forceFreshByDistinctId = new Map(
-                spy.mock.calls.map(([, id, , options]) => [id, options?.forceFresh ?? false])
-            )
-            expect(forceFreshByDistinctId.get('distinct_A_1')).toBe(true)
-            // A wait that already parked re-checks 10 minutes later, by when the cache has expired.
-            expect(forceFreshByDistinctId.get('distinct_A_2')).toBe(false)
+            expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
+                forceFresh: true,
+            })
+            expect(refreshed.filterGlobals.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'written-after-caching@posthog.com',
+            })
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {

@@ -6,7 +6,6 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
-import { hasEvaluableWaitCondition } from '../services/hogflows/hogflow-utils'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -152,20 +151,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
-                // A stale cached person is unrecoverable the first time a wait step evaluates: the
-                // condition reads false, the run parks, and the write it was waiting for has already
-                // happened, so no person message arrives to wake it. Re-read uncached on any dequeue
-                // that can reach a wait for the first time — enrollment, and waking from an earlier
-                // step such as a delay. `pollReparked` marks a wait that already parked, whose
-                // re-checks run 10 minutes apart and can keep the cached read.
-                const forceFreshPerson =
-                    hasEvaluableWaitCondition(hogFlow) && !hogFlowInvocationState.currentAction?.pollReparked
-
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
-                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
-                              forceFresh: forceFreshPerson,
-                          })
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
                         : undefined,
                     this.groupsManager.getGroupsForEvent(
                         hogFlow.team_id,
@@ -205,14 +193,36 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     variables: hogFlowInvocationState.variables || {},
                 })
 
-                loadedInvocations.push({
+                const loaded: CyclotronJobInvocationHogFlow = {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
                     groups,
                     filterGlobals,
-                })
+                }
+
+                if (personIdOrDistinctId) {
+                    loaded.refreshPerson = async () => {
+                        const fresh = await this.personsManager.getCyclotronPerson(
+                            hogFlow.team_id,
+                            personIdOrDistinctId,
+                            kind,
+                            { forceFresh: true }
+                        )
+                        return {
+                            person: fresh ?? undefined,
+                            filterGlobals: convertToHogFunctionFilterGlobal({
+                                event: hogFlowInvocationState.event,
+                                person: fresh ?? undefined,
+                                groups,
+                                variables: hogFlowInvocationState.variables || {},
+                            }),
+                        }
+                    }
+                }
+
+                loadedInvocations.push(loaded)
             })
         )
 

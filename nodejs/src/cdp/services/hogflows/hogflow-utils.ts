@@ -139,16 +139,6 @@ export function isEvaluableCondition(condition?: {
     )
 }
 
-// A run enrolling moments after a person write can evaluate its first wait_until_condition against a
-// person cached before that write, find the condition false, and park. Nothing wakes it: the update it
-// was waiting for has already happened, so no further person message follows, and only the polling
-// re-check rescues it. Flows that can park this way re-read the person uncached on their first dequeue.
-export function hasEvaluableWaitCondition(hogFlow: HogFlow): boolean {
-    return hogFlow.actions.some(
-        (action) => action.type === 'wait_until_condition' && isEvaluableCondition(action.config.condition)
-    )
-}
-
 const counterHogflowFilterBytecodeError = new Counter({
     name: 'cdp_hogflow_matcher_bytecode_error',
     help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',

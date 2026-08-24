@@ -61,6 +61,19 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
         }
 
+        // The person the worker read at dequeue can predate a write this wait is waiting for, and a
+        // wait that parks on that read is stuck: the write already happened, so no person message
+        // follows to wake it. Re-read before the first evaluation of each wait — including a wait
+        // reached later in the same dequeue. Re-checks of a wait that already parked run 10 minutes
+        // apart, by when the cache has expired, so they keep the cheaper read.
+        if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
+            const refreshed = await invocation.refreshPerson?.()
+            if (refreshed) {
+                invocation.person = refreshed.person
+                invocation.filterGlobals = refreshed.filterGlobals
+            }
+        }
+
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'
