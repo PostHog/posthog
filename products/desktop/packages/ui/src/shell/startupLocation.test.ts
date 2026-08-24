@@ -66,7 +66,7 @@ describe("startup location", () => {
     await expect(
       resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
-      href: "/code",
+      href: "/new",
       firstRun: null,
     });
     expect(client.startOnboardingSession).not.toHaveBeenCalled();
@@ -107,7 +107,7 @@ describe("startup location", () => {
     await expect(
       resolveStartupLocation(identity, client, true),
     ).resolves.toEqual({
-      href: "/website/general-id/tasks/session-id",
+      href: "/spaces/general-id/tasks/session-id",
       firstRun: { generalChannelId: "general-id" },
     });
   });

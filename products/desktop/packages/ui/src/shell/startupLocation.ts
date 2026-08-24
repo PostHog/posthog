@@ -1,4 +1,5 @@
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
+import { rewriteLegacyHref } from "@posthog/ui/router/legacyPaths";
 import {
   type FirstRunClient,
   firstRun,
