@@ -10,9 +10,9 @@ import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { InboxReportSectionKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
-import { inboxReportDetailUrl } from '../../utils/inboxViewParam'
+import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -94,7 +94,7 @@ export function InboxCardSourceMeta({
  */
 export function ReportCard({
     report,
-    tabKey = 'needs-decision',
+    sectionKey = 'needs-decision',
     attached = false,
     onArchive,
     onRestore,
@@ -102,7 +102,7 @@ export function ReportCard({
     preview = false,
 }: {
     report: SignalReport
-    tabKey?: InboxFlatListTabKey
+    sectionKey?: InboxReportSectionKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     onRestore?: () => void
@@ -112,9 +112,9 @@ export function ReportCard({
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
 }): JSX.Element {
-    const isArchived = tabKey === 'resolved'
+    const isArchived = sectionKey === 'resolved'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Resolved view. They can't be restored or re-archived; refunding their PR lives in the detail pane.
+    // Resolved section. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -126,7 +126,7 @@ export function ReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = inboxReportDetailUrl(report.id, tabKey, backUrl)
+    const detailUrl = inboxReportDetailUrl(report.id, backUrl)
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,

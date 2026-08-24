@@ -9,8 +9,8 @@ import { urls } from 'scenes/urls'
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import {
-    INBOX_DEFAULT_FLAT_LIST_TAB_KEY,
-    INBOX_FLAT_LIST_TAB_KEYS,
+    INBOX_PRIMARY_REPORT_SECTION_KEY,
+    INBOX_REPORT_SECTION_KEYS,
     INBOX_SCOPE_FOR_YOU,
     INBOX_TAB_KEYS,
     InboxScope,
@@ -120,7 +120,7 @@ function currentInboxTab(): string | null {
         return candidate
     }
     const view = router.values.searchParams.view
-    return (INBOX_FLAT_LIST_TAB_KEYS as readonly string[]).includes(view) ? view : INBOX_DEFAULT_FLAT_LIST_TAB_KEY
+    return (INBOX_REPORT_SECTION_KEYS as readonly string[]).includes(view) ? view : INBOX_PRIMARY_REPORT_SECTION_KEY
 }
 
 function sameSet(a: string[], b: string[]): boolean {

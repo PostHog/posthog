@@ -167,7 +167,7 @@ export const SOURCE_STEERING_KEY = 'steering'
 export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 
-// ── Inbox IA: page tabs, report views, scope ─────────────────────────────────
+// ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
 /** The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned. */
 export type InboxTabKey = 'reports' | 'scouts' | 'settings'
@@ -188,24 +188,29 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 }
 
 /**
- * The views inside the Reports tab. Each is a flat report list with its own fixed server filter
- * (see `INBOX_FLAT_TAB_LIST_PARAMS`), keyed `reportListLogic` instance, count chip, and pagination.
- * The active view rides on the `?view=` search param, so the keys are pinned.
+ * The sections of the Reports list, in render order. Each is a collapsible run of report cards with
+ * its own fixed server filter (see `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic`
+ * instance, header count, and pagination — the sections stack in one column rather than switching.
+ * pinned: these keys are the `tab` property on the inbox analytics events.
  */
-export const INBOX_FLAT_LIST_TAB_KEYS = ['needs-decision', 'monitoring', 'resolved', 'not-actionable'] as const
-export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
+export const INBOX_REPORT_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'not-actionable'] as const
+export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
 
-export const INBOX_DEFAULT_FLAT_LIST_TAB_KEY: InboxFlatListTabKey = 'needs-decision'
+/**
+ * The section the inbox is fundamentally about: what focus mode walks, and the one whose For-you
+ * count decides the default scope.
+ */
+export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-decision'
 
-export const INBOX_FLAT_TAB_LABEL: Record<InboxFlatListTabKey, string> = {
+export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     'needs-decision': 'Needs a decision',
     monitoring: 'Monitoring',
     resolved: 'Resolved',
     'not-actionable': 'Not actionable',
 }
 
-/** One line per view, shown as the view tab's tooltip. */
-export const INBOX_FLAT_TAB_DESCRIPTION: Record<InboxFlatListTabKey, string> = {
+/** One line per section, shown under its header while the section is open. */
+export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     'needs-decision': 'Reports that need your judgment before an agent acts.',
     monitoring: 'Reports with a pull request open. Review and merge them on GitHub.',
     resolved: 'Reports resolved by a merged pull request, and reports you archived.',
@@ -214,13 +219,13 @@ export const INBOX_FLAT_TAB_DESCRIPTION: Record<InboxFlatListTabKey, string> = {
 }
 
 /**
- * Views only visible to staff users (internal). The Not-actionable list is an internal triage
- * surface; every other view is public to any team member.
+ * Sections only rendered for staff users (internal). Not actionable is an internal triage surface;
+ * every other section is public to any team member.
  */
-export const INBOX_STAFF_ONLY_FLAT_LIST_TAB_KEYS: InboxFlatListTabKey[] = ['not-actionable']
+export const INBOX_STAFF_ONLY_REPORT_SECTION_KEYS: InboxReportSectionKey[] = ['not-actionable']
 
-/** Small tag rendered next to a view's label in the view switcher. */
-export const INBOX_FLAT_TAB_TAG: Partial<Record<InboxFlatListTabKey, 'Staff'>> = {
+/** Small tag rendered next to a section's label in its header. */
+export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'Staff'>> = {
     'not-actionable': 'Staff',
 }
 

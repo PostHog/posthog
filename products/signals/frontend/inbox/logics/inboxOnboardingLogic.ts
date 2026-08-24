@@ -12,7 +12,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { captureInboxOnboardingDecided } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 // Spread for the mount-time wizard check. Short enough that a user arriving from onboarding gets
@@ -357,9 +357,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             // Mount the monitoring + needs-decision count loaders directly (cheap limit=1 each) so we
             // know whether there's existing work even during a takeover, when the view switcher that
             // usually mounts these isn't rendered. Same keyed instances it uses – no double-fetch.
-            reportListLogic({ tabKey: 'monitoring', listParams: INBOX_FLAT_TAB_LIST_PARAMS.monitoring }),
+            reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
             ['count as pullsCount', 'countLoading as pullsCountLoading'],
-            reportListLogic({ tabKey: 'needs-decision', listParams: INBOX_FLAT_TAB_LIST_PARAMS['needs-decision'] }),
+            reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            }),
             ['count as reportsCount', 'countLoading as reportsCountLoading'],
             // Already mounted app-wide by the sync widget; connecting here just reads its verdict.
             wizardActiveSessionDetectorLogic,
@@ -376,9 +379,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['loadSourceConfigs'],
             scoutFleetLogic,
             ['loadScoutConfigs'],
-            reportListLogic({ tabKey: 'monitoring', listParams: INBOX_FLAT_TAB_LIST_PARAMS.monitoring }),
+            reportListLogic({ sectionKey: 'monitoring', listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring }),
             ['loadCount as loadPullsCount'],
-            reportListLogic({ tabKey: 'needs-decision', listParams: INBOX_FLAT_TAB_LIST_PARAMS['needs-decision'] }),
+            reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            }),
             ['loadCount as loadReportsCount'],
         ],
     })),

@@ -89,14 +89,6 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
-export const ReportsMonitoring: Story = {
-    decorators: [routeTo(urls.inbox('reports'), { view: 'monitoring' })],
-}
-
-export const ReportsResolved: Story = {
-    decorators: [routeTo(urls.inbox('reports'), { view: 'resolved' })],
-}
-
 // Focus mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Focus: Story = {
     decorators: [routeTo(urls.inboxFocus())],

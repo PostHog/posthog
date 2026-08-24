@@ -67,10 +67,10 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
  */
 function PreviewCard({
     report,
-    tabKey,
+    sectionKey,
 }: {
     report: SignalReport
-    tabKey: 'monitoring' | 'needs-decision'
+    sectionKey: 'monitoring' | 'needs-decision'
 }): JSX.Element {
     return (
         // `@container` so ReportCard's `@lg:` row layout resolves against the preview width (it has no
@@ -80,7 +80,7 @@ function PreviewCard({
                 sample report id (which 404s) out of reach – nobody can click or tab into it – on top
                 of the `pointer-events-none` and overlay below. */}
             <div aria-hidden className="pointer-events-none">
-                <ReportCard report={report} tabKey={tabKey} preview />
+                <ReportCard report={report} sectionKey={sectionKey} preview />
             </div>
 
             {/* Always-visible label so the sample reads as a sample, not live work. Sits on the top
@@ -106,11 +106,19 @@ function PreviewCard({
 export function PullRequestPreview(): JSX.Element {
     const landed = landedHoursAgo(2)
     return (
-        <PreviewCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="monitoring" />
+        <PreviewCard
+            report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }}
+            sectionKey="monitoring"
+        />
     )
 }
 
 export function ReportPreview(): JSX.Element {
     const landed = landedHoursAgo(4)
-    return <PreviewCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="needs-decision" />
+    return (
+        <PreviewCard
+            report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }}
+            sectionKey="needs-decision"
+        />
+    )
 }

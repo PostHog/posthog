@@ -1,155 +1,206 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { JSX } from 'react'
+import { useActions, useValues } from 'kea'
+import { JSX, useEffect, useRef } from 'react'
 
-import { IconCheckCircle, IconInfo, IconNotebook, IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconNotebook } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import {
-    INBOX_FLAT_LIST_TAB_KEYS,
-    INBOX_FLAT_TAB_DESCRIPTION,
-    INBOX_FLAT_TAB_LABEL,
-    INBOX_FLAT_TAB_TAG,
-    INBOX_STAFF_ONLY_FLAT_LIST_TAB_KEYS,
-    InboxFlatListTabKey,
+    INBOX_REPORT_SECTION_KEYS,
+    INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
+    InboxReportSectionKey,
+    SignalReport,
 } from '../../types'
-import { ReportCard } from '../cards/ReportCard'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
-import { InboxReportList } from '../InboxReportList'
+import { InboxReportSection } from '../InboxReportSection'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
+import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxSearchFilterBar } from '../shell/InboxSearchFilterBar'
 
 /**
- * Count chip for a report view. Mounts that view's `reportListLogic` so its `count` (a cheap
- * `limit=1` request) is available for the chip before the view is ever opened. The active view
- * shares the same keyed instance, so no double-fetch.
+ * The sections that make up "the inbox" for counting purposes. Not actionable is left out: it is a
+ * staff triage surface, and counting it would make the inbox look non-empty to staff on a project
+ * that has surfaced nothing worth acting on. A fixed list, so the hooks below never change shape
+ * when the user's staff flag resolves.
  */
-function ViewCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element {
-    const logic = reportListLogic({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
-    useMountedLogic(logic)
-    const { count, countLoading } = useValues(logic)
-    // Skeleton only while the request is genuinely in flight; on failure `count` stays null,
-    // so fall back to the number (0) rather than a permanent skeleton.
-    if (count === null && countLoading) {
-        return <LemonSkeleton className="h-3 w-3 rounded" />
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved'] as const
+
+type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
+
+interface SectionListState {
+    count: number | null
+    countLoading: boolean
+    visibleReports: SignalReport[]
+    refresh: () => void
+}
+
+/**
+ * Each counted section's header count, rendered rows, and refresh action, keyed by section.
+ *
+ * Read one value at a time rather than spreading what `useValues` returns: it hands back a proxy
+ * whose properties are subscribing getters, and spreading it yields an empty object — silently, and
+ * with a type that still claims every value is there.
+ */
+function useCountedSections(): Record<CountedSectionKey, SectionListState> {
+    const needsDecisionProps = {
+        sectionKey: 'needs-decision' as const,
+        listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
     }
-    return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
-}
+    const monitoringProps = {
+        sectionKey: 'monitoring' as const,
+        listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring,
+    }
+    const resolvedProps = { sectionKey: 'resolved' as const, listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved }
 
-/** The view switcher: Needs a decision / Monitoring / Resolved, plus Not actionable for staff. */
-function ReportsViewTabs(): JSX.Element {
-    const { effectiveFlatListTab, isStaff } = useValues(inboxSceneLogic)
-    const { setActiveFlatListTab } = useActions(inboxSceneLogic)
+    const {
+        count: needsDecisionCount,
+        countLoading: needsDecisionCountLoading,
+        visibleReports: needsDecisionReports,
+    } = useValues(reportListLogic(needsDecisionProps))
+    const {
+        count: monitoringCount,
+        countLoading: monitoringCountLoading,
+        visibleReports: monitoringReports,
+    } = useValues(reportListLogic(monitoringProps))
+    const {
+        count: resolvedCount,
+        countLoading: resolvedCountLoading,
+        visibleReports: resolvedReports,
+    } = useValues(reportListLogic(resolvedProps))
 
-    const visibleKeys = INBOX_FLAT_LIST_TAB_KEYS.filter(
-        (key) => isStaff || !INBOX_STAFF_ONLY_FLAT_LIST_TAB_KEYS.includes(key)
-    )
+    const { refresh: refreshNeedsDecision } = useActions(reportListLogic(needsDecisionProps))
+    const { refresh: refreshMonitoring } = useActions(reportListLogic(monitoringProps))
+    const { refresh: refreshResolved } = useActions(reportListLogic(resolvedProps))
 
-    return (
-        <LemonTabs<InboxFlatListTabKey>
-            activeKey={effectiveFlatListTab}
-            onChange={setActiveFlatListTab}
-            size="small"
-            // Grows into whatever the controls beside it leave, and scrolls its bar past that. The
-            // 16rem basis is what keeps it from being squeezed to nothing on a phone: below that the
-            // row wraps and the controls drop under the tabs instead. The empty content slot is
-            // hidden so the bar sits on the same baseline as the buttons.
-            className="min-w-0 flex-1 basis-64 [&>.LemonTabs__content]:hidden"
-            // The page tab bar above already draws the full-width divider; this switcher sits
-            // inside the column as a plain row of tabs.
-            barClassName="before:hidden mb-0"
-            data-attr="inbox-report-views"
-            tabs={visibleKeys.map((key) => ({
-                key,
-                label: (
-                    <Tooltip title={INBOX_FLAT_TAB_DESCRIPTION[key]} placement="bottom">
-                        <span className="flex items-center gap-1.5">
-                            <span>{INBOX_FLAT_TAB_LABEL[key]}</span>
-                            <ViewCount tabKey={key} />
-                            {INBOX_FLAT_TAB_TAG[key] && (
-                                <LemonTag type="completion" size="small">
-                                    {INBOX_FLAT_TAB_TAG[key]}
-                                </LemonTag>
-                            )}
-                        </span>
-                    </Tooltip>
-                ),
-                content: <></>,
-            }))}
-        />
-    )
-}
-
-type ReportsViewEmptyState =
-    | { content: JSX.Element }
-    | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
-
-function emptyStateFor(view: InboxFlatListTabKey, showWaitingForWork: boolean): ReportsViewEmptyState {
-    switch (view) {
-        case 'needs-decision':
-            return {
-                icon: <IconNotebook className="text-2xl" />,
-                title: 'Nothing needs a decision',
-                description:
-                    'Reports land here when an agent finds something worth your judgment and no clean code change to draft.',
-                extra: (
-                    <SelfDrivingInstallingHint>
-                        Reports will start arriving as soon as live data comes in.
-                    </SelfDrivingInstallingHint>
-                ),
-            }
-        case 'monitoring':
-            return showWaitingForWork
-                ? { content: <InboxWaitingForWork /> }
-                : {
-                      icon: <IconPullRequest className="text-2xl" />,
-                      title: 'Nothing being monitored',
-                      description:
-                          'When an agent ships a code change, the pull request lands here for you to review and merge.',
-                      extra: (
-                          <SelfDrivingInstallingHint>
-                              Pull requests will be opened as soon as live data comes in.
-                          </SelfDrivingInstallingHint>
-                      ),
-                  }
-        case 'resolved':
-            return {
-                icon: <IconCheckCircle className="text-2xl" />,
-                title: 'Nothing resolved yet',
-                description:
-                    'Reports resolved by a merged pull request land here, along with reports you archived. You can restore an archived report at any time.',
-            }
-        case 'not-actionable':
-            return {
-                icon: <IconInfo className="text-2xl" />,
-                title: 'Nothing judged not actionable',
-                description:
-                    'Reports the agent decided are not actionable land here, so the team can audit signal quality.',
-            }
+    return {
+        'needs-decision': {
+            count: needsDecisionCount,
+            countLoading: needsDecisionCountLoading,
+            visibleReports: needsDecisionReports,
+            refresh: refreshNeedsDecision,
+        },
+        monitoring: {
+            count: monitoringCount,
+            countLoading: monitoringCountLoading,
+            visibleReports: monitoringReports,
+            refresh: refreshMonitoring,
+        },
+        resolved: {
+            count: resolvedCount,
+            countLoading: resolvedCountLoading,
+            visibleReports: resolvedReports,
+            refresh: refreshResolved,
+        },
     }
 }
 
 /**
- * The Reports tab: a view switcher (Needs a decision / Monitoring / Resolved) with focus mode on the
- * same row, then the active view's filter bar (scope, search, sort, filters) and report list. Each view owns
- * its own filtered request, count, and pagination via the keyed `reportListLogic`; the list is
- * keyed on the view so its per-mount telemetry guards reset when the view changes.
+ * `Inbox viewed`, fired once per Reports mount as soon as every counted section's header count has
+ * settled. One event per visit, as before the sections replaced the view tabs — but the reader now
+ * sees every section at once, so it carries the whole list rather than one view's slice.
+ */
+function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
+    const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
+    // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
+    // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
+    // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isFocusOpen } =
+        useValues(inboxSceneLogic)
+    const listVisible =
+        !selectedReportId &&
+        !selectedScoutSkillName &&
+        !isScratchpadOpen &&
+        !isFindingsOpen &&
+        !isRunsOpen &&
+        !isFocusOpen
+
+    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
+    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
+    // filter refresh in progress doesn't fire the event with the previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    const firedRef = useRef(false)
+
+    useEffect(() => {
+        if (!listVisible || !settled || firedRef.current) {
+            return
+        }
+        firedRef.current = true
+        captureInboxViewed({
+            // pinned: `tab` names the inbox page tab. Before the sections landed it named the report
+            // view, which is no longer a surface of its own.
+            tab: 'reports',
+            reports: COUNTED_SECTION_KEYS.flatMap((key) => sections[key].visibleReports),
+            totalCount: COUNTED_SECTION_KEYS.reduce((sum, key) => sum + (sections[key].count ?? 0), 0),
+            pullsTabCount: sections.monitoring.count,
+            reportsTabCount: sections['needs-decision'].count,
+            hasActiveFilters,
+            sourceProductFilter,
+            priorityFilter,
+            scope,
+        })
+    }, [listVisible, settled, sections, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+}
+
+/** Nothing has reached the inbox yet — the whole list is empty, not just one section. */
+function ReportsEmptyState(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE] === 'empty-state') {
+        return <InboxWaitingForWork />
+    }
+    return (
+        <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
+            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-fill-primary text-secondary">
+                <IconNotebook className="text-2xl" />
+            </div>
+            <h3 className="m-0 text-base font-semibold">Nothing in your inbox yet</h3>
+            <p className="m-0 text-sm text-tertiary">
+                Agents file what they find here: issues that need your judgment, pull requests to review, and the work
+                already resolved.
+            </p>
+            <SelfDrivingInstallingHint>
+                Reports will start arriving as soon as live data comes in.
+            </SelfDrivingInstallingHint>
+        </div>
+    )
+}
+
+/**
+ * The Reports tab: one filter row over a single column of collapsible sections (Needs a decision /
+ * Monitoring / Resolved, plus Not actionable for staff). Each section owns its own filtered request,
+ * count, and paging via the keyed `reportListLogic`, while the filter row, reviewer scope, and bulk
+ * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
-    const { effectiveFlatListTab } = useValues(inboxSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showWaitingForWork = featureFlags[FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE] === 'empty-state'
-    const view = effectiveFlatListTab
+    const { isStaff } = useValues(inboxSceneLogic)
+    const sections = useCountedSections()
+    useInboxViewedEvent(sections)
+
+    const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
+        (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
+    )
+    const refreshing = COUNTED_SECTION_KEYS.some((key) => sections[key].countLoading)
+    // Empty is a verdict about resolved counts: hold the sections until every count has answered, so
+    // a slow first load never flashes the "nothing yet" screen at a full inbox.
+    const countsSettled = COUNTED_SECTION_KEYS.every((key) => sections[key].count !== null)
+    const inboxIsEmpty = countsSettled && COUNTED_SECTION_KEYS.every((key) => sections[key].count === 0)
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                <ReportsViewTabs />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="min-w-0 flex-1 basis-64">
+                    <InboxSearchFilterBar
+                        onRefresh={() => COUNTED_SECTION_KEYS.forEach((key) => sections[key].refresh())}
+                        refreshing={refreshing}
+                    />
+                </div>
                 <LemonButton
                     type="primary"
                     size="small"
@@ -162,13 +213,17 @@ export function ReportsTab(): JSX.Element {
                     Focus mode
                 </LemonButton>
             </div>
-            <InboxReportList
-                key={view}
-                tabKey={view}
-                listParams={INBOX_FLAT_TAB_LIST_PARAMS[view]}
-                Card={ReportCard}
-                emptyState={emptyStateFor(view, showWaitingForWork)}
-            />
+            <InboxBulkSelectionBar />
+
+            {inboxIsEmpty ? (
+                <ReportsEmptyState />
+            ) : (
+                <div className="@container flex flex-col gap-5">
+                    {visibleSections.map((sectionKey) => (
+                        <InboxReportSection key={sectionKey} sectionKey={sectionKey} />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

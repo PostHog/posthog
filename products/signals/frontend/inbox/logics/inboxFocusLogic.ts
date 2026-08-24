@@ -5,14 +5,20 @@ import { openDismissReportDialog } from '../components/shell/DismissReportDialog
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import { INBOX_DEFAULT_FLAT_LIST_TAB_KEY, InboxFlatListTabKey, SignalReport } from '../types'
+import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
-/** Focus mode triages the landing view's queue, sharing its loaded pages, filters, and scope. */
-export const FOCUS_LIST_TAB_KEY: InboxFlatListTabKey = INBOX_DEFAULT_FLAT_LIST_TAB_KEY
+/**
+ * Focus mode triages the Needs-a-decision queue, sharing that section's loaded pages, filters, and
+ * scope. It walks every loaded report, not just the rows the section has expanded to show.
+ */
+export const FOCUS_SECTION_KEY: InboxReportSectionKey = INBOX_PRIMARY_REPORT_SECTION_KEY
 
-const FOCUS_LIST_PROPS = { tabKey: FOCUS_LIST_TAB_KEY, listParams: INBOX_FLAT_TAB_LIST_PARAMS[FOCUS_LIST_TAB_KEY] }
+const FOCUS_LIST_PROPS = {
+    sectionKey: FOCUS_SECTION_KEY,
+    listParams: INBOX_REPORT_SECTION_LIST_PARAMS[FOCUS_SECTION_KEY],
+}
 
 // How many reports before the end of the loaded page the next page is fetched, so stepping
 // forward never lands on a "loading" gap.

@@ -500,7 +500,7 @@ export function captureInboxReportActionCompleted(params: {
 
 /**
  * A surface that replaces the report list (Runs, Settings, focus mode, and the two scout panels).
- * None of them render `InboxReportList`, so without this they're invisible — `Inbox viewed` only
+ * None of them render the Reports sections, so without this they're invisible — `Inbox viewed` only
  * ever fires for the report views.
  */
 export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCount?: number | null }): void {

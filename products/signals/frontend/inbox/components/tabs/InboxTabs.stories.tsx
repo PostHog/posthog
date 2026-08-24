@@ -9,13 +9,14 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
-import { InboxFlatListTabKey, SignalReport, SignalRun } from '../../types'
+import { DEFAULT_OPEN_SECTIONS, inboxReportSectionsLogic } from '../../logics/inboxReportSectionsLogic'
+import { INBOX_REPORT_SECTION_KEYS, SignalReport, SignalRun } from '../../types'
 import { ReportsTab } from './ReportsTab'
 import { RunsTab } from './RunsTab'
 
-// Stories for the inbox tab bodies. The Reports tab loads its views via `reportListLogic`, so it
+// Stories for the inbox tab bodies. The Reports tab loads each section via `reportListLogic`, so it
 // gets an mswDecorator that mocks the reports list endpoint; the Runs panel is prop-driven and
-// receives mock runs directly. Use these to polish list density and the run-card design.
+// receives mock runs directly. Use these to polish section density and the run-card design.
 
 const SAMPLE_RUNS: SignalRun[] = [
     {
@@ -58,12 +59,19 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
     })
 }
 
-// The Reports tab reads its active view from the scene logic, which reads it from the URL.
-function ReportsTabAt({ view }: { view: InboxFlatListTabKey }): JSX.Element {
+// One mocked endpoint feeds every section, so each renders the same rows — enough to judge the
+// section rhythm, which is what these stories are for.
+function ReportsTabStory({ expandAll = false }: { expandAll?: boolean }): JSX.Element {
     useMountedLogic(inboxSceneLogic)
+    const sectionsLogic = useMountedLogic(inboxReportSectionsLogic)
     useEffect(() => {
-        router.actions.push(urls.inbox('reports'), view === 'needs-decision' ? {} : { view })
-    }, [view])
+        router.actions.push(urls.inbox('reports'))
+        if (expandAll) {
+            INBOX_REPORT_SECTION_KEYS.filter((key) => !DEFAULT_OPEN_SECTIONS[key]).forEach((key) =>
+                sectionsLogic.actions.toggleSection(key)
+            )
+        }
+    }, [expandAll, sectionsLogic])
     return (
         <div className="bg-primary min-h-screen">
             <ReportsTab />
@@ -84,24 +92,22 @@ export default meta
 
 type Story = StoryObj
 
-export const NeedsDecision: Story = {
+// The default arrangement: Needs a decision and Monitoring open, Resolved collapsed.
+export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
-    render: () => <ReportsTabAt view="needs-decision" />,
+    render: () => <ReportsTabStory />,
 }
 
-export const NeedsDecisionEmpty: Story = {
-    decorators: [reportsListDecorator([])],
-    render: () => <ReportsTabAt view="needs-decision" />,
-}
-
-export const Monitoring: Story = {
+// Every section open, including the ones that start collapsed.
+export const ReportsAllSectionsExpanded: Story = {
     decorators: [reportsListDecorator(pullRequestReports)],
-    render: () => <ReportsTabAt view="monitoring" />,
+    render: () => <ReportsTabStory expandAll />,
 }
 
-export const MonitoringEmpty: Story = {
+// Nothing anywhere: the whole-list empty state rather than a per-section one.
+export const ReportsEmpty: Story = {
     decorators: [reportsListDecorator([])],
-    render: () => <ReportsTabAt view="monitoring" />,
+    render: () => <ReportsTabStory />,
 }
 
 export const Runs: Story = {

@@ -13,7 +13,7 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 import { useReportRefund } from '../cards/useReportRefund'
@@ -125,8 +125,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // Prefer the mounted Resolved list logic so it optimistically drops the row and fixes its
         // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
         const archivedList = reportListLogic.findMounted({
-            tabKey: 'resolved',
-            listParams: INBOX_FLAT_TAB_LIST_PARAMS.resolved,
+            sectionKey: 'resolved',
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved,
         })
         if (archivedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
