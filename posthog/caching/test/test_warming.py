@@ -175,7 +175,7 @@ class TestWarmInsightCacheTask(APIBaseTest):
     @patch("posthog.caching.warming.capture_exception")
     def test_query_failure_cache_replays_are_not_recaptured(self, mock_capture_exception):
         replay_error = ClickHouseQueryTimeOut()
-        replay_error.served_from_query_failure_cache = True
+        replay_error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
 
         with patch("posthog.caching.warming.process_query_dict", side_effect=replay_error):
             insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
