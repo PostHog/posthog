@@ -40,7 +40,7 @@ from products.stamphog.backend.logic.digest_runs import (
     pending_audiences_by_team,
     reclaim_stale_pending_runs,
 )
-from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
+from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest_details, post_digest_lead
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_team_digests
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
@@ -182,7 +182,7 @@ def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
 
     with (
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="1234.5"),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="1234.5"),
         patch("products.stamphog.backend.logic.digest_runs.transaction.atomic", side_effect=_dying_atomic),
     ):
         # send_team_digests contains each audience's failure, so the crash is read off the run state
@@ -231,7 +231,7 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
     post = MagicMock(return_value="1234.5")
     sleeps: list[float] = []
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", post),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", post),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
         patch("products.stamphog.backend.logic.digest_runs.time.sleep", side_effect=lambda s: sleeps.append(s)),
         patch.object(QuerySet, "update", flaky_update),
@@ -271,7 +271,7 @@ def test_concurrent_runs_for_one_audience_post_to_slack_once(team) -> None:
         return f"ts-{len(posts)}"
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", side_effect=reentrant_post),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=reentrant_post),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -308,7 +308,7 @@ def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> N
         return f"ts-{destination.channel_id}"
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", side_effect=record),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=record),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id, context)
@@ -333,7 +333,7 @@ def test_switching_a_repos_digest_off_stops_merges_it_already_captured(team) -> 
     assert pending_audiences_by_team().get(team.id) is None
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -345,7 +345,7 @@ def test_switching_a_repos_digest_off_stops_merges_it_already_captured(team) -> 
     with team_scope(team.id):
         StamphogRepoConfig.objects.filter(id=repo_config.id).update(digest_enabled=True)
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -364,7 +364,7 @@ def test_a_repo_with_no_registry_inherits_one(team) -> None:
         channels_by_name={"team-apm": _channel("C9")},
     )
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id, context)
@@ -388,7 +388,7 @@ def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: st
     _seed_prs(team.id, pr_count=2)
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id, _routing_context(**context_kwargs))
@@ -411,7 +411,7 @@ def test_an_unreadable_registry_posts_nothing(team) -> None:
             "products.stamphog.backend.logic.digest_runs.build_routing_context",
             side_effect=RoutingUnavailable("github is down"),
         ),
-        patch("products.stamphog.backend.logic.digest_runs.post_digest") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
     ):
         send_team_digests(team_id=team.id, audience_keys=[AUDIENCE])
 
@@ -434,7 +434,7 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
     with (
         patch("products.stamphog.backend.logic.digest_runs.DIGEST_MAX_PRS_PER_RUN", 2),
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1"),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1"),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=sized_summary),
     ):
         _run_digests(team.id)
@@ -454,7 +454,7 @@ def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
     _seed_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-1") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -475,7 +475,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     _seed_prs(team.id)
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", side_effect=RuntimeError("slack down")),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", side_effect=RuntimeError("slack down")),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -486,7 +486,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2  # unlinked, retryable
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-ok"),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-ok"),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -564,7 +564,7 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
         )
 
     with (
-        patch("products.stamphog.backend.logic.digest_runs.post_digest", return_value="ts-ok"),
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="ts-ok"),
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
     ):
         _run_digests(team.id)
@@ -712,7 +712,10 @@ def test_the_changes_are_posted_as_a_thread_reply_under_the_lead(team) -> None:
     FakeSlackIntegration.reset(channels=[])
 
     with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", FakeSlackIntegration):
-        assert post_digest(team.id, destination, _one_pr_summary("The util helper landed.")) == "1234.5678"
+        summary = _one_pr_summary("The util helper landed.")
+        message_ts = post_digest_lead(team.id, destination, summary)
+        assert message_ts == "1234.5678"
+        post_digest_details(team.id, destination, summary, message_ts)
 
     posted = FakeSlackIntegration.posted_messages
     assert [p["thread_ts"] for p in posted] == [None, "1234.5678"]
@@ -729,7 +732,10 @@ def test_a_failed_thread_reply_still_counts_as_a_posted_digest(team) -> None:
     FakeSlackIntegration.reset(channels=[], fail_thread_replies=True)
 
     with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", FakeSlackIntegration):
-        assert post_digest(team.id, destination, _one_pr_summary("The util helper landed.")) == "1234.5678"
+        summary = _one_pr_summary("The util helper landed.")
+        message_ts = post_digest_lead(team.id, destination, summary)
+        assert message_ts == "1234.5678"
+        post_digest_details(team.id, destination, summary, message_ts)
 
     assert len(FakeSlackIntegration.posted_messages) == 2
 
@@ -789,10 +795,10 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
 
     with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", return_value=stub):
         if expected_error is None:
-            assert post_digest(team.id, destination, summary) == "9999.1"
+            assert post_digest_lead(team.id, destination, summary) == "9999.1"
         else:
             with pytest.raises(expected_error) as caught:
-                post_digest(team.id, destination, summary)
+                post_digest_lead(team.id, destination, summary)
             if expected_error is DigestSlackError:
                 assert "/invite @PostHog" in str(caught.value)
                 assert str(join_error) in str(caught.value)

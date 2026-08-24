@@ -30,7 +30,7 @@ from .channel_resolution import (
     resolve_destination,
 )
 from .digest import pr_key, summarize_merged_prs
-from .slack_digest import post_digest
+from .slack_digest import post_digest_details, post_digest_lead
 
 logger = structlog.get_logger(__name__)
 
@@ -157,7 +157,7 @@ def _post_group(
         return
 
     try:
-        message_ts = post_digest(team_id, destination, summary)
+        message_ts = post_digest_lead(team_id, destination, summary)
     except Exception as e:
         # Unlink the claimed audiences (digest_run back to NULL) so the next run retries them — the
         # retry query filters digest_run__isnull=True, so leaving them linked to a FAILED run would
@@ -171,6 +171,10 @@ def _post_group(
         return
 
     _write_proof_of_post(team_id, str(run.id), message_ts, len(prs), summary.to_dict())
+
+    # The lead is on record now, so the thread reply is safe to attempt. It never raises, and a
+    # worker that dies inside it leaves a run the sweeper finalizes rather than one it re-sends.
+    post_digest_details(team_id, destination, summary, message_ts)
 
     with transaction.atomic(using=write_db):
         DigestRun.objects.for_team(team_id).filter(id=run.id).update(

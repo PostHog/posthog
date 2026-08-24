@@ -42,7 +42,7 @@ MAX_DIGEST_PRS = 10
 # post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
 # one is attached to the change it opens. A headline carrying one is rejected rather than repaired,
 # because cutting the URL out of a sentence leaves the punctuation around the hole behind.
-_HEADLINE_URL_RE = re.compile(r"https?://")
+_HEADLINE_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 
 @frozen

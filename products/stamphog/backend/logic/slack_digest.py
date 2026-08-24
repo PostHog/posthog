@@ -144,29 +144,34 @@ def _post_message(
     )
 
 
-def _post_details_thread(
-    slack: SlackIntegration, destination: Destination, summary: DigestSummary, thread_ts: str | None
-) -> None:
+def post_digest_details(team_id: int, destination: Destination, summary: DigestSummary, thread_ts: str | None) -> None:
     """Post the per-change lines under the lead. Never raises.
 
-    The caller already has a Slack-accepted lead, and the task consumes the claimed audience rows on
-    that basis. Turning a failed thread reply into a failed run would unlink those rows and re-post
-    the same lead tomorrow, so the channel would carry the digest twice. Losing the thread costs one
-    day of detail for changes the reader can still find on GitHub.
+    The caller records the lead as posted before it calls this, and it consumes the claimed audience
+    rows on that record. A failure here must not undo that: it would release those rows and send the
+    same lead again tomorrow, so the channel would carry the digest twice. Losing the thread costs
+    one day of detail for changes the reader can still find on GitHub.
 
-    Skipped when Slack returned no ts: without a parent to hang it on, the reply would land in the
+    Skipped when Slack returned no ts. Without a parent to hang it on, the reply lands in the
     channel as a second top-level post, which is the noise the thread exists to remove.
     """
     if not thread_ts or not summary.prs:
         return
+    integration = Integration.objects.filter(id=destination.slack_integration_id, team_id=team_id, kind="slack").first()
+    if integration is None:
+        return
     try:
-        _post_message(slack, destination, _detail_blocks(summary), _build_fallback_text(summary), thread_ts)
-    except SlackApiError as e:
-        logger.warning(
-            "stamphog_digest_thread_post_failed",
-            slack_channel_id=destination.channel_id,
-            error=str(e.response.get("error") or "unknown_error"),
+        _post_message(
+            SlackIntegration(integration),
+            destination,
+            _detail_blocks(summary),
+            _build_fallback_text(summary),
+            thread_ts,
         )
+    except Exception as e:
+        # Every failure class, not only SlackApiError. A transport error raised here propagates into
+        # the caller's failure path and undoes a digest that Slack already accepted.
+        logger.warning("stamphog_digest_thread_post_failed", slack_channel_id=destination.channel_id, error=str(e))
 
 
 def _join_channel(slack: SlackIntegration, destination: Destination) -> str | None:
@@ -195,11 +200,13 @@ def _join_channel(slack: SlackIntegration, destination: Destination) -> str | No
     return None
 
 
-def post_digest(team_id: int, destination: Destination, summary: DigestSummary) -> str | None:
-    """Post the digest to its destination. Returns the lead message ts, or None.
+def post_digest_lead(team_id: int, destination: Destination, summary: DigestSummary) -> str | None:
+    """Post the channel-level message. Returns its ts, or None.
 
-    Two messages: the lead in the channel, then the per-change lines in a thread under it. Only the
-    lead decides success, because the ts it returns is what the caller writes as proof-of-post.
+    This message decides whether the digest was delivered. The caller records the ts it returns
+    before it calls post_digest_details, so a worker that dies between the two leaves a run the
+    sweeper finalizes. Without that order, a Slack-accepted digest reads as unposted, and the next
+    run releases its merges and sends the same lead again.
     """
     integration = Integration.objects.filter(id=destination.slack_integration_id, team_id=team_id, kind="slack").first()
     if integration is None:
@@ -226,6 +233,4 @@ def post_digest(team_id: int, destination: Destination, summary: DigestSummary) 
         response = _post_message(slack, destination, lead_blocks, lead_text)
 
     ts = response.get("ts")
-    message_ts = str(ts) if ts else None
-    _post_details_thread(slack, destination, summary, message_ts)
-    return message_ts
+    return str(ts) if ts else None
