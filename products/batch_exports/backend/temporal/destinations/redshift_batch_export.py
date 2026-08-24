@@ -1071,6 +1071,12 @@ async def _get_temporary_redshift_credentials(
 async def _get_redshift_client_inputs(
     inputs: RedshiftInsertInputs | RedshiftCopyActivityInputs,
 ) -> _PostgreSQLClientInputsProtocol:
+    """Return PostgreSQL client inputs to establish a connection from Redshift.
+
+    The inputs will be obtained from an integration when integration_id is set,
+    and otherwise we will assert they are present in the activity inputs to be
+    read directly.
+    """
     if inputs.integration_id is not None:
         integration = await _get_redshift_integration(inputs.integration_id, inputs.batch_export.team_id)
         return await _get_redshift_client_inputs_from_integration(integration, inputs)
@@ -1150,6 +1156,17 @@ async def _get_redshift_client_inputs_from_integration(
     integration: AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration,
     inputs: RedshiftInsertInputs | RedshiftCopyActivityInputs,
 ) -> _PostgreSQLClientInputsProtocol:
+    """Return PostgreSQL client inputs to establish a connection from Redshift.
+
+    These inputs can be obtained from an integration by:
+    * Generating temporary credentials using a short-lived session via assuming
+      a role configured in an integration.
+    * Generating temporary credentials using long-lived AWS credentials stored
+      in the integration.
+    * Directly reading inputs stored in the integration.
+
+    Depending on the type of integration, is which one we'll use.
+    """
     client_inputs: _PostgreSQLClientInputsProtocol
 
     match integration:
@@ -1806,13 +1823,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             else inputs.table.name
         )
 
-        client_inputs = await _get_redshift_client_inputs(inputs)
-
         if not merge_settings.requires_merge:
             # Without a stage table, Parquet files are copied directly into the final
             # table, and the COPY column list names every column in the files. Pre-set
             # the transformer's schema to drop columns missing from an existing table,
             # as COPY would otherwise fail on them.
+            client_inputs = await _get_redshift_client_inputs(inputs)
             try:
                 async with RedshiftClient.from_inputs(
                     client_inputs, database=inputs.connection.database
@@ -1865,10 +1881,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         if result.error is not None:
             return result
 
-        # Re-resolved after uploads finish: temporary credentials from an integration
-        # are valid for one hour, which a long upload could outlive.
         client_inputs = await _get_redshift_client_inputs(inputs)
-
         async with RedshiftClient.from_inputs(
             client_inputs, database=inputs.connection.database
         ).connect() as redshift_client:
